@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.54] - 2026-05-02
+
+### Fixed
+- **Theme selection now applies before first paint** - the shared shell seeds theme attributes server-side and runs a tiny head bootstrap before CSS loads, reducing dark-to-light flashes when users navigate with light, Outlook, Teams, or auto theme preferences.
+- **The media deck now follows the active Canopy theme** - deck shell chrome, controls, queue panels, provider chips, and the backdrop use theme-aware surfaces across light, Outlook, Teams, Graphite, Eco, and Liquid Glass while keeping the media stage video-safe.
+- **Theme runtime handling now keeps Bootstrap and browser color scheme state in sync** - stale local theme values fall back safely, Outlook/Teams are treated as light schemes, and `data-bs-theme` updates alongside `data-theme`.
+
 ## [0.6.53] - 2026-05-02
 
 ### Fixed

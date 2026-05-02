@@ -691,9 +691,11 @@ function setupThemeSelection() {
                 const resolvedTheme = selectedTheme === 'auto' && window.matchMedia
                     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
                     : selectedTheme;
+                const colorScheme = ['light', 'outlook', 'teams'].includes(String(resolvedTheme || '').toLowerCase()) ? 'light' : 'dark';
                 document.documentElement.setAttribute('data-theme', resolvedTheme);
                 document.documentElement.setAttribute('data-theme-preference', selectedTheme);
-                document.documentElement.style.colorScheme = resolvedTheme === 'light' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-bs-theme', colorScheme);
+                document.documentElement.style.colorScheme = colorScheme;
                 localStorage.setItem('canopy-theme', selectedTheme);
             }
         });

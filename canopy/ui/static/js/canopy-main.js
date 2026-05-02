@@ -5573,16 +5573,27 @@
             eco: '#052e16',
             'liquid-glass': '#0f0f1a'
         });
+        const CANOPY_THEME_NAMES = Object.freeze(['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco']);
+        const CANOPY_LIGHT_SCHEME_THEMES = Object.freeze(['light', 'outlook', 'teams']);
         let canopyThemeMediaQueryBound = false;
 
+        function normalizeCanopyThemePreference(theme) {
+            const preference = String(theme || 'dark').trim().toLowerCase() || 'dark';
+            return CANOPY_THEME_NAMES.includes(preference) ? preference : 'dark';
+        }
+
         function resolveCanopyThemePreference(theme) {
-            const preference = String(theme || 'dark').trim() || 'dark';
+            const preference = normalizeCanopyThemePreference(theme);
             if (preference !== 'auto') return preference;
             try {
                 return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
             } catch (_) {
                 return 'dark';
             }
+        }
+
+        function canopyThemeColorScheme(resolvedTheme) {
+            return CANOPY_LIGHT_SCHEME_THEMES.includes(String(resolvedTheme || '').trim().toLowerCase()) ? 'light' : 'dark';
         }
 
         function updateCanopyThemeMetaColor(resolvedTheme) {
@@ -5592,13 +5603,29 @@
             }
         }
 
+        function readCanopyThemePreference() {
+            try {
+                return localStorage.getItem('canopy-theme') || '';
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function saveCanopyThemePreference(preference) {
+            try {
+                localStorage.setItem('canopy-theme', preference);
+            } catch (_) {
+                // Theme persistence should not block the UI when storage is unavailable.
+            }
+        }
+
         function bindAutoThemeListener() {
             if (canopyThemeMediaQueryBound || !window.matchMedia) return;
             const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
             const handleChange = () => {
-                const savedTheme = localStorage.getItem('canopy-theme');
+                const savedTheme = readCanopyThemePreference();
                 const profileTheme = (window.CANOPY_VARS && window.CANOPY_VARS.profileTheme) || 'dark';
-                const activePreference = savedTheme || profileTheme || 'dark';
+                const activePreference = normalizeCanopyThemePreference(savedTheme || profileTheme || 'dark');
                 if (activePreference === 'auto') {
                     applyTheme('auto', { persist: false });
                 }
@@ -5612,14 +5639,16 @@
         }
 
         function applyTheme(theme, options = {}) {
-            const preference = String(theme || 'dark').trim() || 'dark';
+            const preference = normalizeCanopyThemePreference(theme);
             const resolvedTheme = resolveCanopyThemePreference(preference);
+            const colorScheme = canopyThemeColorScheme(resolvedTheme);
             document.documentElement.setAttribute('data-theme', resolvedTheme);
             document.documentElement.setAttribute('data-theme-preference', preference);
-            document.documentElement.style.colorScheme = resolvedTheme === 'light' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-bs-theme', colorScheme);
+            document.documentElement.style.colorScheme = colorScheme;
             updateCanopyThemeMetaColor(resolvedTheme);
             if (options.persist !== false) {
-                localStorage.setItem('canopy-theme', preference);
+                saveCanopyThemePreference(preference);
             }
             if (preference === 'auto') {
                 bindAutoThemeListener();
@@ -5631,7 +5660,7 @@
         function loadSavedTheme() {
             // Try to get theme from profile first (server-side), then localStorage
             const profileTheme = (window.CANOPY_VARS && window.CANOPY_VARS.profileTheme) || 'dark';
-            const savedTheme = localStorage.getItem('canopy-theme') || profileTheme || 'dark';
+            const savedTheme = readCanopyThemePreference() || profileTheme || 'dark';
             applyTheme(savedTheme, { persist: false });
         }
 
@@ -5643,11 +5672,13 @@
         // Apply theme immediately (before DOM content loaded)
         (function() {
             const profileTheme = (window.CANOPY_VARS && window.CANOPY_VARS.profileTheme) || 'dark';
-            const savedTheme = localStorage.getItem('canopy-theme') || profileTheme || 'dark';
+            const savedTheme = readCanopyThemePreference() || profileTheme || 'dark';
             const resolvedTheme = resolveCanopyThemePreference(savedTheme);
+            const colorScheme = canopyThemeColorScheme(resolvedTheme);
             document.documentElement.setAttribute('data-theme', resolvedTheme);
-            document.documentElement.setAttribute('data-theme-preference', savedTheme);
-            document.documentElement.style.colorScheme = resolvedTheme === 'light' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme-preference', normalizeCanopyThemePreference(savedTheme));
+            document.documentElement.setAttribute('data-bs-theme', colorScheme);
+            document.documentElement.style.colorScheme = colorScheme;
             updateCanopyThemeMetaColor(resolvedTheme);
         })();
 

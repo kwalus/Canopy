@@ -1,5 +1,16 @@
+{%- set initial_theme_preference = (profile.theme_preference if profile is defined and profile and profile.theme_preference else 'dark') -%}
+{%- set initial_theme_preference = initial_theme_preference|string|lower -%}
+{%- if initial_theme_preference not in ['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco'] -%}
+    {%- set initial_theme_preference = 'dark' -%}
+{%- endif -%}
+{%- set initial_theme_resolved = 'dark' if initial_theme_preference == 'auto' else initial_theme_preference -%}
+{%- set initial_theme_scheme = 'light' if initial_theme_resolved in ['light', 'outlook', 'teams'] else 'dark' -%}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"
+      data-theme="{{ initial_theme_resolved }}"
+      data-theme-preference="{{ initial_theme_preference }}"
+      data-bs-theme="{{ initial_theme_scheme }}"
+      style="color-scheme: {{ initial_theme_scheme }};">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -9,6 +20,60 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#0f0f1a">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+
+    <script>
+        (function() {
+            const VALID_THEMES = new Set(['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco']);
+            const LIGHT_SCHEME_THEMES = new Set(['light', 'outlook', 'teams']);
+            const THEME_META_COLORS = {
+                dark: '#0f0f1a',
+                graphite: '#252526',
+                outlook: '#0078d4',
+                teams: '#6264a7',
+                light: '#ffffff',
+                eco: '#052e16',
+                'liquid-glass': '#0f0f1a'
+            };
+
+            function normalizeTheme(value) {
+                const theme = String(value || 'dark').trim().toLowerCase() || 'dark';
+                return VALID_THEMES.has(theme) ? theme : 'dark';
+            }
+
+            function resolveTheme(preference) {
+                const normalized = normalizeTheme(preference);
+                if (normalized !== 'auto') return normalized;
+                try {
+                    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                } catch (_) {
+                    return 'dark';
+                }
+            }
+
+            function readSavedTheme() {
+                try {
+                    return window.localStorage ? window.localStorage.getItem('canopy-theme') : '';
+                } catch (_) {
+                    return '';
+                }
+            }
+
+            const serverPreference = normalizeTheme({{ initial_theme_preference|tojson }});
+            const preference = normalizeTheme(readSavedTheme() || serverPreference);
+            const resolvedTheme = resolveTheme(preference);
+            const colorScheme = LIGHT_SCHEME_THEMES.has(resolvedTheme) ? 'light' : 'dark';
+            const root = document.documentElement;
+            root.setAttribute('data-theme', resolvedTheme);
+            root.setAttribute('data-theme-preference', preference);
+            root.setAttribute('data-bs-theme', colorScheme);
+            root.style.colorScheme = colorScheme;
+            const meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) {
+                meta.setAttribute('content', THEME_META_COLORS[resolvedTheme] || THEME_META_COLORS.dark);
+            }
+            window.__CANOPY_PREPAINT_THEME__ = { preference, resolvedTheme, colorScheme };
+        })();
+    </script>
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="{{ url_for('ui.static', filename='manifest.json') }}">
@@ -400,6 +465,20 @@
                 linear-gradient(135deg, #0f0f1a 0%, #171728 100%);
             --canopy-primary-soft: rgba(34, 197, 94, 0.16);
             --canopy-shadow: rgba(0, 0, 0, 0.3);
+            --canopy-surface-elevated: linear-gradient(145deg, rgba(23, 23, 40, 0.72), rgba(15, 15, 26, 0.66));
+            --canopy-surface-elevated-accent:
+                radial-gradient(circle at top left, rgba(34, 197, 94, 0.14), transparent 42%),
+                radial-gradient(circle at bottom right, rgba(6, 182, 212, 0.12), transparent 46%),
+                linear-gradient(145deg, rgba(23, 23, 40, 0.72), rgba(15, 15, 26, 0.66));
+            --canopy-surface-border-soft: rgba(74, 222, 128, 0.18);
+            --canopy-surface-border-strong: rgba(74, 222, 128, 0.26);
+            --canopy-surface-shadow-soft: 0 14px 34px rgba(0, 0, 0, 0.28);
+            --canopy-surface-shadow-strong: 0 26px 64px rgba(0, 0, 0, 0.36);
+            --canopy-chip-subtext: rgba(209, 250, 229, 0.86);
+            --canopy-chip-muted: rgba(148, 163, 184, 0.9);
+            --canopy-chip-rail-muted: rgba(226, 232, 240, 0.72);
+            --canopy-chip-caret: rgba(209, 250, 229, 0.82);
+            --canopy-theme-color: #0f0f1a;
             
             /* Glass effect properties */
             --glass-backdrop-blur: blur(20px);
@@ -445,6 +524,20 @@
                 linear-gradient(170deg, #052e16 0%, #022c22 40%, #0a3d1e 100%);
             --canopy-primary-soft: rgba(74, 222, 128, 0.16);
             --canopy-shadow: rgba(0, 0, 0, 0.3);
+            --canopy-surface-elevated: linear-gradient(145deg, rgba(15, 76, 36, 0.96), rgba(5, 46, 22, 0.94));
+            --canopy-surface-elevated-accent:
+                radial-gradient(circle at top left, rgba(163, 230, 53, 0.13), transparent 42%),
+                radial-gradient(circle at bottom right, rgba(45, 212, 191, 0.11), transparent 48%),
+                linear-gradient(145deg, rgba(15, 76, 36, 0.96), rgba(5, 46, 22, 0.94));
+            --canopy-surface-border-soft: rgba(134, 239, 172, 0.2);
+            --canopy-surface-border-strong: rgba(134, 239, 172, 0.3);
+            --canopy-surface-shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.26);
+            --canopy-surface-shadow-strong: 0 26px 64px rgba(0, 0, 0, 0.36);
+            --canopy-chip-subtext: rgba(209, 250, 229, 0.88);
+            --canopy-chip-muted: rgba(167, 243, 208, 0.82);
+            --canopy-chip-rail-muted: rgba(209, 250, 229, 0.7);
+            --canopy-chip-caret: rgba(209, 250, 229, 0.82);
+            --canopy-theme-color: #052e16;
         }
 
         html[data-theme="light"],
@@ -2527,6 +2620,149 @@
 
         .sidebar-media-deck-backdrop.is-visible {
             display: block;
+        }
+
+        :is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck-shell {
+            background: var(--canopy-surface-elevated-accent);
+            border-color: var(--canopy-surface-border-strong);
+            box-shadow:
+                var(--canopy-surface-shadow-strong),
+                inset 0 1px 0 rgba(255, 255, 255, 0.07);
+        }
+
+        :is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck-header,
+        :is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck-footer {
+            border-color: var(--canopy-surface-border-soft);
+        }
+
+        :is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck.is-module-active .sidebar-media-deck-queue-header {
+            background: color-mix(in srgb, var(--canopy-bg-secondary) 84%, transparent);
+        }
+
+        [data-theme="liquid-glass"] .sidebar-media-deck-shell {
+            backdrop-filter: var(--glass-backdrop-blur) var(--glass-backdrop-saturate);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-shell {
+            background: var(--canopy-surface-elevated-accent);
+            border-color: var(--canopy-surface-border-strong);
+            box-shadow:
+                var(--canopy-surface-shadow-strong),
+                inset 0 1px 0 rgba(255, 255, 255, 0.78);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-header {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), transparent);
+            border-bottom-color: var(--canopy-surface-border-soft);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-footer {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(248, 250, 252, 0.94));
+            border-top-color: var(--canopy-surface-border-soft);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck.is-module-active .sidebar-media-deck-queue-header {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.9));
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-chip {
+            background: color-mix(in srgb, var(--canopy-primary) 11%, #ffffff);
+            border-color: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
+            color: color-mix(in srgb, var(--canopy-primary) 72%, #0f172a);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-chip.muted,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-count,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-time,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-source,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-subtitle {
+            color: var(--canopy-text-secondary);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-action-btn,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-inline-toggle,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-btn {
+            background: rgba(255, 255, 255, 0.86);
+            border-color: var(--canopy-border);
+            color: var(--canopy-text-secondary);
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-action-btn:hover,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-action-btn:focus-visible,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-inline-toggle:hover,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-inline-toggle:focus-visible,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-btn:hover,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-btn:focus-visible {
+            background: color-mix(in srgb, var(--canopy-primary) 9%, #ffffff);
+            border-color: color-mix(in srgb, var(--canopy-primary) 30%, var(--canopy-border));
+            color: var(--canopy-text-primary);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-action-btn.is-active,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-btn.primary {
+            background: color-mix(in srgb, var(--canopy-primary) 14%, #ffffff);
+            border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+            color: color-mix(in srgb, var(--canopy-primary) 72%, #0f172a);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-provider {
+            background: color-mix(in srgb, var(--canopy-accent) 12%, #ffffff);
+            border-color: color-mix(in srgb, var(--canopy-accent) 26%, var(--canopy-border));
+            color: color-mix(in srgb, var(--canopy-accent) 72%, #0f172a);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-widget-summary,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-empty,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-item {
+            background: rgba(255, 255, 255, 0.78);
+            border-color: var(--canopy-surface-border-soft);
+            color: var(--canopy-text-primary);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-item:hover {
+            background: color-mix(in srgb, var(--canopy-primary) 8%, #ffffff);
+            border-color: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-item.is-active {
+            background: color-mix(in srgb, var(--canopy-primary) 11%, #ffffff);
+            border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 16%, transparent);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-station-summary {
+            background:
+                radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 12%, transparent), transparent 40%),
+                rgba(255, 255, 255, 0.7);
+            border-color: color-mix(in srgb, var(--canopy-primary) 22%, var(--canopy-border));
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-station-policy,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-station-badge,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-widget-badge,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-widget-kv {
+            background: rgba(255, 255, 255, 0.7);
+            border-color: var(--canopy-surface-border-soft);
+            color: var(--canopy-text-secondary);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-widget-frame,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-widget-panel,
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-module-panel {
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 252, 0.94));
+            border-color: var(--canopy-surface-border-soft);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-item-thumb {
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(226, 232, 240, 0.92)),
+                radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 16%, transparent), transparent 42%);
+            color: var(--canopy-text-secondary);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-backdrop {
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.18));
         }
 
         /* Fine-pointer desktops: dimmer stays visual-only so wheel/scroll reaches the channel/feed

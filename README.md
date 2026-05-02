@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.53-blue" alt="Version 0.6.53">
+  <img src="https://img.shields.io/badge/version-0.6.54-blue" alt="Version 0.6.54">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -117,6 +117,7 @@ Recent end-user improvements reflected in the app and docs:
 - **Graphite theme adds a neutral VS Code-style dark option while light mode cleans up left-rail widgets** — Profile now offers a grey/blue dark theme for users who want less green, and the Connected peers, DM contacts, and mini media widgets in the left sidebar now use proper light surfaces instead of leftover dark fills.
 - **Outlook and Teams themes expand the demo palette while the main pages get a deeper theme consistency pass** — Profile now offers Microsoft-inspired blue and indigo themes, light-mode DM message boxes have stronger contrast, and Graphite/Outlook/Teams receive page-level polish across Messages, Feed, Channels, Connect, and Trust.
 - **Channels now has sharper light and Graphite contrast for demo screenshots** — message cards, reply blocks, channel rows, header chrome, action buttons, and the shared wordmark receive stronger theme-aware separation so busy channel views stay readable in both day and dark presentations.
+- **Theme choice now applies before first paint and the deck follows it** — the shared shell pre-seeds theme attributes before CSS loads, Outlook/Teams participate as light schemes, and the media deck chrome now tracks the selected theme instead of staying locked to dark glass.
 - **Expanded channel composers now keep controls compact** — long-draft mode gives the extra height to the message editor while the action buttons wrap into a normal-height toolbar instead of stretching vertically beside the textarea.
 - **Copilot review hardening for previews, compose, and repost safety** — code/spreadsheet previews and channel upload chips now use Canopy theme tokens, the sidebar toggle exposes accurate accessible labels, local `@Canopy` compose bounds provider responses, and cross-channel repost/variant checks avoid membership-probing differences.
 - **Channel drafts can now use local `@Canopy` AI compose** — users can configure their own provider key in Profile, expand a channel draft through a local authenticated endpoint, and send the resulting post through the normal Canopy composer flow.
