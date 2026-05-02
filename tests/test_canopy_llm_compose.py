@@ -25,7 +25,11 @@ if 'zeroconf' not in sys.modules:
     zeroconf_stub.ServiceStateChange = _Dummy
     sys.modules['zeroconf'] = zeroconf_stub
 
-from canopy.core.canopy_ai import CanopyLLMManager
+from canopy.core.canopy_ai import (
+    CANOPY_LLM_POSTING_STRUCTURE_GUIDE,
+    DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
+    CanopyLLMManager,
+)
 from canopy.ui.routes import create_ui_blueprint
 
 
@@ -134,6 +138,18 @@ class TestCanopyLLMManager(unittest.TestCase):
             CanopyLLMManager.strip_canopy_trigger('please @Canopy: draft this'),
             'please draft this',
         )
+
+    def test_system_prompt_includes_canopy_structured_block_contract(self) -> None:
+        self.assertIn('Canopy structured block rules:', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
+        self.assertIn('Default to plain text.', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
+        self.assertIn('Never invent bracket tags', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
+        self.assertIn('[signal] requires type:, title:, summary:, and tags:.', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
+        custom = CanopyLLMManager._compose_system_prompt('Compose clean Canopy posts.')
+        self.assertIn('Compose clean Canopy posts.', custom)
+        self.assertIn(CANOPY_LLM_POSTING_STRUCTURE_GUIDE, custom)
+        long_custom = CanopyLLMManager._compose_system_prompt('x' * 8000)
+        self.assertLessEqual(len(long_custom), 4000)
+        self.assertIn(CANOPY_LLM_POSTING_STRUCTURE_GUIDE, long_custom)
 
     def test_schema_ready_flag_prevents_repeated_create_table(self) -> None:
         manager = CanopyLLMManager(self.db, 'test-secret')
@@ -259,4 +275,3 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
         self.assertEqual(self.llm_manager.saved_payloads[0]['api_key'], 'sk-test')
-

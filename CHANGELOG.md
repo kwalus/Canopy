@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.58] - 2026-05-02
+
+### Added
+- **`@Canopy` now has a non-optional structured posting guide** - generated drafts default to plain text, use only canonical structured blocks when explicitly appropriate, and preserve those rules even when users save custom compose prompts.
+- **Invalid structured drafts can be posted as plain text** - channel structured validation now offers a "Post anyway as plain text" action that escapes bracket tags before sending, keeping backend materialization strict while giving users a clear way out.
+
 ## [0.6.57] - 2026-05-02
 
 ### Fixed

@@ -230,6 +230,7 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('id="channel-canopy-llm-dismiss"', channels)
         self.assertIn("onclick=\"dismissCanopyLLMComposePanel()\"", channels)
         self.assertIn('Send as written', channels)
+        self.assertIn('Post anyway as plain text', channels)
 
 
 if __name__ == "__main__":

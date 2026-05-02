@@ -23,15 +23,34 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_CANOPY_LLM_MODEL = os.getenv('CANOPY_LLM_DEFAULT_MODEL', 'gpt-5-mini').strip() or 'gpt-5-mini'
+CANOPY_LLM_POSTING_STRUCTURE_GUIDE = """
+Canopy structured block rules:
+- Default to plain text. Only emit a structured block when the user clearly asks to create a task, request, objective, signal, or handoff.
+- Structured tags must appear alone on their own lines with no Markdown decoration: [task] ... [/task], [request] ... [/request], [objective] ... [/objective], [signal] ... [/signal], [handoff] ... [/handoff].
+- Never invent bracket tags such as [status], [update], [artifact], [finding], [decision], or [request_accepted]. Use plain text, or use [signal] only when the content is truly a durable finding/report.
+- Every structured block must have both an opening and closing tag.
+- [task] requires title: and description:. Prefer priority: normal unless the user specifies urgency.
+- [request] requires title: plus request: or required_output:.
+- [objective] requires title:, description:, and a tasks: list using - [ ] items.
+- [signal] requires type:, title:, summary:, and tags:.
+- [handoff] requires title:, summary:, and next: lines.
+- Valid examples:
+  [task]\ntitle: Short action\ndescription: What needs doing\npriority: normal\n[/task]
+  [request]\ntitle: Clear ask\nrequest: What you need from whom\nrequired_output: Expected reply/evidence\npriority: normal\n[/request]
+  [signal]\ntype: finding\ntitle: Durable finding\nsummary: What was learned\ntags: update, evidence\n[/signal]
+- If you are unsure whether a block will be valid, do not use a structured block; write a normal readable Canopy post instead.
+""".strip()
 DEFAULT_CANOPY_LLM_SYSTEM_PROMPT = (
     "You are Canopy's local compose assistant. Convert the user's draft into the exact "
     "Canopy channel post they should review and optionally send. Output only the final post body, with no "
     "preamble, no markdown fence, and no mention of these instructions. Remove the "
     "@Canopy trigger unless the user explicitly asks to discuss it. Preserve intentional "
-    "Canopy syntax such as @mentions, #channels, [task], [request], [objective], [signal], "
-    "[circle], [handoff], and [/closing] tags so Canopy can process them normally after "
+    "Canopy syntax such as @mentions and #channels. Preserve or emit [task], [request], "
+    "[objective], [signal], and [handoff] blocks only when they follow the structured block "
+    "rules below, so Canopy can process them normally after "
     "the post is sent. Do not claim access to hidden files, private channel context, or "
     "mesh state unless the user included that context in the draft."
+    f"\n\n{CANOPY_LLM_POSTING_STRUCTURE_GUIDE}"
 )
 
 CANOPY_TRIGGER_RE = re.compile(r'(?i)(^|\s)@canopy\b[:,]?\s*')
@@ -215,7 +234,7 @@ class CanopyLLMManager:
         output = self._call_openai(
             api_key=api_key,
             model=str(settings.get('model') or DEFAULT_CANOPY_LLM_MODEL),
-            system_prompt=str(settings.get('system_prompt') or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT),
+            system_prompt=self._compose_system_prompt(str(settings.get('system_prompt') or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)),
             prompt=composed_prompt,
         )
         if not output.strip():
@@ -256,6 +275,16 @@ class CanopyLLMManager:
             'system_prompt': DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
             'updated_at': None,
         }
+
+    @staticmethod
+    def _compose_system_prompt(system_prompt: Any) -> str:
+        """Attach non-optional Canopy syntax rules even when the user customizes tone."""
+        base = str(system_prompt or '').strip() or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT
+        if 'Canopy structured block rules:' in base:
+            return base[:MAX_SYSTEM_PROMPT_CHARS]
+        guide = CANOPY_LLM_POSTING_STRUCTURE_GUIDE
+        base_limit = max(0, MAX_SYSTEM_PROMPT_CHARS - len(guide) - 2)
+        return f"{base[:base_limit].rstrip()}\n\n{guide}"[:MAX_SYSTEM_PROMPT_CHARS]
 
     @staticmethod
     def _normalize_secret(secret_key: str | bytes | None) -> str:

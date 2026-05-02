@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.57-blue" alt="Version 0.6.57">
+  <img src="https://img.shields.io/badge/version-0.6.58-blue" alt="Version 0.6.58">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -120,6 +120,7 @@ Recent end-user improvements reflected in the app and docs:
 - **Theme choice now applies before first paint and the deck follows it** — the shared shell pre-seeds theme attributes before CSS loads, Outlook/Teams participate as light schemes, and the media deck chrome now tracks the selected theme instead of staying locked to dark glass.
 - **`@Canopy` now behaves like a review-first drafting assistant** — generated channel drafts return to the composer for editing instead of posting immediately, and Channels, DMs, and Feed auto-expand when users paste large text bodies.
 - **`@Canopy` drafts can still be sent exactly as written** — the channel drafting panel now offers a send-as-written override for the current draft, so users are not trapped if they intentionally keep `@Canopy` text in the final message.
+- **`@Canopy` avoids malformed structured posts and offers a plain-text escape** — compose prompts now include Canopy's structured block rules, and invalid structured drafts can be posted as plain text by escaping bracket tags.
 - **The media deck now offers a desktop Window view** — the existing deck size control cycles from Standard to Large to Window, expanding across the active content panel while preserving the app shell and playback state.
 - **Expanded channel composers now keep controls compact** — long-draft mode gives the extra height to the message editor while the action buttons wrap into a normal-height toolbar instead of stretching vertically beside the textarea.
 - **Copilot review hardening for previews, compose, and repost safety** — code/spreadsheet previews and channel upload chips now use Canopy theme tokens, the sidebar toggle exposes accurate accessible labels, local `@Canopy` compose bounds provider responses, and cross-channel repost/variant checks avoid membership-probing differences.

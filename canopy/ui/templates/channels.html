@@ -13659,6 +13659,36 @@ function normalizeChannelStructuredBlocks() {
     notifyComposerUpdate();
 }
 
+function escapeChannelStructuredBlocksAsPlainText(text) {
+    return String(text || '').replace(
+        /^(\s*)\[((?:\/)?(?:task|objective|request|signal|handoff|circle|contract|skill))\](?=\s*$|\s)/gim,
+        '$1[ $2 ]'
+    );
+}
+
+async function postChannelDraftAsPlainText(event) {
+    if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+    }
+    if (channelSendInFlight) return;
+    const input = document.getElementById('message-input');
+    if (!input) return;
+    const before = String(input.value || '');
+    const after = escapeChannelStructuredBlocksAsPlainText(before);
+    if (after !== before) {
+        input.value = after;
+    }
+    channelCanopyLLMIgnoredDraft = hasCanopyLLMTrigger(after) ? after : '';
+    channelCanopyLLMDraftReady = false;
+    renderChannelStructuredValidation({ issues: [], blocking: false });
+    updateChannelStructuredTriggerState({ issues: [], blocking: false });
+    notifyComposerUpdate();
+    if (typeof showAlert === 'function') {
+        showAlert('Structured tags escaped. Posting as plain text.', 'info');
+    }
+    await sendMessage({ preventDefault() {} });
+}
+
 function renderChannelStructuredValidation(result) {
     const panel = document.getElementById('channel-structured-validation');
     const summary = document.getElementById('channel-structured-validation-summary');
@@ -13680,9 +13710,12 @@ function renderChannelStructuredValidation(result) {
         : `${issues.length} structured block issues need correction.`;
 
     const needsNormalize = issues.some((issue) => issue && issue.kind === 'decorated_tag');
-    globalActions.innerHTML = needsNormalize
-        ? '<button type="button" class="btn btn-sm btn-outline-warning" onclick="normalizeChannelStructuredBlocks()">Normalize block syntax</button>'
-        : '';
+    const actionButtons = [];
+    if (needsNormalize) {
+        actionButtons.push('<button type="button" class="btn btn-sm btn-outline-warning" onclick="normalizeChannelStructuredBlocks()">Normalize block syntax</button>');
+    }
+    actionButtons.push('<button type="button" class="btn btn-sm btn-outline-secondary" onclick="postChannelDraftAsPlainText(event)">Post anyway as plain text</button>');
+    globalActions.innerHTML = actionButtons.join('');
 
     list.innerHTML = issues.map((issue) => {
         const heading = issue.line ? `Line ${issue.line}` : getToolLabel(issue.tag || 'item');
