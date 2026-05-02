@@ -225,6 +225,85 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertEqual(captured['payload']['tools'][0]['type'], 'web_search')
         self.assertEqual(captured['payload']['tools'][0]['search_context_size'], 'low')
 
+    def test_openai_empty_tool_only_response_retries_with_final_instruction(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        captured_payloads: list[dict[str, Any]] = []
+
+        class _Response:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+
+            def __enter__(self) -> '_Response':
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, size: int = -1) -> bytes:
+                return self.payload
+
+        responses = [
+            b'{"id":"resp_1","status":"completed","output":[{"type":"web_search_call","status":"completed"}]}',
+            b'{"id":"resp_2","status":"completed","output_text":"Weather draft with source link."}',
+        ]
+
+        def _fake_urlopen(request: Any, timeout: float = 0) -> _Response:
+            captured_payloads.append(json.loads(request.data.decode('utf-8')))
+            return _Response(responses.pop(0))
+
+        with patch('canopy.core.canopy_ai.urlopen', side_effect=_fake_urlopen):
+            output = manager._call_openai(
+                api_key='sk-test',
+                model='gpt-5.4-mini',
+                system_prompt='Compose.',
+                prompt='User draft to transform into a Canopy post:\npost current weather in Vancouver',
+                web_search_enabled=True,
+            )
+
+        self.assertEqual(output, 'Weather draft with source link.')
+        self.assertEqual(len(captured_payloads), 2)
+        self.assertIn('Generate the final Canopy post body now', captured_payloads[1]['input'])
+        self.assertGreater(captured_payloads[1]['max_output_tokens'], captured_payloads[0]['max_output_tokens'])
+
+    def test_openai_pending_response_is_polled_before_retrying(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        request_methods: list[str] = []
+
+        class _Response:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+
+            def __enter__(self) -> '_Response':
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, size: int = -1) -> bytes:
+                return self.payload
+
+        responses = [
+            b'{"id":"resp_pending","status":"in_progress","output":[]}',
+            b'{"id":"resp_pending","status":"completed","output_text":"Final draft after poll."}',
+        ]
+
+        def _fake_urlopen(request: Any, timeout: float = 0) -> _Response:
+            request_methods.append(request.get_method())
+            return _Response(responses.pop(0))
+
+        with patch.dict(os.environ, {'CANOPY_LLM_PENDING_POLL_DELAY_SECONDS': '0'}):
+            with patch('canopy.core.canopy_ai.urlopen', side_effect=_fake_urlopen):
+                output = manager._call_openai(
+                    api_key='sk-test',
+                    model='gpt-5.4-mini',
+                    system_prompt='Compose.',
+                    prompt='Draft.',
+                    web_search_enabled=True,
+                )
+
+        self.assertEqual(output, 'Final draft after poll.')
+        self.assertEqual(request_methods, ['POST', 'GET'])
+
 
 class TestCanopyLLMComposeRoutes(unittest.TestCase):
     def setUp(self) -> None:

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.60] - 2026-05-02
+
+### Fixed
+- **`@Canopy` compose now retries transient empty OpenAI Responses results** - pending web-search responses are polled before failing, tool-only/empty completed responses retry with a direct final-post instruction, and user-facing errors include a sanitized response-shape summary instead of requiring a manual Generate retry.
+
 ## [0.6.59] - 2026-05-02
 
 ### Added

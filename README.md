@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.59-blue" alt="Version 0.6.59">
+  <img src="https://img.shields.io/badge/version-0.6.60-blue" alt="Version 0.6.60">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -122,6 +122,7 @@ Recent end-user improvements reflected in the app and docs:
 - **`@Canopy` drafts can still be sent exactly as written** — the channel drafting panel now offers a send-as-written override for the current draft, so users are not trapped if they intentionally keep `@Canopy` text in the final message.
 - **`@Canopy` avoids malformed structured posts and offers a plain-text escape** — compose prompts now include Canopy's structured block rules, and invalid structured drafts can be posted as plain text by escaping bracket tags.
 - **`@Canopy` can ground current-fact drafts with hosted web search** — the OpenAI Responses path can use hosted web search for weather, news, prices, schedules, and other live facts through the user's own local API key.
+- **`@Canopy` compose recovers from transient empty provider responses** — pending web-search responses are polled and tool-only/empty Responses API results are retried before surfacing a sanitized error.
 - **The media deck now offers a desktop Window view** — the existing deck size control cycles from Standard to Large to Window, expanding across the active content panel while preserving the app shell and playback state.
 - **Expanded channel composers now keep controls compact** — long-draft mode gives the extra height to the message editor while the action buttons wrap into a normal-height toolbar instead of stretching vertically beside the textarea.
 - **Copilot review hardening for previews, compose, and repost safety** — code/spreadsheet previews and channel upload chips now use Canopy theme tokens, the sidebar toggle exposes accurate accessible labels, local `@Canopy` compose bounds provider responses, and cross-channel repost/variant checks avoid membership-probing differences.

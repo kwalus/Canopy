@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime
 from typing import Any, Optional
 from urllib.error import HTTPError, URLError
@@ -88,6 +89,7 @@ CANOPY_TRIGGER_RE = re.compile(r'(?i)(^|\s)@canopy\b[:,]?\s*')
 MAX_SYSTEM_PROMPT_CHARS = 4000
 MAX_LLM_INPUT_CHARS = 24000
 _MAX_LLM_RESPONSE_BYTES = 512 * 1024  # 512 KiB is generous; typical responses are much smaller.
+_OPENAI_PENDING_STATUSES = {'queued', 'in_progress'}
 
 
 class CanopyLLMError(RuntimeError):
@@ -461,16 +463,71 @@ class CanopyLLMManager:
     ) -> str:
         base_url = os.getenv('CANOPY_OPENAI_BASE_URL', 'https://api.openai.com/v1').strip().rstrip('/')
         timeout = float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '60') or '60')
+        max_output_tokens = int(os.getenv('CANOPY_LLM_MAX_OUTPUT_TOKENS', '2200') or '2200')
         payload = {
             'model': model,
             'instructions': system_prompt,
             'input': prompt,
-            'max_output_tokens': int(os.getenv('CANOPY_LLM_MAX_OUTPUT_TOKENS', '2200') or '2200'),
+            'max_output_tokens': max_output_tokens,
             'store': False,
         }
         if web_search_enabled:
             payload['tools'] = [self._web_search_tool_payload()]
             payload['tool_choice'] = 'auto'
+
+        attempts = 1 + self._bounded_int_env('CANOPY_LLM_EMPTY_RETRY_ATTEMPTS', default=2, minimum=0, maximum=3)
+        last_summary = ''
+        for attempt in range(attempts):
+            attempt_payload = dict(payload)
+            if attempt > 0:
+                attempt_payload['input'] = (
+                    f"{prompt}\n\n"
+                    "Generate the final Canopy post body now. Do not return only a tool call. "
+                    "If current facts could not be verified, say that plainly in the draft."
+                )
+                attempt_payload['max_output_tokens'] = min(max(int(max_output_tokens * 1.5), 3000), 6000)
+            data = self._create_openai_response(
+                base_url=base_url,
+                api_key=api_key,
+                payload=attempt_payload,
+                timeout=timeout,
+            )
+            data = self._resolve_openai_response_if_pending(
+                base_url=base_url,
+                api_key=api_key,
+                data=data,
+                timeout=timeout,
+            )
+            provider_error = self._extract_response_error_message(data)
+            if provider_error:
+                raise CanopyLLMError(provider_error, status_code=502, reason='provider_response_error')
+            text = self._extract_response_text(data)
+            if text:
+                return text
+            last_summary = self._summarize_response_shape(data)
+            logger.warning(
+                'OpenAI compose response had no output text on attempt %s/%s: %s',
+                attempt + 1,
+                attempts,
+                last_summary,
+            )
+
+        detail = f' Response shape: {last_summary}' if last_summary else ''
+        raise CanopyLLMError(
+            'OpenAI returned no output text after retry. Please try Generate again or turn off web search for this draft.'
+            + detail,
+            status_code=502,
+            reason='provider_empty_response',
+        )
+
+    def _create_openai_response(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        payload: dict[str, Any],
+        timeout: float,
+    ) -> dict[str, Any]:
         body = json.dumps(payload).encode('utf-8')
         request = Request(
             f'{base_url}/responses',
@@ -483,6 +540,28 @@ class CanopyLLMManager:
                 'User-Agent': 'Canopy-LLM-Compose/1',
             },
         )
+        return self._read_openai_json(request, timeout=timeout)
+
+    def _retrieve_openai_response(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        response_id: str,
+        timeout: float,
+    ) -> dict[str, Any]:
+        request = Request(
+            f'{base_url}/responses/{response_id}',
+            method='GET',
+            headers={
+                'Authorization': f'Bearer {api_key}',
+                'Accept': 'application/json',
+                'User-Agent': 'Canopy-LLM-Compose/1',
+            },
+        )
+        return self._read_openai_json(request, timeout=timeout)
+
+    def _read_openai_json(self, request: Request, *, timeout: float) -> dict[str, Any]:
         try:
             with urlopen(request, timeout=timeout) as response:
                 raw_bytes = response.read(_MAX_LLM_RESPONSE_BYTES + 1)
@@ -505,11 +584,41 @@ class CanopyLLMManager:
             data = json.loads(raw or '{}')
         except json.JSONDecodeError as exc:
             raise CanopyLLMError('OpenAI returned a non-JSON response.', status_code=502, reason='provider_bad_response') from exc
-        text = self._extract_response_text(data)
-        if not text:
-            logger.warning('OpenAI compose response contained no output text: %s', data)
-            raise CanopyLLMError('OpenAI returned no output text.', status_code=502, reason='provider_empty_response')
-        return text
+        return data if isinstance(data, dict) else {}
+
+    def _resolve_openai_response_if_pending(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        data: dict[str, Any],
+        timeout: float,
+    ) -> dict[str, Any]:
+        status = str(data.get('status') or '').strip().lower()
+        response_id = str(data.get('id') or '').strip()
+        if status not in _OPENAI_PENDING_STATUSES or not response_id:
+            return data
+
+        polls = self._bounded_int_env('CANOPY_LLM_PENDING_POLL_ATTEMPTS', default=3, minimum=0, maximum=8)
+        delay = float(os.getenv('CANOPY_LLM_PENDING_POLL_DELAY_SECONDS', '0.35') or '0.35')
+        current = data
+        for _ in range(polls):
+            if delay > 0:
+                time.sleep(min(delay, 2.0))
+            try:
+                current = self._retrieve_openai_response(
+                    base_url=base_url,
+                    api_key=api_key,
+                    response_id=response_id,
+                    timeout=timeout,
+                )
+            except CanopyLLMError as exc:
+                logger.warning('OpenAI compose pending response poll failed: %s', exc)
+                return data
+            status = str(current.get('status') or '').strip().lower()
+            if status not in _OPENAI_PENDING_STATUSES:
+                return current
+        return current
 
     @staticmethod
     def _extract_openai_error(exc: HTTPError) -> str:
@@ -549,3 +658,59 @@ class CanopyLLMManager:
                     if part_type in {'output_text', 'text'} and isinstance(part.get('text'), str):
                         chunks.append(part['text'])
         return ''.join(chunks).strip()
+
+    @staticmethod
+    def _extract_response_error_message(data: dict[str, Any]) -> str:
+        error = data.get('error')
+        if isinstance(error, dict):
+            message = str(error.get('message') or '').strip()
+            code = str(error.get('code') or '').strip()
+            if message and code:
+                return f'OpenAI response failed ({code}): {message}'
+            if message:
+                return f'OpenAI response failed: {message}'
+        status = str(data.get('status') or '').strip().lower()
+        if status == 'failed':
+            return 'OpenAI response failed before producing a draft.'
+        return ''
+
+    @staticmethod
+    def _summarize_response_shape(data: dict[str, Any]) -> str:
+        status = str(data.get('status') or 'unknown').strip() or 'unknown'
+        incomplete = data.get('incomplete_details')
+        incomplete_reason = ''
+        if isinstance(incomplete, dict):
+            incomplete_reason = str(incomplete.get('reason') or '').strip()
+        output = data.get('output')
+        item_summaries: list[str] = []
+        if isinstance(output, list):
+            for item in output[:8]:
+                if not isinstance(item, dict):
+                    item_summaries.append(type(item).__name__)
+                    continue
+                item_type = str(item.get('type') or 'unknown').strip() or 'unknown'
+                item_status = str(item.get('status') or '').strip()
+                content = item.get('content')
+                content_types: list[str] = []
+                if isinstance(content, list):
+                    for part in content[:4]:
+                        if isinstance(part, dict):
+                            content_types.append(str(part.get('type') or 'unknown').strip() or 'unknown')
+                suffix = f":{item_status}" if item_status else ''
+                if content_types:
+                    suffix += f"[{','.join(content_types)}]"
+                item_summaries.append(f"{item_type}{suffix}")
+        summary = f"status={status}; output={','.join(item_summaries) or 'none'}"
+        if incomplete_reason:
+            summary += f"; incomplete={incomplete_reason}"
+        if data.get('id'):
+            summary += '; id=present'
+        return summary[:500]
+
+    @staticmethod
+    def _bounded_int_env(name: str, *, default: int, minimum: int, maximum: int) -> int:
+        try:
+            value = int(os.getenv(name, str(default)) or default)
+        except Exception:
+            value = default
+        return max(minimum, min(maximum, value))
