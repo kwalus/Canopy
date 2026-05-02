@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.62] - 2026-05-02
+
+### Fixed
+- **Canopy Module deck items now open into a focused work layout** - module runtime items expand the deck stage, collapse the source queue and context/details by default, keep Show list/Show details controls available, and restore the normal deck layout when switching back to non-module media.
+
 ## [0.6.61] - 2026-05-02
 
 ### Added

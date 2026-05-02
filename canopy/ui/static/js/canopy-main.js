@@ -6409,8 +6409,8 @@
                     deckLargeToggleBtn.innerHTML = '<i class="bi bi-fullscreen-exit"></i><span class="sidebar-media-deck-action-label">Standard view</span>';
                     deckLargeToggleBtn.title = 'Return Canopy deck to standard size';
                 } else if (activeMode === 'large' && isDesktopDeckWindowEligible()) {
-                    deckLargeToggleBtn.innerHTML = '<i class="bi bi-aspect-ratio"></i><span class="sidebar-media-deck-action-label">Window view</span>';
-                    deckLargeToggleBtn.title = 'Expand Canopy deck to window view';
+                    deckLargeToggleBtn.innerHTML = '<i class="bi bi-aspect-ratio"></i><span class="sidebar-media-deck-action-label">Focus view</span>';
+                    deckLargeToggleBtn.title = 'Maximize the Canopy deck content area';
                 } else if (activeMode === 'large') {
                     deckLargeToggleBtn.innerHTML = '<i class="bi bi-fullscreen-exit"></i><span class="sidebar-media-deck-action-label">Standard view</span>';
                     deckLargeToggleBtn.title = 'Return Canopy deck to standard size';
@@ -8344,13 +8344,12 @@
                 }
                 if (moduleActive) {
                     const itemCount = Array.isArray(state.deckItems) ? state.deckItems.length : 0;
-                    const multi = itemCount > 1;
                     const keyStr = String(selectedItem.key || '');
                     const layoutBump = state.deckLayoutMode !== 'module'
                         || state.deckLayoutPrimedKey !== keyStr
                         || state.deckLayoutLastQueueCount !== itemCount;
                     if (layoutBump) {
-                        setDeckQueueCollapsed(!multi);
+                        setDeckQueueCollapsed(true);
                         setDeckDetailCollapsed(true);
                         state.deckLayoutPrimedKey = keyStr;
                         state.deckLayoutLastQueueCount = itemCount;

@@ -1971,16 +1971,21 @@
 
         .sidebar-media-deck.is-desktop-window .sidebar-media-deck-scroll {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(276px, 342px);
-            grid-template-rows: minmax(0, 1fr) auto;
-            gap: 14px;
-            padding: 16px 20px;
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-rows: minmax(0, 1fr) auto auto;
+            gap: 12px;
+            padding: 14px;
             overflow: hidden;
+        }
+
+        .sidebar-media-deck.is-desktop-window .sidebar-media-deck-header {
+            padding: 10px 14px 8px;
+            align-items: center;
         }
 
         .sidebar-media-deck.is-desktop-window .sidebar-media-deck-stage-shell {
             grid-column: 1;
-            grid-row: 1 / span 2;
+            grid-row: 1;
             display: flex;
             flex-direction: column;
             min-height: 0;
@@ -1996,9 +2001,10 @@
         }
 
         .sidebar-media-deck.is-desktop-window .sidebar-media-deck-queue-shell {
-            grid-column: 2;
-            grid-row: 1;
+            grid-column: 1;
+            grid-row: 2;
             min-height: 0;
+            max-height: min(18vh, 150px);
             overflow: hidden;
             display: flex;
             flex-direction: column;
@@ -2008,27 +2014,28 @@
         .sidebar-media-deck.is-desktop-window .sidebar-media-deck-queue {
             flex: 1 1 auto;
             min-height: 0;
-            flex-direction: column;
-            overflow-x: hidden;
-            overflow-y: auto;
-            scroll-snap-type: y proximity;
-            padding: 2px 4px 6px 2px;
+            flex-direction: row;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scroll-snap-type: x proximity;
+            padding: 2px 2px 6px;
         }
 
         .sidebar-media-deck.is-desktop-window .sidebar-media-deck-detail {
-            grid-column: 2;
-            grid-row: 2;
-            max-height: min(36vh, 360px);
+            grid-column: 1;
+            grid-row: 3;
+            max-height: min(18vh, 180px);
             overflow: auto;
-            padding: 0 4px 2px 0;
+            padding: 0 2px 2px 0;
         }
 
         .sidebar-media-deck.is-desktop-window .sidebar-media-deck-item {
-            width: 100%;
-            min-width: 0;
+            width: 156px;
+            min-width: 156px;
+            flex-basis: 156px;
             flex: 0 0 auto;
-            grid-template-columns: minmax(92px, 34%) minmax(0, 1fr);
-            align-items: center;
+            grid-template-columns: 1fr;
+            align-items: stretch;
         }
 
         .sidebar-media-deck.is-desktop-window .sidebar-media-deck-item-thumb {
@@ -2036,9 +2043,8 @@
         }
 
         .sidebar-media-deck.is-desktop-window .sidebar-media-deck-footer {
-            padding-left: 20px;
-            padding-right: 20px;
-            padding-bottom: 18px;
+            gap: 8px;
+            padding: 8px 14px 12px;
         }
 
         .sidebar-media-deck-stage.is-empty {
@@ -2872,7 +2878,6 @@
 
         @media (max-width: 1180px) {
             .sidebar-media-deck.is-desktop-window .sidebar-media-deck-scroll {
-                grid-template-columns: minmax(0, 1fr);
                 grid-template-rows: minmax(420px, 1fr) auto auto;
                 overflow-y: auto;
                 overflow-x: hidden;

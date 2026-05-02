@@ -1057,7 +1057,9 @@ console.log(JSON.stringify({{
         self.assertIn(".sidebar-media-deck.is-desktop-window {", base_template)
         self.assertIn("--canopy-deck-window-left", base_template)
         self.assertIn(".sidebar-media-deck.is-desktop-window .sidebar-media-deck-scroll {", base_template)
-        self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(276px, 342px);", base_template)
+        self.assertIn("grid-template-columns: minmax(0, 1fr);", base_template)
+        self.assertIn("grid-template-rows: minmax(0, 1fr) auto auto;", base_template)
+        self.assertNotIn("minmax(276px, 342px)", base_template)
         self.assertIn(".sidebar-media-deck.is-desktop-window .sidebar-media-deck-queue {", base_template)
         self.assertIn("overflow-x: auto;", base_template)
         self.assertIn("scroll-snap-type: x proximity;", base_template)
@@ -1070,7 +1072,7 @@ console.log(JSON.stringify({{
         self.assertIn("function cycleDeckDesktopMode() {", main_js)
         self.assertIn("deck.classList.toggle('is-desktop-window', activeMode === 'window');", main_js)
         self.assertIn("deckLargeToggleBtn.addEventListener('click', () => cycleDeckDesktopMode());", main_js)
-        self.assertIn("Window view", main_js)
+        self.assertIn("Focus view", main_js)
         self.assertIn("canopy:sidebar-state-changed", main_js)
         self.assertIn("function renderDeckQueue() {", main_js)
         self.assertIn("function moveDockedMediaToHost(el, host) {", main_js)
@@ -1151,6 +1153,8 @@ console.log(JSON.stringify({{
         self.assertIn("function setDeckDetailCollapsed(collapsed) {", main_js)
         self.assertIn("function syncDeckLayoutMode(selectedItem) {", main_js)
         self.assertIn("deckLayoutLastQueueCount", main_js)
+        self.assertIn("setDeckQueueCollapsed(true);", main_js)
+        self.assertIn("setDeckDetailCollapsed(true);", main_js)
         self.assertIn("deck.classList.toggle('is-module-active', moduleActive);", main_js)
 
     def test_repost_deck_buttons_require_explicit_deck_capable_flag(self) -> None:
