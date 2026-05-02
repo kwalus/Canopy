@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.57] - 2026-05-02
+
+### Fixed
+- **`@Canopy` drafts can now be sent as written when the user intentionally keeps the trigger text** - the drafting panel's dismiss action marks the exact current draft for normal sending, clears that override on edits, and disables the override while generation is in flight.
+
 ## [0.6.56] - 2026-05-02
 
 ### Added
