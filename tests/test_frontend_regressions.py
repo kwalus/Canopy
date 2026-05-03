@@ -70,8 +70,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('/ajax/collab_cards/${encodeURIComponent(cardId)}/respond', main_js)
         self.assertIn('parse_collab_card_blocks', ui_routes)
         self.assertIn('_sync_inline_collab_cards_from_content', api_routes)
+        self.assertIn("/agents/me/collab-cards", api_routes)
+        self.assertIn("/collab-cards/<card_id>/responses", api_routes)
         self.assertIn("/collab-cards/<card_id>/telemetry", api_routes)
         self.assertIn("'collab_cards': {", agent_instructions)
+        self.assertIn("'my_cards': {'method': 'GET', 'path': '/api/v1/agents/me/collab-cards'", agent_instructions)
+        self.assertIn("'list_responses': {'method': 'GET', 'path': '/api/v1/collab-cards/<card_id>/responses'", agent_instructions)
         self.assertIn('Live cards must be outside triple-backtick code fences', agent_instructions)
         self.assertIn('fenced [input-card] or [telemetry-card] is treated as tutorial text', agent_instructions)
 

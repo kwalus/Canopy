@@ -13594,6 +13594,10 @@ def create_api_blueprint() -> Blueprint:
         except Exception as p2p_err:
             logger.warning(f"Failed to broadcast collaboration card update: {p2p_err}")
 
+    def _can_collect_collab_card_responses(card: dict[str, Any]) -> bool:
+        response_visibility = str((card.get('config') or {}).get('responses_visible') or '').strip().lower()
+        return bool(card.get('can_update') or response_visibility in ('1', 'true', 'yes', 'all'))
+
     @api.route('/collab-cards', methods=['GET'])
     @require_auth(Permission.READ_FEED, allow_session=True)
     def list_collab_cards_api():
@@ -13630,6 +13634,101 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"List collaboration cards failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/agents/me/collab-cards', methods=['GET'])
+    @require_auth(Permission.READ_FEED)
+    def list_my_collab_cards_api():
+        """List collaboration cards relevant to the authenticated agent/user."""
+        try:
+            db_manager, *_ = _get_app_components_any(current_app)
+            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+            if not collab_card_manager:
+                return jsonify({'error': 'Collaboration card manager unavailable'}), 500
+            viewer_id = _request_authenticated_user_id()
+            admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
+            card_type = request.args.get('type') or request.args.get('card_type') or None
+            status = request.args.get('status') or None
+            role = str(request.args.get('role') or 'mine').strip().lower()
+            if role not in ('mine', 'respond', 'update', 'responded', 'actionable', 'all', 'visible'):
+                return jsonify({
+                    'error': 'Invalid role',
+                    'allowed': ['mine', 'respond', 'update', 'responded', 'actionable', 'all', 'visible'],
+                }), 400
+            limit = max(1, min(int(request.args.get('limit', 100) or 100), 200))
+            cards = collab_card_manager.list_cards(
+                card_type=card_type,
+                status=status,
+                limit=limit,
+                viewer_id=viewer_id,
+                admin_user_id=admin_id,
+            )
+
+            buckets = {
+                'needs_response': 0,
+                'can_update': 0,
+                'responded': 0,
+                'telemetry_updates': 0,
+            }
+            selected = []
+            for card in cards:
+                is_input = card.get('card_type') == 'input'
+                is_telemetry = card.get('card_type') == 'telemetry'
+                has_response = bool(card.get('my_response'))
+                needs_response = bool(is_input and card.get('can_respond') and not has_response)
+                can_update = bool(card.get('can_update'))
+                can_collect = bool(is_input and _can_collect_collab_card_responses(card))
+                telemetry_update = bool(is_telemetry and can_update)
+                actions = []
+                if needs_response:
+                    actions.append('respond')
+                if has_response:
+                    actions.append('response_saved')
+                if is_input and can_update:
+                    actions.append('update_status')
+                if can_collect:
+                    actions.append('collect_responses')
+                if telemetry_update:
+                    actions.append('update_telemetry')
+                if can_update:
+                    actions.append('update')
+
+                if needs_response:
+                    buckets['needs_response'] += 1
+                if can_update:
+                    buckets['can_update'] += 1
+                if has_response:
+                    buckets['responded'] += 1
+                if telemetry_update:
+                    buckets['telemetry_updates'] += 1
+
+                include = False
+                if role in ('all', 'visible'):
+                    include = True
+                elif role == 'respond':
+                    include = needs_response
+                elif role == 'update':
+                    include = can_update
+                elif role == 'responded':
+                    include = has_response
+                elif role == 'actionable':
+                    include = needs_response or can_update or can_collect
+                else:
+                    include = needs_response or can_update or has_response or can_collect
+                if include:
+                    card = dict(card)
+                    card['agent_actions'] = actions
+                    card['needs_response'] = needs_response
+                    selected.append(card)
+
+            return jsonify({
+                'cards': selected,
+                'count': len(selected),
+                'role': role,
+                'buckets': buckets,
+            })
+        except Exception as e:
+            logger.error(f"List agent collaboration cards failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/collab-cards/<card_id>', methods=['GET'])
     @require_auth(Permission.READ_FEED, allow_session=True)
     def get_collab_card_api(card_id):
@@ -13646,6 +13745,43 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'card': card})
         except Exception as e:
             logger.error(f"Get collaboration card failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/collab-cards/<card_id>/responses', methods=['GET'])
+    @require_auth(Permission.READ_FEED, allow_session=True)
+    def list_collab_card_responses_api(card_id):
+        """Return visible responses for an input card, with collection gated by card edit rights."""
+        try:
+            db_manager, *_ = _get_app_components_any(current_app)
+            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+            if not collab_card_manager:
+                return jsonify({'error': 'Collaboration card manager unavailable'}), 500
+            viewer_id = _request_authenticated_user_id()
+            admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
+            card = collab_card_manager.get_card(
+                card_id,
+                viewer_id=viewer_id,
+                admin_user_id=admin_id,
+                include_responses=True,
+            )
+            if not card:
+                return jsonify({'error': 'Not found'}), 404
+            if card.get('card_type') != 'input':
+                return jsonify({'error': 'Only input cards have responses'}), 400
+            can_collect = _can_collect_collab_card_responses(card)
+            if request.args.get('scope') == 'all' and not can_collect:
+                return jsonify({'error': 'Not authorized to collect all responses'}), 403
+            responses = card.get('responses') or []
+            return jsonify({
+                'card_id': card.get('id'),
+                'card': card,
+                'responses': responses,
+                'response_count': card.get('response_count', len(responses)),
+                'my_response': card.get('my_response'),
+                'can_collect': can_collect,
+            })
+        except Exception as e:
+            logger.error(f"List collaboration card responses failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/collab-cards', methods=['POST'])

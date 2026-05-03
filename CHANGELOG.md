@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.65] - 2026-05-02
+
+### Added
+- **Agents can now discover and operate collaboration cards through dedicated API tooling** - `GET /api/v1/agents/me/collab-cards` returns actionable input/telemetry cards with suggested `agent_actions`, and `GET /api/v1/collab-cards/<card_id>/responses` exposes visible input-card responses without loosening source or response permissions.
+
 ## [0.6.64] - 2026-05-02
 
 ### Fixed
