@@ -5194,6 +5194,69 @@
             return `.collab-card[data-collab-card-id="${raw.replace(/"/g, '\\"')}"]`;
         }
 
+        function _collabResponseValueText(response) {
+            if (!response || response.value === null || response.value === undefined) return '';
+            if (typeof response.value === 'string') return response.value;
+            try {
+                return JSON.stringify(response.value);
+            } catch (err) {
+                return String(response.value || '');
+            }
+        }
+
+        function _collabOptionButtonHtml(cardId, option) {
+            const optionText = String(option ?? '');
+            const encodedOption = encodeURIComponent(optionText).replace(/'/g, '%27');
+            return `<button type="button" class="btn btn-sm btn-outline-info" onclick="submitCollabInputResponse('${_escapeHtml(cardId)}', decodeURIComponent('${encodedOption}'), 'choice')">${_escapeHtml(optionText)}</button>`;
+        }
+
+        function _renderCollabSavedResponse(response) {
+            const valueText = _collabResponseValueText(response);
+            const commentText = response && response.comment ? String(response.comment) : '';
+            const updatedAt = response && (response.updated_at || response.created_at) ? String(response.updated_at || response.created_at) : '';
+            return `
+                <div class="collab-card-answer collab-card-answer--saved">
+                    <div class="collab-card-answer-head">
+                        <i class="bi bi-check2-circle"></i>
+                        <span>Saved response</span>
+                    </div>
+                    ${valueText ? `<div class="collab-card-answer-value">${_escapeHtml(valueText)}</div>` : ''}
+                    ${commentText ? `<div class="collab-card-answer-comment">${_escapeHtml(commentText)}</div>` : ''}
+                    ${updatedAt ? `<div class="collab-card-answer-time">Stored ${_escapeHtml(updatedAt)}</div>` : ''}
+                </div>`;
+        }
+
+        function _renderCollabInputControls(card) {
+            const cardId = String(card && card.id || '');
+            const config = (card && card.config && typeof card.config === 'object') ? card.config : {};
+            const options = Array.isArray(config.options) ? config.options : [];
+            const optionButtons = options.length ? `
+                <div class="collab-card-options">
+                    ${options.map(option => _collabOptionButtonHtml(cardId, option)).join('')}
+                </div>` : '';
+            return `
+                <div class="collab-card-response" data-collab-response-form="${_escapeHtml(cardId)}">
+                    ${optionButtons}
+                    <div class="input-group input-group-sm mt-2">
+                        <input type="text" class="form-control" placeholder="${card && card.my_response ? 'Replace or add rationale' : 'Add a response or rationale'}" data-collab-input="${_escapeHtml(cardId)}">
+                        <button class="btn btn-primary" type="button" onclick="submitCollabInputResponse('${_escapeHtml(cardId)}', null, 'text')">${card && card.my_response ? 'Update' : 'Send'}</button>
+                    </div>
+                </div>`;
+        }
+
+        function _renderCollabInputState(card) {
+            if (!card) return '';
+            if (card.my_response) {
+                return `
+                    ${_renderCollabSavedResponse(card.my_response)}
+                    ${card.can_respond ? `<div class="collab-card-response-note">Need to revise it?</div>${_renderCollabInputControls(card)}` : ''}`;
+            }
+            if (card.can_respond) {
+                return _renderCollabInputControls(card);
+            }
+            return '<div class="collab-card-lock"><i class="bi bi-lock"></i> Allocated responders only.</div>';
+        }
+
         function submitCollabInputResponse(cardId, value, responseType) {
             if (!cardId) return;
             let finalValue = value;
@@ -5306,9 +5369,14 @@
                     countEl.textContent = `${count} response${count === 1 ? '' : 's'}`;
                 }
                 if (card.my_response) {
-                    const responseEl = el.querySelector('.collab-card-response');
-                    if (responseEl) {
-                        responseEl.outerHTML = '<div class="collab-card-answer"><i class="bi bi-check2-circle"></i> Your response is recorded.</div>';
+                    const inputState = el.querySelector('[data-collab-input-state]');
+                    if (inputState) {
+                        inputState.innerHTML = _renderCollabInputState(card);
+                    } else {
+                        const responseEl = el.querySelector('.collab-card-response');
+                        if (responseEl) {
+                            responseEl.outerHTML = _renderCollabSavedResponse(card.my_response);
+                        }
                     }
                 }
                 const bar = el.querySelector('.collab-telemetry-bar span');

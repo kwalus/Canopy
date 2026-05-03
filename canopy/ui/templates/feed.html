@@ -1231,25 +1231,58 @@
                                                         <div class="collab-card-prompt">{{ card.prompt }}</div>
                                                     {% endif %}
                                                     {% set options = card.config.get('options', []) if card.config else [] %}
-                                                    {% if card.can_respond %}
-                                                        <div class="collab-card-response" data-collab-response-form="{{ card.id }}">
-                                                            {% if options %}
-                                                                <div class="collab-card-options">
-                                                                    {% for option in options %}
-                                                                        <button type="button" class="btn btn-sm btn-outline-info" onclick='submitCollabInputResponse("{{ card.id }}", {{ option|tojson }}, "choice")'>{{ option }}</button>
-                                                                    {% endfor %}
+                                                    <div class="collab-card-input-state" data-collab-input-state="{{ card.id }}">
+                                                        {% if card.my_response %}
+                                                            {% set saved_response = card.my_response %}
+                                                            <div class="collab-card-answer collab-card-answer--saved">
+                                                                <div class="collab-card-answer-head">
+                                                                    <i class="bi bi-check2-circle"></i>
+                                                                    <span>Saved response</span>
+                                                                </div>
+                                                                {% if saved_response.value is not none and saved_response.value|string %}
+                                                                    <div class="collab-card-answer-value">{{ saved_response.value }}</div>
+                                                                {% endif %}
+                                                                {% if saved_response.comment %}
+                                                                    <div class="collab-card-answer-comment">{{ saved_response.comment }}</div>
+                                                                {% endif %}
+                                                                {% if saved_response.updated_at or saved_response.created_at %}
+                                                                    <div class="collab-card-answer-time">Stored {{ saved_response.updated_at or saved_response.created_at }}</div>
+                                                                {% endif %}
+                                                            </div>
+                                                            {% if card.can_respond %}
+                                                                <div class="collab-card-response-note">Need to revise it?</div>
+                                                                <div class="collab-card-response" data-collab-response-form="{{ card.id }}">
+                                                                    {% if options %}
+                                                                        <div class="collab-card-options">
+                                                                            {% for option in options %}
+                                                                                <button type="button" class="btn btn-sm btn-outline-info" onclick='submitCollabInputResponse("{{ card.id }}", {{ option|tojson }}, "choice")'>{{ option }}</button>
+                                                                            {% endfor %}
+                                                                        </div>
+                                                                    {% endif %}
+                                                                    <div class="input-group input-group-sm mt-2">
+                                                                        <input type="text" class="form-control" placeholder="Replace or add rationale" data-collab-input="{{ card.id }}">
+                                                                        <button class="btn btn-primary" type="button" onclick='submitCollabInputResponse("{{ card.id }}", null, "text")'>Update</button>
+                                                                    </div>
                                                                 </div>
                                                             {% endif %}
-                                                            <div class="input-group input-group-sm mt-2">
-                                                                <input type="text" class="form-control" placeholder="Add a response or rationale" data-collab-input="{{ card.id }}">
-                                                                <button class="btn btn-primary" type="button" onclick='submitCollabInputResponse("{{ card.id }}", null, "text")'>Send</button>
+                                                        {% elif card.can_respond %}
+                                                            <div class="collab-card-response" data-collab-response-form="{{ card.id }}">
+                                                                {% if options %}
+                                                                    <div class="collab-card-options">
+                                                                        {% for option in options %}
+                                                                            <button type="button" class="btn btn-sm btn-outline-info" onclick='submitCollabInputResponse("{{ card.id }}", {{ option|tojson }}, "choice")'>{{ option }}</button>
+                                                                        {% endfor %}
+                                                                    </div>
+                                                                {% endif %}
+                                                                <div class="input-group input-group-sm mt-2">
+                                                                    <input type="text" class="form-control" placeholder="Add a response or rationale" data-collab-input="{{ card.id }}">
+                                                                    <button class="btn btn-primary" type="button" onclick='submitCollabInputResponse("{{ card.id }}", null, "text")'>Send</button>
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                    {% elif card.my_response %}
-                                                        <div class="collab-card-answer"><i class="bi bi-check2-circle"></i> Your response is recorded.</div>
-                                                    {% else %}
-                                                        <div class="collab-card-lock"><i class="bi bi-lock"></i> Allocated responders only.</div>
-                                                    {% endif %}
+                                                        {% else %}
+                                                            <div class="collab-card-lock"><i class="bi bi-lock"></i> Allocated responders only.</div>
+                                                        {% endif %}
+                                                    </div>
                                                     <div class="collab-card-meta">
                                                         <span>{{ card.response_count }} response{{ '' if card.response_count == 1 else 's' }}</span>
                                                         {% if card.can_update %}
@@ -4433,6 +4466,38 @@
     color: var(--canopy-text-muted);
 }
 
+.collab-card-answer--saved {
+    padding: 0.7rem 0.8rem;
+    border: 1px solid rgba(52, 211, 153, 0.24);
+    border-radius: 14px;
+    background: rgba(6, 78, 59, 0.24);
+    color: var(--canopy-text-secondary);
+}
+
+.collab-card-answer-head {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: #6ee7b7;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+}
+
+.collab-card-answer-value {
+    margin-top: 0.35rem;
+    color: var(--canopy-text-primary);
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.collab-card-answer-comment,
+.collab-card-answer-time,
+.collab-card-response-note {
+    margin-top: 0.3rem;
+    font-size: 0.74rem;
+    color: var(--canopy-text-muted);
+}
+
 .collab-telemetry-bar {
     height: 9px;
     margin-top: 0.75rem;
@@ -4507,6 +4572,11 @@
 [data-theme="light"] .collab-card-prompt,
 [data-theme="light"] .collab-metric {
     background: rgba(255, 255, 255, 0.72);
+}
+
+[data-theme="light"] .collab-card-answer--saved {
+    background: rgba(236, 253, 245, 0.88);
+    border-color: rgba(16, 185, 129, 0.28);
 }
 
 /* Contract Cards */

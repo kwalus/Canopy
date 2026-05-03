@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.63-blue" alt="Version 0.6.63">
+  <img src="https://img.shields.io/badge/version-0.6.64-blue" alt="Version 0.6.64">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -125,6 +125,7 @@ Recent end-user improvements reflected in the app and docs:
 - **`@Canopy` compose recovers from transient empty provider responses** — pending web-search responses are polled and tool-only/empty Responses API results are retried before surfacing a sanitized error.
 - **`@Canopy` compose now streams drafts and handles web-search budget exhaustion better** — channel drafts can fill live through an SSE endpoint, web-search attempts get larger token budgets and bounded tool calls, and final retries can produce an editable caveated draft instead of failing after tool-only output.
 - **Universal collaboration cards coordinate input and telemetry in-line** — feed posts and channel messages can declare durable `[input-card]` and `[telemetry-card]` blocks for permission-gated responses, owner/editor status changes, live progress updates, and agent/API-driven workflow state.
+- **Input cards now show saved responses clearly** — after a responder answers, the card displays a saved-response block with the value, optional comment, and stored timestamp while preserving the ability to revise open cards.
 - **Canopy Module deck items now get a focused working layout** — module runtime cards open with a larger stage while the source queue and details start collapsed, keeping Show list and Show details available without crowding dense module surfaces.
 - **The media deck now offers a desktop Window view** — the existing deck size control cycles from Standard to Large to Window, expanding across the active content panel while preserving the app shell and playback state.
 - **Expanded channel composers now keep controls compact** — long-draft mode gives the extra height to the message editor while the action buttons wrap into a normal-height toolbar instead of stretching vertically beside the textarea.

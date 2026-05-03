@@ -6051,6 +6051,38 @@
     color: var(--canopy-text-muted);
 }
 
+.collab-card-answer--saved {
+    padding: 0.7rem 0.8rem;
+    border: 1px solid rgba(52, 211, 153, 0.24);
+    border-radius: 14px;
+    background: rgba(6, 78, 59, 0.24);
+    color: var(--canopy-text-secondary);
+}
+
+.collab-card-answer-head {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: #6ee7b7;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+}
+
+.collab-card-answer-value {
+    margin-top: 0.35rem;
+    color: var(--canopy-text-primary);
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.collab-card-answer-comment,
+.collab-card-answer-time,
+.collab-card-response-note {
+    margin-top: 0.3rem;
+    font-size: 0.74rem;
+    color: var(--canopy-text-muted);
+}
+
 .collab-telemetry-bar {
     height: 9px;
     margin-top: 0.75rem;
@@ -6125,6 +6157,11 @@
 [data-theme="light"] .collab-card-prompt,
 [data-theme="light"] .collab-metric {
     background: rgba(255, 255, 255, 0.72);
+}
+
+[data-theme="light"] .collab-card-answer--saved {
+    background: rgba(236, 253, 245, 0.88);
+    border-color: rgba(16, 185, 129, 0.28);
 }
 
 /* Contract Cards */
@@ -9302,6 +9339,67 @@ function renderContractCards(message, userInfo) {
     `;
 }
 
+function collabResponseValueText(response) {
+    if (!response || response.value === null || response.value === undefined) return '';
+    if (typeof response.value === 'string') return response.value;
+    try {
+        return JSON.stringify(response.value);
+    } catch (err) {
+        return String(response.value || '');
+    }
+}
+
+function collabOptionButtonHtml(cardId, option) {
+    const optionText = String(option ?? '');
+    const encodedOption = encodeURIComponent(optionText).replace(/'/g, '%27');
+    return `<button type="button" class="btn btn-sm btn-outline-info" onclick="submitCollabInputResponse('${escapeHtml(cardId)}', decodeURIComponent('${encodedOption}'), 'choice')">${escapeHtml(optionText)}</button>`;
+}
+
+function renderCollabSavedResponse(response) {
+    const valueText = collabResponseValueText(response);
+    const commentText = response && response.comment ? String(response.comment) : '';
+    const updatedAt = response && (response.updated_at || response.created_at) ? String(response.updated_at || response.created_at) : '';
+    return `
+        <div class="collab-card-answer collab-card-answer--saved">
+            <div class="collab-card-answer-head">
+                <i class="bi bi-check2-circle"></i>
+                <span>Saved response</span>
+            </div>
+            ${valueText ? `<div class="collab-card-answer-value">${escapeHtml(valueText)}</div>` : ''}
+            ${commentText ? `<div class="collab-card-answer-comment">${escapeHtml(commentText)}</div>` : ''}
+            ${updatedAt ? `<div class="collab-card-answer-time">Stored ${escapeHtml(updatedAt)}</div>` : ''}
+        </div>`;
+}
+
+function renderCollabInputControls(card, cardId) {
+    const config = (card.config && typeof card.config === 'object') ? card.config : {};
+    const options = Array.isArray(config.options) ? config.options : [];
+    const optionButtons = options.length ? `
+        <div class="collab-card-options">
+            ${options.map(option => collabOptionButtonHtml(cardId, option)).join('')}
+        </div>` : '';
+    return `
+        <div class="collab-card-response" data-collab-response-form="${escapeHtml(cardId)}">
+            ${optionButtons}
+            <div class="input-group input-group-sm mt-2">
+                <input type="text" class="form-control" placeholder="${card.my_response ? 'Replace or add rationale' : 'Add a response or rationale'}" data-collab-input="${escapeHtml(cardId)}">
+                <button class="btn btn-primary" type="button" onclick="submitCollabInputResponse('${escapeHtml(cardId)}', null, 'text')">${card.my_response ? 'Update' : 'Send'}</button>
+            </div>
+        </div>`;
+}
+
+function renderCollabInputState(card, cardId) {
+    if (card.my_response) {
+        return `
+            ${renderCollabSavedResponse(card.my_response)}
+            ${card.can_respond ? `<div class="collab-card-response-note">Need to revise it?</div>${renderCollabInputControls(card, cardId)}` : ''}`;
+    }
+    if (card.can_respond) {
+        return renderCollabInputControls(card, cardId);
+    }
+    return '<div class="collab-card-lock"><i class="bi bi-lock"></i> Allocated responders only.</div>';
+}
+
 function renderCollabCards(message) {
     const cards = message.collab_cards || [];
     if (!cards.length) return '';
@@ -9359,24 +9457,8 @@ function renderCollabCards(message) {
                         </div>`;
                 }
 
-                const options = Array.isArray(config.options) ? config.options : [];
-                const optionButtons = options.length ? `
-                    <div class="collab-card-options">
-                        ${options.map(option => `
-                            <button type="button" class="btn btn-sm btn-outline-info" onclick="submitCollabInputResponse('${cardId}', ${JSON.stringify(String(option))}, 'choice')">${escapeHtml(String(option))}</button>
-                        `).join('')}
-                    </div>` : '';
                 const promptHtml = card.prompt ? `<div class="collab-card-prompt">${escapeHtml(card.prompt).replace(/\n/g, '<br>')}</div>` : '';
-                const responseHtml = card.can_respond ? `
-                    <div class="collab-card-response" data-collab-response-form="${cardId}">
-                        ${optionButtons}
-                        <div class="input-group input-group-sm mt-2">
-                            <input type="text" class="form-control" placeholder="Add a response or rationale" data-collab-input="${cardId}">
-                            <button class="btn btn-primary" type="button" onclick="submitCollabInputResponse('${cardId}', null, 'text')">Send</button>
-                        </div>
-                    </div>` : (card.my_response
-                        ? '<div class="collab-card-answer"><i class="bi bi-check2-circle"></i> Your response is recorded.</div>'
-                        : '<div class="collab-card-lock"><i class="bi bi-lock"></i> Allocated responders only.</div>');
+                const responseHtml = `<div class="collab-card-input-state" data-collab-input-state="${cardId}">${renderCollabInputState(card, cardId)}</div>`;
                 const resolveHtml = card.can_update ? `
                     <button type="button" class="btn btn-sm btn-outline-light" onclick="updateCollabInputStatus('${cardId}', 'resolved')">Resolve</button>` : '';
                 return `

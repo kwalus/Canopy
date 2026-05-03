@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.64] - 2026-05-02
+
+### Fixed
+- **Input-card responses now show a durable saved state after submission** - feed and channel cards display the saved value, optional comment, and stored timestamp while still allowing authorized responders to revise an open response.
+- **Collaboration card refresh now replaces ambiguous response forms** - successful AJAX response updates re-render the input-card state in place, and dynamic channel choice buttons safely encode option values before invoking response actions.
+
 ## [0.6.63] - 2026-05-02
 
 ### Added

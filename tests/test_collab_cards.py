@@ -141,6 +141,36 @@ metrics:
         self.assertNotIn("[input-card]", stripped)
         self.assertNotIn("[telemetry-card]", stripped)
 
+    def test_fenced_card_examples_do_not_create_live_cards(self) -> None:
+        content = """
+Teaching example:
+
+```text
+[input-card]
+title: Example only
+prompt: This should stay as text.
+[/input-card]
+```
+
+Live card:
+
+[telemetry-card]
+title: Real run
+status: running
+progress: 12%
+[/telemetry-card]
+"""
+        specs = parse_collab_card_blocks(content)
+
+        self.assertEqual(len(specs), 1)
+        self.assertIsInstance(specs[0], TelemetryCardSpec)
+        self.assertEqual(specs[0].title, "Real run")
+
+        stripped = strip_collab_card_blocks(content)
+        self.assertIn("[input-card]", stripped)
+        self.assertIn("Example only", stripped)
+        self.assertNotIn("[telemetry-card]", stripped)
+
     def test_input_card_permissions_and_response(self) -> None:
         self.db.conn.execute(
             "INSERT INTO channel_messages (id, channel_id) VALUES (?, ?)",
@@ -186,6 +216,8 @@ metrics:
         )
         self.assertEqual(updated["response_count"], 1)
         self.assertEqual(updated["my_response"]["value"], "approved")
+        self.assertEqual(updated["my_response"]["comment"], "Proceed after backup.")
+        self.assertTrue(updated["can_respond"])
 
     def test_telemetry_runtime_update_is_not_reset_by_render_upsert(self) -> None:
         self.db.conn.execute(

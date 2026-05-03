@@ -48,20 +48,32 @@ class TestFrontendRegressions(unittest.TestCase):
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
         api_routes = (ROOT / 'canopy' / 'api' / 'routes.py').read_text(encoding='utf-8')
+        agent_instructions = (ROOT / 'canopy' / 'api' / 'agent_instructions_data.py').read_text(encoding='utf-8')
 
         for template in (feed_template, channels_template):
             self.assertIn('collab-card-stack', template)
             self.assertIn('collab-card--input', template)
             self.assertIn('collab-card--telemetry', template)
             self.assertIn('collab-telemetry-bar', template)
+            self.assertIn('collab-card-answer--saved', template)
+            self.assertIn('Saved response', template)
+            self.assertIn('collab-card-input-state', template)
 
         self.assertIn('function renderCollabCards(message)', channels_template)
+        self.assertIn('function renderCollabInputState(card, cardId)', channels_template)
+        self.assertIn('Need to revise it?', channels_template)
+        self.assertIn('decodeURIComponent', channels_template)
         self.assertIn('submitCollabInputResponse', main_js)
         self.assertIn('updateCollabTelemetry', main_js)
+        self.assertIn('function _renderCollabInputState(card)', main_js)
+        self.assertIn('inputState.innerHTML = _renderCollabInputState(card);', main_js)
         self.assertIn('/ajax/collab_cards/${encodeURIComponent(cardId)}/respond', main_js)
         self.assertIn('parse_collab_card_blocks', ui_routes)
         self.assertIn('_sync_inline_collab_cards_from_content', api_routes)
         self.assertIn("/collab-cards/<card_id>/telemetry", api_routes)
+        self.assertIn("'collab_cards': {", agent_instructions)
+        self.assertIn('Live cards must be outside triple-backtick code fences', agent_instructions)
+        self.assertIn('fenced [input-card] or [telemetry-card] is treated as tutorial text', agent_instructions)
 
     def test_account_pages_do_not_render_deemphasized_stats_panels(self) -> None:
         bookmarks_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'bookmarks.html').read_text(encoding='utf-8')
