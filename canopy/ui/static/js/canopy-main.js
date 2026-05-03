@@ -801,6 +801,28 @@
             if (dmExpandBtn) {
                 dmExpandBtn.addEventListener('click', () => toggleSidebarCardExpansion('dm', canopySidebarDmState.contacts.length));
             }
+            const deckInboxBtn = document.getElementById('deckInboxNavButton');
+            if (deckInboxBtn) {
+                deckInboxBtn.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    if (window.location.pathname === '/messages') {
+                        const thread = document.getElementById('dm-thread-scroll') || document.querySelector('.messages-page');
+                        if (thread && typeof thread.scrollIntoView === 'function') {
+                            thread.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                        const textarea = document.getElementById('messageContent');
+                        if (textarea && typeof textarea.focus === 'function') {
+                            window.setTimeout(() => textarea.focus(), 180);
+                        }
+                        return;
+                    }
+                    if (typeof window.openDeckInbox === 'function') {
+                        window.openDeckInbox({});
+                    } else {
+                        window.location.href = ((window.CANOPY_VARS || {}).urls || {}).messages || '/messages';
+                    }
+                });
+            }
             const peersToggleBtn = document.getElementById('sidebar-peers-toggle');
             if (peersToggleBtn) {
                 peersToggleBtn.addEventListener('click', () => toggleSidebarCardCollapsed('peers'));
@@ -892,6 +914,14 @@
             queuedSnapshot: false,
         };
 
+        function updateDeckInboxUnreadBadge(count) {
+            const badge = document.getElementById('deckInboxUnreadBadge');
+            if (!badge) return;
+            const normalized = Math.max(0, Number(count) || 0);
+            badge.textContent = normalized > 99 ? '99+' : String(normalized);
+            badge.style.display = normalized > 0 ? '' : 'none';
+        }
+
         function canopyRenderSidebarDmContacts(contacts) {
             const listEl = document.getElementById('sidebar-dm-list');
             const totalEl = document.getElementById('sidebar-dm-unread-total');
@@ -901,6 +931,7 @@
             const visibleContacts = visibleSidebarCardItems('dm', normalized);
             const totalUnread = normalized.reduce((sum, contact) => sum + Math.max(0, Number(contact && contact.unread_count) || 0), 0);
             if (totalEl) totalEl.textContent = String(totalUnread);
+            updateDeckInboxUnreadBadge(totalUnread);
 
             // Render-key diffing: skip DOM writes when data is unchanged
             const dmRenderKey = visibleContacts.map(c =>
@@ -931,6 +962,8 @@
                 }
                 link.href = canopySidebarDmHref(contact);
                 link.setAttribute('data-dm-user-id', contact.user_id || '');
+                link.setAttribute('data-dm-target-message-id', contact.target_message_id || '');
+                link.setAttribute('data-dm-open-deck', '1');
                 link.title = contact.display_name || contact.username || contact.user_id || 'Direct message';
 
                 const avatarWrap = document.createElement('div');
@@ -1064,6 +1097,22 @@
         }
 
         window.requestCanopySidebarDmRefresh = requestCanopySidebarDmRefresh;
+
+        document.addEventListener('click', function(event) {
+            const link = event.target && event.target.closest ? event.target.closest('.sidebar-dm-contact[data-dm-open-deck]') : null;
+            if (!link) return;
+            if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            if (window.location.pathname === '/messages') return;
+            event.preventDefault();
+            const href = link.getAttribute('href') || '';
+            const userId = String(link.getAttribute('data-dm-user-id') || '').trim();
+            const targetMessageId = String(link.getAttribute('data-dm-target-message-id') || '').trim();
+            if (typeof window.openDeckInbox === 'function') {
+                window.openDeckInbox({ userId, targetMessageId, targetUrl: href });
+            } else {
+                window.location.href = href || (((window.CANOPY_VARS || {}).urls || {}).messages || '/messages');
+            }
+        });
 
         function formatSidebarUnreadCount(count) {
             const normalized = Math.max(0, Number(count) || 0);
@@ -6275,6 +6324,16 @@
             const deckMiniFooterBtn = document.getElementById('sidebar-media-deck-mini-player-footer');
             const deckCloseBtn = document.getElementById('sidebar-media-deck-close');
             const deckLargeToggleBtn = document.getElementById('sidebar-media-deck-large-toggle');
+            const deckModeTabs = document.getElementById('sidebar-media-deck-mode-tabs');
+            const deckSourceTab = document.getElementById('sidebar-media-deck-source-tab');
+            const deckInboxTab = document.getElementById('sidebar-media-deck-inbox-tab');
+            const deckOpenMessagesBtn = document.getElementById('sidebar-media-deck-open-messages');
+            const deckInboxSurface = document.getElementById('deck-inbox-surface');
+            const deckInboxSidebar = document.getElementById('deck-inbox-sidebar-sections');
+            const deckInboxThreadHeader = document.getElementById('deck-inbox-thread-header');
+            const deckInboxThreadBody = document.getElementById('deck-inbox-thread-body');
+            const deckInboxThreadScroll = document.getElementById('deck-inbox-thread-scroll');
+            const deckInboxComposerSlot = document.getElementById('deck-inbox-composer-slot');
             const deckQueue = document.getElementById('sidebar-media-deck-queue');
             const deckQueueCount = document.getElementById('sidebar-media-deck-queue-count');
             const deckQueueShell = deckQueue ? deckQueue.closest('.sidebar-media-deck-queue-shell') : null;
@@ -6320,6 +6379,19 @@
                 deckDetailCollapsed: false,
                 deckLayoutMode: 'default',
                 deckLayoutPrimedKey: '',
+                deckShellMode: 'source',
+                deckInboxActive: false,
+                deckInboxSnapshotInFlight: false,
+                deckInboxActiveThread: null,
+                deckInboxComposerRecipients: [],
+                deckInboxConversationWith: '',
+                deckInboxConversationGroup: '',
+                deckInboxTargetMessageId: '',
+                deckInboxSidebarToken: '',
+                deckInboxThreadToken: '',
+                deckInboxReply: null,
+                deckInboxListOpen: false,
+                deckInboxSnapshotSeq: 0,
                 deckDesktopMode: normalizeDeckDesktopMode(loadSidebarRailPreference('deckDesktopMode', 'default')),
                 /** Last `state.deckItems.length` applied in `syncDeckLayoutMode` (module layout). */
                 deckLayoutLastQueueCount: -1,
@@ -8062,6 +8134,7 @@
                 state.returnUrl = null;
                 state.dockedSubtitle = null;
                 state.deckOpen = true;
+                state.deckShellMode = 'source';
                 selectDeckItem(preferred, { play: options.play === true });
                 updateSourceDeckLauncherActiveStates();
                 scheduleMiniUpdate(20);
@@ -10221,10 +10294,465 @@
                 scrollDeckSelectionIntoView();
             }
 
+            function sourceDeckHasRenderableState() {
+                return !!(state.deckOpen && (state.current || getDeckSelectedItem()));
+            }
+
+            function deckInboxMeshspaceLabel() {
+                const mesh = (window.CANOPY_VARS && window.CANOPY_VARS.currentMeshspace) || {};
+                return String(mesh.name || '').trim() || 'Current meshspace';
+            }
+
+            function updateDeckModeChrome() {
+                if (!deck) return;
+                const mode = state.deckShellMode === 'dm' ? 'dm' : 'source';
+                const sourceAvailable = sourceDeckHasRenderableState();
+                const showTabs = !!(state.deckInboxActive && sourceAvailable);
+                deck.setAttribute('data-deck-mode', mode);
+                deck.classList.toggle('is-dm-mode', mode === 'dm');
+                deck.classList.toggle('is-source-mode', mode !== 'dm');
+                if (deckShell) {
+                    deckShell.setAttribute('aria-label', mode === 'dm' ? 'Deck Inbox direct messages' : 'Expanded media player');
+                }
+                if (deckInboxSurface) {
+                    deckInboxSurface.hidden = !(mode === 'dm' && state.deckInboxActive);
+                    deckInboxSurface.classList.toggle('is-list-open', !!state.deckInboxListOpen);
+                    deckInboxSurface.querySelectorAll('[data-dm-action="toggle-list"]').forEach((btn) => {
+                        btn.setAttribute('aria-expanded', state.deckInboxListOpen ? 'true' : 'false');
+                    });
+                }
+                if (deckModeTabs) {
+                    deckModeTabs.hidden = !showTabs;
+                }
+                if (deckSourceTab) {
+                    deckSourceTab.classList.toggle('is-active', mode !== 'dm');
+                    deckSourceTab.disabled = !sourceAvailable;
+                }
+                if (deckInboxTab) {
+                    deckInboxTab.classList.toggle('is-active', mode === 'dm');
+                    deckInboxTab.disabled = !state.deckInboxActive;
+                }
+                if (deckOpenMessagesBtn) {
+                    deckOpenMessagesBtn.hidden = mode !== 'dm';
+                    const href = (state.deckInboxActiveThread && state.deckInboxActiveThread.href)
+                        || (((window.CANOPY_VARS || {}).urls || {}).messages || '/messages');
+                    deckOpenMessagesBtn.setAttribute('href', href);
+                }
+                if (mode === 'dm') {
+                    if (deckChipLabel) deckChipLabel.textContent = 'Deck Inbox';
+                    if (deckCountChip) deckCountChip.hidden = true;
+                    if (deckQueueCount) deckQueueCount.hidden = true;
+                    if (deckSource) {
+                        deckSource.textContent = `${deckInboxMeshspaceLabel()} · DMs without leaving this workspace`;
+                    }
+                }
+            }
+
+            function setDeckShellMode(mode) {
+                const requested = mode === 'dm' ? 'dm' : 'source';
+                if (requested === 'source' && !sourceDeckHasRenderableState() && state.deckInboxActive) {
+                    state.deckShellMode = 'dm';
+                } else {
+                    state.deckShellMode = requested;
+                }
+                updateDeckModeChrome();
+                updateDeckVisibility();
+            }
+
+            function deckInboxSetLoading(message) {
+                if (deckInboxThreadBody) {
+                    deckInboxThreadBody.innerHTML = `<div class="deck-inbox-loading">${escapeEmbedHtml(message || 'Loading Deck Inbox...')}</div>`;
+                }
+            }
+
+            function deckInboxTargetFromHref(href) {
+                const target = {};
+                if (!href) return target;
+                try {
+                    const url = new URL(href, window.location.origin);
+                    const withId = (url.searchParams.get('with') || '').trim();
+                    const groupId = (url.searchParams.get('group') || '').trim();
+                    if (withId) target.userId = withId;
+                    if (groupId) target.groupId = groupId;
+                    if (url.hash && url.hash.startsWith('#message-')) {
+                        target.targetMessageId = decodeURIComponent(url.hash.slice('#message-'.length));
+                    }
+                } catch (_) {
+                    /* ignore malformed local href */
+                }
+                return target;
+            }
+
+            function buildDeckInboxSnapshotUrl(options = {}) {
+                const merged = {
+                    ...deckInboxTargetFromHref(options.targetUrl || options.href || ''),
+                    ...options,
+                };
+                const params = new URLSearchParams();
+                params.set('surface', 'deck');
+                const userId = String(merged.userId || merged.with || '').trim();
+                const groupId = String(merged.groupId || merged.group || '').trim();
+                if (groupId) {
+                    params.set('group', groupId);
+                } else if (userId) {
+                    params.set('with', userId);
+                } else if (state.deckInboxConversationGroup) {
+                    params.set('group', state.deckInboxConversationGroup);
+                } else if (state.deckInboxConversationWith) {
+                    params.set('with', state.deckInboxConversationWith);
+                }
+                state.deckInboxTargetMessageId = String(merged.targetMessageId || '').trim();
+                return `/ajax/messages/thread_snapshot?${params.toString()}`;
+            }
+
+            function applyDeckInboxSnapshot(data, options = {}) {
+                if (!data || data.success === false) {
+                    throw new Error((data && data.error) || 'Failed to load Deck Inbox');
+                }
+                if (deckInboxSidebar && typeof data.sidebar_html === 'string') {
+                    deckInboxSidebar.innerHTML = data.sidebar_html;
+                }
+                if (deckInboxThreadHeader && typeof data.thread_header_html === 'string') {
+                    deckInboxThreadHeader.innerHTML = data.thread_header_html;
+                }
+                if (deckInboxThreadBody && typeof data.thread_body_html === 'string') {
+                    deckInboxThreadBody.innerHTML = data.thread_body_html;
+                }
+                if (deckInboxComposerSlot && typeof data.composer_html === 'string') {
+                    deckInboxComposerSlot.innerHTML = data.composer_html;
+                }
+                state.deckInboxActiveThread = data.active_thread || null;
+                state.deckInboxComposerRecipients = Array.isArray(data.composer_recipients) ? data.composer_recipients : [];
+                state.deckInboxConversationWith = String(data.conversation_with || '').trim();
+                state.deckInboxConversationGroup = String(data.conversation_group || '').trim();
+                state.deckInboxSidebarToken = String(data.sidebar_state_token || '');
+                state.deckInboxThreadToken = String(data.thread_state_token || '');
+                state.deckInboxReply = null;
+                if (!state.deckInboxActiveThread) {
+                    state.deckInboxListOpen = true;
+                }
+                updateDeckModeChrome();
+                if (typeof formatTimestamps === 'function' && deckInboxSurface) {
+                    formatTimestamps(deckInboxSurface);
+                }
+                if (typeof window.canopyApplySourceLayoutsInScope === 'function' && deckInboxSurface) {
+                    try {
+                        window.canopyApplySourceLayoutsInScope(deckInboxSurface);
+                    } catch (_) {
+                        /* layout errors should not block DM usage */
+                    }
+                }
+                if (typeof window.requestCanopySidebarDmRefresh === 'function') {
+                    window.requestCanopySidebarDmRefresh({ force: true }).catch(() => {});
+                }
+                window.setTimeout(() => {
+                    if (!deckInboxThreadScroll) return;
+                    const targetId = String(options.targetMessageId || state.deckInboxTargetMessageId || '').trim();
+                    if (targetId) {
+                        const esc = window.CSS && typeof window.CSS.escape === 'function'
+                            ? window.CSS.escape(targetId)
+                            : targetId.replace(/["\\]/g, '\\$&');
+                        const targetEl = deckInboxThreadBody && deckInboxThreadBody.querySelector(`#message-${esc}`);
+                        if (targetEl && typeof targetEl.scrollIntoView === 'function') {
+                            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            targetEl.classList.add('flash-focus');
+                            return;
+                        }
+                    }
+                    deckInboxThreadScroll.scrollTop = deckInboxThreadScroll.scrollHeight;
+                }, 40);
+            }
+
+            function loadDeckInboxSnapshot(options = {}) {
+                if (!deckInboxSurface) return Promise.resolve(null);
+                const requestSeq = ++state.deckInboxSnapshotSeq;
+                state.deckInboxSnapshotInFlight = true;
+                deckInboxSetLoading('Loading Deck Inbox...');
+                const snapshotUrl = buildDeckInboxSnapshotUrl(options);
+                return fetch(snapshotUrl, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                })
+                    .then((res) => {
+                        if (!res.ok) throw new Error(`Deck Inbox snapshot failed (${res.status})`);
+                        return res.json();
+                    })
+                    .then((data) => {
+                        if (requestSeq !== state.deckInboxSnapshotSeq) return data;
+                        applyDeckInboxSnapshot(data, options);
+                        return data;
+                    })
+                    .catch((err) => {
+                        if (requestSeq !== state.deckInboxSnapshotSeq) return null;
+                        if (deckInboxThreadBody) {
+                            deckInboxThreadBody.innerHTML = '<div class="deck-inbox-empty"><div class="deck-inbox-empty-card">Deck Inbox could not load. Open Messages for the full workspace.</div></div>';
+                        }
+                        showAlert((err && err.message) || 'Deck Inbox could not load', 'warning');
+                        return null;
+                    })
+                    .finally(() => {
+                        if (requestSeq === state.deckInboxSnapshotSeq) {
+                            state.deckInboxSnapshotInFlight = false;
+                        }
+                    });
+            }
+
+            function openDeckInbox(options = {}) {
+                if (!deck || !deckInboxSurface) {
+                    window.location.href = (((window.CANOPY_VARS || {}).urls || {}).messages || '/messages');
+                    return Promise.resolve(null);
+                }
+                state.deckInboxActive = true;
+                state.dismissedEl = null;
+                setDeckShellMode('dm');
+                updateDeckVisibility();
+                return loadDeckInboxSnapshot(options);
+            }
+
+            function closeDeckInbox(options = {}) {
+                state.deckInboxActive = false;
+                state.deckInboxReply = null;
+                state.deckInboxTargetMessageId = '';
+                state.deckInboxListOpen = false;
+                state.deckInboxSnapshotSeq += 1;
+                state.deckInboxSnapshotInFlight = false;
+                if (options.purgeContent) {
+                    if (deckInboxSidebar) deckInboxSidebar.innerHTML = '';
+                    if (deckInboxThreadHeader) deckInboxThreadHeader.innerHTML = '';
+                    if (deckInboxThreadBody) deckInboxThreadBody.innerHTML = '';
+                    if (deckInboxComposerSlot) deckInboxComposerSlot.innerHTML = '';
+                    state.deckInboxActiveThread = null;
+                    state.deckInboxComposerRecipients = [];
+                    state.deckInboxConversationWith = '';
+                    state.deckInboxConversationGroup = '';
+                    state.deckInboxSidebarToken = '';
+                    state.deckInboxThreadToken = '';
+                }
+                if (deckInboxSurface) deckInboxSurface.hidden = true;
+                const restoreSource = sourceDeckHasRenderableState() && options.restoreSource !== false;
+                state.deckShellMode = 'source';
+                if (restoreSource) {
+                    updateDeckPanel();
+                    return;
+                }
+                updateDeckVisibility();
+                updateDeckModeChrome();
+            }
+
+            function closeDeckShell(options = {}) {
+                if (state.deckShellMode === 'dm' && state.deckInboxActive) {
+                    closeDeckInbox({ restoreSource: true });
+                    return;
+                }
+                closeMediaDeck(options);
+            }
+
+            function deckInboxComposerRoot() {
+                return deckInboxSurface ? deckInboxSurface.querySelector('[data-dm-role="composer"]') : null;
+            }
+
+            function deckInboxTextArea() {
+                const root = deckInboxComposerRoot();
+                return root ? root.querySelector('[data-dm-role="message-content"]') : null;
+            }
+
+            function setDeckInboxReply(messageId, senderLabel, preview) {
+                state.deckInboxReply = {
+                    messageId: String(messageId || '').trim(),
+                    senderLabel: String(senderLabel || 'Reply'),
+                    preview: String(preview || 'Replying in thread'),
+                };
+                const root = deckInboxComposerRoot();
+                if (!root) return;
+                const box = root.querySelector('[data-dm-role="reply-context"]');
+                const author = root.querySelector('[data-dm-role="reply-author"]');
+                const content = root.querySelector('[data-dm-role="reply-preview"]');
+                if (author) author.textContent = state.deckInboxReply.senderLabel;
+                if (content) content.textContent = state.deckInboxReply.preview;
+                if (box) box.classList.add('active');
+                const textarea = deckInboxTextArea();
+                if (textarea) textarea.focus();
+            }
+
+            function clearDeckInboxReply() {
+                state.deckInboxReply = null;
+                const root = deckInboxComposerRoot();
+                const box = root ? root.querySelector('[data-dm-role="reply-context"]') : null;
+                if (box) box.classList.remove('active');
+            }
+
+            function sendDeckInboxMessage() {
+                const textarea = deckInboxTextArea();
+                const content = String((textarea && textarea.value) || '').trim();
+                if (!content) {
+                    showAlert('Message content required', 'warning');
+                    return;
+                }
+                const recipients = (Array.isArray(state.deckInboxComposerRecipients) ? state.deckInboxComposerRecipients : [])
+                    .map((item) => String((item && item.user_id) || '').trim())
+                    .filter(Boolean);
+                if (!recipients.length) {
+                    showAlert('Open a conversation before sending from Deck Inbox.', 'warning');
+                    return;
+                }
+                const payload = { content };
+                if (recipients.length > 1) payload.recipient_ids = recipients;
+                else payload.recipient_id = recipients[0];
+                if (state.deckInboxReply && state.deckInboxReply.messageId) {
+                    payload.reply_to = state.deckInboxReply.messageId;
+                }
+                const root = deckInboxComposerRoot();
+                const sendBtn = root ? root.querySelector('[data-dm-role="send-button"]') : null;
+                if (sendBtn) {
+                    sendBtn.disabled = true;
+                    sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Sending...';
+                }
+                apiCall('/ajax/send_message', {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                })
+                    .then((data) => {
+                        if (!data || data.success === false || data.error) {
+                            throw new Error((data && data.error) || 'Failed to send message');
+                        }
+                        if (textarea) textarea.value = '';
+                        clearDeckInboxReply();
+                        const nextOptions = {};
+                        if (data && data.group_id) {
+                            nextOptions.groupId = data.group_id;
+                        } else if (state.deckInboxConversationGroup) {
+                            nextOptions.groupId = state.deckInboxConversationGroup;
+                        } else if (state.deckInboxConversationWith) {
+                            nextOptions.userId = state.deckInboxConversationWith;
+                        }
+                        return loadDeckInboxSnapshot(nextOptions);
+                    })
+                    .catch((err) => {
+                        showAlert((err && (err.error || err.message)) || 'Failed to send message', 'danger');
+                    })
+                    .finally(() => {
+                        if (sendBtn) {
+                            sendBtn.disabled = false;
+                            sendBtn.innerHTML = '<i class="bi bi-send"></i> Send';
+                        }
+                    });
+            }
+
+            function deleteDeckInboxMessage(messageId) {
+                const cleanId = String(messageId || '').trim();
+                if (!cleanId) return;
+                if (!window.confirm('Delete this message?')) return;
+                apiCall('/ajax/delete_message', {
+                    method: 'POST',
+                    body: JSON.stringify({ message_id: cleanId }),
+                })
+                    .then(() => loadDeckInboxSnapshot({}))
+                    .then(() => showAlert('Message deleted', 'success'))
+                    .catch((err) => showAlert((err && (err.error || err.message)) || 'Delete failed', 'danger'));
+            }
+
+            function setDeckInboxListOpen(nextOpen) {
+                state.deckInboxListOpen = !!nextOpen;
+                updateDeckModeChrome();
+            }
+
+            function handleDeckInboxAction(event) {
+                const actionEl = event.target && event.target.closest ? event.target.closest('[data-dm-action]') : null;
+                if (!actionEl || !deckInboxSurface || !deckInboxSurface.contains(actionEl)) return;
+                const action = String(actionEl.getAttribute('data-dm-action') || '').trim();
+                if (!action) return;
+                event.preventDefault();
+                if (action === 'send-message') {
+                    sendDeckInboxMessage();
+                } else if (action === 'clear-composer') {
+                    const textarea = deckInboxTextArea();
+                    if (textarea) textarea.value = '';
+                    clearDeckInboxReply();
+                } else if (action === 'toggle-list') {
+                    setDeckInboxListOpen(!state.deckInboxListOpen);
+                } else if (action === 'toggle-composer-expanded') {
+                    const root = deckInboxComposerRoot();
+                    if (root) {
+                        const next = !root.classList.contains('composer-expanded');
+                        root.classList.toggle('composer-expanded', next);
+                        actionEl.setAttribute('aria-pressed', next ? 'true' : 'false');
+                    }
+                } else if (action === 'clear-reply') {
+                    clearDeckInboxReply();
+                } else if (action === 'reply') {
+                    setDeckInboxReply(
+                        actionEl.getAttribute('data-message-id'),
+                        actionEl.getAttribute('data-sender-label'),
+                        actionEl.getAttribute('data-preview')
+                    );
+                } else if (action === 'jump-message') {
+                    const messageId = String(actionEl.getAttribute('data-message-id') || '').trim();
+                    const esc = window.CSS && typeof window.CSS.escape === 'function'
+                        ? window.CSS.escape(messageId)
+                        : messageId.replace(/["\\]/g, '\\$&');
+                    const row = deckInboxThreadBody && deckInboxThreadBody.querySelector(`#message-${esc}`);
+                    if (row && typeof row.scrollIntoView === 'function') {
+                        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        row.classList.add('flash-focus');
+                    }
+                } else if (action === 'delete') {
+                    deleteDeckInboxMessage(actionEl.getAttribute('data-message-id'));
+                }
+            }
+
+            function handleDeckInboxThreadClick(event) {
+                const link = event.target && event.target.closest ? event.target.closest('[data-dm-thread-link]') : null;
+                if (!link || !deckInboxSurface || !deckInboxSurface.contains(link)) return;
+                if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                const target = deckInboxTargetFromHref(link.getAttribute('href') || '');
+                setDeckInboxListOpen(false);
+                openDeckInbox(target);
+            }
+
+            if (deckInboxSurface) {
+                deckInboxSurface.addEventListener('click', handleDeckInboxAction);
+                deckInboxSurface.addEventListener('click', handleDeckInboxThreadClick);
+                deckInboxSurface.addEventListener('keydown', (event) => {
+                    const textarea = event.target && event.target.closest ? event.target.closest('[data-dm-role="message-content"]') : null;
+                    if (!textarea) return;
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        sendDeckInboxMessage();
+                    }
+                });
+            }
+
+            window.openDeckInbox = openDeckInbox;
+            window.closeDeckInbox = closeDeckInbox;
+            window.addEventListener('canopy:meshspace-switch-start', () => {
+                closeDeckInbox({ restoreSource: false, purgeContent: true });
+            });
+            document.addEventListener('click', (event) => {
+                const link = event.target && event.target.closest
+                    ? event.target.closest('[data-meshspace-switcher-item], [data-meshspace-quick-item]')
+                    : null;
+                if (!link || event.defaultPrevented) return;
+                const nextMeshId = String(link.getAttribute('data-meshspace-id') || '').trim();
+                const rail = document.querySelector('[data-meshspace-header-rail]');
+                const currentMeshId = String(
+                    (rail && rail.getAttribute('data-meshspace-current-id'))
+                    || (((window.CANOPY_VARS || {}).currentMeshspace || {}).id)
+                    || ''
+                ).trim();
+                if (nextMeshId && currentMeshId && nextMeshId !== currentMeshId) {
+                    closeDeckInbox({ restoreSource: false, purgeContent: true });
+                }
+            }, true);
+
             function updateDeckVisibility() {
                 if (!deck || !deckBackdrop) return;
                 applyDeckDesktopMode(state.deckDesktopMode, { silent: true });
-                const visible = state.deckOpen && !!(state.current || getDeckSelectedItem());
+                if (state.deckShellMode === 'source' && !sourceDeckHasRenderableState() && state.deckInboxActive) {
+                    state.deckShellMode = 'dm';
+                }
+                const sourceVisible = sourceDeckHasRenderableState();
+                const inboxVisible = !!state.deckInboxActive;
+                const visible = sourceVisible || inboxVisible;
                 const mobileDeckMode = isMobileDeckModalMode();
                 deck.hidden = !visible;
                 deck.setAttribute('aria-hidden', visible ? 'false' : 'true');
@@ -10238,6 +10766,7 @@
                 if (deckShell) {
                     deckShell.setAttribute('aria-modal', visible && mobileDeckMode ? 'true' : 'false');
                 }
+                updateDeckModeChrome();
             }
 
             function isMobileDeckModalMode() {
@@ -10412,6 +10941,7 @@
                 syncDeckStage();
                 renderDeckWidgetSummary(selectedItem);
                 updateDeckControls(selectedItem);
+                updateDeckModeChrome();
             }
 
             function openMediaDeck() {
@@ -10434,6 +10964,7 @@
                 setDeckDetailCollapsed(mobileDeckMode);
                 state.deckQueueNeedsRefresh = true;
                 state.deckOpen = true;
+                state.deckShellMode = 'source';
                 if (state.current || getDeckSelectedItem()) updateDeckPanel();
                 else updateDeckVisibility();
                 updateSourceDeckLauncherActiveStates();
@@ -11519,7 +12050,7 @@
             }
 
             if (deckMinimizeBtn) {
-                deckMinimizeBtn.addEventListener('click', () => closeMediaDeck());
+                deckMinimizeBtn.addEventListener('click', () => closeDeckShell());
             }
 
             if (deckMiniPlayerBtn) {
@@ -11531,7 +12062,7 @@
             }
 
             if (deckMinimizeFooterBtn) {
-                deckMinimizeFooterBtn.addEventListener('click', () => closeMediaDeck());
+                deckMinimizeFooterBtn.addEventListener('click', () => closeDeckShell());
             }
 
             if (deckMiniFooterBtn) {
@@ -11539,7 +12070,24 @@
             }
 
             if (deckCloseBtn) {
-                deckCloseBtn.addEventListener('click', () => closeMediaDeck({ forceClose: true }));
+                deckCloseBtn.addEventListener('click', () => closeDeckShell({ forceClose: true }));
+            }
+
+            if (deckSourceTab) {
+                deckSourceTab.addEventListener('click', () => {
+                    if (sourceDeckHasRenderableState()) {
+                        setDeckShellMode('source');
+                        updateDeckPanel();
+                    }
+                });
+            }
+
+            if (deckInboxTab) {
+                deckInboxTab.addEventListener('click', () => {
+                    if (state.deckInboxActive) {
+                        setDeckShellMode('dm');
+                    }
+                });
             }
 
             if (deckQueueToggle) {
@@ -11555,7 +12103,7 @@
             }
 
             if (deckBackdrop) {
-                deckBackdrop.addEventListener('click', () => closeMediaDeck());
+                deckBackdrop.addEventListener('click', () => closeDeckShell());
             }
 
             if (deckPrevBtn) {
@@ -11753,9 +12301,9 @@
             });
             document.addEventListener('visibilitychange', scheduleMiniUpdate);
             document.addEventListener('keydown', (event) => {
-                if (!state.deckOpen) return;
+                if (!state.deckOpen && !state.deckInboxActive) return;
                 if (event.key === 'Escape') {
-                    closeMediaDeck();
+                    closeDeckShell();
                 }
             });
             state.tickHandle = setInterval(scheduleMiniUpdate, 700);

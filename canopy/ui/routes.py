@@ -5551,14 +5551,18 @@ def create_ui_blueprint() -> Blueprint:
         """Return partial DM workspace fragments for incremental refreshes."""
         try:
             user_id = get_current_user()
+            requested_surface = str(request.args.get('surface') or '').strip().lower()
+            dm_surface = 'deck' if requested_surface == 'deck' else 'page'
             template_data = _build_dm_workspace_template_data(
                 user_id=user_id,
                 conversation_with=(request.args.get('with') or '').strip() or None,
                 conversation_group=(request.args.get('group') or '').strip() or None,
                 search_query=request.args.get('search', '').strip(),
             )
+            template_data['dm_surface'] = dm_surface
             return jsonify({
                 'success': True,
+                'surface': dm_surface,
                 'active_thread': template_data.get('active_thread'),
                 'composer_recipients': template_data.get('composer_recipients'),
                 'conversation_with': template_data.get('conversation_with'),
@@ -5571,6 +5575,11 @@ def create_ui_blueprint() -> Blueprint:
                 'sidebar_html': render_template('_messages_sidebar_sections.html', **template_data),
                 'thread_header_html': render_template('_messages_thread_header.html', **template_data),
                 'thread_body_html': render_template('_messages_thread_body.html', **template_data),
+                'composer_html': (
+                    ''
+                    if template_data.get('search_query')
+                    else render_template('_messages_composer.html', **template_data)
+                ),
             })
         except Exception as e:
             logger.error(f"DM thread snapshot error: {e}", exc_info=True)

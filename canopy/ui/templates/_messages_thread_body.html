@@ -1,4 +1,6 @@
 {% from "_messages_macros.html" import avatar_badge, render_dm_attachments with context %}
+{% set dm_surface_value = dm_surface|default('page') %}
+{% set dm_is_deck = dm_surface_value == 'deck' %}
 
 {% if search_query %}
     <div class="dm-search-results">
@@ -46,7 +48,16 @@
                             <i class="bi bi-three-dots"></i>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
-                            <li><a class="dropdown-item" href="#" onclick="replyToMessage('{{ message.id }}', {{ message.sender_label|tojson }}, {{ (message.reply_preview.preview if message.reply_preview else message.content[:140])|tojson }}); return false;">
+                            <li><a class="dropdown-item"
+                                   href="#"
+                                   {% if dm_is_deck %}
+                                   data-dm-action="reply"
+                                   data-message-id="{{ message.id }}"
+                                   data-sender-label="{{ message.sender_label|e }}"
+                                   data-preview="{{ (message.reply_preview.preview if message.reply_preview else message.content[:140])|e }}"
+                                   {% else %}
+                                   onclick="replyToMessage('{{ message.id }}', {{ message.sender_label|tojson }}, {{ (message.reply_preview.preview if message.reply_preview else message.content[:140])|tojson }}); return false;"
+                                   {% endif %}>
                                 <i class="bi bi-reply"></i> Reply
                             </a></li>
                             <li><a class="dropdown-item{% if message.is_bookmarked %} active{% endif %}"
@@ -60,19 +71,30 @@
                                 <span data-bookmark-label>{% if message.is_bookmarked %}Saved{% else %}Save{% endif %}</span>
                             </a></li>
                             {% if message.outbound %}
+                                {% if dm_is_deck %}
+                                <li><a class="dropdown-item" href="{{ (active_thread.href if active_thread else url_for('ui.messages')) }}#message-{{ message.id }}">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </a></li>
+                                <li><a class="dropdown-item text-danger" href="#" data-dm-action="delete" data-message-id="{{ message.id }}">
+                                    <i class="bi bi-trash"></i> Delete
+                                </a></li>
+                                {% else %}
                                 <li><a class="dropdown-item" href="#" onclick="editMessage('{{ message.id }}'); return false;">
                                     <i class="bi bi-pencil"></i> Edit
                                 </a></li>
                                 <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('{{ message.id }}'); return false;">
                                     <i class="bi bi-trash"></i> Delete
                                 </a></li>
+                                {% endif %}
                             {% endif %}
                         </ul>
                     </div>
                     <div class="dm-bubble">
                         <div class="message-content" data-message-content="1"{% if message.source_layout %} data-canopy-source-layout="{{ message.source_layout|tojson|forceescape }}"{% endif %}>
                             {% if message.reply_preview %}
-                                <button type="button" class="dm-bubble-reply-preview" onclick="jumpToMessage('{{ message.reply_preview.id }}')">
+                                <button type="button"
+                                        class="dm-bubble-reply-preview"
+                                        {% if dm_is_deck %}data-dm-action="jump-message" data-message-id="{{ message.reply_preview.id }}"{% else %}onclick="jumpToMessage('{{ message.reply_preview.id }}')"{% endif %}>
                                     <strong>{{ message.reply_preview.sender_name }}</strong>
                                     <span>{{ message.reply_preview.preview }}</span>
                                 </button>

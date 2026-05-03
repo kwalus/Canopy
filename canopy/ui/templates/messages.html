@@ -1779,72 +1779,8 @@
             </div>
 
             {% if not search_query %}
-                <div class="dm-composer" id="dm-composer">
-                    <div class="dm-composer-topline">
-                        <div class="dm-composer-target">
-                            <strong id="composer-target-title">{{ active_thread.title if active_thread else 'New conversation' }}</strong>
-                            <small id="composer-target-subtitle">{{ active_thread.subtitle if active_thread else 'Select one or more recipients to begin' }}</small>
-                        </div>
-                        <div class="dm-thread-actions">
-                            <button class="btn btn-sm btn-outline-secondary dm-composer-expand-btn"
-                                    type="button"
-                                    id="dm-composer-expand-toggle"
-                                    onclick="toggleDmComposerExpanded()"
-                                    aria-pressed="false"
-                                    title="Expand message editor"
-                                    aria-label="Expand message editor">
-                                <i class="bi bi-arrows-angle-expand"></i>
-                                <span class="dm-btn-label">Expand</span>
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="toggleRecipientEditor()">
-                                <i class="bi bi-people"></i> Recipients
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="dm-composer-reply" id="composer-reply-context">
-                        <div>
-                            <strong id="composer-reply-author"></strong>
-                            <div id="composer-reply-preview"></div>
-                        </div>
-                        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="clearReplyContext()">
-                            <i class="bi bi-x-lg"></i>
-                        </button>
-                    </div>
-
-                    <div id="composer-recipient-panel" {% if active_thread %}style="display:none;"{% endif %}>
-                        <div class="recipient-input-wrap">
-                            <div class="recipient-input">
-                                <div id="recipient-chips" class="d-flex flex-wrap gap-1"></div>
-                                <input type="text" id="messageRecipient" placeholder="Type a name, @handle, or user ID">
-                            </div>
-                            <div id="recipient-suggestions" class="recipient-suggestions"></div>
-                        </div>
-                    </div>
-
-                    <div class="dm-composer-input-wrap position-relative">
-                        <textarea class="form-control dm-composer-textarea" id="messageContent" placeholder="Write a message" onkeydown="handleMessageContentKeydown(event)"></textarea>
-                        <div id="dm-channel-suggestions" class="mention-suggestions" style="display:none;"></div>
-                    </div>
-
-                    <div id="message-file-preview" class="file-preview mt-1" style="display:none;"></div>
-
-                    <div class="dm-composer-actions">
-                        <div class="dm-composer-actions-left">
-                            <input type="file" id="message-file-input" style="display:none;" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.avi,.mkv,.mov,.webm">
-                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('message-file-input').click()">
-                                <i class="bi bi-paperclip"></i> Add Files
-                            </button>
-                            <span class="text-muted small">Images, audio, video, docs, archives, spreadsheets</span>
-                        </div>
-                        <div class="dm-composer-actions-right">
-                            <button type="button" class="btn btn-outline-secondary" onclick="clearComposer()">Clear</button>
-                            <button type="button" class="btn btn-primary" id="sendMessageBtn" onclick="sendMessage()">
-                                <i class="bi bi-send"></i> Send
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                {% set dm_surface = 'page' %}
+                {% include '_messages_composer.html' %}
             {% endif %}
         </section>
     </div>

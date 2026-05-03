@@ -1,4 +1,6 @@
 {% from "_messages_macros.html" import avatar_badge, avatar_stack with context %}
+{% set dm_surface_value = dm_surface|default('page') %}
+{% set dm_is_deck = dm_surface_value == 'deck' %}
 
 {% if search_query %}
     <div class="dm-thread-header-main">
@@ -24,7 +26,7 @@
             </div>
         </div>
         <div class="dm-thread-actions">
-            <button class="btn btn-sm btn-outline-secondary dm-mobile-sidebar-toggle" type="button" onclick="toggleDmMobileSidebar(true)" aria-controls="dm-sidebar" aria-expanded="false">
+            <button class="btn btn-sm btn-outline-secondary dm-mobile-sidebar-toggle" type="button" {% if dm_is_deck %}data-dm-action="toggle-list"{% else %}onclick="toggleDmMobileSidebar(true)"{% endif %} aria-controls="dm-sidebar" aria-expanded="false">
                 <i class="bi bi-list"></i><span class="dm-btn-label">Chats</span>
             </button>
             {% if active_thread.security %}
@@ -41,13 +43,25 @@
                 </span>
             {% endif %}
             {% if active_thread.kind == 'group' %}
-            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startFreshGroupDiscussion()" title="Start a separate group DM with these same participants">
-                <i class="bi bi-chat-square-plus"></i><span class="dm-btn-label">Fresh thread</span>
-            </button>
+                {% if dm_is_deck %}
+                <a class="btn btn-sm btn-outline-secondary" href="{{ active_thread.href or url_for('ui.messages') }}" title="Open Messages to start a separate group DM with these participants">
+                    <i class="bi bi-chat-square-plus"></i><span class="dm-btn-label">Fresh thread</span>
+                </a>
+                {% else %}
+                <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startFreshGroupDiscussion()" title="Start a separate group DM with these same participants">
+                    <i class="bi bi-chat-square-plus"></i><span class="dm-btn-label">Fresh thread</span>
+                </button>
+                {% endif %}
             {% endif %}
+            {% if dm_is_deck %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('ui.messages') }}">
+                <i class="bi bi-pencil-square"></i><span class="dm-btn-label">New</span>
+            </a>
+            {% else %}
             <button class="btn btn-sm btn-outline-secondary" type="button" onclick="startNewConversation()">
                 <i class="bi bi-pencil-square"></i><span class="dm-btn-label">New</span>
             </button>
+            {% endif %}
         </div>
     {% else %}
         <div class="dm-thread-title-wrap">

@@ -114,6 +114,8 @@ class TestUiPolishRegressions(unittest.TestCase):
     def test_primary_composers_offer_expandable_draft_area(self) -> None:
         channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
         messages = (ROOT / "canopy" / "ui" / "templates" / "messages.html").read_text(encoding="utf-8")
+        messages_composer = (ROOT / "canopy" / "ui" / "templates" / "_messages_composer.html").read_text(encoding="utf-8")
+        messages_combined = messages + "\n" + messages_composer
         feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
 
         self.assertIn('id="channel-composer-expand-toggle"', channels)
@@ -133,7 +135,8 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("pastedText.length >= 480 || lineCount >= 6 || projectedLength >= 1200", channels)
         self.assertIn("__canopyChannelPasteHandled", channels)
 
-        self.assertIn('id="dm-composer-expand-toggle"', messages)
+        self.assertIn("'dm-composer-expand-toggle'", messages_composer)
+        self.assertIn("'deck-dm-composer-expand-toggle'", messages_composer)
         self.assertIn("function toggleDmComposerExpanded", messages)
         self.assertIn(".dm-composer.composer-expanded .dm-composer-textarea", messages)
         self.assertIn("function shouldAutoExpandComposerForPaste(event, textarea)", messages)

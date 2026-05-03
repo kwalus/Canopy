@@ -1,0 +1,101 @@
+{% set dm_surface_value = dm_surface|default('page') %}
+{% set dm_is_deck = dm_surface_value == 'deck' %}
+{% set composer_id = 'deck-dm-composer' if dm_is_deck else 'dm-composer' %}
+{% set expand_id = 'deck-dm-composer-expand-toggle' if dm_is_deck else 'dm-composer-expand-toggle' %}
+{% set reply_id = 'deck-composer-reply-context' if dm_is_deck else 'composer-reply-context' %}
+{% set reply_author_id = 'deck-composer-reply-author' if dm_is_deck else 'composer-reply-author' %}
+{% set reply_preview_id = 'deck-composer-reply-preview' if dm_is_deck else 'composer-reply-preview' %}
+{% set recipient_panel_id = 'deck-composer-recipient-panel' if dm_is_deck else 'composer-recipient-panel' %}
+{% set recipient_chips_id = 'deck-recipient-chips' if dm_is_deck else 'recipient-chips' %}
+{% set recipient_input_id = 'deck-messageRecipient' if dm_is_deck else 'messageRecipient' %}
+{% set recipient_suggestions_id = 'deck-recipient-suggestions' if dm_is_deck else 'recipient-suggestions' %}
+{% set textarea_id = 'deck-messageContent' if dm_is_deck else 'messageContent' %}
+{% set channel_suggestions_id = 'deck-dm-channel-suggestions' if dm_is_deck else 'dm-channel-suggestions' %}
+{% set file_preview_id = 'deck-message-file-preview' if dm_is_deck else 'message-file-preview' %}
+{% set send_button_id = 'deck-sendMessageBtn' if dm_is_deck else 'sendMessageBtn' %}
+
+<div class="dm-composer{% if dm_is_deck %} deck-dm-composer{% endif %}"
+     id="{{ composer_id }}"
+     data-dm-surface="{{ dm_surface_value }}"
+     data-dm-role="composer">
+    <div class="dm-composer-topline">
+        <div class="dm-composer-target">
+            <strong id="{{ 'deck-composer-target-title' if dm_is_deck else 'composer-target-title' }}" data-dm-role="composer-target-title">{{ active_thread.title if active_thread else 'New conversation' }}</strong>
+            <small id="{{ 'deck-composer-target-subtitle' if dm_is_deck else 'composer-target-subtitle' }}" data-dm-role="composer-target-subtitle">{{ active_thread.subtitle if active_thread else 'Select one or more recipients to begin' }}</small>
+        </div>
+        <div class="dm-thread-actions">
+            <button class="btn btn-sm btn-outline-secondary dm-composer-expand-btn"
+                    type="button"
+                    id="{{ expand_id }}"
+                    {% if dm_is_deck %}data-dm-action="toggle-composer-expanded"{% else %}onclick="toggleDmComposerExpanded()"{% endif %}
+                    aria-pressed="false"
+                    title="Expand message editor"
+                    aria-label="Expand message editor">
+                <i class="bi bi-arrows-angle-expand"></i>
+                <span class="dm-btn-label">Expand</span>
+            </button>
+            {% if dm_is_deck %}
+                <a class="btn btn-sm btn-outline-secondary"
+                   data-dm-role="open-full-messages"
+                   href="{{ active_thread.href if active_thread else url_for('ui.messages') }}">
+                    <i class="bi bi-box-arrow-up-right"></i> Messages
+                </a>
+            {% else %}
+                <button class="btn btn-sm btn-outline-secondary" type="button" onclick="toggleRecipientEditor()">
+                    <i class="bi bi-people"></i> Recipients
+                </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="dm-composer-reply" id="{{ reply_id }}" data-dm-role="reply-context">
+        <div>
+            <strong id="{{ reply_author_id }}" data-dm-role="reply-author"></strong>
+            <div id="{{ reply_preview_id }}" data-dm-role="reply-preview"></div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" type="button" {% if dm_is_deck %}data-dm-action="clear-reply"{% else %}onclick="clearReplyContext()"{% endif %}>
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+
+    <div id="{{ recipient_panel_id }}" data-dm-role="recipient-panel" {% if active_thread or dm_is_deck %}style="display:none;"{% endif %}>
+        <div class="recipient-input-wrap">
+            <div class="recipient-input">
+                <div id="{{ recipient_chips_id }}" class="d-flex flex-wrap gap-1" data-dm-role="recipient-chips"></div>
+                <input type="text" id="{{ recipient_input_id }}" data-dm-role="recipient-input" placeholder="Type a name, @handle, or user ID">
+            </div>
+            <div id="{{ recipient_suggestions_id }}" class="recipient-suggestions" data-dm-role="recipient-suggestions"></div>
+        </div>
+    </div>
+
+    <div class="dm-composer-input-wrap position-relative">
+        <textarea class="form-control dm-composer-textarea"
+                  id="{{ textarea_id }}"
+                  data-dm-role="message-content"
+                  placeholder="Write a message"
+                  {% if not dm_is_deck %}onkeydown="handleMessageContentKeydown(event)"{% endif %}></textarea>
+        <div id="{{ channel_suggestions_id }}" class="mention-suggestions" data-dm-role="channel-suggestions" style="display:none;"></div>
+    </div>
+
+    <div id="{{ file_preview_id }}" class="file-preview mt-1" data-dm-role="file-preview" style="display:none;"></div>
+
+    <div class="dm-composer-actions">
+        <div class="dm-composer-actions-left">
+            {% if dm_is_deck %}
+                <span class="text-muted small">Quick text reply here; use Messages for attachments and deep history.</span>
+            {% else %}
+                <input type="file" id="message-file-input" style="display:none;" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.avi,.mkv,.mov,.webm">
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('message-file-input').click()">
+                    <i class="bi bi-paperclip"></i> Add Files
+                </button>
+                <span class="text-muted small">Images, audio, video, docs, archives, spreadsheets</span>
+            {% endif %}
+        </div>
+        <div class="dm-composer-actions-right">
+            <button type="button" class="btn btn-outline-secondary" {% if dm_is_deck %}data-dm-action="clear-composer"{% else %}onclick="clearComposer()"{% endif %}>Clear</button>
+            <button type="button" class="btn btn-primary" id="{{ send_button_id }}" data-dm-role="send-button" {% if dm_is_deck %}data-dm-action="send-message"{% else %}onclick="sendMessage()"{% endif %}>
+                <i class="bi bi-send"></i> Send
+            </button>
+        </div>
+    </div>
+</div>

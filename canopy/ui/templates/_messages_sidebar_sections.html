@@ -8,7 +8,11 @@
     <div class="dm-conversation-list">
         {% if direct_conversations %}
             {% for conversation in direct_conversations %}
-                <a href="{{ conversation.href }}" class="dm-conversation-card {% if conversation.is_active %}active{% endif %}">
+                <a href="{{ conversation.href }}"
+                   class="dm-conversation-card {% if conversation.is_active %}active{% endif %}"
+                   data-dm-thread-link="1"
+                   data-dm-kind="direct"
+                   data-dm-user-id="{{ conversation.user_id or '' }}">
                     {% if conversation.preview_users %}
                         {{ avatar_badge(conversation.preview_users[0], '') }}
                     {% endif %}
@@ -44,7 +48,11 @@
     <div class="dm-conversation-list">
         {% if group_conversations %}
             {% for conversation in group_conversations %}
-                <a href="{{ conversation.href }}" class="dm-conversation-card {% if conversation.is_active %}active{% endif %}">
+                <a href="{{ conversation.href }}"
+                   class="dm-conversation-card {% if conversation.is_active %}active{% endif %}"
+                   data-dm-thread-link="1"
+                   data-dm-kind="group"
+                   data-dm-group-id="{{ conversation.canonical_group_key or conversation.group_id or '' }}">
                     {{ avatar_stack(conversation.preview_users, '') }}
                     <div class="dm-conversation-main">
                         <div class="dm-conversation-topline">
