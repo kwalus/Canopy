@@ -15,7 +15,7 @@ import os
 import re
 import time
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -90,6 +90,11 @@ MAX_SYSTEM_PROMPT_CHARS = 4000
 MAX_LLM_INPUT_CHARS = 24000
 _MAX_LLM_RESPONSE_BYTES = 512 * 1024  # 512 KiB is generous; typical responses are much smaller.
 _OPENAI_PENDING_STATUSES = {'queued', 'in_progress'}
+_OPENAI_WEB_SEARCH_TOOL_STATUSES = {
+    'response.web_search_call.in_progress',
+    'response.web_search_call.searching',
+    'response.web_search_call.completed',
+}
 
 
 class CanopyLLMError(RuntimeError):
@@ -228,6 +233,59 @@ class CanopyLLMManager:
         *,
         channel_name: Optional[str] = None,
     ) -> dict[str, Any]:
+        context = self._prepare_expand_context(user_id, content, channel_name=channel_name)
+        output = self._call_openai(
+            api_key=context['api_key'],
+            model=context['model'],
+            system_prompt=context['system_prompt'],
+            prompt=context['prompt'],
+            web_search_enabled=context['web_search_enabled'],
+        )
+        if not output.strip():
+            raise CanopyLLMError('The LLM returned an empty draft.', status_code=502, reason='empty_llm_output')
+        return {
+            'content': output.strip(),
+            'provider': context['provider'],
+            'model': context['model'],
+        }
+
+    def stream_expand_prompt(
+        self,
+        user_id: str,
+        content: Any,
+        *,
+        channel_name: Optional[str] = None,
+    ) -> Iterator[dict[str, Any]]:
+        """Stream an expanded draft as small events for the browser composer."""
+        context = self._prepare_expand_context(user_id, content, channel_name=channel_name)
+        final_content = ''
+        for event in self._stream_openai(
+            api_key=context['api_key'],
+            model=context['model'],
+            system_prompt=context['system_prompt'],
+            prompt=context['prompt'],
+            web_search_enabled=context['web_search_enabled'],
+        ):
+            if event.get('type') == 'done':
+                final_content = str(event.get('content') or '').strip()
+                yield {
+                    'type': 'done',
+                    'content': final_content,
+                    'provider': context['provider'],
+                    'model': context['model'],
+                }
+            else:
+                yield event
+        if not final_content:
+            raise CanopyLLMError('The LLM returned an empty draft.', status_code=502, reason='empty_llm_output')
+
+    def _prepare_expand_context(
+        self,
+        user_id: str,
+        content: Any,
+        *,
+        channel_name: Optional[str] = None,
+    ) -> dict[str, Any]:
         user_id = str(user_id or '').strip()
         if not user_id:
             raise CanopyLLMError('Sign in before using Canopy AI Compose.', status_code=401, reason='not_authenticated')
@@ -273,19 +331,13 @@ class CanopyLLMManager:
             "User draft to transform into a Canopy post:\n"
             f"{prompt}"
         )
-        output = self._call_openai(
-            api_key=api_key,
-            model=str(settings.get('model') or DEFAULT_CANOPY_LLM_MODEL),
-            system_prompt=self._compose_system_prompt(str(settings.get('system_prompt') or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)),
-            prompt=composed_prompt,
-            web_search_enabled=bool(settings.get('web_search_enabled', True)),
-        )
-        if not output.strip():
-            raise CanopyLLMError('The LLM returned an empty draft.', status_code=502, reason='empty_llm_output')
         return {
-            'content': output.strip(),
             'provider': provider,
+            'api_key': api_key,
             'model': str(settings.get('model') or DEFAULT_CANOPY_LLM_MODEL),
+            'system_prompt': self._compose_system_prompt(str(settings.get('system_prompt') or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)),
+            'prompt': composed_prompt,
+            'web_search_enabled': bool(settings.get('web_search_enabled', True)),
         }
 
     def _ensure_schema(self) -> None:
@@ -462,8 +514,8 @@ class CanopyLLMManager:
         web_search_enabled: bool = False,
     ) -> str:
         base_url = os.getenv('CANOPY_OPENAI_BASE_URL', 'https://api.openai.com/v1').strip().rstrip('/')
-        timeout = float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '60') or '60')
-        max_output_tokens = int(os.getenv('CANOPY_LLM_MAX_OUTPUT_TOKENS', '2200') or '2200')
+        timeout = float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '90') or '90')
+        max_output_tokens = self._default_max_output_tokens(web_search_enabled=web_search_enabled)
         payload = {
             'model': model,
             'instructions': system_prompt,
@@ -474,18 +526,25 @@ class CanopyLLMManager:
         if web_search_enabled:
             payload['tools'] = [self._web_search_tool_payload()]
             payload['tool_choice'] = 'auto'
+            payload['max_tool_calls'] = self._bounded_int_env(
+                'CANOPY_LLM_WEB_SEARCH_MAX_TOOL_CALLS',
+                default=2,
+                minimum=1,
+                maximum=6,
+            )
 
         attempts = 1 + self._bounded_int_env('CANOPY_LLM_EMPTY_RETRY_ATTEMPTS', default=2, minimum=0, maximum=3)
         last_summary = ''
+        last_incomplete_reason = ''
         for attempt in range(attempts):
-            attempt_payload = dict(payload)
-            if attempt > 0:
-                attempt_payload['input'] = (
-                    f"{prompt}\n\n"
-                    "Generate the final Canopy post body now. Do not return only a tool call. "
-                    "If current facts could not be verified, say that plainly in the draft."
-                )
-                attempt_payload['max_output_tokens'] = min(max(int(max_output_tokens * 1.5), 3000), 6000)
+            attempt_payload = self._openai_attempt_payload(
+                payload,
+                prompt=prompt,
+                attempt=attempt,
+                total_attempts=attempts,
+                web_search_enabled=web_search_enabled,
+                last_incomplete_reason=last_incomplete_reason,
+            )
             data = self._create_openai_response(
                 base_url=base_url,
                 api_key=api_key,
@@ -505,8 +564,174 @@ class CanopyLLMManager:
             if text:
                 return text
             last_summary = self._summarize_response_shape(data)
+            last_incomplete_reason = self._response_incomplete_reason(data)
             logger.warning(
                 'OpenAI compose response had no output text on attempt %s/%s: %s',
+                attempt + 1,
+                attempts,
+                last_summary,
+            )
+
+        detail = f' Response shape: {last_summary}' if last_summary else ''
+        raise CanopyLLMError(
+            'OpenAI returned no output text after retry. Please try Generate again or turn off web search for this draft.'
+            + detail,
+            status_code=502,
+            reason='provider_empty_response',
+        )
+
+    def _default_max_output_tokens(self, *, web_search_enabled: bool) -> int:
+        """Choose a token budget that leaves room for Responses reasoning/tool work."""
+        if os.getenv('CANOPY_LLM_MAX_OUTPUT_TOKENS'):
+            raw = os.getenv('CANOPY_LLM_MAX_OUTPUT_TOKENS', '')
+        elif web_search_enabled:
+            raw = os.getenv('CANOPY_LLM_WEB_SEARCH_MAX_OUTPUT_TOKENS', '6000')
+        else:
+            raw = os.getenv('CANOPY_LLM_PLAIN_MAX_OUTPUT_TOKENS', '2600')
+        try:
+            value = int(str(raw or '').strip())
+        except Exception:
+            value = 6000 if web_search_enabled else 2600
+        return max(800, min(value, 20000))
+
+    def _openai_attempt_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        prompt: str,
+        attempt: int,
+        total_attempts: int,
+        web_search_enabled: bool,
+        last_incomplete_reason: str = '',
+    ) -> dict[str, Any]:
+        attempt_payload = dict(payload)
+        base_tokens = int(attempt_payload.get('max_output_tokens') or 2600)
+        if attempt <= 0:
+            return attempt_payload
+
+        final_retry = attempt >= total_attempts - 1
+        had_token_exhaustion = str(last_incomplete_reason or '').strip().lower() == 'max_output_tokens'
+        retry_tokens_default = 9000 if web_search_enabled else 4000
+        retry_token_cap = self._bounded_int_env(
+            'CANOPY_LLM_RETRY_MAX_OUTPUT_TOKENS',
+            default=retry_tokens_default,
+            minimum=1200,
+            maximum=20000,
+        )
+        attempt_payload['max_output_tokens'] = min(max(int(base_tokens * 1.5), retry_tokens_default), retry_token_cap)
+        attempt_payload['input'] = (
+            f"{prompt}\n\n"
+            "Generate the final Canopy post body now. Do not return only tool calls or reasoning. "
+            "Keep the draft concise and ready for human review. "
+            "If current facts could not be verified, say that plainly in the draft."
+        )
+
+        if web_search_enabled and not final_retry:
+            attempt_payload['max_tool_calls'] = 1
+            attempt_payload['input'] += (
+                "\nUse at most one web search call on this retry, then write the final post body."
+            )
+        elif web_search_enabled and (final_retry or had_token_exhaustion):
+            # If web search repeatedly consumes the whole output budget, still give the
+            # human an editable draft rather than a dead composer. The prompt requires
+            # the model to disclose that current facts were not freshly verified.
+            attempt_payload.pop('tools', None)
+            attempt_payload.pop('tool_choice', None)
+            attempt_payload.pop('max_tool_calls', None)
+            attempt_payload['input'] += (
+                "\nDo not use web search on this final retry. If the post needs live facts, "
+                "write a concise draft that says current facts still need verification."
+            )
+        return attempt_payload
+
+    def _stream_openai(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        system_prompt: str,
+        prompt: str,
+        web_search_enabled: bool = False,
+    ) -> Iterator[dict[str, Any]]:
+        base_url = os.getenv('CANOPY_OPENAI_BASE_URL', 'https://api.openai.com/v1').strip().rstrip('/')
+        timeout = float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '90') or '90')
+        max_output_tokens = self._default_max_output_tokens(web_search_enabled=web_search_enabled)
+        payload = {
+            'model': model,
+            'instructions': system_prompt,
+            'input': prompt,
+            'max_output_tokens': max_output_tokens,
+            'store': False,
+        }
+        if web_search_enabled:
+            payload['tools'] = [self._web_search_tool_payload()]
+            payload['tool_choice'] = 'auto'
+            payload['max_tool_calls'] = self._bounded_int_env(
+                'CANOPY_LLM_WEB_SEARCH_MAX_TOOL_CALLS',
+                default=2,
+                minimum=1,
+                maximum=6,
+            )
+
+        attempts = 1 + self._bounded_int_env('CANOPY_LLM_EMPTY_RETRY_ATTEMPTS', default=2, minimum=0, maximum=3)
+        last_summary = ''
+        last_incomplete_reason = ''
+        for attempt in range(attempts):
+            if attempt > 0:
+                yield {
+                    'type': 'status',
+                    'message': 'Retrying with a tighter final-draft instruction...',
+                }
+            attempt_payload = self._openai_attempt_payload(
+                payload,
+                prompt=prompt,
+                attempt=attempt,
+                total_attempts=attempts,
+                web_search_enabled=web_search_enabled,
+                last_incomplete_reason=last_incomplete_reason,
+            )
+            text_parts: list[str] = []
+            final_response: dict[str, Any] = {}
+            for event in self._create_openai_response_stream(
+                base_url=base_url,
+                api_key=api_key,
+                payload=attempt_payload,
+                timeout=timeout,
+            ):
+                event_type = str(event.get('type') or '').strip()
+                if event_type == 'response.output_text.delta':
+                    delta = str(event.get('delta') or '')
+                    if delta:
+                        text_parts.append(delta)
+                        yield {'type': 'delta', 'delta': delta}
+                elif event_type == 'response.output_text.done':
+                    text = str(event.get('text') or '')
+                    if text and not text_parts:
+                        text_parts.append(text)
+                        yield {'type': 'delta', 'delta': text}
+                elif event_type in _OPENAI_WEB_SEARCH_TOOL_STATUSES:
+                    yield {'type': 'status', 'message': 'Checking current web sources...'}
+                elif event_type in {'response.completed', 'response.done', 'response.incomplete', 'response.failed'}:
+                    response_payload = event.get('response')
+                    if isinstance(response_payload, dict):
+                        final_response = response_payload
+                elif event_type == 'error':
+                    message = str(event.get('message') or event.get('error') or '').strip()
+                    if message:
+                        raise CanopyLLMError(message, status_code=502, reason='provider_response_error')
+
+            final_text = ''.join(text_parts).strip()
+            if not final_text and final_response:
+                final_text = self._extract_response_text(final_response)
+                if final_text:
+                    yield {'type': 'delta', 'delta': final_text}
+            if final_text:
+                yield {'type': 'done', 'content': final_text}
+                return
+            last_summary = self._summarize_response_shape(final_response) if final_response else 'status=unknown; output=none'
+            last_incomplete_reason = self._response_incomplete_reason(final_response)
+            logger.warning(
+                'Streaming OpenAI compose response had no output text on attempt %s/%s: %s',
                 attempt + 1,
                 attempts,
                 last_summary,
@@ -541,6 +766,30 @@ class CanopyLLMManager:
             },
         )
         return self._read_openai_json(request, timeout=timeout)
+
+    def _create_openai_response_stream(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        payload: dict[str, Any],
+        timeout: float,
+    ) -> Iterator[dict[str, Any]]:
+        stream_payload = dict(payload)
+        stream_payload['stream'] = True
+        body = json.dumps(stream_payload).encode('utf-8')
+        request = Request(
+            f'{base_url}/responses',
+            data=body,
+            method='POST',
+            headers={
+                'Authorization': f'Bearer {api_key}',
+                'Content-Type': 'application/json',
+                'Accept': 'text/event-stream',
+                'User-Agent': 'Canopy-LLM-Compose/1',
+            },
+        )
+        yield from self._read_openai_sse(request, timeout=timeout)
 
     def _retrieve_openai_response(
         self,
@@ -585,6 +834,61 @@ class CanopyLLMManager:
         except json.JSONDecodeError as exc:
             raise CanopyLLMError('OpenAI returned a non-JSON response.', status_code=502, reason='provider_bad_response') from exc
         return data if isinstance(data, dict) else {}
+
+    def _read_openai_sse(self, request: Request, *, timeout: float) -> Iterator[dict[str, Any]]:
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                event_name = ''
+                data_lines: list[str] = []
+                total_bytes = 0
+
+                def _flush_event() -> Iterator[dict[str, Any]]:
+                    nonlocal event_name, data_lines
+                    if not data_lines:
+                        event_name = ''
+                        return
+                    raw_data = '\n'.join(data_lines).strip()
+                    name = event_name
+                    event_name = ''
+                    data_lines = []
+                    if not raw_data or raw_data == '[DONE]':
+                        return
+                    try:
+                        parsed = json.loads(raw_data)
+                    except json.JSONDecodeError:
+                        logger.debug("Skipping non-JSON OpenAI SSE event %s: %s", name, raw_data[:120])
+                        return
+                    if isinstance(parsed, dict):
+                        if name and not parsed.get('type'):
+                            parsed['type'] = name
+                        yield parsed
+
+                while True:
+                    raw_line = response.readline(64 * 1024)
+                    if not raw_line:
+                        yield from _flush_event()
+                        break
+                    total_bytes += len(raw_line)
+                    if total_bytes > _MAX_LLM_RESPONSE_BYTES:
+                        raise CanopyLLMError(
+                            'OpenAI streamed a response that exceeded Canopy AI Compose limits.',
+                            status_code=502,
+                            reason='provider_response_too_large',
+                        )
+                    line = raw_line.decode('utf-8', errors='replace').rstrip('\r\n')
+                    if line == '':
+                        yield from _flush_event()
+                    elif line.startswith('event:'):
+                        event_name = line.split(':', 1)[1].strip()
+                    elif line.startswith('data:'):
+                        data_lines.append(line.split(':', 1)[1].lstrip())
+        except HTTPError as exc:
+            message = self._extract_openai_error(exc)
+            logger.warning('OpenAI compose stream failed with HTTP %s: %s', exc.code, message)
+            raise CanopyLLMError(message, status_code=502, reason='provider_http_error') from exc
+        except (URLError, TimeoutError) as exc:
+            logger.warning('OpenAI compose stream failed: %s', exc)
+            raise CanopyLLMError(f'Could not reach OpenAI: {exc}', status_code=502, reason='provider_unreachable') from exc
 
     def _resolve_openai_response_if_pending(
         self,
@@ -675,12 +979,18 @@ class CanopyLLMManager:
         return ''
 
     @staticmethod
+    def _response_incomplete_reason(data: dict[str, Any]) -> str:
+        if not isinstance(data, dict):
+            return ''
+        incomplete = data.get('incomplete_details')
+        if isinstance(incomplete, dict):
+            return str(incomplete.get('reason') or '').strip()
+        return ''
+
+    @staticmethod
     def _summarize_response_shape(data: dict[str, Any]) -> str:
         status = str(data.get('status') or 'unknown').strip() or 'unknown'
-        incomplete = data.get('incomplete_details')
-        incomplete_reason = ''
-        if isinstance(incomplete, dict):
-            incomplete_reason = str(incomplete.get('reason') or '').strip()
+        incomplete_reason = CanopyLLMManager._response_incomplete_reason(data)
         output = data.get('output')
         item_summaries: list[str] = []
         if isinstance(output, list):

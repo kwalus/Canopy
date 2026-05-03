@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.63] - 2026-05-02
+
+### Added
+- **`@Canopy` compose now streams drafts into the channel composer** - the browser uses a new SSE endpoint for live draft status and text deltas, while preserving the JSON endpoint as a fallback and keeping the original prompt intact until generated text starts.
+
+### Fixed
+- **`@Canopy` web-search drafting now has stronger retry budgeting** - OpenAI Responses calls use higher web-search token budgets, bounded tool calls, tighter retry prompts, and a final no-tool fallback when web search consumes the whole output budget without producing visible draft text.
+- **Streamed `@Canopy` errors now surface correctly** - the channel SSE parser propagates provider error events and handles CRLF event separators instead of converting stream errors into generic empty-draft failures.
+
 ## [0.6.62] - 2026-05-02
 
 ### Fixed

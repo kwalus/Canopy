@@ -101,6 +101,23 @@ class _FakeLLMManager:
             'model': 'gpt-5-mini',
         }
 
+    def stream_expand_prompt(self, user_id: str, content: Any, *, channel_name: Optional[str] = None):
+        self.expand_calls.append({
+            'user_id': user_id,
+            'content': content,
+            'channel_name': channel_name,
+            'stream': True,
+        })
+        yield {'type': 'status', 'message': 'Streaming test draft...'}
+        yield {'type': 'delta', 'delta': 'Streamed '}
+        yield {'type': 'delta', 'delta': 'draft'}
+        yield {
+            'type': 'done',
+            'content': 'Streamed draft',
+            'provider': 'openai',
+            'model': 'gpt-5-mini',
+        }
+
 
 class TestCanopyLLMManager(unittest.TestCase):
     def setUp(self) -> None:
@@ -207,6 +224,7 @@ class TestCanopyLLMManager(unittest.TestCase):
         def _fake_urlopen(request: Any, timeout: float = 0) -> _Response:
             captured['url'] = request.full_url
             captured['payload'] = json.loads(request.data.decode('utf-8'))
+            captured['timeout'] = timeout
             return _Response()
 
         with patch('canopy.core.canopy_ai.urlopen', side_effect=_fake_urlopen):
@@ -224,6 +242,9 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertEqual(captured['payload']['tool_choice'], 'auto')
         self.assertEqual(captured['payload']['tools'][0]['type'], 'web_search')
         self.assertEqual(captured['payload']['tools'][0]['search_context_size'], 'low')
+        self.assertEqual(captured['payload']['max_output_tokens'], 6000)
+        self.assertEqual(captured['payload']['max_tool_calls'], 2)
+        self.assertEqual(captured['timeout'], 90)
 
     def test_openai_empty_tool_only_response_retries_with_final_instruction(self) -> None:
         manager = CanopyLLMManager(self.db, 'test-secret')
@@ -265,6 +286,49 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertIn('Generate the final Canopy post body now', captured_payloads[1]['input'])
         self.assertGreater(captured_payloads[1]['max_output_tokens'], captured_payloads[0]['max_output_tokens'])
 
+    def test_openai_web_search_token_exhaustion_final_retry_disables_tools(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        captured_payloads: list[dict[str, Any]] = []
+
+        class _Response:
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
+
+            def __enter__(self) -> '_Response':
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, size: int = -1) -> bytes:
+                return self.payload
+
+        responses = [
+            b'{"id":"resp_1","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"web_search_call","status":"completed"}]}',
+            b'{"id":"resp_2","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"web_search_call","status":"completed"}]}',
+            b'{"id":"resp_3","status":"completed","output_text":"Draft noting current facts still need verification."}',
+        ]
+
+        def _fake_urlopen(request: Any, timeout: float = 0) -> _Response:
+            captured_payloads.append(json.loads(request.data.decode('utf-8')))
+            return _Response(responses.pop(0))
+
+        with patch('canopy.core.canopy_ai.urlopen', side_effect=_fake_urlopen):
+            output = manager._call_openai(
+                api_key='sk-test',
+                model='gpt-5.4-mini',
+                system_prompt='Compose.',
+                prompt='User draft to transform into a Canopy post:\npost current weather in Vancouver',
+                web_search_enabled=True,
+            )
+
+        self.assertEqual(output, 'Draft noting current facts still need verification.')
+        self.assertIn('tools', captured_payloads[0])
+        self.assertEqual(captured_payloads[1]['max_tool_calls'], 1)
+        self.assertNotIn('tools', captured_payloads[2])
+        self.assertNotIn('tool_choice', captured_payloads[2])
+        self.assertIn('Do not use web search on this final retry', captured_payloads[2]['input'])
+
     def test_openai_pending_response_is_polled_before_retrying(self) -> None:
         manager = CanopyLLMManager(self.db, 'test-secret')
         request_methods: list[str] = []
@@ -303,6 +367,57 @@ class TestCanopyLLMManager(unittest.TestCase):
 
         self.assertEqual(output, 'Final draft after poll.')
         self.assertEqual(request_methods, ['POST', 'GET'])
+
+    def test_openai_stream_yields_text_deltas_and_done(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        captured_payload: dict[str, Any] = {}
+
+        class _StreamResponse:
+            def __init__(self) -> None:
+                self.lines = iter([
+                    b'data: {"type":"response.web_search_call.completed"}\n',
+                    b'\n',
+                    b'data: {"type":"response.output_text.delta","delta":"Hello "}\n',
+                    b'\n',
+                    b'data: {"type":"response.output_text.delta","delta":"Canopy"}\n',
+                    b'\n',
+                    b'data: {"type":"response.completed","response":{"status":"completed"}}\n',
+                    b'\n',
+                ])
+
+            def __enter__(self) -> '_StreamResponse':
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def readline(self, size: int = -1) -> bytes:
+                return next(self.lines, b'')
+
+        def _fake_urlopen(request: Any, timeout: float = 0) -> _StreamResponse:
+            captured_payload.update(json.loads(request.data.decode('utf-8')))
+            return _StreamResponse()
+
+        with patch('canopy.core.canopy_ai.urlopen', side_effect=_fake_urlopen):
+            events = list(manager._stream_openai(
+                api_key='sk-test',
+                model='gpt-5.4-mini',
+                system_prompt='Compose.',
+                prompt='Draft.',
+                web_search_enabled=True,
+            ))
+
+        self.assertTrue(captured_payload['stream'])
+        self.assertEqual(captured_payload['max_output_tokens'], 6000)
+        self.assertIn({'type': 'status', 'message': 'Checking current web sources...'}, events)
+        self.assertEqual(
+            [event for event in events if event.get('type') in ('delta', 'done')],
+            [
+                {'type': 'delta', 'delta': 'Hello '},
+                {'type': 'delta', 'delta': 'Canopy'},
+                {'type': 'done', 'content': 'Hello Canopy'},
+            ],
+        )
 
 
 class TestCanopyLLMComposeRoutes(unittest.TestCase):
@@ -364,6 +479,24 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
         self.assertTrue(payload.get('success'))
         self.assertIn('@Forge', payload.get('content') or '')
         self.assertEqual(payload.get('model'), 'gpt-5-mini')
+        self.assertEqual(self.llm_manager.expand_calls[0]['channel_name'], 'general')
+
+    def test_expand_stream_endpoint_returns_sse_draft_events(self) -> None:
+        csrf = self._login()
+
+        response = self.client.post(
+            '/ajax/canopy_llm/expand_stream',
+            json={'channel_id': 'general', 'content': '@Canopy write an update'},
+            headers={'X-CSRFToken': csrf},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('text/event-stream', response.content_type)
+        body = response.get_data(as_text=True)
+        self.assertIn('"type":"status"', body)
+        self.assertIn('"delta":"Streamed "', body)
+        self.assertIn('"content":"Streamed draft"', body)
+        self.assertTrue(self.llm_manager.expand_calls[0]['stream'])
         self.assertEqual(self.llm_manager.expand_calls[0]['channel_name'], 'general')
 
     def test_expand_endpoint_requires_canopy_trigger(self) -> None:

@@ -28,7 +28,7 @@ import threading
 import xml.etree.ElementTree as ET
 from functools import wraps
 from pathlib import Path
-from flask import Blueprint, render_template, request, jsonify, current_app, session, redirect, url_for, flash, send_file, Response, g
+from flask import Blueprint, render_template, request, jsonify, current_app, session, redirect, url_for, flash, send_file, Response, g, stream_with_context
 from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
 from typing import Any, Optional, cast
@@ -20813,6 +20813,105 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'error': str(e), 'reason': e.reason}), e.status_code
         except Exception as e:
             logger.error("Canopy LLM expand error: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/canopy_llm/expand_stream', methods=['POST'])
+    @require_login
+    def ajax_canopy_llm_expand_stream():
+        """Stream a channel draft expansion into the composer as it is generated."""
+        try:
+            from ..core.canopy_ai import CanopyLLMError
+
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            data = request.get_json(silent=True) or {}
+            content = str(data.get('content') or '')
+            channel_id = str(data.get('channel_id') or '').strip()
+            parent_message_id = data.get('parent_message_id')
+            manager = _get_canopy_llm_manager()
+
+            if not channel_id:
+                return jsonify({'error': 'Channel ID required'}), 400
+            if not manager.has_canopy_trigger(content):
+                return jsonify({'error': 'Add @Canopy to the draft to use AI compose.', 'reason': 'missing_trigger'}), 400
+
+            access = channel_manager.get_channel_access_decision(
+                channel_id=channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if not access.get('allowed'):
+                if str(access.get('reason') or '').startswith('governance_'):
+                    return jsonify({
+                        'error': 'Channel access blocked by admin governance policy',
+                        'reason': access.get('reason'),
+                    }), 403
+                return jsonify({'error': 'You are not a member of this channel'}), 403
+
+            post_decision = channel_manager.can_user_post_message(
+                channel_id=channel_id,
+                user_id=user_id,
+                parent_message_id=parent_message_id,
+                allow_admin=False,
+            )
+            if not post_decision.get('allowed'):
+                reason = str(post_decision.get('reason') or '')
+                if reason == 'top_level_post_restricted':
+                    return jsonify({
+                        'error': 'This channel is curated. Only approved posters can start top-level posts.',
+                        'reason': reason,
+                        'post_policy': post_decision.get('post_policy'),
+                        'can_reply': post_decision.get('can_reply'),
+                    }), 403
+                if reason == 'reply_restricted':
+                    return jsonify({
+                        'error': 'Replies are currently restricted in this channel.',
+                        'reason': reason,
+                    }), 403
+                return jsonify({
+                    'error': 'You cannot post in this channel.',
+                    'reason': reason or 'posting_denied',
+                }), 403
+
+            channel_name = None
+            try:
+                with db_manager.get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT name FROM channels WHERE id = ?",
+                        (channel_id,),
+                    ).fetchone()
+                    if row:
+                        channel_name = str((row['name'] if hasattr(row, 'keys') else row[0]) or '').strip() or None
+            except Exception:
+                channel_name = None
+
+            def _event(payload: dict[str, Any]) -> str:
+                return f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
+
+            @stream_with_context
+            def _generate():
+                yield _event({'type': 'status', 'message': 'Sending prompt to your configured LLM...'})
+                try:
+                    for event in manager.stream_expand_prompt(user_id, content, channel_name=channel_name):
+                        yield _event(event)
+                except CanopyLLMError as e:
+                    yield _event({'type': 'error', 'error': str(e), 'reason': e.reason})
+                except Exception as e:
+                    logger.error("Canopy LLM stream error: %s", e, exc_info=True)
+                    yield _event({'type': 'error', 'error': 'Canopy AI Compose failed while streaming.'})
+
+            return Response(
+                _generate(),
+                mimetype='text/event-stream',
+                headers={
+                    'Cache-Control': 'no-cache',
+                    'X-Accel-Buffering': 'no',
+                },
+            )
+        except CanopyLLMError as e:
+            return jsonify({'error': str(e), 'reason': e.reason}), e.status_code
+        except Exception as e:
+            logger.error("Canopy LLM stream setup error: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     # Profile management

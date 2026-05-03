@@ -14275,6 +14275,105 @@ function toggleChannelComposerExpanded(forceExpanded) {
     setChannelComposerExpanded(next);
 }
 
+function parseCanopyLLMSSEBuffer(buffer, onEvent) {
+    let rest = String(buffer || '');
+    const findSeparator = () => {
+        const lf = rest.indexOf('\n\n');
+        const crlf = rest.indexOf('\r\n\r\n');
+        if (lf < 0) return { index: crlf, length: crlf >= 0 ? 4 : 0 };
+        if (crlf < 0 || lf < crlf) return { index: lf, length: 2 };
+        return { index: crlf, length: 4 };
+    };
+    let separator = findSeparator();
+    while (separator.index >= 0) {
+        const rawEvent = rest.slice(0, separator.index);
+        rest = rest.slice(separator.index + separator.length);
+        const dataLines = rawEvent
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trimStart());
+        if (dataLines.length) {
+            const rawData = dataLines.join('\n').trim();
+            if (rawData && rawData !== '[DONE]') {
+                let event = null;
+                try {
+                    event = JSON.parse(rawData);
+                } catch (err) {
+                    console.warn('Could not parse Canopy AI stream event:', err);
+                }
+                if (event) {
+                    onEvent(event);
+                }
+            }
+        }
+        separator = findSeparator();
+    }
+    return rest;
+}
+
+async function streamCanopyLLMDraft(payload, handlers = {}) {
+    if (!window.TextDecoder || !window.ReadableStream) {
+        throw { fallback: true };
+    }
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    const response = await fetch('/ajax/canopy_llm/expand_stream', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+            'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify(payload)
+    });
+    if (!response.ok || !response.body) {
+        let errorPayload = {};
+        try {
+            errorPayload = await response.json();
+        } catch (_) {
+            errorPayload = { error: `Request failed (${response.status})` };
+        }
+        throw errorPayload;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let content = '';
+    let finalPayload = null;
+    const handleEvent = (event) => {
+        const type = String(event && event.type || '');
+        if (type === 'status') {
+            if (handlers.onStatus) handlers.onStatus(String(event.message || 'Generating draft...'));
+        } else if (type === 'delta') {
+            const delta = String(event.delta || '');
+            if (delta) {
+                content += delta;
+                if (handlers.onDelta) handlers.onDelta(delta, content);
+            }
+        } else if (type === 'done') {
+            finalPayload = event;
+            if (event.content) content = String(event.content || '');
+        } else if (type === 'error') {
+            throw event;
+        }
+    };
+
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        buffer = parseCanopyLLMSSEBuffer(buffer, handleEvent);
+    }
+    buffer += decoder.decode();
+    parseCanopyLLMSSEBuffer(buffer + '\n\n', handleEvent);
+    return {
+        success: true,
+        content,
+        provider: (finalPayload && finalPayload.provider) || 'openai',
+        model: (finalPayload && finalPayload.model) || ''
+    };
+}
+
 async function maybeExpandCanopyLLMDraft(rawContent) {
     if (!shouldGenerateCanopyLLMDraft(rawContent)) {
         updateCanopyLLMComposePanel();
@@ -14295,11 +14394,35 @@ async function maybeExpandCanopyLLMDraft(rawContent) {
     }
 
     let data;
+    let streamStarted = false;
     try {
-        data = await apiCall('/ajax/canopy_llm/expand', {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
+        try {
+            data = await streamCanopyLLMDraft(payload, {
+                onStatus(message) {
+                    setCanopyLLMStatus(message, true, 'info', { busy: true, actions: false });
+                },
+                onDelta(delta, fullText) {
+                    if (!messageInput) return;
+                    if (!streamStarted) {
+                        streamStarted = true;
+                        messageInput.value = '';
+                        setChannelComposerExpanded(true);
+                    }
+                    messageInput.value = fullText;
+                    messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
+                    notifyComposerUpdate();
+                }
+            });
+        } catch (streamError) {
+            if (streamError && streamError.fallback) {
+                data = await apiCall('/ajax/canopy_llm/expand', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                throw streamError;
+            }
+        }
     } catch (error) {
         channelCanopyLLMInFlight = false;
         syncChannelComposerAvailability();
@@ -14311,7 +14434,7 @@ async function maybeExpandCanopyLLMDraft(rawContent) {
         syncChannelComposerAvailability();
         throw { error: 'Canopy AI Compose returned an empty draft.' };
     }
-    if (messageInput) {
+    if (messageInput && !streamStarted) {
         messageInput.value = expanded;
         messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
         setChannelComposerExpanded(true);
