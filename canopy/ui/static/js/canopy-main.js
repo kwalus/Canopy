@@ -1245,6 +1245,43 @@
             setSidebarNavUnreadBadge('feed', safeSummary.feed || 0);
         }
 
+        const CANOPY_TITLE_ATTENTION_PREFIX_RE = /^\(\d{1,4}\+?\)\s+/;
+        const canopyBaseDocumentTitle = (() => {
+            const rawTitle = String(document.title || 'Canopy').trim() || 'Canopy';
+            return rawTitle.replace(CANOPY_TITLE_ATTENTION_PREFIX_RE, '') || 'Canopy';
+        })();
+
+        function countCanopyAttentionSummaryTotal(summary) {
+            const safeSummary = summary && typeof summary === 'object' ? summary : {};
+            const explicitTotal = Math.max(0, Number(safeSummary.total || 0) || 0);
+            const componentTotal = [
+                safeSummary.messages,
+                safeSummary.channels,
+                safeSummary.feed,
+                safeSummary.mention_count,
+                safeSummary.mentions,
+                safeSummary.inbox,
+                safeSummary.pending_inbox,
+                safeSummary.pending_review_count,
+            ].reduce((sum, value) => sum + Math.max(0, Number(value || 0) || 0), 0);
+            return Math.max(explicitTotal, componentTotal);
+        }
+
+        function syncCanopyAttentionDocumentTitle(items) {
+            const summaryCount = countCanopyAttentionSummaryTotal(canopySidebarAttentionState.summary);
+            const itemCount = countUnseenCanopyAttentionItems(
+                Array.isArray(items) ? items : canopySidebarAttentionState.items
+            );
+            const totalCount = Math.max(summaryCount, itemCount);
+            if (totalCount > 0) {
+                const label = totalCount > 999 ? '999+' : String(totalCount);
+                document.title = `(${label}) ${canopyBaseDocumentTitle}`;
+            } else {
+                document.title = canopyBaseDocumentTitle;
+            }
+        }
+        window.syncCanopyAttentionDocumentTitle = syncCanopyAttentionDocumentTitle;
+
         const canopySidebarAttentionState = {
             currentSummaryRev: canopyInitialAttentionRev || '',
             currentActivityRev: canopyInitialAttentionActivityRev || '',
@@ -1252,6 +1289,8 @@
                 messages: Math.max(0, Number(canopyInitialAttentionSummary.messages || 0)),
                 channels: Math.max(0, Number(canopyInitialAttentionSummary.channels || 0)),
                 feed: Math.max(0, Number(canopyInitialAttentionSummary.feed || 0)),
+                mention_count: Math.max(0, Number(canopyInitialAttentionSummary.mention_count || 0)),
+                pending_review_count: Math.max(0, Number(canopyInitialAttentionSummary.pending_review_count || 0)),
                 total: Math.max(0, Number(canopyInitialAttentionSummary.total || 0)),
             },
             items: Array.isArray(canopyInitialAttentionItems) ? canopyInitialAttentionItems.slice(0) : [],
@@ -1525,10 +1564,13 @@
                         messages: Math.max(0, Number(summary.messages || 0)),
                         channels: Math.max(0, Number(summary.channels || 0)),
                         feed: Math.max(0, Number(summary.feed || 0)),
+                        mention_count: Math.max(0, Number(summary.mention_count || 0)),
+                        pending_review_count: Math.max(0, Number(summary.pending_review_count || 0)),
                         total: Math.max(0, Number(summary.total || 0)),
                     };
                     canopySidebarAttentionState.items = Array.isArray(data.items) ? data.items.slice(0) : [];
                     renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
+                    syncCanopyAttentionDocumentTitle();
                     if (window.renderCanopyAttentionBell) {
                         window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
                     }
@@ -1607,6 +1649,7 @@
         function startCanopyWorkspaceAttentionPolling() {
             renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
             canopyRenderSidebarDmContacts(canopySidebarDmState.contacts);
+            syncCanopyAttentionDocumentTitle();
             if (window.renderCanopyAttentionBell) {
                 window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));
             }
@@ -6120,10 +6163,12 @@
                 const normalized = Array.isArray(items) ? items.filter(Boolean).slice(0, 12) : [];
                 if (!listEl) {
                     setBadge(countUnseenCanopyAttentionItems(normalized));
+                    syncCanopyAttentionDocumentTitle();
                     return;
                 }
                 listEl.innerHTML = '';
                 setBadge(countUnseenCanopyAttentionItems(normalized));
+                syncCanopyAttentionDocumentTitle();
                 if (!normalized.length) {
                     if (emptyWrap) emptyWrap.style.display = 'block';
                     return;
@@ -12713,13 +12758,41 @@
             const sidebar = document.getElementById('main-sidebar');
             const contentContainer = document.getElementById('content-container');
             const mobileBackdrop = document.getElementById('mobile-backdrop');
+            const mobileSidebarQuery = window.matchMedia ? window.matchMedia('(max-width: 576px)') : null;
             
             if (!toggleBtn || !sidebarContainer || !sidebar || !contentContainer) {
                 return;
             }
             
             // Sidebar states: 'expanded', 'collapsed', 'hidden'
-            let currentState = localStorage.getItem('sidebar-state') || 'expanded';
+            const desktopStorageKey = 'sidebar-state';
+            const mobileStorageKey = 'sidebar-state-mobile';
+            const validSidebarStates = new Set(['expanded', 'collapsed', 'hidden']);
+
+            function isMobileSidebarMode() {
+                return mobileSidebarQuery ? mobileSidebarQuery.matches : window.innerWidth <= 576;
+            }
+
+            function normalizeSidebarStateForViewport(state) {
+                const normalized = validSidebarStates.has(state) ? state : 'expanded';
+                if (isMobileSidebarMode()) {
+                    return normalized === 'expanded' ? 'expanded' : 'hidden';
+                }
+                return normalized;
+            }
+
+            function readSidebarState() {
+                const storageKey = isMobileSidebarMode() ? mobileStorageKey : desktopStorageKey;
+                const fallback = isMobileSidebarMode() ? 'hidden' : 'expanded';
+                return normalizeSidebarStateForViewport(localStorage.getItem(storageKey) || fallback);
+            }
+
+            function saveSidebarState(state) {
+                const storageKey = isMobileSidebarMode() ? mobileStorageKey : desktopStorageKey;
+                localStorage.setItem(storageKey, normalizeSidebarStateForViewport(state));
+            }
+
+            let currentState = readSidebarState();
 
             function syncCompactNavTitles(state) {
                 const compact = state === 'collapsed';
@@ -12747,33 +12820,16 @@
                 });
             }
             
-            // Check if mobile and adjust initial state
-            if (window.innerWidth < 576 && currentState === 'expanded') {
-                currentState = 'collapsed';
-            }
-            
             applySidebarState(currentState);
             
             // Toggle button click handler - cycles through states
             toggleBtn.addEventListener('click', function() {
                 let newState;
-                const isMobile = window.innerWidth < 576;
+                const isMobile = isMobileSidebarMode();
                 
                 if (isMobile) {
-                    // Mobile: expanded -> collapsed -> hidden -> expanded
-                    switch(currentState) {
-                        case 'expanded':
-                            newState = 'collapsed';
-                            break;
-                        case 'collapsed':
-                            newState = 'hidden';
-                            break;
-                        case 'hidden':
-                            newState = 'expanded';
-                            break;
-                        default:
-                            newState = 'collapsed';
-                    }
+                    // Mobile is a drawer: visible or hidden. Avoid an invisible intermediate state.
+                    newState = currentState === 'expanded' ? 'hidden' : 'expanded';
                 } else {
                     // Desktop: expanded -> collapsed -> hidden -> expanded
                     switch(currentState) {
@@ -12793,23 +12849,24 @@
                 
                 currentState = newState;
                 applySidebarState(newState);
-                localStorage.setItem('sidebar-state', newState);
+                saveSidebarState(newState);
             });
             
             // Mobile backdrop click handler
             if (mobileBackdrop) {
                 mobileBackdrop.addEventListener('click', function() {
                     if (currentState === 'expanded') {
-                        currentState = 'collapsed';
-                        applySidebarState('collapsed');
-                        localStorage.setItem('sidebar-state', 'collapsed');
+                        currentState = 'hidden';
+                        applySidebarState('hidden');
+                        saveSidebarState('hidden');
                     }
                 });
             }
             
             function applySidebarState(state) {
                 const toggleIcon = toggleBtn.querySelector('i');
-                const isMobile = window.innerWidth < 576;
+                const isMobile = isMobileSidebarMode();
+                state = normalizeSidebarStateForViewport(state);
                 
                 // Clear all state classes
                 sidebarContainer.classList.remove('expanded', 'collapsed', 'hidden');
@@ -12826,9 +12883,10 @@
                         sidebarContainer.classList.add('expanded');
                         sidebar.classList.add('expanded');
                         toggleIcon.className = 'bi bi-list';
-                        toggleBtn.setAttribute('title', 'Collapse to Icons');
-                        toggleBtn.setAttribute('aria-label', 'Collapse to Icons');
-                        
+                        toggleBtn.setAttribute('title', isMobile ? 'Close navigation' : 'Collapse to Icons');
+                        toggleBtn.setAttribute('aria-label', isMobile ? 'Close navigation' : 'Collapse to Icons');
+                        toggleBtn.setAttribute('aria-expanded', 'true');
+
                         // Show backdrop on mobile
                         if (isMobile && mobileBackdrop) {
                             mobileBackdrop.classList.add('show');
@@ -12842,18 +12900,21 @@
                         toggleIcon.className = 'bi bi-chevron-left';
                         toggleBtn.setAttribute('title', 'Hide Sidebar');
                         toggleBtn.setAttribute('aria-label', 'Hide Sidebar');
+                        toggleBtn.setAttribute('aria-expanded', 'false');
                         break;
-                        
+
                     case 'hidden':
                         // No sidebar
                         sidebarContainer.classList.add('hidden');
                         sidebar.classList.add('hidden');
                         toggleIcon.className = 'bi bi-chevron-right';
-                        toggleBtn.setAttribute('title', 'Show Sidebar');
-                        toggleBtn.setAttribute('aria-label', 'Show Sidebar');
+                        toggleBtn.setAttribute('title', isMobile ? 'Open navigation' : 'Show Sidebar');
+                        toggleBtn.setAttribute('aria-label', isMobile ? 'Open navigation' : 'Show Sidebar');
+                        toggleBtn.setAttribute('aria-expanded', 'false');
                         break;
                 }
-                
+
+                document.body.classList.toggle('canopy-mobile-sidebar-open', isMobile && state === 'expanded');
                 syncCompactNavTitles(state);
 
                 // Update current state
@@ -12865,52 +12926,66 @@
             
             // Handle window resize for responsive behavior
             window.addEventListener('resize', function() {
-                const windowWidth = window.innerWidth;
-                
-                // Auto-adjust on screen size change
-                if (windowWidth < 576 && currentState === 'expanded') {
-                    // On mobile, collapse expanded sidebar
-                    applySidebarState(currentState);
-                } else if (windowWidth >= 576) {
-                    // On desktop, hide backdrop
-                    if (mobileBackdrop) {
-                        mobileBackdrop.classList.remove('show');
-                    }
-                    applySidebarState(currentState);
+                const nextState = normalizeSidebarStateForViewport(currentState);
+                if (nextState !== currentState) {
+                    currentState = nextState;
+                    saveSidebarState(nextState);
                 }
+                applySidebarState(currentState);
             });
             
             // Touch and swipe gestures for mobile
             if ('ontouchstart' in window) {
                 let touchStartX = 0;
+                let touchStartY = 0;
                 let touchEndX = 0;
+                let touchEndY = 0;
+                let touchStartedInInteractive = false;
+                let touchStartedInSidebar = false;
+                let touchStartedOnBackdrop = false;
                 
                 document.addEventListener('touchstart', function(e) {
-                    touchStartX = e.changedTouches[0].screenX;
+                    const touch = e.changedTouches && e.changedTouches[0];
+                    if (!touch) return;
+                    touchStartX = touch.screenX;
+                    touchStartY = touch.screenY;
+                    const target = e.target;
+                    touchStartedInSidebar = Boolean(target && target.closest && target.closest('#sidebar-container'));
+                    touchStartedOnBackdrop = target === mobileBackdrop;
+                    touchStartedInInteractive = Boolean(target && target.closest && target.closest(
+                        'input, textarea, select, button, a, [role="button"], .dropdown-menu, .modal, .canopy-media-deck-portal'
+                    ));
                 });
                 
                 document.addEventListener('touchend', function(e) {
-                    touchEndX = e.changedTouches[0].screenX;
+                    const touch = e.changedTouches && e.changedTouches[0];
+                    if (!touch) return;
+                    touchEndX = touch.screenX;
+                    touchEndY = touch.screenY;
                     handleSwipe();
                 });
                 
                 function handleSwipe() {
+                    if (!isMobileSidebarMode()) return;
+                    if (touchStartedInInteractive && !touchStartedInSidebar && !touchStartedOnBackdrop) return;
                     const swipeThreshold = 50;
                     const swipeDistance = touchEndX - touchStartX;
+                    const verticalDistance = Math.abs(touchEndY - touchStartY);
+                    if (verticalDistance > Math.abs(swipeDistance) * 0.75) return;
                     
                     if (Math.abs(swipeDistance) > swipeThreshold) {
-                        if (swipeDistance > 0 && touchStartX < 20) {
+                        if (swipeDistance > 0 && touchStartX < 28) {
                             // Swipe right from left edge - show sidebar
                             if (currentState !== 'expanded') {
                                 currentState = 'expanded';
                                 applySidebarState('expanded');
-                                localStorage.setItem('sidebar-state', 'expanded');
+                                saveSidebarState('expanded');
                             }
-                        } else if (swipeDistance < 0 && currentState === 'expanded') {
+                        } else if (swipeDistance < 0 && currentState === 'expanded' && (touchStartedInSidebar || touchStartedOnBackdrop)) {
                             // Swipe left - hide sidebar
-                            currentState = 'collapsed';
-                            applySidebarState('collapsed');
-                            localStorage.setItem('sidebar-state', 'collapsed');
+                            currentState = 'hidden';
+                            applySidebarState('hidden');
+                            saveSidebarState('hidden');
                         }
                     }
                 }
@@ -12932,7 +13007,7 @@
                     const newState = currentState === 'expanded' ? 'hidden' : 'expanded';
                     currentState = newState;
                     applySidebarState(newState);
-                    localStorage.setItem('sidebar-state', newState);
+                    saveSidebarState(newState);
                 }
             });
             
@@ -12940,10 +13015,11 @@
             return {
                 getCurrentState: () => currentState,
                 setState: (state) => {
-                    if (['expanded', 'collapsed', 'hidden'].includes(state)) {
-                        currentState = state;
-                        applySidebarState(state);
-                        localStorage.setItem('sidebar-state', state);
+                    if (validSidebarStates.has(state)) {
+                        const nextState = normalizeSidebarStateForViewport(state);
+                        currentState = nextState;
+                        applySidebarState(nextState);
+                        saveSidebarState(nextState);
                     }
                 }
             };

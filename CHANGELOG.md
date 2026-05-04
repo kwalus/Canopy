@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.67] - 2026-05-04
+
+### Added
+- **Browser tabs now show unresolved workspace attention counts** - Canopy prefixes the current page title with the aggregate attention total so users can spot active meshspaces without switching tabs.
+
+### Changed
+- **Mobile shell navigation now behaves as a phone drawer** - mobile sidebar state is open/hidden, uses larger header touch targets, keeps a separate mobile preference, and narrows swipe gestures to avoid normal scrolling conflicts.
+- **Public docs were refreshed for recent collaboration, Deck Inbox, DM drafting, scratchpad, privacy, and mobile navigation changes** - README and setup guides now reflect current user-facing behavior.
+
 ## [0.6.66] - 2026-05-04
 
 ### Added

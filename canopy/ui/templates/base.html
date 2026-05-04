@@ -5101,6 +5101,13 @@
             transition: all 0.3s ease;
             border-radius: 8px;
             padding: 8px 12px;
+            min-width: 40px;
+            min-height: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
         }
         
         #sidebar-toggle:hover {
@@ -5161,11 +5168,17 @@
                 height: 100%;
                 background: var(--canopy-bg-primary);
                 box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5);
-                width: 280px;
-                min-width: 280px;
-                flex: 0 0 280px;
+                width: min(88vw, 320px);
+                min-width: min(88vw, 320px);
+                max-width: 320px;
+                flex: 0 0 min(88vw, 320px);
                 top: 0;
                 left: 0;
+            }
+
+            .sidebar {
+                width: 100%;
+                padding-bottom: calc(env(safe-area-inset-bottom) + 10px);
             }
             
             .sidebar-container.collapsed {
@@ -5198,10 +5211,11 @@
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background: rgba(0, 0, 0, 0.5);
+                background: rgba(2, 6, 23, 0.52);
                 z-index: 999;
                 opacity: 0;
                 transition: opacity 0.3s ease;
+                backdrop-filter: blur(4px);
             }
             
             .mobile-backdrop.show {
@@ -5262,51 +5276,142 @@
             }
 
             .navbar {
-                padding: 6px 10px;
+                min-height: calc(58px + env(safe-area-inset-top));
+                padding: calc(6px + env(safe-area-inset-top)) 10px 6px;
             }
 
             .navbar .container-fluid {
                 flex-wrap: nowrap;
-                gap: 0.2rem;
+                gap: 0.34rem;
                 align-items: center;
                 min-width: 0;
+                overflow: visible;
             }
 
             .navbar-brand {
                 font-size: 1.08rem;
                 gap: 0.28rem;
-                flex: 1 1 auto;
+                flex: 0 1 auto;
                 min-width: 0;
-                max-width: 52vw;
-                margin-right: 0.15rem;
+                max-width: clamp(76px, 24vw, 116px);
+                margin-right: 0;
             }
 
             .navbar-brand img.brand-logo {
-                height: 34px;
+                height: 30px;
+                max-width: 100%;
             }
 
             #sidebar-toggle {
-                padding: 5px 7px;
+                padding: 0;
                 margin-right: 0 !important;
-                border-radius: 10px;
-                font-size: 0.86rem;
+                border-radius: 12px;
+                font-size: 1.04rem;
+                min-width: 44px;
+                min-height: 44px;
             }
 
             .header-peer-link {
-                gap: 0.2rem !important;
-                margin-right: 0.2rem !important;
+                gap: 0.18rem !important;
+                margin-right: 0 !important;
+                min-width: 44px;
+                min-height: 44px;
+                justify-content: center;
+                border-radius: 12px;
+                touch-action: manipulation;
             }
 
             .navbar-toggler {
-                padding: 0.18rem 0.3rem;
+                padding: 0;
                 margin-left: 0 !important;
+                min-width: 44px;
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 12px;
+                touch-action: manipulation;
             }
 
             .navbar .container-fluid > .nav-link {
-                padding: 0.18rem 0.28rem;
+                padding: 0;
                 margin-right: 0 !important;
                 font-size: 0.9rem;
                 min-width: 0;
+            }
+
+            .notification-bell,
+            .deck-inbox-nav-button {
+                min-width: 44px;
+                min-height: 44px;
+                justify-content: center;
+                touch-action: manipulation;
+            }
+
+            .meshspace-rail {
+                flex: 1 1 0;
+                width: auto;
+                min-width: 74px;
+                max-width: min(43vw, 188px);
+                margin: 0 !important;
+            }
+
+            .meshspace-switcher,
+            .meshspace-context-chip {
+                width: 100%;
+                min-width: 0;
+                max-width: none;
+            }
+
+            .meshspace-current-btn,
+            .meshspace-context-chip {
+                min-height: 44px;
+                padding: 0.24rem 0.38rem 0.24rem 0.28rem;
+                gap: 0.4rem;
+                touch-action: manipulation;
+            }
+
+            .meshspace-current-copy {
+                min-width: 0;
+            }
+
+            .meshspace-current-label {
+                font-size: 0.72rem;
+                max-width: 100%;
+            }
+
+            .meshspace-crest {
+                width: 31px;
+                height: 31px;
+                border-radius: 11px;
+            }
+
+            .meshspace-current-caret,
+            .meshspace-chip-glyph {
+                display: none;
+            }
+
+            .meshspace-switcher-menu {
+                position: fixed !important;
+                left: 8px !important;
+                right: 8px !important;
+                top: calc(env(safe-area-inset-top) + 62px) !important;
+                width: auto !important;
+                min-width: 0;
+                max-width: none;
+                max-height: min(72dvh, 520px);
+                overflow-y: auto;
+                transform: none !important;
+                overscroll-behavior: contain;
+            }
+
+            .meshspace-switcher-menu[data-bs-popper] {
+                margin-top: 0;
+            }
+
+            .meshspace-switcher-item {
+                min-height: 64px;
+                padding: 0.68rem;
             }
 
             #header-peer-count {
@@ -5327,8 +5432,8 @@
             }
 
             .navbar-brand {
-                max-width: 44vw;
-                margin-right: 0.08rem;
+                max-width: 74px;
+                margin-right: 0;
             }
 
             .navbar-brand .brand-text {
@@ -5336,12 +5441,12 @@
             }
 
             .navbar-brand img.brand-logo {
-                height: 30px;
+                height: 27px;
             }
 
             #sidebar-toggle {
-                padding: 5px 6px;
-                border-radius: 8px;
+                padding: 0;
+                border-radius: 12px;
             }
 
             .header-peer-link {
@@ -5349,7 +5454,15 @@
             }
 
             .navbar-toggler {
-                padding: 0.14rem 0.24rem;
+                padding: 0;
+            }
+
+            .meshspace-rail {
+                max-width: min(42vw, 162px);
+            }
+
+            .meshspace-current-label {
+                font-size: 0.68rem;
             }
         }
         

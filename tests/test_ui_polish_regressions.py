@@ -235,6 +235,27 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('Send as written', channels)
         self.assertIn('Post anyway as plain text', channels)
 
+    def test_mobile_shell_uses_drawer_navigation_and_large_touch_targets(self) -> None:
+        base = (ROOT / "canopy" / "ui" / "templates" / "base.html").read_text(encoding="utf-8")
+        main_js = (ROOT / "canopy" / "ui" / "static" / "js" / "canopy-main.js").read_text(encoding="utf-8")
+
+        self.assertIn("min-width: 44px;", base)
+        self.assertIn("min-height: 44px;", base)
+        self.assertIn(".meshspace-switcher-menu {", base)
+        self.assertIn("position: fixed !important;", base)
+        self.assertIn("top: calc(env(safe-area-inset-top) + 62px) !important;", base)
+        self.assertIn("width: min(88vw, 320px);", base)
+        self.assertIn("backdrop-filter: blur(4px);", base)
+
+        self.assertIn("const mobileStorageKey = 'sidebar-state-mobile';", main_js)
+        self.assertIn("function isMobileSidebarMode() {", main_js)
+        self.assertIn("return normalized === 'expanded' ? 'expanded' : 'hidden';", main_js)
+        self.assertIn("newState = currentState === 'expanded' ? 'hidden' : 'expanded';", main_js)
+        self.assertIn("touchStartedInInteractive && !touchStartedInSidebar && !touchStartedOnBackdrop", main_js)
+        self.assertIn("verticalDistance > Math.abs(swipeDistance) * 0.75", main_js)
+        self.assertIn("toggleBtn.setAttribute('aria-expanded', 'true');", main_js)
+        self.assertIn("toggleBtn.setAttribute('aria-expanded', 'false');", main_js)
+
 
 if __name__ == "__main__":
     unittest.main()

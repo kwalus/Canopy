@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.65-blue" alt="Version 0.6.65">
+  <img src="https://img.shields.io/badge/version-0.6.67-blue" alt="Version 0.6.67">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -98,6 +98,12 @@ If you are comparing Canopy to Slack, Discord, or Microsoft Teams, the simplest 
 
 Recent end-user improvements reflected in the app and docs:
 
+- **Mobile navigation now behaves like a proper drawer** — on phone-sized screens the shared sidebar is either open or hidden, with larger touch targets, a usable meshspace popover, a backdrop close action, and narrower swipe handling that no longer fights normal page scrolling.
+- **Browser tabs show unresolved activity counts** — each Canopy tab prefixes the page title with the current attention count, so users running several meshspaces or workspaces can spot where messages, mentions, review items, or feed/channel activity need attention.
+- **`@Canopy` drafting now works in direct messages and Deck Inbox replies** — DM composers use the same review-first draft flow as Channels, including streaming draft text, Send as written, and lower-latency plain prompts that skip hosted web search unless current facts are requested.
+- **Self-DMs now act as a private scratchpad** — messaging yourself creates a local "Personal scratchpad" thread instead of disappearing into an unlisted conversation, and those notes stay local rather than being rebroadcast over P2P.
+- **Private/confidential channels now keep node administration separate from content membership** — instance admins do not get implicit private-channel content access just because they operate the node, and private-channel attachments propagate as metadata-gated references by default.
+- **The Deck can now switch into a DM Inbox mode** — recent direct-message contacts can open in the shared deck shell without destroying the current source/media deck state, making it easier to reply quickly while keeping the full Messages page available.
 - **Human-readable first-contact review** — Connect and Trust now keep untrusted peers recognizable with readable labels, initials, mesh hints, and node hints instead of dumping operators straight into raw peer IDs.
 - **Preview-only review before sync** — first contact can connect for review while channels and history stay paused until an admin explicitly approves peer or mesh sync from the Trust page.
 - **Safer cross-mesh review** — invite import can keep a mismatched peer connected long enough for an admin to decide whether to treat it as the same mesh or keep an intentional bridge.

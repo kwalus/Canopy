@@ -49,7 +49,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('async function generateDmCanopyLLMDraft', messages_template)
         self.assertIn('if (dmShouldGenerateCanopyLLMDraft(content))', messages_template)
         self.assertIn("surface: 'dm'", messages_template)
-        self.assertIn('window.CanopyLLMCompose = {', main_js)
+        self.assertIn('global.CanopyLLMCompose = {', main_js)
         self.assertIn('async function generateDeckInboxCanopyLLMDraft', main_js)
         self.assertIn('if (deckInboxShouldGenerateCanopyLLMDraft(content))', main_js)
 
@@ -488,9 +488,9 @@ class TestFrontendRegressions(unittest.TestCase):
 
     def test_sidebar_toggle_aria_label_is_updated_per_state(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
-        self.assertIn("toggleBtn.setAttribute('aria-label', 'Collapse to Icons');", main_js)
+        self.assertIn("toggleBtn.setAttribute('aria-label', isMobile ? 'Close navigation' : 'Collapse to Icons');", main_js)
         self.assertIn("toggleBtn.setAttribute('aria-label', 'Hide Sidebar');", main_js)
-        self.assertIn("toggleBtn.setAttribute('aria-label', 'Show Sidebar');", main_js)
+        self.assertIn("toggleBtn.setAttribute('aria-label', isMobile ? 'Open navigation' : 'Show Sidebar');", main_js)
 
     def test_timestamp_formatter_is_immediate_shared_and_utc_safe(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -898,6 +898,11 @@ console.log(JSON.stringify({{
         self.assertIn("window.localStorage.setItem(canopyAttentionSeenStorageKey, String(normalized));", main_js)
         self.assertIn("function filterCanopyAttentionItems(items) {", main_js)
         self.assertIn("function countUnseenCanopyAttentionItems(items) {", main_js)
+        self.assertIn("function syncCanopyAttentionDocumentTitle(items) {", main_js)
+        self.assertIn("const CANOPY_TITLE_ATTENTION_PREFIX_RE = /^\\(\\d{1,4}\\+?\\)\\s+/;", main_js)
+        self.assertIn("document.title = `(${label}) ${canopyBaseDocumentTitle}`;", main_js)
+        self.assertIn("window.syncCanopyAttentionDocumentTitle = syncCanopyAttentionDocumentTitle;", main_js)
+        self.assertIn("syncCanopyAttentionDocumentTitle();", main_js)
         self.assertIn("window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));", main_js)
         self.assertIn("saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);", main_js)
         self.assertIn("saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);", main_js)
