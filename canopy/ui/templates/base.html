@@ -21,6 +21,22 @@
     <meta name="theme-color" content="#0f0f1a">
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
+    {% set current_meshspace_payload = {} %}
+    {% if current_meshspace is defined and current_meshspace %}
+        {% if current_meshspace is mapping %}
+            {% set current_meshspace_payload = {
+                'id': current_meshspace.get('meshspace_id') or current_meshspace.get('id') or '',
+                'name': current_meshspace.get('name') or '',
+                'status': current_meshspace.get('status_label') or current_meshspace.get('status') or ''
+            } %}
+        {% else %}
+            {% set current_meshspace_payload = {
+                'id': current_meshspace.meshspace_id|default('', true),
+                'name': current_meshspace.name|default('', true),
+                'status': current_meshspace.status_label|default('', true)
+            } %}
+        {% endif %}
+    {% endif %}
     <script>
         (function() {
             const VALID_THEMES = new Set(['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco']);
@@ -10415,7 +10431,7 @@
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
             localPeerId: {{ sidebar_local_peer_id|tojson if sidebar_local_peer_id is defined else 'null' }},
-            currentMeshspace: {{ ({'id': current_meshspace.meshspace_id, 'name': current_meshspace.name, 'status': current_meshspace.status_label} if current_meshspace is defined and current_meshspace else {})|tojson }},
+            currentMeshspace: {{ current_meshspace_payload|tojson }},
             googleMapsEmbedApiKey: {{ config.get('GOOGLE_MAPS_EMBED_API_KEY', '')|tojson }},
             urls: {
                 feed: {{ url_for('ui.feed')|tojson }},

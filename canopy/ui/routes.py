@@ -3227,6 +3227,75 @@ def create_ui_blueprint() -> Blueprint:
             user['last_check_in_at'] = presence.get('last_check_in_at')
             user['last_check_in_source'] = presence_record.get('last_check_in_source')
 
+    def _annotate_admin_user_profiles(users: list[dict[str, Any]], profile_manager: Any) -> None:
+        """Attach profile fields used by the admin identity UI."""
+        if not users:
+            return
+        for user in users:
+            uid = str(user.get('id') or user.get('user_id') or '').strip()
+            user.setdefault('avatar_url', '')
+            user.setdefault('avatar_file_id', '')
+            if not uid:
+                continue
+            profile = None
+            if profile_manager:
+                try:
+                    profile = profile_manager.get_profile(uid)
+                except Exception:
+                    profile = None
+            if profile:
+                user['display_name'] = (
+                    _profile_value(profile, 'display_name')
+                    or user.get('display_name')
+                    or user.get('username')
+                    or uid
+                )
+                user['username'] = (
+                    _profile_value(profile, 'username')
+                    or user.get('username')
+                    or uid
+                )
+                user['bio'] = _profile_value(profile, 'bio') or user.get('bio') or ''
+                user['avatar_file_id'] = (
+                    _profile_value(profile, 'avatar_file_id')
+                    or user.get('avatar_file_id')
+                    or ''
+                )
+                user['avatar_url'] = (
+                    _profile_value(profile, 'avatar_url')
+                    or user.get('avatar_url')
+                    or ''
+                )
+                user['profile_updated_at'] = (
+                    _profile_value(profile, 'profile_updated_at')
+                    or user.get('profile_updated_at')
+                    or ''
+                )
+                user['theme_preference'] = (
+                    _profile_value(profile, 'theme_preference')
+                    or user.get('theme_preference')
+                    or 'dark'
+                )
+            avatar_file_id = str(user.get('avatar_file_id') or '').strip()
+            if not user.get('avatar_url') and avatar_file_id:
+                user['avatar_url'] = f"/files/{avatar_file_id}"
+            user['display_name'] = user.get('display_name') or user.get('username') or uid
+            user['username'] = user.get('username') or uid
+
+    def _annotate_admin_user_registration_state(users: list[dict[str, Any]]) -> None:
+        """Normalize registration/shadow flags for real and lightweight test managers."""
+        for user in users or []:
+            if 'is_registered' not in user:
+                user['is_registered'] = bool(str(user.get('password_hash') or '').strip())
+            if 'has_public_key' not in user:
+                user['has_public_key'] = bool(str(user.get('public_key') or '').strip())
+            if 'is_remote' not in user:
+                user['is_remote'] = bool(str(user.get('origin_peer') or '').strip())
+            if 'is_shadow' not in user:
+                user['is_shadow'] = bool(user.get('is_remote') and not user.get('is_registered'))
+            user['account_type'] = user.get('account_type') or 'human'
+            user['status'] = user.get('status') or 'active'
+
     def _coerce_int(raw: Any, default: int, minimum: int, maximum: int) -> int:
         try:
             value = int(raw)
@@ -8726,9 +8795,11 @@ def create_ui_blueprint() -> Blueprint:
     def admin_page():
         """Admin page: pending agent approvals, all users, approve/suspend/delete."""
         try:
-            db_manager, api_key_manager, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
+            db_manager, api_key_manager, _, _, _, _, _, _, profile_manager, config, p2p_manager = _get_app_components_any(current_app)
             from .. import __version__ as canopy_version
             users = db_manager.get_all_users_for_admin()
+            _annotate_admin_user_registration_state(users)
+            _annotate_admin_user_profiles(users, profile_manager)
             _annotate_user_presence(users, db_manager)
             pending = [
                 u for u in users

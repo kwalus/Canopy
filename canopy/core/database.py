@@ -858,13 +858,6 @@ class DatabaseManager:
                 logger.info("Migration: Adding manually_penalized column to trust_scores")
                 conn.execute("ALTER TABLE trust_scores ADD COLUMN manually_penalized BOOLEAN NOT NULL DEFAULT 0")
 
-            # --- API keys: add optional mesh_id binding column ---
-            api_keys_cursor = conn.execute("PRAGMA table_info(api_keys)")
-            api_keys_columns = {row[1] for row in api_keys_cursor.fetchall()}
-            if 'mesh_id' not in api_keys_columns:
-                logger.info("Migration: Adding mesh_id column to api_keys")
-                conn.execute("ALTER TABLE api_keys ADD COLUMN mesh_id TEXT DEFAULT NULL")
-
             conn.commit()
         except Exception as e:
             logger.critical(
@@ -1145,10 +1138,31 @@ class DatabaseManager:
     def get_all_users_for_admin(self) -> List[Dict[str, Any]]:
         """Get all non-system users for admin UI, including shadow/remote rows."""
         with self.get_connection() as conn:
+            try:
+                table_cols = {
+                    row[1] if not isinstance(row, sqlite3.Row) else row['name']
+                    for row in conn.execute("PRAGMA table_info(users)").fetchall()
+                }
+            except Exception:
+                table_cols = set()
+            select_cols = [
+                'id',
+                'username',
+                'display_name',
+                'account_type',
+                'status',
+                'agent_directives',
+                'origin_peer',
+                'created_at',
+                'password_hash',
+                'public_key',
+            ]
+            for optional_col in ('avatar_file_id', 'profile_updated_at', 'bio', 'theme_preference'):
+                if optional_col in table_cols:
+                    select_cols.append(optional_col)
             cursor = conn.execute(
-                """
-                SELECT id, username, display_name, account_type, status, agent_directives,
-                       origin_peer, created_at, password_hash, public_key
+                f"""
+                SELECT {', '.join(select_cols)}
                 FROM users
                 WHERE id NOT IN ('system', 'local_user')
                 ORDER BY created_at

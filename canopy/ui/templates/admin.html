@@ -309,6 +309,152 @@
     padding-right: 4px;
 }
 
+.admin-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    border: 1px solid rgba(125, 211, 252, 0.28);
+    background: radial-gradient(circle at 30% 20%, rgba(74, 220, 191, 0.36), rgba(30, 64, 175, 0.24));
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex: 0 0 auto;
+}
+
+.admin-avatar.admin-avatar-sm {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+}
+
+.admin-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.admin-avatar-fallback {
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    color: #dffdf5;
+}
+
+.admin-user-identity,
+.workspace-user-row {
+    display: flex;
+    align-items: center;
+    gap: 0.72rem;
+    min-width: 0;
+}
+
+.admin-user-identity-body,
+.workspace-user-body {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.workspace-user-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.16rem;
+}
+
+.workspace-user-name,
+.admin-user-title {
+    font-weight: 700;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workspace-user-meta,
+.admin-user-subline {
+    color: #9db1cf;
+    font-size: 0.78rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.workspace-user-signals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.28rem;
+}
+
+.workspace-signal-chip,
+.admin-identity-chip {
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    color: #b9c8df;
+    background: rgba(15, 23, 42, 0.5);
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.045em;
+    line-height: 1.1;
+    padding: 0.18rem 0.42rem;
+    text-transform: uppercase;
+}
+
+.workspace-signal-chip.good,
+.admin-identity-chip.good {
+    border-color: rgba(74, 222, 128, 0.35);
+    color: #a7f3d0;
+    background: rgba(22, 163, 74, 0.12);
+}
+
+.workspace-signal-chip.warn,
+.admin-identity-chip.warn {
+    border-color: rgba(250, 204, 21, 0.38);
+    color: #fde68a;
+    background: rgba(250, 204, 21, 0.13);
+}
+
+.workspace-signal-chip.info,
+.admin-identity-chip.info {
+    border-color: rgba(56, 189, 248, 0.38);
+    color: #bae6fd;
+    background: rgba(14, 165, 233, 0.12);
+}
+
+.workspace-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.55rem;
+}
+
+.workspace-metric {
+    min-width: 0;
+    border: 1px solid rgba(126, 157, 222, 0.2);
+    border-radius: 12px;
+    padding: 0.58rem 0.66rem;
+    background: rgba(7, 17, 30, 0.38);
+}
+
+.workspace-metric-value {
+    font-size: 0.95rem;
+    font-weight: 800;
+    line-height: 1.15;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.admin-table-shell {
+    border-radius: 14px;
+    border: 1px solid rgba(126, 157, 222, 0.14);
+    overflow: hidden;
+}
+
 .workspace-user-btn {
     width: 100%;
     text-align: left;
@@ -832,6 +978,10 @@
 }
 
 @media (max-width: 1200px) {
+    .workspace-metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .id-port-panel .input-group-sm {
         flex-wrap: wrap;
         gap: 0.3rem;
@@ -934,6 +1084,10 @@
 }
 
 @media (max-width: 576px) {
+    .workspace-metric-grid {
+        grid-template-columns: 1fr;
+    }
+
     .admin-page-header {
         margin-bottom: 0.75rem !important;
     }
@@ -993,23 +1147,38 @@
     <div class="card-body">
         <p class="text-muted small mb-3">New non-admin humans and unapproved agents wait here until you activate them. After approval, agents start in <code>#agent-start-here</code> while humans can continue into the regular workspace. Agents created through the API can still be auto-approved if <code>CANOPY_AUTO_APPROVE_AGENTS</code> is enabled, but human self-registration now stays pending.</p>
         <div class="table-responsive">
-            <table class="table table-sm">
-                <thead>
-                    <tr>
-                        <th>Username</th>
-                        <th>Display name</th>
-                        <th>Type</th>
-                        <th>Created</th>
-                        <th>Actions</th>
-                    </tr>
+	            <table class="table table-sm">
+	                <thead>
+	                    <tr>
+	                        <th>Identity</th>
+	                        <th>Type</th>
+	                        <th>Created</th>
+	                        <th>Actions</th>
+	                    </tr>
                 </thead>
-                <tbody>
-                    {% for u in users if u.get('is_registered') and (u.get('status') or 'active') == 'pending_approval' %}
-                    <tr>
-                        <td><code>{{ u.username }}</code></td>
-                        <td>{{ u.display_name or '-' }}</td>
-                        <td><span class="badge {% if (u.get('account_type') or 'human') == 'agent' %}bg-info{% else %}bg-secondary{% endif %}">{{ u.get('account_type') or 'human' }}</span></td>
-                        <td>{{ u.created_at[:10] if u.created_at else '-' }}</td>
+	                <tbody>
+	                    {% for u in users if u.get('is_registered') and (u.get('status') or 'active') == 'pending_approval' %}
+	                    {% set pending_label = u.display_name or u.username or u.id %}
+	                    {% set pending_initials = (pending_label|string|trim)[:2]|upper %}
+	                    {% set pending_avatar = u.get('avatar_url') or '' %}
+	                    <tr>
+	                        <td>
+	                            <div class="admin-user-identity">
+	                                <span class="admin-avatar admin-avatar-sm" aria-hidden="true">
+	                                    {% if pending_avatar %}
+	                                    <img src="{{ pending_avatar }}" alt="">
+	                                    {% else %}
+	                                    <span class="admin-avatar-fallback">{{ pending_initials or '?' }}</span>
+	                                    {% endif %}
+	                                </span>
+	                                <span class="admin-user-identity-body">
+	                                    <span class="admin-user-title d-block">{{ pending_label }}</span>
+	                                    <span class="admin-user-subline d-block"><code>@{{ u.username }}</code> · <span class="font-monospace">{{ u.id }}</span></span>
+	                                </span>
+	                            </div>
+	                        </td>
+	                        <td><span class="badge {% if (u.get('account_type') or 'human') == 'agent' %}bg-info{% else %}bg-secondary{% endif %}">{{ u.get('account_type') or 'human' }}</span></td>
+	                        <td>{{ u.created_at[:10] if u.created_at else '-' }}</td>
                         <td>
                             <button type="button" class="btn btn-success btn-sm approve-btn" data-user-id="{{ u.id }}" title="{% if (u.get('account_type') or 'human') == 'agent' %}Approve this agent and place it in #agent-start-here with current governance defaults.{% else %}Approve this person and let them sign in to the workspace.{% endif %}">Approve</button>
                             <button type="button" class="btn btn-outline-danger btn-sm suspend-btn" data-user-id="{{ u.id }}" title="{% if (u.get('account_type') or 'human') == 'agent' %}Reject this agent registration and keep its API access blocked.{% else %}Reject this registration and keep this user from signing in.{% endif %}">Reject</button>
@@ -1045,7 +1214,7 @@
     </div>
 </div>
 
-{% set ts = transport_security_admin or {} %}
+{% set ts = transport_security_admin if transport_security_admin is mapping else {} %}
 <div class="card mb-4 transport-admin-shell admin-section-transport" id="transportSecurityAdminCard" data-initial-status='{{ ts|tojson|safe }}'>
     <div class="card-header bg-success bg-opacity-10">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -1163,35 +1332,56 @@
             </li>
         </ul>
     </div>
-    <div class="card-body">
-        <div class="tab-content" id="agent-ops-tab-content">
-        <div class="tab-pane fade show active" id="agent-ops-workspace-pane" role="tabpanel" aria-labelledby="agent-ops-workspace-tab">
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-lg-4">
-                <div class="workspace-user-list" id="workspace-user-list">
-                    {% if workspace_users %}
-                        {% for u in workspace_users %}
-                        <button type="button"
-                                class="workspace-user-btn"
-                                data-user-id="{{ u.id }}"
-                                data-display-name="{{ u.display_name or u.username }}"
-                                data-username="{{ u.username }}">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <strong class="text-truncate">{{ u.display_name or u.username }}</strong>
-                                <span class="badge {% if (u.get('account_type') or 'human') == 'agent' %}bg-info{% else %}bg-secondary{% endif %}">{{ u.get('account_type') or 'human' }}</span>
-                            </div>
-                            <div class="small text-muted">
-                                @{{ u.username }} · {{ u.get('status') or 'active' }}
-                                {% if (u.get('account_type') or 'human') == 'agent' %}
-                                · {{ (u.get('presence_label') or 'No check-in')|lower }}{% if u.get('presence_age_text') %} {{ u.get('presence_age_text') }}{% endif %}
-                                {% endif %}
-                                {% if u.get('origin_peer') %}
-                                · remote
-                                {% endif %}
-                            </div>
-                        </button>
-                        {% endfor %}
+	    <div class="card-body">
+	        <div class="tab-content" id="agent-ops-tab-content">
+	        <div class="tab-pane fade show active" id="agent-ops-workspace-pane" role="tabpanel" aria-labelledby="agent-ops-workspace-tab">
+	        <div class="row g-3">
+	            <div class="col-lg-4">
+	                <div class="workspace-user-list" id="workspace-user-list">
+	                    {% if workspace_users %}
+	                        {% for u in workspace_users %}
+	                        {% set workspace_label = u.display_name or u.username or u.id %}
+	                        {% set workspace_initials = (workspace_label|string|trim)[:2]|upper %}
+	                        {% set workspace_avatar = u.get('avatar_url') or '' %}
+	                        {% set workspace_type = u.get('account_type') or 'human' %}
+	                        {% set workspace_status = u.get('status') or 'active' %}
+	                        <button type="button"
+	                                class="workspace-user-btn"
+	                                data-user-id="{{ u.id }}"
+	                                data-display-name="{{ workspace_label }}"
+	                                data-username="{{ u.username }}"
+	                                data-account-type="{{ workspace_type }}"
+	                                data-status="{{ workspace_status }}">
+	                            <div class="workspace-user-row">
+	                                <span class="admin-avatar admin-avatar-sm" aria-hidden="true">
+	                                    {% if workspace_avatar %}
+	                                    <img class="workspace-user-avatar-img" src="{{ workspace_avatar }}" alt="">
+	                                    <span class="admin-avatar-fallback workspace-user-avatar-fallback" style="display:none;">{{ workspace_initials or '?' }}</span>
+	                                    {% else %}
+	                                    <img class="workspace-user-avatar-img" src="" alt="" style="display:none;">
+	                                    <span class="admin-avatar-fallback workspace-user-avatar-fallback">{{ workspace_initials or '?' }}</span>
+	                                    {% endif %}
+	                                </span>
+	                                <span class="workspace-user-body">
+	                                    <span class="workspace-user-top">
+	                                        <span class="workspace-user-name">{{ workspace_label }}</span>
+	                                        <span class="badge {% if workspace_type == 'agent' %}bg-info{% else %}bg-secondary{% endif %}">{{ workspace_type }}</span>
+	                                    </span>
+	                                    <span class="workspace-user-meta d-block">@{{ u.username }} · {{ workspace_status }}</span>
+	                                    <span class="workspace-user-signals">
+	                                        {% if workspace_type == 'agent' %}
+	                                        <span class="workspace-signal-chip info">{{ u.get('presence_label') or 'No check-in' }}{% if u.get('presence_age_text') %} {{ u.get('presence_age_text') }}{% endif %}</span>
+	                                        {% endif %}
+	                                        {% if u.get('origin_peer') %}
+	                                        <span class="workspace-signal-chip warn">Remote</span>
+	                                        {% else %}
+	                                        <span class="workspace-signal-chip good">Local</span>
+	                                        {% endif %}
+	                                    </span>
+	                                </span>
+	                            </div>
+	                        </button>
+	                        {% endfor %}
                     {% else %}
                     <p class="text-muted small mb-0">No users available.</p>
                     {% endif %}
@@ -1219,36 +1409,28 @@
                         </div>
                     </div>
 
-                    <div class="row g-2 mb-3">
-                        <div class="col-sm-6 col-xl-3">
-                            <div class="border rounded p-2 h-100">
-                                <div class="small text-muted">Last event cursor</div>
-                                <div class="fw-semibold" id="workspace-runtime-event-cursor">-</div>
-                                <div class="small text-muted" id="workspace-runtime-event-fetch-at">No event fetch</div>
-                            </div>
-                        </div>
-                        <div class="col-sm-6 col-xl-3">
-                            <div class="border rounded p-2 h-100">
-                                <div class="small text-muted">Last inbox fetch</div>
-                                <div class="fw-semibold" id="workspace-runtime-inbox-fetch-at">Never</div>
-                                <div class="small text-muted">Agent queue fetch</div>
-                            </div>
-                        </div>
-                        <div class="col-sm-6 col-xl-3">
-                            <div class="border rounded p-2 h-100">
-                                <div class="small text-muted">Oldest pending inbox</div>
-                                <div class="fw-semibold" id="workspace-runtime-oldest-pending-age">None</div>
-                                <div class="small text-muted" id="workspace-runtime-oldest-pending-at">No pending items</div>
-                            </div>
-                        </div>
-                        <div class="col-sm-6 col-xl-3">
-                            <div class="border rounded p-2 h-100">
-                                <div class="small text-muted">Oldest unacked mention</div>
-                                <div class="fw-semibold" id="workspace-runtime-oldest-mention-age">None</div>
-                                <div class="small text-muted" id="workspace-runtime-oldest-mention-at">No unacked mentions</div>
-                            </div>
-                        </div>
-                    </div>
+	                    <div class="workspace-metric-grid mb-3">
+	                        <div class="workspace-metric">
+	                            <div class="small text-muted">Last event cursor</div>
+	                            <div class="workspace-metric-value" id="workspace-runtime-event-cursor">-</div>
+	                            <div class="small text-muted" id="workspace-runtime-event-fetch-at">No event fetch</div>
+	                        </div>
+	                        <div class="workspace-metric">
+	                            <div class="small text-muted">Last inbox fetch</div>
+	                            <div class="workspace-metric-value" id="workspace-runtime-inbox-fetch-at">Never</div>
+	                            <div class="small text-muted">Agent queue fetch</div>
+	                        </div>
+	                        <div class="workspace-metric">
+	                            <div class="small text-muted">Oldest pending inbox</div>
+	                            <div class="workspace-metric-value" id="workspace-runtime-oldest-pending-age">None</div>
+	                            <div class="small text-muted" id="workspace-runtime-oldest-pending-at">No pending items</div>
+	                        </div>
+	                        <div class="workspace-metric">
+	                            <div class="small text-muted">Oldest unacked mention</div>
+	                            <div class="workspace-metric-value" id="workspace-runtime-oldest-mention-age">None</div>
+	                            <div class="small text-muted" id="workspace-runtime-oldest-mention-at">No unacked mentions</div>
+	                        </div>
+	                    </div>
 
                     <div class="border rounded p-2 mb-3">
                         <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
@@ -1443,9 +1625,9 @@
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-        </div><!-- /workspace tab pane -->
+	            </div>
+	        </div>
+	        </div><!-- /workspace tab pane -->
 
         <div class="tab-pane fade" id="agent-ops-directives-pane" role="tabpanel" aria-labelledby="agent-ops-directives-tab">
         <div class="d-flex flex-wrap justify-content-end gap-2 mb-3">
@@ -1455,21 +1637,35 @@
         <div class="row g-3">
             <div class="col-lg-4">
                 <div class="directive-agent-list" id="directive-agent-list">
-                    {% if agent_users %}
-                        {% for u in agent_users %}
-                        <button type="button"
-                                class="directive-agent-btn"
-                                data-user-id="{{ u.id }}"
-                                data-display-name="{{ u.display_name or u.username }}"
-                                data-username="{{ u.username }}">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <strong>{{ u.display_name or u.username }}</strong>
-                                <span class="badge {% if u.agent_directives_source == 'custom' %}bg-success{% elif u.agent_directives_source == 'default' %}bg-secondary{% else %}bg-dark{% endif %} directive-source">{{ u.agent_directives_source or 'none' }}</span>
-                            </div>
-                            <div class="small text-muted">@{{ u.username }} · {{ (u.status or 'active') }}</div>
-                            <div class="small mt-1 text-truncate">{{ u.agent_directives_preview or 'No effective directives.' }}</div>
-                        </button>
-                        {% endfor %}
+	                    {% if agent_users %}
+	                        {% for u in agent_users %}
+	                        {% set directive_label = u.display_name or u.username or u.id %}
+	                        {% set directive_initials = (directive_label|string|trim)[:2]|upper %}
+	                        {% set directive_avatar = u.get('avatar_url') or '' %}
+	                        <button type="button"
+	                                class="directive-agent-btn"
+	                                data-user-id="{{ u.id }}"
+	                                data-display-name="{{ directive_label }}"
+	                                data-username="{{ u.username }}">
+	                            <div class="workspace-user-row">
+	                                <span class="admin-avatar admin-avatar-sm" aria-hidden="true">
+	                                    {% if directive_avatar %}
+	                                    <img src="{{ directive_avatar }}" alt="">
+	                                    {% else %}
+	                                    <span class="admin-avatar-fallback">{{ directive_initials or '?' }}</span>
+	                                    {% endif %}
+	                                </span>
+	                                <span class="workspace-user-body">
+	                                    <span class="workspace-user-top">
+	                                        <span class="workspace-user-name">{{ directive_label }}</span>
+	                                        <span class="badge {% if u.agent_directives_source == 'custom' %}bg-success{% elif u.agent_directives_source == 'default' %}bg-secondary{% else %}bg-dark{% endif %} directive-source">{{ u.agent_directives_source or 'none' }}</span>
+	                                    </span>
+	                                    <span class="workspace-user-meta d-block">@{{ u.username }} · {{ (u.status or 'active') }}</span>
+	                                    <span class="small mt-1 text-truncate d-block">{{ u.agent_directives_preview or 'No effective directives.' }}</span>
+	                                </span>
+	                            </div>
+	                        </button>
+	                        {% endfor %}
                     {% else %}
                     <p class="text-muted small mb-0">No agent accounts yet.</p>
                     {% endif %}
@@ -1692,13 +1888,13 @@
             <div class="small text-muted" id="admin-users-summary">Showing {{ users|length }} of {{ users|length }} users</div>
         </div>
         <div class="small text-muted mb-2" id="admin-users-status-line"></div>
-        <div class="table-responsive">
-            <table class="table table-hover table-sm align-middle" id="admin-users-table">
-                <thead>
-                    <tr>
-                        <th>Username</th>
-                        <th>Display name</th>
-                        <th>Type</th>
+	        <div class="table-responsive admin-table-shell">
+	            <table class="table table-hover table-sm align-middle" id="admin-users-table">
+	                <thead>
+	                    <tr>
+	                        <th>Identity</th>
+	                        <th>Display name</th>
+	                        <th>Type</th>
                         <th>Status</th>
                         <th>Directive</th>
                         <th>Created</th>
@@ -1709,37 +1905,53 @@
                     {% for u in users %}
                     {% set at = u.get('account_type') or 'human' %}
                     {% set st = u.get('status') or 'active' %}
-                    {% set is_registered = u.get('is_registered') %}
-                    {% set is_remote = u.get('is_remote') %}
-                    {% set is_shadow = u.get('is_shadow') %}
-                    {% set is_local_registered = is_registered and not is_remote %}
-                    <tr data-user-id="{{ u.id }}"
-                        data-username="{{ u.username }}"
-                        data-display-name="{{ u.display_name or '' }}"
+	                    {% set is_registered = u.get('is_registered') %}
+	                    {% set is_remote = u.get('is_remote') %}
+	                    {% set is_shadow = u.get('is_shadow') %}
+	                    {% set is_local_registered = is_registered and not is_remote %}
+	                    {% set user_label = u.display_name or u.username or u.id %}
+	                    {% set user_initials = (user_label|string|trim)[:2]|upper %}
+	                    {% set user_avatar = u.get('avatar_url') or '' %}
+	                    <tr data-user-id="{{ u.id }}"
+	                        data-username="{{ u.username }}"
+	                        data-display-name="{{ u.display_name or '' }}"
                         data-account-type="{{ at }}"
                         data-status="{{ st }}"
                         data-user-record-id="{{ u.id }}"
                         data-is-registered="{{ 1 if is_registered else 0 }}"
                         data-is-remote="{{ 1 if is_remote else 0 }}"
-                        data-is-shadow="{{ 1 if is_shadow else 0 }}">
-                        <td>
-                            <div class="d-flex flex-column gap-1">
-                                <div class="d-flex flex-wrap align-items-center gap-1">
-                                    <code>{{ u.username }}</code>
-                                    {% if is_remote %}
-                                    <span class="badge bg-dark" title="Synced from peer {{ u.origin_peer }}">remote</span>
-                                    {% else %}
-                                    <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">local</span>
-                                    {% endif %}
-                                    {% if is_shadow %}
-                                    <span class="badge bg-warning text-dark" title="Imported shadow user row (no local password)">shadow</span>
-                                    {% elif is_registered %}
-                                    <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">registered</span>
-                                    {% endif %}
-                                </div>
-                                <div class="small text-muted font-monospace">{{ u.id }}</div>
-                            </div>
-                        </td>
+	                        data-is-shadow="{{ 1 if is_shadow else 0 }}">
+	                        <td>
+	                            <div class="admin-user-identity">
+	                                <span class="admin-avatar admin-avatar-sm" aria-hidden="true">
+	                                    {% if user_avatar %}
+	                                    <img src="{{ user_avatar }}" alt="">
+	                                    {% else %}
+	                                    <span class="admin-avatar-fallback">{{ user_initials or '?' }}</span>
+	                                    {% endif %}
+	                                </span>
+	                                <div class="admin-user-identity-body">
+	                                    <div class="d-flex flex-wrap align-items-center gap-1">
+	                                        <span class="admin-user-title">{{ user_label }}</span>
+	                                        {% if at == 'agent' %}
+	                                        <span class="admin-identity-chip info user-identity-account-chip">agent</span>
+	                                        {% endif %}
+	                                    {% if is_remote %}
+	                                        <span class="admin-identity-chip warn" title="Synced from peer {{ u.origin_peer }}">remote</span>
+	                                    {% else %}
+	                                        <span class="admin-identity-chip good">local</span>
+	                                    {% endif %}
+	                                    {% if is_shadow %}
+	                                        <span class="admin-identity-chip warn" title="Imported shadow user row (no local password)">shadow</span>
+	                                    {% elif is_registered %}
+	                                        <span class="admin-identity-chip info">registered</span>
+	                                    {% endif %}
+	                                    </div>
+	                                    <div class="admin-user-subline"><code>@{{ u.username }}</code></div>
+	                                    <div class="admin-user-subline font-monospace">{{ u.id }}</div>
+	                                </div>
+	                            </div>
+	                        </td>
                         <td>
                             <input type="text"
                                    class="form-control form-control-sm admin-display-name-input"
@@ -1828,7 +2040,8 @@
             </table>
         </div>
         <!-- Inline API keys panel (no modal — stays in page flow to avoid z-index/obstruction) -->
-        <div id="keys-panel" class="mt-3 p-3 rounded border border-secondary" style="display: none; background: var(--canopy-bg-tertiary, rgba(30,30,50,0.4));" data-default-permissions='{{ default_permissions|default([])|tojson|safe }}'>
+	        {% set safe_default_permissions = default_permissions if default_permissions is sequence and default_permissions is not string else [] %}
+	        <div id="keys-panel" class="mt-3 p-3 rounded border border-secondary" style="display: none; background: var(--canopy-bg-tertiary, rgba(30,30,50,0.4));" data-default-permissions='{{ safe_default_permissions|tojson|safe }}'>
             <div class="d-flex justify-content-between align-items-center mb-2 keys-panel-header">
                 <h6 class="mb-0">API keys — <span id="keys-panel-username"></span></h6>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="keys-panel-close" aria-label="Close">Close</button>
@@ -1883,16 +2096,17 @@
     <div class="card-body">
         <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
             <div>
-                <div class="fw-semibold">{{ current_meshspace.name or 'Current mesh' }}</div>
-                <div class="small text-muted">These defaults apply to new agent API registrations in this mesh and to the <strong>Agent default</strong> preset in the key panel below.</div>
-            </div>
-            <div class="small text-muted">{{ current_meshspace.meshspace_id or 'legacy-default' }}</div>
+	                {% set mesh = current_meshspace if current_meshspace is mapping else {} %}
+	                <div class="fw-semibold">{{ mesh.get('name') or 'Current mesh' }}</div>
+	                <div class="small text-muted">These defaults apply to new agent API registrations in this mesh and to the <strong>Agent default</strong> preset in the key panel below.</div>
+	            </div>
+	            <div class="small text-muted">{{ mesh.get('meshspace_id') or 'legacy-default' }}</div>
         </div>
         <div class="meshspace-template-grid mb-3" id="meshspace-agent-permission-grid">
             {% for p in all_permissions %}
             <div class="meshspace-template-card">
                 <div class="form-check">
-                    <input class="form-check-input meshspace-agent-perm-cb" type="checkbox" id="meshspace-agent-perm-{{ p }}" value="{{ p }}" {% if p in default_permissions %}checked{% endif %}>
+	                    <input class="form-check-input meshspace-agent-perm-cb" type="checkbox" id="meshspace-agent-perm-{{ p }}" value="{{ p }}" {% if p in safe_default_permissions %}checked{% endif %}>
                     <label class="form-check-label small fw-semibold" for="meshspace-agent-perm-{{ p }}">{{ p }}</label>
                 </div>
                 <div class="small text-muted mt-1">Default {{ p.replace('_', ' ') }} capability for agents in this mesh.</div>
@@ -1900,7 +2114,7 @@
             {% endfor %}
         </div>
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-            <div class="meshspace-template-summary" id="meshspace-agent-template-summary">Using {{ default_permissions|length }} default permission{{ '' if default_permissions|length == 1 else 's' }} for agents in this mesh.</div>
+	            <div class="meshspace-template-summary" id="meshspace-agent-template-summary">Using {{ safe_default_permissions|length }} default permission{{ '' if safe_default_permissions|length == 1 else 's' }} for agents in this mesh.</div>
             <div class="d-flex flex-wrap gap-2">
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="meshspace-agent-template-files-btn">Files RW preset</button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="meshspace-agent-template-reset-btn">Core preset</button>
@@ -2207,10 +2421,12 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         const query = String(adminUsersSearch.value || '').trim().toLowerCase();
         const rows = Array.from(adminUsersTable.querySelectorAll('tbody tr'));
         rows.forEach(row => {
-            const username = String(row.dataset.username || '').toLowerCase();
-            const displayName = String(row.dataset.displayName || '').toLowerCase();
-            const recordId = String(row.dataset.userRecordId || '').toLowerCase();
-            const haystack = `${username} ${displayName} ${recordId}`;
+	            const username = String(row.dataset.username || '').toLowerCase();
+	            const displayName = String(row.dataset.displayName || '').toLowerCase();
+	            const recordId = String(row.dataset.userRecordId || '').toLowerCase();
+	            const accountType = String(row.dataset.accountType || '').toLowerCase();
+	            const status = String(row.dataset.status || '').toLowerCase();
+	            const haystack = `${username} ${displayName} ${recordId} ${accountType} ${status}`;
             row.style.display = (!query || haystack.includes(query)) ? '' : 'none';
         });
         updateAdminUsersSummary();
@@ -2973,9 +3189,11 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             const updatedDisplayName = String(user.display_name || displayName || '').trim();
             if (typeSelect) typeSelect.value = updatedType;
             if (statusSelect) statusSelect.value = updatedStatus;
-            if (displayNameInput) displayNameInput.value = updatedDisplayName;
-            row.dataset.displayName = updatedDisplayName;
-            updateAdminUserRowBadges(row, updatedType, updatedStatus);
+	            if (displayNameInput) displayNameInput.value = updatedDisplayName;
+	            row.dataset.displayName = updatedDisplayName;
+	            const titleEl = row.querySelector('.admin-user-title');
+	            if (titleEl && updatedDisplayName) titleEl.textContent = updatedDisplayName;
+	            updateAdminUserRowBadges(row, updatedType, updatedStatus);
             setAdminUsersStatus(`Updated @${username}: type=${updatedType}, status=${updatedStatus}.`);
         });
     });
@@ -3971,7 +4189,45 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             .replace(/'/g, '&#39;');
     }
 
-    function formatTime(value) {
+    function userInitials(label) {
+        const clean = String(label || '').trim();
+        return (clean ? clean.slice(0, 2) : '?').toUpperCase();
+    }
+
+    function refreshWorkspaceButtonIdentity(user) {
+        if (!user || !user.id) return;
+        const btn = workspaceUserButtons.find(candidate => candidate.getAttribute('data-user-id') === String(user.id));
+        if (!btn) return;
+        const label = user.display_name || user.username || user.id;
+        const username = user.username || user.id;
+        const accountType = user.account_type || 'human';
+        const status = user.status || 'active';
+        btn.dataset.displayName = label;
+        btn.dataset.username = username;
+        btn.dataset.accountType = accountType;
+        btn.dataset.status = status;
+        const nameEl = btn.querySelector('.workspace-user-name');
+        if (nameEl) nameEl.textContent = label;
+        const metaEl = btn.querySelector('.workspace-user-meta');
+        if (metaEl) metaEl.textContent = `@${username} · ${status}`;
+        const imgEl = btn.querySelector('.workspace-user-avatar-img');
+        const fallbackEl = btn.querySelector('.workspace-user-avatar-fallback');
+        const avatarUrl = user.avatar_url || '';
+        if (imgEl && fallbackEl) {
+            if (avatarUrl) {
+                imgEl.src = avatarUrl;
+                imgEl.style.display = 'block';
+                fallbackEl.style.display = 'none';
+            } else {
+                imgEl.removeAttribute('src');
+                imgEl.style.display = 'none';
+                fallbackEl.textContent = userInitials(label);
+                fallbackEl.style.display = 'inline';
+            }
+        }
+    }
+
+	    function formatTime(value) {
         if (!value) return '-';
         const dt = new Date(value);
         if (Number.isNaN(dt.getTime())) return String(value);
@@ -4245,8 +4501,9 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         const governancePolicy = governance.policy || {};
         const governanceChannels = Array.isArray(governance.channels) ? governance.channels : [];
 
-        selectedWorkspaceUserId = user.id || null;
-        selectedWorkspaceUserLabel = user.display_name || user.username || user.id || null;
+	        selectedWorkspaceUserId = user.id || null;
+	        selectedWorkspaceUserLabel = user.display_name || user.username || user.id || null;
+	        refreshWorkspaceButtonIdentity(user);
 
         if (workspaceSelectedName) workspaceSelectedName.textContent = selectedWorkspaceUserLabel || 'Unknown user';
         if (workspaceSelectedMeta) {
@@ -4514,10 +4771,12 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             const term = (workspaceSearch.value || '').trim().toLowerCase();
             workspaceUserButtons.forEach(btn => {
                 const hay = (
-                    (btn.getAttribute('data-display-name') || '') + ' ' +
-                    (btn.getAttribute('data-username') || '') + ' ' +
-                    (btn.getAttribute('data-user-id') || '')
-                ).toLowerCase();
+	                    (btn.getAttribute('data-display-name') || '') + ' ' +
+	                    (btn.getAttribute('data-username') || '') + ' ' +
+	                    (btn.getAttribute('data-account-type') || '') + ' ' +
+	                    (btn.getAttribute('data-status') || '') + ' ' +
+	                    (btn.getAttribute('data-user-id') || '')
+	                ).toLowerCase();
                 btn.style.display = (!term || hay.includes(term)) ? '' : 'none';
             });
         });
