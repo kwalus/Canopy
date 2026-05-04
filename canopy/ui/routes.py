@@ -4011,7 +4011,7 @@ def create_ui_blueprint() -> Blueprint:
             else:
                 continue
 
-            if not other_user_id or other_user_id == user_id:
+            if not other_user_id:
                 continue
 
             entry = contact_map.get(other_user_id)
@@ -4118,15 +4118,16 @@ def create_ui_blueprint() -> Blueprint:
                 has_presence_checkin=bool(user_row.get('last_check_in_at')),
             )
             status_state, status_label = _status_payload(user_row)
+            is_self_contact = contact_id == user_id
             contacts.append({
                 'user_id': contact_id,
-                'display_name': user_row.get('display_name') or contact_id,
+                'display_name': 'Personal scratchpad' if is_self_contact else (user_row.get('display_name') or contact_id),
                 'username': user_row.get('username') or contact_id,
                 'avatar_url': user_row.get('avatar_url'),
                 'origin_peer': user_row.get('origin_peer'),
                 'account_type': account_type,
-                'status_state': status_state,
-                'status_label': status_label,
+                'status_state': 'local' if is_self_contact else status_state,
+                'status_label': 'Scratchpad' if is_self_contact else status_label,
                 'latest_message_id': entry.get('latest_message_id'),
                 'target_message_id': entry.get('target_message_id') or entry.get('latest_message_id'),
                 'latest_message_at': entry.get('latest_message_at'),
@@ -4984,11 +4985,10 @@ def create_ui_blueprint() -> Blueprint:
                         SELECT id
                         FROM users
                         WHERE id NOT IN ('system', 'local_user')
-                          AND id != ?
                         ORDER BY {sort_expr} ASC
                         LIMIT ?
                         """,
-                        (user_id, max(1, int(limit))),
+                        (max(1, int(limit)),),
                     ).fetchall()
             except Exception:
                 return []
@@ -5090,13 +5090,14 @@ def create_ui_blueprint() -> Blueprint:
             else:
                 return None
 
-            if not other_user_id or other_user_id == user_id:
+            if not other_user_id:
                 return None
 
             return {
                 'kind': 'direct',
                 'key': f'direct:{other_user_id}',
                 'user_id': other_user_id,
+                'is_self': other_user_id == user_id,
             }
 
         def _group_thread_matches(left: Optional[dict[str, Any]], right: Optional[dict[str, Any]]) -> bool:
@@ -5147,6 +5148,13 @@ def create_ui_blueprint() -> Blueprint:
 
         def _format_thread_title(thread: dict[str, Any]) -> tuple[str, str, list[dict[str, Any]]]:
             if thread.get('kind') == 'direct':
+                if thread.get('user_id') == user_id or thread.get('is_self'):
+                    me = _user_display(user_id) or {'display_name': user_id}
+                    return (
+                        'Personal scratchpad',
+                        'Private notes to yourself',
+                        [me],
+                    )
                 other = _user_display(thread.get('user_id')) or {'display_name': thread.get('user_id')}
                 subtitle_parts = []
                 account_type = str(other.get('account_type') or '').strip()
@@ -9816,7 +9824,9 @@ def create_ui_blueprint() -> Blueprint:
             if recipient_id and not recipient_ids:
                 recipients_unique = [recipient_id]
 
-            recipients_unique = [r for r in recipients_unique if r != user_id]
+            self_dm_requested = len(recipients_unique) == 1 and recipients_unique[0] == user_id
+            if not self_dm_requested:
+                recipients_unique = [r for r in recipients_unique if r != user_id]
 
             # Group DM handling
             if len(recipients_unique) > 1:
@@ -9913,7 +9923,10 @@ def create_ui_blueprint() -> Blueprint:
 
             # Single recipient or broadcast
             recipient_id = recipients_unique[0] if recipients_unique else recipient_id
+            is_self_dm = bool(recipient_id and recipient_id == user_id)
             if recipient_id:
+                if is_self_dm:
+                    metadata['personal_scratchpad'] = True
                 metadata['security'] = build_dm_security_summary(
                     db_manager,
                     p2p_manager,
@@ -9929,7 +9942,7 @@ def create_ui_blueprint() -> Blueprint:
 
                 try:
                     inbox_manager = current_app.config.get('INBOX_MANAGER')
-                    if inbox_manager and recipient_id:
+                    if inbox_manager and recipient_id and not is_self_dm:
                         local_target_ids = filter_local_dm_targets(db_manager, p2p_manager, [recipient_id])
                         if local_target_ids:
                             inbox_manager.sync_source_triggers(
@@ -9953,7 +9966,7 @@ def create_ui_blueprint() -> Blueprint:
                     logger.warning(f"Failed to create DM inbox trigger: {inbox_err}")
 
                 # Broadcast DM over P2P so recipient's node can store it
-                if recipient_id and p2p_manager:
+                if recipient_id and recipient_id != user_id and p2p_manager:
                     try:
                         # Get sender display name for shadow user creation on remote
                         display_name = None
@@ -20776,6 +20789,111 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"System reset error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    def _resolve_canopy_llm_compose_context(
+        data: dict[str, Any],
+        *,
+        db_manager: Any,
+        channel_manager: Any,
+        user_id: str,
+    ) -> tuple[Optional[dict[str, Any]], Optional[str], Optional[str]]:
+        """Return an error payload, channel name, and non-channel surface label for LLM compose."""
+        surface = str(data.get('surface') or data.get('context_type') or '').strip().lower()
+        channel_id = str(data.get('channel_id') or '').strip()
+        recipient_id = data.get('recipient_id')
+        recipient_ids = data.get('recipient_ids') or []
+        conversation_with = str(data.get('conversation_with') or '').strip()
+        conversation_group = str(data.get('conversation_group') or '').strip()
+        is_dm_surface = surface in {'dm', 'direct_message', 'direct-message', 'message', 'deck_dm', 'deck-dm'}
+        is_dm_surface = is_dm_surface or bool(recipient_id or recipient_ids or conversation_with or conversation_group)
+
+        if is_dm_surface:
+            raw_recipients: list[Any] = []
+            if isinstance(recipient_ids, list):
+                raw_recipients.extend(recipient_ids)
+            elif isinstance(recipient_ids, str):
+                raw_recipients.extend(r.strip() for r in recipient_ids.split(','))
+            if isinstance(recipient_id, list):
+                raw_recipients.extend(recipient_id)
+            elif recipient_id:
+                raw_recipients.append(recipient_id)
+            if conversation_with:
+                raw_recipients.append(conversation_with)
+
+            recipients = [
+                str(raw or '').strip()
+                for raw in raw_recipients
+                if str(raw or '').strip()
+            ]
+            unique_recipients = []
+            for rid in recipients:
+                if rid not in unique_recipients:
+                    unique_recipients.append(rid)
+
+            if conversation_group or len([rid for rid in unique_recipients if rid != user_id]) > 1:
+                return None, None, 'Group direct message'
+            if len(unique_recipients) == 1 and unique_recipients[0] == user_id:
+                return None, None, 'Personal scratchpad'
+            return None, None, 'Direct message'
+
+        if not channel_id:
+            return {'error': 'Channel ID required'}, None, None
+
+        access = channel_manager.get_channel_access_decision(
+            channel_id=channel_id,
+            user_id=user_id,
+            require_membership=True,
+        )
+        if not access.get('allowed'):
+            if str(access.get('reason') or '').startswith('governance_'):
+                return {
+                    'error': 'Channel access blocked by admin governance policy',
+                    'reason': access.get('reason'),
+                    'status_code': 403,
+                }, None, None
+            return {'error': 'You are not a member of this channel', 'status_code': 403}, None, None
+
+        parent_message_id = data.get('parent_message_id')
+        post_decision = channel_manager.can_user_post_message(
+            channel_id=channel_id,
+            user_id=user_id,
+            parent_message_id=parent_message_id,
+            allow_admin=False,
+        )
+        if not post_decision.get('allowed'):
+            reason = str(post_decision.get('reason') or '')
+            if reason == 'top_level_post_restricted':
+                return {
+                    'error': 'This channel is curated. Only approved posters can start top-level posts.',
+                    'reason': reason,
+                    'post_policy': post_decision.get('post_policy'),
+                    'can_reply': post_decision.get('can_reply'),
+                    'status_code': 403,
+                }, None, None
+            if reason == 'reply_restricted':
+                return {
+                    'error': 'Replies are currently restricted in this channel.',
+                    'reason': reason,
+                    'status_code': 403,
+                }, None, None
+            return {
+                'error': 'You cannot post in this channel.',
+                'reason': reason or 'posting_denied',
+                'status_code': 403,
+            }, None, None
+
+        channel_name = None
+        try:
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT name FROM channels WHERE id = ?",
+                    (channel_id,),
+                ).fetchone()
+                if row:
+                    channel_name = str((row['name'] if hasattr(row, 'keys') else row[0]) or '').strip() or None
+        except Exception:
+            channel_name = None
+        return None, channel_name, None
+
     @ui.route('/ajax/canopy_llm/settings', methods=['GET', 'POST'])
     @require_login
     def ajax_canopy_llm_settings():
@@ -20823,66 +20941,22 @@ def create_ui_blueprint() -> Blueprint:
             user_id = get_current_user()
             data = request.get_json(silent=True) or {}
             content = str(data.get('content') or '')
-            channel_id = str(data.get('channel_id') or '').strip()
-            parent_message_id = data.get('parent_message_id')
             manager = _get_canopy_llm_manager()
 
-            if not channel_id:
-                return jsonify({'error': 'Channel ID required'}), 400
             if not manager.has_canopy_trigger(content):
                 return jsonify({'error': 'Add @Canopy to the draft to use AI compose.', 'reason': 'missing_trigger'}), 400
 
-            access = channel_manager.get_channel_access_decision(
-                channel_id=channel_id,
+            error_payload, channel_name, context_label = _resolve_canopy_llm_compose_context(
+                data,
+                db_manager=db_manager,
+                channel_manager=channel_manager,
                 user_id=user_id,
-                require_membership=True,
             )
-            if not access.get('allowed'):
-                if str(access.get('reason') or '').startswith('governance_'):
-                    return jsonify({
-                        'error': 'Channel access blocked by admin governance policy',
-                        'reason': access.get('reason'),
-                    }), 403
-                return jsonify({'error': 'You are not a member of this channel'}), 403
+            if error_payload:
+                status_code = int(error_payload.pop('status_code', 400) or 400)
+                return jsonify(error_payload), status_code
 
-            post_decision = channel_manager.can_user_post_message(
-                channel_id=channel_id,
-                user_id=user_id,
-                parent_message_id=parent_message_id,
-                allow_admin=False,
-            )
-            if not post_decision.get('allowed'):
-                reason = str(post_decision.get('reason') or '')
-                if reason == 'top_level_post_restricted':
-                    return jsonify({
-                        'error': 'This channel is curated. Only approved posters can start top-level posts.',
-                        'reason': reason,
-                        'post_policy': post_decision.get('post_policy'),
-                        'can_reply': post_decision.get('can_reply'),
-                    }), 403
-                if reason == 'reply_restricted':
-                    return jsonify({
-                        'error': 'Replies are currently restricted in this channel.',
-                        'reason': reason,
-                    }), 403
-                return jsonify({
-                    'error': 'You cannot post in this channel.',
-                    'reason': reason or 'posting_denied',
-                }), 403
-
-            channel_name = None
-            try:
-                with db_manager.get_connection() as conn:
-                    row = conn.execute(
-                        "SELECT name FROM channels WHERE id = ?",
-                        (channel_id,),
-                    ).fetchone()
-                    if row:
-                        channel_name = str((row['name'] if hasattr(row, 'keys') else row[0]) or '').strip() or None
-            except Exception:
-                channel_name = None
-
-            result = manager.expand_prompt(user_id, content, channel_name=channel_name)
+            result = manager.expand_prompt(user_id, content, channel_name=channel_name, context_label=context_label)
             return jsonify({
                 'success': True,
                 'content': result.get('content') or '',
@@ -20906,64 +20980,20 @@ def create_ui_blueprint() -> Blueprint:
             user_id = get_current_user()
             data = request.get_json(silent=True) or {}
             content = str(data.get('content') or '')
-            channel_id = str(data.get('channel_id') or '').strip()
-            parent_message_id = data.get('parent_message_id')
             manager = _get_canopy_llm_manager()
 
-            if not channel_id:
-                return jsonify({'error': 'Channel ID required'}), 400
             if not manager.has_canopy_trigger(content):
                 return jsonify({'error': 'Add @Canopy to the draft to use AI compose.', 'reason': 'missing_trigger'}), 400
 
-            access = channel_manager.get_channel_access_decision(
-                channel_id=channel_id,
+            error_payload, channel_name, context_label = _resolve_canopy_llm_compose_context(
+                data,
+                db_manager=db_manager,
+                channel_manager=channel_manager,
                 user_id=user_id,
-                require_membership=True,
             )
-            if not access.get('allowed'):
-                if str(access.get('reason') or '').startswith('governance_'):
-                    return jsonify({
-                        'error': 'Channel access blocked by admin governance policy',
-                        'reason': access.get('reason'),
-                    }), 403
-                return jsonify({'error': 'You are not a member of this channel'}), 403
-
-            post_decision = channel_manager.can_user_post_message(
-                channel_id=channel_id,
-                user_id=user_id,
-                parent_message_id=parent_message_id,
-                allow_admin=False,
-            )
-            if not post_decision.get('allowed'):
-                reason = str(post_decision.get('reason') or '')
-                if reason == 'top_level_post_restricted':
-                    return jsonify({
-                        'error': 'This channel is curated. Only approved posters can start top-level posts.',
-                        'reason': reason,
-                        'post_policy': post_decision.get('post_policy'),
-                        'can_reply': post_decision.get('can_reply'),
-                    }), 403
-                if reason == 'reply_restricted':
-                    return jsonify({
-                        'error': 'Replies are currently restricted in this channel.',
-                        'reason': reason,
-                    }), 403
-                return jsonify({
-                    'error': 'You cannot post in this channel.',
-                    'reason': reason or 'posting_denied',
-                }), 403
-
-            channel_name = None
-            try:
-                with db_manager.get_connection() as conn:
-                    row = conn.execute(
-                        "SELECT name FROM channels WHERE id = ?",
-                        (channel_id,),
-                    ).fetchone()
-                    if row:
-                        channel_name = str((row['name'] if hasattr(row, 'keys') else row[0]) or '').strip() or None
-            except Exception:
-                channel_name = None
+            if error_payload:
+                status_code = int(error_payload.pop('status_code', 400) or 400)
+                return jsonify(error_payload), status_code
 
             def _event(payload: dict[str, Any]) -> str:
                 return f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
@@ -20972,7 +21002,7 @@ def create_ui_blueprint() -> Blueprint:
             def _generate():
                 yield _event({'type': 'status', 'message': 'Sending prompt to your configured LLM...'})
                 try:
-                    for event in manager.stream_expand_prompt(user_id, content, channel_name=channel_name):
+                    for event in manager.stream_expand_prompt(user_id, content, channel_name=channel_name, context_label=context_label):
                         yield _event(event)
                 except CanopyLLMError as e:
                     yield _event({'type': 'error', 'error': str(e), 'reason': e.reason})

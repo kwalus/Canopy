@@ -77,6 +77,31 @@
         <div id="{{ channel_suggestions_id }}" class="mention-suggestions" data-dm-role="channel-suggestions" style="display:none;"></div>
     </div>
 
+    <div class="alert alert-primary py-2 px-3 mt-2 mb-0 dm-canopy-llm-status"
+         data-dm-role="canopy-llm-status"
+         aria-live="polite"
+         aria-atomic="true"
+         hidden>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="badge bg-primary-subtle text-primary-emphasis">
+                <i class="bi bi-stars me-1"></i>Canopy drafting
+            </span>
+            <small class="flex-grow-1" data-dm-role="canopy-llm-status-text">Preparing draft...</small>
+            <button type="button"
+                    class="btn btn-sm btn-outline-primary"
+                    data-dm-role="canopy-llm-generate"
+                    data-dm-action="generate-canopy-draft">
+                <i class="bi bi-stars me-1"></i>Generate draft
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    data-dm-role="canopy-llm-dismiss"
+                    data-dm-action="send-as-written">
+                Send as written
+            </button>
+        </div>
+    </div>
+
     <div id="{{ file_preview_id }}" class="file-preview mt-1" data-dm-role="file-preview" style="display:none;"></div>
 
     <div class="dm-composer-actions">

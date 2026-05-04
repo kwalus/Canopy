@@ -265,6 +265,32 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('function syncDmMobileLayoutState(options)', body)
         self.assertIn("window.addEventListener('resize', scheduleDmMobileLayoutSync);", body)
 
+    def test_self_dm_renders_as_personal_scratchpad(self) -> None:
+        response = self.client.post(
+            '/ajax/send_message',
+            json={'recipient_id': 'owner', 'content': 'Private scratchpad note'},
+            headers={'X-CSRFToken': 'csrf-ui-messages'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(self.p2p_manager.direct_messages, [])
+
+        row = self.conn.execute(
+            "SELECT sender_id, recipient_id, metadata FROM messages WHERE id = ?",
+            (payload['message']['id'],),
+        ).fetchone()
+        self.assertEqual(row['sender_id'], 'owner')
+        self.assertEqual(row['recipient_id'], 'owner')
+        metadata = json.loads(row['metadata'])
+        self.assertTrue(metadata.get('personal_scratchpad'))
+
+        page = self.client.get('/messages?with=owner')
+        self.assertEqual(page.status_code, 200)
+        body = page.get_data(as_text=True)
+        self.assertIn('Personal scratchpad', body)
+        self.assertIn('Private scratchpad note', body)
+
     def test_dm_message_text_preserves_multiline_content(self) -> None:
         root = Path(__file__).resolve().parents[1]
         template = (root / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')

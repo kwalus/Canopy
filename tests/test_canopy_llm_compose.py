@@ -89,11 +89,19 @@ class _FakeLLMManager:
         self.saved_payloads.append({'user_id': user_id, **kwargs})
         return self.get_settings(user_id)
 
-    def expand_prompt(self, user_id: str, content: Any, *, channel_name: Optional[str] = None) -> dict[str, Any]:
+    def expand_prompt(
+        self,
+        user_id: str,
+        content: Any,
+        *,
+        channel_name: Optional[str] = None,
+        context_label: Optional[str] = None,
+    ) -> dict[str, Any]:
         self.expand_calls.append({
             'user_id': user_id,
             'content': content,
             'channel_name': channel_name,
+            'context_label': context_label,
         })
         return {
             'content': 'Expanded post with @Forge and [signal]\ntitle: Useful finding\n[/signal]',
@@ -101,11 +109,19 @@ class _FakeLLMManager:
             'model': 'gpt-5-mini',
         }
 
-    def stream_expand_prompt(self, user_id: str, content: Any, *, channel_name: Optional[str] = None):
+    def stream_expand_prompt(
+        self,
+        user_id: str,
+        content: Any,
+        *,
+        channel_name: Optional[str] = None,
+        context_label: Optional[str] = None,
+    ):
         self.expand_calls.append({
             'user_id': user_id,
             'content': content,
             'channel_name': channel_name,
+            'context_label': context_label,
             'stream': True,
         })
         yield {'type': 'status', 'message': 'Streaming test draft...'}
@@ -245,6 +261,38 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertEqual(captured['payload']['max_output_tokens'], 6000)
         self.assertEqual(captured['payload']['max_tool_calls'], 2)
         self.assertEqual(captured['timeout'], 90)
+
+    def test_plain_prompts_skip_web_search_tool_to_reduce_latency(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        captured: dict[str, Any] = {}
+
+        class _Response:
+            def __enter__(self) -> '_Response':
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, size: int = -1) -> bytes:
+                return b'{"output_text":"Plain draft."}'
+
+        def _fake_urlopen(request: Any, timeout: float = 0) -> _Response:
+            captured['payload'] = json.loads(request.data.decode('utf-8'))
+            return _Response()
+
+        with patch('canopy.core.canopy_ai.urlopen', side_effect=_fake_urlopen):
+            output = manager._call_openai(
+                api_key='sk-test',
+                model='gpt-5.4-mini',
+                system_prompt='Compose.',
+                prompt='User draft to transform into a Canopy message:\nwrite a friendly follow-up',
+                web_search_enabled=manager._should_enable_web_search_for_prompt('write a friendly follow-up'),
+            )
+
+        self.assertEqual(output, 'Plain draft.')
+        self.assertNotIn('tools', captured['payload'])
+        self.assertNotIn('tool_choice', captured['payload'])
+        self.assertEqual(captured['payload']['max_output_tokens'], 2600)
 
     def test_openai_empty_tool_only_response_retries_with_final_instruction(self) -> None:
         manager = CanopyLLMManager(self.db, 'test-secret')
@@ -480,6 +528,21 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
         self.assertIn('@Forge', payload.get('content') or '')
         self.assertEqual(payload.get('model'), 'gpt-5-mini')
         self.assertEqual(self.llm_manager.expand_calls[0]['channel_name'], 'general')
+
+    def test_expand_endpoint_allows_dm_compose_without_channel_id(self) -> None:
+        csrf = self._login()
+
+        response = self.client.post(
+            '/ajax/canopy_llm/expand',
+            json={'surface': 'dm', 'recipient_id': 'user-1', 'content': '@Canopy draft a private note'},
+            headers={'X-CSRFToken': csrf},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertIsNone(self.llm_manager.expand_calls[-1]['channel_name'])
+        self.assertEqual(self.llm_manager.expand_calls[-1]['context_label'], 'Personal scratchpad')
 
     def test_expand_stream_endpoint_returns_sse_draft_events(self) -> None:
         csrf = self._login()

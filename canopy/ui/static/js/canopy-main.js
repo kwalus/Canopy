@@ -87,6 +87,110 @@
             }, 5000);
 	        }
 
+        function canopyEscapeHtml(value) {
+            const div = document.createElement('div');
+            div.textContent = value == null ? '' : String(value);
+            return div.innerHTML;
+        }
+
+        (function initCanopyLLMCompose(global) {
+            function hasTrigger(value) {
+                return /(^|\s)@canopy\b/i.test(String(value || ''));
+            }
+
+            async function expandDraft(payload) {
+                return apiCall('/ajax/canopy_llm/expand', {
+                    method: 'POST',
+                    body: JSON.stringify(payload || {}),
+                });
+            }
+
+            function parseSseBuffer(buffer, onEvent) {
+                let rest = String(buffer || '');
+                function findSeparator() {
+                    const lf = rest.indexOf('\n\n');
+                    const crlf = rest.indexOf('\r\n\r\n');
+                    if (lf === -1) return crlf;
+                    if (crlf === -1) return lf;
+                    return Math.min(lf, crlf);
+                }
+                let separator = findSeparator();
+                while (separator !== -1) {
+                    const rawEvent = rest.slice(0, separator);
+                    const skip = rest.startsWith('\r\n\r\n', separator) ? 4 : 2;
+                    rest = rest.slice(separator + skip);
+                    const rawData = rawEvent
+                        .split(/\r?\n/)
+                        .filter(line => line.startsWith('data:'))
+                        .map(line => line.slice(5).trimStart())
+                        .join('\n')
+                        .trim();
+                    if (rawData) {
+                        const event = JSON.parse(rawData);
+                        onEvent(event);
+                    }
+                    separator = findSeparator();
+                }
+                return rest;
+            }
+
+            async function streamDraft(payload, handlers = {}) {
+                if (!global.TextDecoder || !global.ReadableStream) {
+                    throw { fallback: true };
+                }
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                const response = await fetch('/ajax/canopy_llm/expand_stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
+                    },
+                    body: JSON.stringify(payload || {}),
+                });
+                if (!response.ok || !response.body) {
+                    let errorPayload = {};
+                    try { errorPayload = await response.json(); } catch (_) { errorPayload = {}; }
+                    throw errorPayload.error ? errorPayload : { fallback: true };
+                }
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let finalPayload = null;
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    buffer = parseSseBuffer(buffer, (event) => {
+                        if (!event || typeof event !== 'object') return;
+                        if (event.type === 'delta' && typeof handlers.onDelta === 'function') {
+                            handlers.onDelta(String(event.delta || ''));
+                        } else if (event.type === 'status' && typeof handlers.onStatus === 'function') {
+                            handlers.onStatus(String(event.message || ''));
+                        } else if (event.type === 'done') {
+                            finalPayload = event;
+                        } else if (event.type === 'error') {
+                            throw event;
+                        }
+                    });
+                }
+                buffer += decoder.decode();
+                parseSseBuffer(buffer, (event) => {
+                    if (event && event.type === 'done') finalPayload = event;
+                    if (event && event.type === 'error') throw event;
+                });
+                if (!finalPayload || !String(finalPayload.content || '').trim()) {
+                    throw { error: 'Canopy AI Compose returned an empty draft.' };
+                }
+                return finalPayload;
+            }
+
+            global.CanopyLLMCompose = {
+                hasTrigger,
+                expandDraft,
+                streamDraft,
+            };
+        })(window);
+
         (function initStructuredComposerSupport(global) {
             const SUPPORTED_TAGS = new Set([
                 'task',
@@ -6392,6 +6496,9 @@
                 deckInboxReply: null,
                 deckInboxListOpen: false,
                 deckInboxSnapshotSeq: 0,
+                deckInboxCanopyLLMInFlight: false,
+                deckInboxCanopyLLMDraftReady: false,
+                deckInboxCanopyLLMIgnoredDraft: '',
                 deckDesktopMode: normalizeDeckDesktopMode(loadSidebarRailPreference('deckDesktopMode', 'default')),
                 /** Last `state.deckItems.length` applied in `syncDeckLayoutMode` (module layout). */
                 deckLayoutLastQueueCount: -1,
@@ -10420,6 +10527,8 @@
                 }
                 if (deckInboxComposerSlot && typeof data.composer_html === 'string') {
                     deckInboxComposerSlot.innerHTML = data.composer_html;
+                    state.deckInboxCanopyLLMDraftReady = false;
+                    state.deckInboxCanopyLLMIgnoredDraft = '';
                 }
                 state.deckInboxActiveThread = data.active_thread || null;
                 state.deckInboxComposerRecipients = Array.isArray(data.composer_recipients) ? data.composer_recipients : [];
@@ -10432,6 +10541,7 @@
                     state.deckInboxListOpen = true;
                 }
                 updateDeckModeChrome();
+                updateDeckInboxCanopyLLMComposePanel();
                 if (typeof formatTimestamps === 'function' && deckInboxSurface) {
                     formatTimestamps(deckInboxSurface);
                 }
@@ -10513,6 +10623,9 @@
                 state.deckInboxReply = null;
                 state.deckInboxTargetMessageId = '';
                 state.deckInboxListOpen = false;
+                state.deckInboxCanopyLLMInFlight = false;
+                state.deckInboxCanopyLLMDraftReady = false;
+                state.deckInboxCanopyLLMIgnoredDraft = '';
                 state.deckInboxSnapshotSeq += 1;
                 state.deckInboxSnapshotInFlight = false;
                 if (options.purgeContent) {
@@ -10555,6 +10668,89 @@
                 return root ? root.querySelector('[data-dm-role="message-content"]') : null;
             }
 
+            function deckInboxHasCanopyLLMTrigger(value) {
+                return !!(window.CanopyLLMCompose && window.CanopyLLMCompose.hasTrigger(value));
+            }
+
+            function deckInboxShouldGenerateCanopyLLMDraft(value) {
+                const content = String(value || '');
+                return deckInboxHasCanopyLLMTrigger(content)
+                    && (!state.deckInboxCanopyLLMIgnoredDraft || content !== state.deckInboxCanopyLLMIgnoredDraft);
+            }
+
+            function setDeckInboxCanopyLLMStatus(message, visible = true, kind = 'info', options = {}) {
+                const root = deckInboxComposerRoot();
+                const panel = root ? root.querySelector('[data-dm-role="canopy-llm-status"]') : null;
+                const text = root ? root.querySelector('[data-dm-role="canopy-llm-status-text"]') : null;
+                const generateBtn = root ? root.querySelector('[data-dm-role="canopy-llm-generate"]') : null;
+                const dismissBtn = root ? root.querySelector('[data-dm-role="canopy-llm-dismiss"]') : null;
+                if (!panel || !text) return;
+                panel.hidden = !visible;
+                panel.classList.toggle('alert-success', kind === 'success');
+                panel.classList.toggle('alert-danger', kind === 'error');
+                panel.classList.toggle('alert-primary', kind !== 'success' && kind !== 'error');
+                if (!visible) {
+                    text.textContent = '';
+                    return;
+                }
+                text.textContent = message || 'Preparing draft...';
+                const textarea = deckInboxTextArea();
+                const busy = !!options.busy || state.deckInboxCanopyLLMInFlight;
+                if (generateBtn) {
+                    const label = options.actionLabel || (state.deckInboxCanopyLLMDraftReady ? 'Refine draft' : 'Generate draft');
+                    generateBtn.disabled = busy || !deckInboxShouldGenerateCanopyLLMDraft(textarea && textarea.value);
+                    generateBtn.innerHTML = busy
+                        ? '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Generating...'
+                        : `<i class="bi bi-stars me-1"></i>${canopyEscapeHtml(label)}`;
+                }
+                if (dismissBtn) {
+                    dismissBtn.disabled = busy || !deckInboxHasCanopyLLMTrigger(textarea && textarea.value);
+                    dismissBtn.title = 'Ignore @Canopy for this exact draft and enable normal send';
+                }
+            }
+
+            function updateDeckInboxCanopyLLMComposePanel() {
+                if (state.deckInboxCanopyLLMInFlight) return;
+                const textarea = deckInboxTextArea();
+                const content = String((textarea && textarea.value) || '');
+                if (state.deckInboxCanopyLLMIgnoredDraft && content !== state.deckInboxCanopyLLMIgnoredDraft) {
+                    state.deckInboxCanopyLLMIgnoredDraft = '';
+                }
+                if (deckInboxHasCanopyLLMTrigger(content) && !deckInboxShouldGenerateCanopyLLMDraft(content)) {
+                    setDeckInboxCanopyLLMStatus('', false);
+                    return;
+                }
+                if (deckInboxHasCanopyLLMTrigger(content)) {
+                    setDeckInboxCanopyLLMStatus(
+                        state.deckInboxCanopyLLMDraftReady
+                            ? 'Ready to refine this DM draft. The result will return here for review before sending.'
+                            : 'Ready to generate a DM draft. Send or Generate will fill the composer first, not post automatically.',
+                        true,
+                        'info',
+                        { actionLabel: state.deckInboxCanopyLLMDraftReady ? 'Refine draft' : 'Generate draft' }
+                    );
+                    return;
+                }
+                if (state.deckInboxCanopyLLMDraftReady && content.trim()) {
+                    setDeckInboxCanopyLLMStatus('Draft inserted. Review and send when ready, or add @Canopy to refine again.', true, 'success', {
+                        actionLabel: 'Refine draft'
+                    });
+                    return;
+                }
+                state.deckInboxCanopyLLMDraftReady = false;
+                setDeckInboxCanopyLLMStatus('', false);
+            }
+
+            function dismissDeckInboxCanopyLLMComposePanel() {
+                if (state.deckInboxCanopyLLMInFlight) return;
+                const textarea = deckInboxTextArea();
+                const content = String((textarea && textarea.value) || '');
+                state.deckInboxCanopyLLMIgnoredDraft = deckInboxHasCanopyLLMTrigger(content) ? content : '';
+                state.deckInboxCanopyLLMDraftReady = false;
+                setDeckInboxCanopyLLMStatus('', false);
+                if (textarea) textarea.focus();
+            }
+
             function setDeckInboxReply(messageId, senderLabel, preview) {
                 state.deckInboxReply = {
                     messageId: String(messageId || '').trim(),
@@ -10580,7 +10776,90 @@
                 if (box) box.classList.remove('active');
             }
 
-            function sendDeckInboxMessage() {
+            async function generateDeckInboxCanopyLLMDraft(recipients = null) {
+                if (state.deckInboxCanopyLLMInFlight) return false;
+                const textarea = deckInboxTextArea();
+                const rawContent = String((textarea && textarea.value) || '');
+                if (!deckInboxHasCanopyLLMTrigger(rawContent)) {
+                    setDeckInboxCanopyLLMStatus('Add @Canopy plus instructions to the message, then generate again.', true, 'info');
+                    if (textarea) textarea.focus();
+                    return false;
+                }
+                if (!deckInboxShouldGenerateCanopyLLMDraft(rawContent)) {
+                    state.deckInboxCanopyLLMIgnoredDraft = '';
+                    updateDeckInboxCanopyLLMComposePanel();
+                    return false;
+                }
+                const targetRecipients = Array.isArray(recipients)
+                    ? recipients
+                    : (Array.isArray(state.deckInboxComposerRecipients) ? state.deckInboxComposerRecipients : [])
+                        .map((item) => String((item && item.user_id) || '').trim())
+                        .filter(Boolean);
+                state.deckInboxCanopyLLMInFlight = true;
+                state.deckInboxCanopyLLMIgnoredDraft = '';
+                const root = deckInboxComposerRoot();
+                const sendBtn = root ? root.querySelector('[data-dm-role="send-button"]') : null;
+                if (sendBtn) {
+                    sendBtn.disabled = true;
+                    sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Drafting...';
+                }
+                setDeckInboxCanopyLLMStatus('Sending prompt to your configured LLM...', true, 'info', { busy: true });
+                let fullText = '';
+                const payload = {
+                    content: rawContent,
+                    surface: 'dm',
+                    recipient_ids: targetRecipients,
+                    conversation_with: state.deckInboxConversationWith || '',
+                    conversation_group: state.deckInboxConversationGroup || '',
+                };
+                try {
+                    let data = null;
+                    try {
+                        data = await window.CanopyLLMCompose.streamDraft(payload, {
+                            onStatus(message) {
+                                if (message) setDeckInboxCanopyLLMStatus(message, true, 'info', { busy: true });
+                            },
+                            onDelta(delta) {
+                                fullText += delta;
+                                if (textarea) textarea.value = fullText;
+                            },
+                        });
+                    } catch (streamError) {
+                        if (streamError && streamError.fallback) {
+                            data = await window.CanopyLLMCompose.expandDraft(payload);
+                        } else {
+                            throw streamError;
+                        }
+                    }
+                    const expanded = String((data && data.content) || '').trim();
+                    if (!expanded) throw { error: 'Canopy AI Compose returned an empty draft.' };
+                    if (textarea && !fullText) {
+                        textarea.value = expanded;
+                        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+                    }
+                    state.deckInboxCanopyLLMDraftReady = true;
+                    setDeckInboxCanopyLLMStatus(`Draft inserted from ${(data && data.model) || 'LLM'}. Review, edit, send, or add @Canopy to refine again.`, true, 'success', {
+                        actionLabel: 'Refine draft'
+                    });
+                    if (textarea) textarea.focus();
+                    return true;
+                } catch (error) {
+                    console.error('Canopy AI Compose failed:', error);
+                    const message = (error && (error.error || error.message)) || 'Canopy AI Compose failed.';
+                    setDeckInboxCanopyLLMStatus(message, true, 'error');
+                    showAlert(message, 'warning');
+                    return false;
+                } finally {
+                    state.deckInboxCanopyLLMInFlight = false;
+                    if (sendBtn) {
+                        sendBtn.disabled = false;
+                        sendBtn.innerHTML = '<i class="bi bi-send"></i> Send';
+                    }
+                    updateDeckInboxCanopyLLMComposePanel();
+                }
+            }
+
+            async function sendDeckInboxMessage() {
                 const textarea = deckInboxTextArea();
                 const content = String((textarea && textarea.value) || '').trim();
                 if (!content) {
@@ -10592,6 +10871,10 @@
                     .filter(Boolean);
                 if (!recipients.length) {
                     showAlert('Open a conversation before sending from Deck Inbox.', 'warning');
+                    return;
+                }
+                if (deckInboxShouldGenerateCanopyLLMDraft(content)) {
+                    await generateDeckInboxCanopyLLMDraft(recipients);
                     return;
                 }
                 const payload = { content };
@@ -10615,6 +10898,9 @@
                             throw new Error((data && data.error) || 'Failed to send message');
                         }
                         if (textarea) textarea.value = '';
+                        state.deckInboxCanopyLLMDraftReady = false;
+                        state.deckInboxCanopyLLMIgnoredDraft = '';
+                        updateDeckInboxCanopyLLMComposePanel();
                         clearDeckInboxReply();
                         const nextOptions = {};
                         if (data && data.group_id) {
@@ -10666,7 +10952,14 @@
                 } else if (action === 'clear-composer') {
                     const textarea = deckInboxTextArea();
                     if (textarea) textarea.value = '';
+                    state.deckInboxCanopyLLMDraftReady = false;
+                    state.deckInboxCanopyLLMIgnoredDraft = '';
+                    updateDeckInboxCanopyLLMComposePanel();
                     clearDeckInboxReply();
+                } else if (action === 'generate-canopy-draft') {
+                    generateDeckInboxCanopyLLMDraft();
+                } else if (action === 'send-as-written') {
+                    dismissDeckInboxCanopyLLMComposePanel();
                 } else if (action === 'toggle-list') {
                     setDeckInboxListOpen(!state.deckInboxListOpen);
                 } else if (action === 'toggle-composer-expanded') {
@@ -10719,6 +11012,10 @@
                         event.preventDefault();
                         sendDeckInboxMessage();
                     }
+                });
+                deckInboxSurface.addEventListener('input', (event) => {
+                    const textarea = event.target && event.target.closest ? event.target.closest('[data-dm-role="message-content"]') : null;
+                    if (textarea) updateDeckInboxCanopyLLMComposePanel();
                 });
             }
 

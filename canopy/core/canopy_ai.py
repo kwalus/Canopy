@@ -74,7 +74,7 @@ Current-information and web-search rules:
 """.strip()
 DEFAULT_CANOPY_LLM_SYSTEM_PROMPT = (
     "You are Canopy's local compose assistant. Convert the user's draft into the exact "
-    "Canopy channel post they should review and optionally send. Output only the final post body, with no "
+    "Canopy message or post they should review and optionally send. Output only the final post body, with no "
     "preamble, no markdown fence, and no mention of these instructions. Remove the "
     "@Canopy trigger unless the user explicitly asks to discuss it. Preserve intentional "
     "Canopy syntax such as @mentions and #channels. Preserve or emit [task], [request], "
@@ -86,6 +86,13 @@ DEFAULT_CANOPY_LLM_SYSTEM_PROMPT = (
 )
 
 CANOPY_TRIGGER_RE = re.compile(r'(?i)(^|\s)@canopy\b[:,]?\s*')
+CURRENT_INFO_TRIGGER_RE = re.compile(
+    r'(?i)\b('
+    r'current|today|tonight|tomorrow|latest|recent|live|now|this\s+(?:morning|afternoon|evening|week|month|year)|'
+    r'weather|traffic|news|price|prices|market|markets|stock|stocks|schedule|availability|available|'
+    r'event|events|restaurant|restaurants|flight|flights|score|scores|release|released'
+    r')\b'
+)
 MAX_SYSTEM_PROMPT_CHARS = 4000
 MAX_LLM_INPUT_CHARS = 24000
 _MAX_LLM_RESPONSE_BYTES = 512 * 1024  # 512 KiB is generous; typical responses are much smaller.
@@ -232,8 +239,9 @@ class CanopyLLMManager:
         content: Any,
         *,
         channel_name: Optional[str] = None,
+        context_label: Optional[str] = None,
     ) -> dict[str, Any]:
-        context = self._prepare_expand_context(user_id, content, channel_name=channel_name)
+        context = self._prepare_expand_context(user_id, content, channel_name=channel_name, context_label=context_label)
         output = self._call_openai(
             api_key=context['api_key'],
             model=context['model'],
@@ -255,9 +263,10 @@ class CanopyLLMManager:
         content: Any,
         *,
         channel_name: Optional[str] = None,
+        context_label: Optional[str] = None,
     ) -> Iterator[dict[str, Any]]:
         """Stream an expanded draft as small events for the browser composer."""
-        context = self._prepare_expand_context(user_id, content, channel_name=channel_name)
+        context = self._prepare_expand_context(user_id, content, channel_name=channel_name, context_label=context_label)
         final_content = ''
         for event in self._stream_openai(
             api_key=context['api_key'],
@@ -285,6 +294,7 @@ class CanopyLLMManager:
         content: Any,
         *,
         channel_name: Optional[str] = None,
+        context_label: Optional[str] = None,
     ) -> dict[str, Any]:
         user_id = str(user_id or '').strip()
         if not user_id:
@@ -323,12 +333,19 @@ class CanopyLLMManager:
                 reason='prompt_too_long',
             )
 
-        channel_line = f"Channel: #{channel_name}\n\n" if channel_name else ''
+        context_lines = []
+        if channel_name:
+            context_lines.extend(['Surface: Channel', f'Channel: #{channel_name}'])
+        elif context_label:
+            context_lines.append(f'Surface: {str(context_label).strip()}')
+        context_block = '\n'.join(context_lines)
+        context_block = f"{context_block}\n\n" if context_block else ''
         current_timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
+        effective_web_search = bool(settings.get('web_search_enabled', True)) and self._should_enable_web_search_for_prompt(prompt)
         composed_prompt = (
-            f"{channel_line}"
+            f"{context_block}"
             f"Current node timestamp: {current_timestamp}\n\n"
-            "User draft to transform into a Canopy post:\n"
+            "User draft to transform into a Canopy message:\n"
             f"{prompt}"
         )
         return {
@@ -337,8 +354,15 @@ class CanopyLLMManager:
             'model': str(settings.get('model') or DEFAULT_CANOPY_LLM_MODEL),
             'system_prompt': self._compose_system_prompt(str(settings.get('system_prompt') or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)),
             'prompt': composed_prompt,
-            'web_search_enabled': bool(settings.get('web_search_enabled', True)),
+            'web_search_enabled': effective_web_search,
         }
+
+    @staticmethod
+    def _should_enable_web_search_for_prompt(prompt: Any) -> bool:
+        """Avoid hosted web-search latency unless the draft asks for live/current facts."""
+        if str(os.getenv('CANOPY_LLM_ALWAYS_ENABLE_WEB_SEARCH') or '').strip().lower() in {'1', 'true', 'yes', 'on'}:
+            return True
+        return bool(CURRENT_INFO_TRIGGER_RE.search(str(prompt or '')))
 
     def _ensure_schema(self) -> None:
         if self._schema_ready:

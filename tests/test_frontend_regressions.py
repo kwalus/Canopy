@@ -13,7 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 class TestFrontendRegressions(unittest.TestCase):
     def test_canopy_llm_compose_ui_is_wired_to_channel_composer_and_profile(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        messages_composer = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_composer.html').read_text(encoding='utf-8')
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
 
         self.assertIn('channel-canopy-llm-status', channels_template)
         self.assertIn('function hasCanopyLLMTrigger', channels_template)
@@ -41,6 +44,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Allow hosted web search for current facts', profile_template)
         self.assertIn('/ajax/canopy_llm/settings', profile_template)
         self.assertIn('put the result back into the composer for review before you send', profile_template)
+        self.assertIn('data-dm-role="canopy-llm-status"', messages_composer)
+        self.assertIn('data-dm-action="generate-canopy-draft"', messages_composer)
+        self.assertIn('async function generateDmCanopyLLMDraft', messages_template)
+        self.assertIn('if (dmShouldGenerateCanopyLLMDraft(content))', messages_template)
+        self.assertIn("surface: 'dm'", messages_template)
+        self.assertIn('window.CanopyLLMCompose = {', main_js)
+        self.assertIn('async function generateDeckInboxCanopyLLMDraft', main_js)
+        self.assertIn('if (deckInboxShouldGenerateCanopyLLMDraft(content))', main_js)
 
     def test_universal_collaboration_cards_render_in_feed_and_channels(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')

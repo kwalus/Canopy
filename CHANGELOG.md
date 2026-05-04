@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.66] - 2026-05-04
+
+### Added
+- **`@Canopy` drafting now works in direct messages and Deck Inbox replies** - DM composers use the same review-first streaming draft flow as Channels, including Send as written for intentional trigger text.
+
+### Fixed
+- **Self-DMs now behave as a personal scratchpad instead of disappearing from the DM workspace** - messages sent to the current user stay local, skip P2P rebroadcast, and render as a "Personal scratchpad" thread.
+- **Plain `@Canopy` drafts avoid hosted web-search latency unless live/current facts are requested** - web search remains available for prompts about current weather, news, schedules, prices, and similar time-sensitive facts.
+
 ## [0.6.65] - 2026-05-02
 
 ### Added
