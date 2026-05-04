@@ -79,6 +79,24 @@ def _parse_json_blob(raw: Any, default: Any) -> Any:
         return default
 
 
+def _row_value(row: Any, key: str, default: Any = None) -> Any:
+    """Read a value from sqlite.Row/dict/test doubles without trusting shape."""
+    if row is None:
+        return default
+    if isinstance(row, dict):
+        return row.get(key, default)
+    try:
+        keys = row.keys() if hasattr(row, 'keys') else []
+        if key in keys:
+            return row[key]
+    except Exception:
+        pass
+    try:
+        return row[key]
+    except Exception:
+        return default
+
+
 def _is_dm_visible_to_user(row: Dict[str, Any], user_id: str) -> bool:
     if row.get('sender_id') == user_id or row.get('recipient_id') == user_id:
         return True
@@ -162,12 +180,10 @@ def evaluate_file_access(
     if db_manager is None:
         return FileAccessResult(False, 'missing-db')
 
-    if is_admin:
-        return FileAccessResult(True, 'admin', evidences)
-
     if file_uploaded_by and file_uploaded_by == viewer_user_id:
         return FileAccessResult(True, 'owner', evidences)
 
+    restricted_negative_evidence = False
     trust_cache: Dict[str, int] = {}
 
     def _trust_for_author(author_id: Optional[str]) -> int:
@@ -209,7 +225,8 @@ def evaluate_file_access(
             # Channel messages (attachments + content references)
             channel_rows = conn.execute(
                 """
-                SELECT m.id, m.channel_id, m.attachments, m.content, c.privacy_mode
+                SELECT m.id, m.channel_id, m.attachments, m.content,
+                       c.privacy_mode, c.channel_type
                 FROM channel_messages m
                 LEFT JOIN channels c ON c.id = m.channel_id
                 WHERE m.attachments LIKE ? OR m.content LIKE ?
@@ -217,27 +234,38 @@ def evaluate_file_access(
                 (f'%{file_id}%', f'%/files/{file_id}%')
             ).fetchall()
             for row in channel_rows:
-                attachments = _parse_json_blob(row['attachments'], [])
+                attachments = _parse_json_blob(_row_value(row, 'attachments'), [])
                 referenced = False
                 if isinstance(attachments, list):
                     for att in attachments:
                         if not isinstance(att, dict):
                             continue
-                        if att.get('id') == file_id or att.get('file_id') == file_id:
+                        if (
+                            att.get('id') == file_id
+                            or att.get('file_id') == file_id
+                            or att.get('origin_file_id') == file_id
+                            or att.get('remote_file_id') == file_id
+                        ):
                             referenced = True
                             break
-                if not referenced and not _contains_file_reference(row['content'], file_id):
+                if not referenced and not _contains_file_reference(_row_value(row, 'content'), file_id):
                     continue
 
+                channel_id = _row_value(row, 'channel_id')
                 member = conn.execute(
                     "SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?",
-                    (row['channel_id'], viewer_user_id)
+                    (channel_id, viewer_user_id)
                 ).fetchone()
+                privacy_mode = str(_row_value(row, 'privacy_mode', 'open') or 'open').strip().lower()
+                channel_type = str(_row_value(row, 'channel_type', '') or '').strip().lower()
+                targeted_channel = privacy_mode in {'private', 'confidential'} or channel_type == 'private'
                 can_view = bool(member)
+                if targeted_channel and not can_view:
+                    restricted_negative_evidence = True
                 evidences.append(FileAccessEvidence(
                     source_type='channel_message',
-                    source_id=row['id'],
-                    detail=f"channel:{row['channel_id']}",
+                    source_id=_row_value(row, 'id', file_id),
+                    detail=f"channel:{channel_id} privacy:{privacy_mode or 'unknown'}",
                     can_view=can_view,
                 ))
                 if can_view:
@@ -253,9 +281,9 @@ def evaluate_file_access(
                 (f'%{file_id}%', f'%/files/{file_id}%')
             ).fetchall()
             for row in feed_rows:
-                meta = _parse_json_blob(row['metadata'], {})
+                meta = _parse_json_blob(_row_value(row, 'metadata'), {})
                 referenced = _metadata_contains_file(meta, file_id)
-                if not referenced and not _contains_file_reference(row['content'], file_id):
+                if not referenced and not _contains_file_reference(_row_value(row, 'content'), file_id):
                     continue
 
                 can_view = False
@@ -268,8 +296,8 @@ def evaluate_file_access(
                         can_view = False
                 evidences.append(FileAccessEvidence(
                     source_type='feed_post',
-                    source_id=row['id'],
-                    detail=f"author:{row['author_id']}",
+                    source_id=_row_value(row, 'id', file_id),
+                    detail=f"author:{_row_value(row, 'author_id', '')}",
                     can_view=can_view,
                 ))
                 if can_view:
@@ -285,21 +313,23 @@ def evaluate_file_access(
                 (f'%{file_id}%', f'%/files/{file_id}%')
             ).fetchall()
             for row in dm_rows:
-                meta = _parse_json_blob(row['metadata'], {})
+                meta = _parse_json_blob(_row_value(row, 'metadata'), {})
                 referenced = _metadata_contains_file(meta, file_id)
-                if not referenced and not _contains_file_reference(row['content'], file_id):
+                if not referenced and not _contains_file_reference(_row_value(row, 'content'), file_id):
                     continue
 
                 row_dict = {
-                    'sender_id': row['sender_id'],
-                    'recipient_id': row['recipient_id'],
-                    'metadata': row['metadata'],
+                    'sender_id': _row_value(row, 'sender_id'),
+                    'recipient_id': _row_value(row, 'recipient_id'),
+                    'metadata': _row_value(row, 'metadata'),
                 }
                 can_view = _is_dm_visible_to_user(row_dict, viewer_user_id)
+                if not can_view:
+                    restricted_negative_evidence = True
                 evidences.append(FileAccessEvidence(
                     source_type='direct_message',
-                    source_id=row['id'],
-                    detail=f"sender:{row['sender_id']} recipient:{row['recipient_id']}",
+                    source_id=_row_value(row, 'id', file_id),
+                    detail=f"sender:{_row_value(row, 'sender_id', '')} recipient:{_row_value(row, 'recipient_id', '')}",
                     can_view=can_view,
                 ))
                 if can_view:
@@ -311,6 +341,8 @@ def evaluate_file_access(
     # Deny-by-default: no positive evidence was found.  All branches below
     # must remain denials so that new code paths cannot accidentally grant
     # access by falling through to this point.
+    if is_admin and not restricted_negative_evidence:
+        return FileAccessResult(True, 'admin', evidences[:max_evidence])
     if evidences:
         return FileAccessResult(False, 'no-visible-reference', evidences[:max_evidence])
     return FileAccessResult(False, 'unreferenced', evidences)

@@ -171,6 +171,104 @@ class TestChannelE2EScaffold(unittest.TestCase):
         self.assertTrue(self.channel_manager.revoke_channel_key(channel.id, 'key-001'))
         self.assertIsNone(self.channel_manager.get_active_channel_key(channel.id))
 
+    def test_private_channel_does_not_auto_add_instance_owner(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='member-private',
+            channel_type=ChannelType.PRIVATE,
+            created_by='member-user',
+            description='human private channel',
+            privacy_mode='private',
+        )
+        self.assertIsNotNone(channel)
+        assert channel is not None
+
+        owner_role = self.channel_manager.get_member_role(channel.id, 'owner-user')
+        member_role = self.channel_manager.get_member_role(channel.id, 'member-user')
+        self.assertIsNone(owner_role)
+        self.assertEqual(member_role, 'admin')
+
+        visible_to_owner = {ch.id for ch in self.channel_manager.get_user_channels('owner-user')}
+        visible_to_member = {ch.id for ch in self.channel_manager.get_user_channels('member-user')}
+        self.assertNotIn(channel.id, visible_to_owner)
+        self.assertIn(channel.id, visible_to_member)
+
+        msg = self.channel_manager.send_message(
+            channel_id=channel.id,
+            user_id='member-user',
+            content='private to explicit members only',
+        )
+        self.assertIsNotNone(msg)
+        self.assertEqual(
+            self.channel_manager.get_channel_messages(channel.id, 'owner-user', limit=10),
+            [],
+        )
+        self.assertEqual(
+            len(self.channel_manager.get_channel_messages(channel.id, 'member-user', limit=10)),
+            1,
+        )
+
+    def test_private_channel_can_explicitly_include_instance_owner(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='member-private-with-owner',
+            channel_type=ChannelType.PRIVATE,
+            created_by='member-user',
+            description='explicit owner invite',
+            privacy_mode='private',
+            initial_members=['owner-user'],
+        )
+        self.assertIsNotNone(channel)
+        assert channel is not None
+        self.assertEqual(self.channel_manager.get_member_role(channel.id, 'owner-user'), 'member')
+
+    def test_privacy_upgrade_prunes_instance_owner_if_not_explicit_admin(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='public-then-private',
+            channel_type=ChannelType.PUBLIC,
+            created_by='member-user',
+            description='privacy transition',
+            privacy_mode='open',
+        )
+        self.assertIsNotNone(channel)
+        assert channel is not None
+        self.db.conn.execute(
+            "INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) VALUES (?, ?, 'member')",
+            (channel.id, 'owner-user'),
+        )
+        self.db.conn.commit()
+        self.assertIsNotNone(self.channel_manager.get_member_role(channel.id, 'owner-user'))
+
+        self.assertTrue(
+            self.channel_manager.update_channel_privacy(
+                channel.id,
+                user_id='member-user',
+                privacy_mode='private',
+            )
+        )
+        self.assertIsNone(self.channel_manager.get_member_role(channel.id, 'owner-user'))
+        self.assertEqual(self.channel_manager.get_member_role(channel.id, 'member-user'), 'admin')
+
+    def test_legacy_implicit_owner_membership_repair(self) -> None:
+        channel = self.channel_manager.create_channel(
+            name='legacy-owner-polluted',
+            channel_type=ChannelType.PRIVATE,
+            created_by='member-user',
+            description='old auto-owner state',
+            privacy_mode='private',
+        )
+        self.assertIsNotNone(channel)
+        assert channel is not None
+        self.db.conn.execute(
+            "INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) VALUES (?, ?, 'admin')",
+            (channel.id, 'owner-user'),
+        )
+        self.db.conn.commit()
+        self.assertEqual(self.channel_manager.get_member_role(channel.id, 'owner-user'), 'admin')
+
+        self.channel_manager._repair_private_channel_implicit_owner_memberships()
+
+        self.assertIsNone(self.channel_manager.get_member_role(channel.id, 'owner-user'))
+        self.assertEqual(self.channel_manager.get_member_role(channel.id, 'member-user'), 'admin')
+
     def test_pending_decrypt_helpers_roundtrip(self) -> None:
         channel = self.channel_manager.create_channel(
             name='pending-decrypt',

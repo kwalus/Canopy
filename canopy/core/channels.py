@@ -637,8 +637,85 @@ class ChannelManager:
         # public/open channels even if those channels arrived after account creation.
         with LogOperation("Public channel membership repair"):
             self._repair_public_channel_memberships()
+
+        # Repair legacy privacy drift from earlier builds that silently added
+        # the instance owner to private/confidential channels.
+        with LogOperation("Private channel owner membership repair"):
+            self._repair_private_channel_implicit_owner_memberships()
         
         logger.info("ChannelManager initialized successfully")
+
+    def _repair_private_channel_implicit_owner_memberships(self) -> None:
+        """Remove legacy implicit instance-owner membership from private channels.
+
+        Older builds inserted the instance owner as an admin on targeted
+        channels even when the owner was not explicitly invited. That made node
+        administration equivalent to content membership. This migration removes
+        only the recognizable legacy case: owner is not the creator, owner has
+        not posted there, owner is an admin member, another admin remains, and
+        the channel is not the preserved agent-start channel.
+        """
+        try:
+            owner_id = str(self.db.get_instance_owner_user_id() or '').strip()
+        except Exception:
+            owner_id = ''
+        if not owner_id:
+            return
+        protected_channel_ids = {
+            self.AGENT_START_CHANNEL_ID,
+            self.LEGACY_AGENT_START_CHANNEL_ID,
+        }
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT c.id, c.name
+                    FROM channels c
+                    JOIN channel_members cm_owner
+                      ON cm_owner.channel_id = c.id
+                     AND cm_owner.user_id = ?
+                    WHERE (
+                            COALESCE(c.privacy_mode, 'open') IN ('private', 'confidential')
+                            OR c.channel_type = 'private'
+                          )
+                      AND COALESCE(cm_owner.role, 'member') = 'admin'
+                      AND c.created_by != ?
+                      AND NOT EXISTS (
+                            SELECT 1
+                            FROM channel_messages m
+                            WHERE m.channel_id = c.id
+                              AND m.user_id = ?
+                          )
+                      AND EXISTS (
+                            SELECT 1
+                            FROM channel_members cm_other
+                            WHERE cm_other.channel_id = c.id
+                              AND cm_other.user_id != ?
+                              AND COALESCE(cm_other.role, 'member') = 'admin'
+                          )
+                    """,
+                    (owner_id, owner_id, owner_id, owner_id),
+                ).fetchall()
+                candidate_ids: list[str] = []
+                for row in rows or []:
+                    channel_id = str(row['id'] if hasattr(row, 'keys') and 'id' in row.keys() else row[0])
+                    if not channel_id or channel_id in protected_channel_ids:
+                        continue
+                    candidate_ids.append(channel_id)
+                if not candidate_ids:
+                    return
+                for channel_id in candidate_ids:
+                    conn.execute(
+                        "DELETE FROM channel_members WHERE channel_id = ? AND user_id = ?",
+                        (channel_id, owner_id),
+                    )
+                conn.commit()
+                logger.info(
+                    "Removed implicit instance-owner membership from %d private channel(s)",
+                    len(candidate_ids),
+                )
+        except Exception as e:
+            logger.debug(f"Private channel owner membership repair skipped: {e}")
 
     def _build_agent_start_channel_id(self) -> str:
         return f"Cagentstart{secrets.token_hex(8)}"
@@ -4587,19 +4664,10 @@ class ChannelManager:
                         VALUES (?, ?, 'admin')
                     """, (channel_id, created_by))
 
-                    # Ensure instance owner (admin) always has access to targeted channels.
-                    mode = (privacy_mode or 'open').lower()
-                    if channel_type == ChannelType.PRIVATE or mode in self.TARGETED_PRIVACY_MODES:
-                        try:
-                            owner_id = self.db.get_instance_owner_user_id()
-                        except Exception:
-                            owner_id = None
-                        if owner_id and owner_id != created_by:
-                            conn.execute("""
-                                INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
-                                VALUES (?, ?, 'admin')
-                            """, (channel_id, owner_id))
-                    
+                    # Privacy boundary: instance ownership is not channel membership.
+                    # The node admin can still manage local governance, but private
+                    # channel content is visible only to explicit channel members.
+
                     # Add initial members if provided
                     if initial_members:
                         for user_id in initial_members:
@@ -5414,16 +5482,6 @@ class ChannelManager:
                                 keep_ids.add(uid)
                     except Exception:
                         pass
-                    try:
-                        owner_id = self.db.get_instance_owner_user_id()
-                    except Exception:
-                        owner_id = None
-                    if owner_id:
-                        keep_ids.add(owner_id)
-                        conn.execute(
-                            "INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) VALUES (?, ?, 'admin')",
-                            (channel_id, owner_id)
-                        )
                     try:
                         creator_row = conn.execute(
                             "SELECT created_by FROM channels WHERE id = ?",

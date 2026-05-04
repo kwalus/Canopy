@@ -173,3 +173,32 @@ class TestP2PAttachmentPayloadLimits(unittest.TestCase):
         self.assertLessEqual(payload_size, MAX_PAYLOAD_BYTES)
         self.assertTrue(any(not entry.get('data') and entry.get('large_attachment') for entry in entries))
         self.assertTrue(any(entry.get('data') for entry in entries))
+
+    def test_private_channel_prepare_can_force_all_metadata_only(self) -> None:
+        payload_map = {
+            'Fsmall1': b'a' * 1024,
+            'Fsmall2': b'b' * 2048,
+        }
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager.file_manager = _FakeFileManager(payloads=payload_map)
+        manager.get_peer_id = lambda: 'peer-local'
+
+        attachment_container = {}
+        entries = manager._prepare_p2p_attachment_entries(
+            content='Encrypted private-channel body',
+            attachment_container=attachment_container,
+            attachments=[
+                {'id': 'Fsmall1', 'name': 'a.png', 'type': 'image/png'},
+                {'id': 'Fsmall2', 'name': 'b.png', 'type': 'image/png'},
+            ],
+            context_label='channel_message:Cprivate:M1',
+            force_metadata_only=True,
+        )
+
+        self.assertEqual(len(entries), 2)
+        self.assertTrue(all('data' not in entry for entry in entries))
+        self.assertTrue(all(entry.get('large_attachment') for entry in entries))
+        self.assertEqual(
+            [entry.get('origin_file_id') for entry in attachment_container.get('attachments', [])],
+            ['Fsmall1', 'Fsmall2'],
+        )

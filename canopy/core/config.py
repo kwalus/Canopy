@@ -221,7 +221,7 @@ class SecurityConfig:
     trust_threshold: int = 50
     require_login: bool = True  # Require PIN/password to access web UI
     allow_unverified_relay_messages: bool = False  # Mixed-version compatibility switch
-    e2e_private_channels: bool = False  # Phase 1 scaffold; disabled by default
+    e2e_private_channels: bool = True  # Private/confidential channel sync uses E2E by default
     e2e_private_channels_enforce: bool = False  # Enforce only when all peers support it
     sync_digest_enabled: bool = False  # Optional Merkle-assisted catch-up optimization
     sync_digest_require_capability: bool = True  # Only use when peer advertises support

@@ -113,8 +113,8 @@ class TestEvaluateFileAccessDenyByDefault(unittest.TestCase):
         self.assertFalse(result.allowed)
         self.assertEqual(result.reason, 'unreferenced')
 
-    def test_is_admin_grants(self):
-        """Instance admin always gets access."""
+    def test_is_admin_grants_unscoped_file(self):
+        """Instance admin still gets legacy access when no private reference exists."""
         result = evaluate_file_access(
             db_manager=_make_db_manager(),
             file_id='file1',
@@ -123,6 +123,83 @@ class TestEvaluateFileAccessDenyByDefault(unittest.TestCase):
         )
         self.assertTrue(result.allowed)
         self.assertEqual(result.reason, 'admin')
+
+    def test_is_admin_does_not_bypass_private_channel_membership(self):
+        """Private-channel attachment access requires membership, not node ownership."""
+        result = evaluate_file_access(
+            db_manager=_make_db_manager(rows={
+                'channel_messages': [
+                    {
+                        'id': 'msg1',
+                        'channel_id': 'private-channel',
+                        'attachments': '[{"id":"file1"}]',
+                        'content': '',
+                        'privacy_mode': 'private',
+                        'channel_type': 'private',
+                    }
+                ],
+                'channel_members': [],
+            }),
+            file_id='file1',
+            viewer_user_id='admin-user',
+            is_admin=True,
+        )
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.reason, 'no-visible-reference')
+        self.assertTrue(result.evidences)
+        self.assertFalse(result.evidences[0].can_view)
+
+    def test_private_channel_origin_file_reference_requires_membership(self):
+        """Metadata-only private-channel attachments still use channel membership."""
+        result = evaluate_file_access(
+            db_manager=_make_db_manager(rows={
+                'channel_messages': [
+                    {
+                        'id': 'msg1',
+                        'channel_id': 'private-channel',
+                        'attachments': '[{"id":"local-file","origin_file_id":"origin-file"}]',
+                        'content': '',
+                        'privacy_mode': 'private',
+                        'channel_type': 'private',
+                    }
+                ],
+                'channel_members': [],
+            }),
+            file_id='origin-file',
+            viewer_user_id='admin-user',
+            is_admin=True,
+        )
+
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.reason, 'no-visible-reference')
+        self.assertTrue(result.evidences)
+        self.assertFalse(result.evidences[0].can_view)
+
+    def test_private_channel_origin_file_reference_allows_member(self):
+        """Authorized members can fetch metadata-only private-channel attachments."""
+        result = evaluate_file_access(
+            db_manager=_make_db_manager(rows={
+                'channel_messages': [
+                    {
+                        'id': 'msg1',
+                        'channel_id': 'private-channel',
+                        'attachments': '[{"id":"local-file","origin_file_id":"origin-file"}]',
+                        'content': '',
+                        'privacy_mode': 'private',
+                        'channel_type': 'private',
+                    }
+                ],
+                'channel_members': [{'member': 1}],
+            }),
+            file_id='origin-file',
+            viewer_user_id='member-user',
+            is_admin=False,
+        )
+
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.reason, 'channel-membership')
+        self.assertTrue(result.evidences)
+        self.assertTrue(result.evidences[0].can_view)
 
     def test_owner_grants(self):
         """File owner always gets access."""

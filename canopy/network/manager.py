@@ -1059,12 +1059,16 @@ class P2PNetworkManager:
         attachment_container: Dict[str, Any],
         attachments: Optional[list[Any]],
         context_label: str,
+        force_metadata_only: bool = False,
     ) -> list[Dict[str, Any]]:
         """Build attachment entries and demote inline blobs if the payload is too large."""
         normalized_attachments = list(attachments or [])
         entries: list[Dict[str, Any]] = []
         for attachment in normalized_attachments:
-            entry = self._build_p2p_attachment_entry(attachment)
+            entry = self._build_p2p_attachment_entry(
+                attachment,
+                force_metadata_only=force_metadata_only,
+            )
             if entry:
                 entries.append(entry)
 
@@ -4497,11 +4501,15 @@ class P2PNetworkManager:
         # Embed file data for each attachment so peers can store locally.
         # Include original file_id so receivers can rewrite /files/ORIGINAL in content to /files/LOCAL.
         if attachments:
+            # Private/confidential channel bodies may be E2E encrypted, but
+            # attachment blobs live in message metadata. Keep them as scoped
+            # references so relays do not receive raw inline file bytes.
             p2p_attachments = self._prepare_p2p_attachment_entries(
                 content=outbound_content,
                 attachment_container=metadata,
                 attachments=attachments,
                 context_label=f"channel_message:{channel_id}:{message_id}",
+                force_metadata_only=targeted_channel,
             )
             metadata['message_type'] = 'file'
 
