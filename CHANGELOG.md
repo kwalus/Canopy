@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.68] - 2026-05-04
+
+### Changed
+- **Browser tab attention counts now avoid double-counting secondary attention buckets** - the title badge uses aggregate unread totals for messages, channels, and feed while leaving mentions, inbox, and review signals in the attention center instead of summing them twice.
+- **Mobile drawer handling is more conservative on phones** - the sidebar backdrop and toggle now start with explicit ARIA state, closing the drawer restores focus to the toggle, Escape closes the mobile drawer, multi-touch gestures are ignored, swipe coordinates use viewport pixels, and iOS scroll locking now allows deck, modal, offcanvas, and dropdown surfaces to scroll normally.
+- **The API reference now documents recent DM, Deck Inbox, collaboration card, and private-channel behavior** - current docs cover self-DM scratchpads, DM `@Canopy` drafting, collaboration card endpoints, and explicit private-channel membership boundaries.
+
 ## [0.6.67] - 2026-05-04
 
 ### Added

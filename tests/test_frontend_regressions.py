@@ -933,6 +933,20 @@ console.log(JSON.stringify({{
         self.assertIn(".notification-menu .notification-section-label {", base_template)
         self.assertIn(".notification-menu .notification-section-count {", base_template)
 
+    def test_attention_title_count_does_not_double_count_secondary_buckets(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        fn_start = main_js.index("function countCanopyAttentionSummaryTotal(summary) {")
+        fn_body = main_js[fn_start:fn_start + 700]
+        self.assertIn("safeSummary.messages,", fn_body)
+        self.assertIn("safeSummary.channels,", fn_body)
+        self.assertIn("safeSummary.feed,", fn_body)
+        self.assertNotIn("safeSummary.mention_count,", fn_body)
+        self.assertNotIn("safeSummary.mentions,", fn_body)
+        self.assertNotIn("safeSummary.inbox,", fn_body)
+        self.assertNotIn("safeSummary.pending_inbox,", fn_body)
+        self.assertNotIn("safeSummary.pending_review_count,", fn_body)
+        self.assertIn("mention_count: Math.max(0, Number(canopyInitialAttentionSummary.mention_count || 0)),", main_js)
+
     def test_channel_focus_uses_context_window_and_container_scroll(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("function clearInitialChannelFocusFromUrl()", channels_template)
@@ -1862,3 +1876,18 @@ console.log(JSON.stringify({{
         self.assertIn('let _feedComposerSyncQueued = false;', feed_template)
         self.assertIn('function scheduleFeedComposerSync()', feed_template)
         self.assertIn("window.addEventListener('resize', scheduleFeedComposerSync)", feed_template)
+
+    def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
+        api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
+        self.assertIn('0.6.68', api_ref)
+        self.assertIn('/agents/me/collab-cards', api_ref)
+        self.assertIn('/collab-cards/<card_id>/responses', api_ref)
+        self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
+        self.assertIn('[input-card]', api_ref)
+        self.assertIn('[telemetry-card]', api_ref)
+        self.assertIn('Personal scratchpad', api_ref)
+        self.assertIn('personal_scratchpad', api_ref)
+        self.assertIn('Deck Inbox', api_ref)
+        self.assertIn('@Canopy', api_ref)
+        self.assertIn('explicit membership', api_ref)
+        self.assertIn('does not grant implicit content access', api_ref)

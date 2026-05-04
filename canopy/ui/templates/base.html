@@ -9669,7 +9669,7 @@
                 </a>
                 
                 <!-- Sidebar Toggle Button -->
-                <button class="btn btn-outline-secondary me-3" type="button" id="sidebar-toggle" title="Toggle Sidebar">
+                <button class="btn btn-outline-secondary me-3" type="button" id="sidebar-toggle" aria-expanded="false" title="Toggle Sidebar">
                     <i class="bi bi-list"></i>
                 </button>
                 {% if sidebar_connected_peers is defined %}
@@ -9940,7 +9940,7 @@
         
         <div class="main-row">
             <!-- Mobile backdrop -->
-            <div class="mobile-backdrop" id="mobile-backdrop"></div>
+            <div class="mobile-backdrop" id="mobile-backdrop" aria-hidden="true"></div>
             
             <!-- Sidebar -->
             <div class="sidebar-container expanded" id="sidebar-container">

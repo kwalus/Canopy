@@ -1254,15 +1254,12 @@
         function countCanopyAttentionSummaryTotal(summary) {
             const safeSummary = summary && typeof summary === 'object' ? summary : {};
             const explicitTotal = Math.max(0, Number(safeSummary.total || 0) || 0);
+            // Match the aggregate unread buckets. Mentions/inbox/review are tracked separately
+            // in the attention center and can already be reflected inside these totals.
             const componentTotal = [
                 safeSummary.messages,
                 safeSummary.channels,
                 safeSummary.feed,
-                safeSummary.mention_count,
-                safeSummary.mentions,
-                safeSummary.inbox,
-                safeSummary.pending_inbox,
-                safeSummary.pending_review_count,
             ].reduce((sum, value) => sum + Math.max(0, Number(value || 0) || 0), 0);
             return Math.max(explicitTotal, componentTotal);
         }
@@ -12859,6 +12856,7 @@
                         currentState = 'hidden';
                         applySidebarState('hidden');
                         saveSidebarState('hidden');
+                        toggleBtn.focus();
                     }
                 });
             }
@@ -12875,6 +12873,7 @@
                 // Handle mobile backdrop
                 if (mobileBackdrop) {
                     mobileBackdrop.classList.remove('show');
+                    mobileBackdrop.setAttribute('aria-hidden', 'true');
                 }
                 
                 switch(state) {
@@ -12890,6 +12889,7 @@
                         // Show backdrop on mobile
                         if (isMobile && mobileBackdrop) {
                             mobileBackdrop.classList.add('show');
+                            mobileBackdrop.setAttribute('aria-hidden', 'false');
                         }
                         break;
                         
@@ -12943,12 +12943,18 @@
                 let touchStartedInInteractive = false;
                 let touchStartedInSidebar = false;
                 let touchStartedOnBackdrop = false;
+                let touchWasMultiTouch = false;
                 
                 document.addEventListener('touchstart', function(e) {
+                    if (e.touches && e.touches.length > 1) {
+                        touchWasMultiTouch = true;
+                        return;
+                    }
+                    touchWasMultiTouch = false;
                     const touch = e.changedTouches && e.changedTouches[0];
                     if (!touch) return;
-                    touchStartX = touch.screenX;
-                    touchStartY = touch.screenY;
+                    touchStartX = touch.clientX;
+                    touchStartY = touch.clientY;
                     const target = e.target;
                     touchStartedInSidebar = Boolean(target && target.closest && target.closest('#sidebar-container'));
                     touchStartedOnBackdrop = target === mobileBackdrop;
@@ -12960,14 +12966,15 @@
                 document.addEventListener('touchend', function(e) {
                     const touch = e.changedTouches && e.changedTouches[0];
                     if (!touch) return;
-                    touchEndX = touch.screenX;
-                    touchEndY = touch.screenY;
+                    touchEndX = touch.clientX;
+                    touchEndY = touch.clientY;
                     handleSwipe();
                 });
                 
                 function handleSwipe() {
                     if (!isMobileSidebarMode()) return;
-                    if (touchStartedInInteractive && !touchStartedInSidebar && !touchStartedOnBackdrop) return;
+                    if (touchWasMultiTouch) return;
+                    if (touchStartedInInteractive) return;
                     const swipeThreshold = 50;
                     const swipeDistance = touchEndX - touchStartX;
                     const verticalDistance = Math.abs(touchEndY - touchStartY);
@@ -12994,6 +13001,14 @@
             // Add keyboard shortcuts
             document.addEventListener('keydown', function(e) {
                 const key = String(e.key || '').toLowerCase();
+
+                if (e.key === 'Escape' && isMobileSidebarMode() && currentState === 'expanded') {
+                    currentState = 'hidden';
+                    applySidebarState('hidden');
+                    saveSidebarState('hidden');
+                    toggleBtn.focus();
+                    return;
+                }
 
                 // Ctrl+B or Cmd+B - cycle through states
                 if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'b') {
@@ -13654,13 +13669,20 @@
             setVH();
             window.addEventListener('resize', setVH);
             window.addEventListener('orientationchange', function() {
-                setTimeout(setVH, 100);
+                setTimeout(function() {
+                    setVH();
+                    window.dispatchEvent(new Event('resize'));
+                }, 150);
             });
             
-            // Prevent elastic scrolling on iOS
+            // Prevent elastic scrolling on iOS outside designated scroll areas.
             document.addEventListener('touchmove', function(e) {
-                if (e.target.closest('.main-content') || e.target.closest('.sidebar')) {
-                    return; // Allow scrolling in content areas
+                const target = e.target;
+                if (target && target.closest && target.closest(
+                    '.main-content, .sidebar, .modal, .offcanvas, .dropdown-menu, ' +
+                    '.canopy-media-deck-portal, .sidebar-media-deck'
+                )) {
+                    return;
                 }
                 e.preventDefault();
             }, { passive: false });
