@@ -1430,6 +1430,11 @@
             background: #a78bfa;
         }
 
+        .sidebar-dm-status-dot.group {
+            background: linear-gradient(135deg, #22c55e, #06b6d4);
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.35);
+        }
+
         .sidebar-dm-unread {
             position: absolute;
             top: -5px;
@@ -9852,7 +9857,7 @@
                 <div class="collapse navbar-collapse" id="navbarNav">
                     <ul class="navbar-nav ms-auto">
                         <li class="nav-item me-2">
-                            {% set header_dm_unread = sidebar_recent_dm_contacts|sum(attribute='unread_count') if sidebar_recent_dm_contacts is defined else 0 %}
+                            {% set header_dm_unread = sidebar_attention_summary.messages if sidebar_attention_summary is defined else (sidebar_recent_dm_contacts|sum(attribute='unread_count') if sidebar_recent_dm_contacts is defined else 0) %}
                             <button class="notification-bell deck-inbox-nav-button position-relative"
                                     id="deckInboxNavButton"
                                     type="button"
@@ -10120,17 +10125,16 @@
                             </div>
                         </div>
                         <div class="sidebar-dm-list" id="sidebar-dm-list">
-                            {% if sidebar_recent_dm_contacts %}
-                                {% for contact in sidebar_recent_dm_contacts %}
-                                    {% set message_href = url_for('ui.messages', **{'with': contact.user_id}) %}
-                                    {% if contact.target_message_id %}
-                                        {% set message_href = message_href ~ '#message-' ~ contact.target_message_id %}
-                                    {% endif %}
-                                    <a class="sidebar-dm-contact {% if contact.unread_count > 0 %}unread{% endif %}"
-                                       data-dm-user-id="{{ contact.user_id }}"
-                                       data-dm-target-message-id="{{ contact.target_message_id or '' }}"
-                                       data-dm-open-deck="1"
-                                       href="{{ message_href }}"
+	                            {% if sidebar_recent_dm_contacts %}
+	                                {% for contact in sidebar_recent_dm_contacts %}
+	                                    {% set message_href = contact.href or url_for('ui.messages', **{'with': contact.user_id}) %}
+	                                    <a class="sidebar-dm-contact {% if contact.unread_count > 0 %}unread{% endif %}"
+	                                       data-dm-user-id="{{ contact.user_id }}"
+	                                       data-dm-kind="{{ contact.kind or 'direct' }}"
+	                                       data-dm-group-id="{{ contact.canonical_group_key or contact.group_id or '' }}"
+	                                       data-dm-target-message-id="{{ contact.target_message_id or '' }}"
+	                                       data-dm-open-deck="1"
+	                                       href="{{ message_href }}"
                                        title="{{ contact.display_name or contact.username or contact.user_id }}">
                                         <div class="sidebar-dm-avatar-wrap">
                                             <div class="sidebar-dm-avatar">
@@ -10153,10 +10157,10 @@
                                         </div>
                                         <div class="sidebar-dm-time" data-timestamp="{{ contact.latest_message_at }}">{{ contact.latest_message_at }}</div>
                                     </a>
-                                {% endfor %}
-                            {% else %}
-                                <div class="sidebar-peer-empty">No recent direct messages</div>
-                            {% endif %}
+	                                {% endfor %}
+	                            {% else %}
+	                                <div class="sidebar-peer-empty">No recent messages</div>
+	                            {% endif %}
                         </div>
                         <div class="sidebar-panel-footer" id="sidebar-dm-footer">
                             <span class="sidebar-panel-summary" id="sidebar-dm-summary">Showing up to five conversations</span>

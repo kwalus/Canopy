@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.69] - 2026-05-04
+
+### Fixed
+- **Group DMs now appear consistently in sidebar and attention surfaces** - the Recent DMs rail includes group threads visible to the current user, links them to the correct group conversation, passes group IDs into Deck Inbox launches, and keeps the top Inbox badge tied to the global DM unread count instead of the compact top-five rail.
+
 ## [0.6.68] - 2026-05-04
 
 ### Changed

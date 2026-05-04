@@ -3797,16 +3797,42 @@ def create_ui_blueprint() -> Blueprint:
         elif event_type == EVENT_DM_MESSAGE_CREATED:
             sender_id = str(payload.get('sender_id') or actor_user_id or '').strip()
             recipient_id = str(payload.get('recipient_id') or '').strip()
-            other_user_id = sender_id if sender_id and sender_id != user_id else recipient_id
-            other_display = _sidebar_user_display(db_manager, profile_manager, other_user_id)
             kind = 'dm'
             icon = 'bi-chat-dots'
-            title = str(other_display.get('display_name') or '').strip() or actor_label or 'Direct message'
-            actor_avatar_url = other_display.get('avatar_url') or actor_avatar_url
-            meta = 'Direct message'
             href = url_for('ui.messages')
-            if other_user_id:
-                href = f"{href}?with={quote_plus(other_user_id)}"
+            group_members = payload.get('group_members') or []
+            if not isinstance(group_members, list):
+                group_members = []
+            group_member_ids = [
+                str(member_id or '').strip()
+                for member_id in group_members
+                if str(member_id or '').strip()
+            ]
+            group_id = str(payload.get('group_id') or '').strip()
+            if group_member_ids and str(user_id or '').strip() in group_member_ids:
+                other_member_labels = []
+                for member_id in group_member_ids:
+                    if member_id == str(user_id or '').strip():
+                        continue
+                    display = _sidebar_user_display(db_manager, profile_manager, member_id)
+                    label = str(display.get('display_name') or display.get('username') or member_id).strip()
+                    if label:
+                        other_member_labels.append(label)
+                if not group_id:
+                    group_id = compute_group_id(group_member_ids)
+                title = ', '.join(other_member_labels[:3]) if other_member_labels else 'Group DM'
+                if len(other_member_labels) > 3:
+                    title += f" +{len(other_member_labels) - 3}"
+                meta = 'Group DM'
+                href = f"{href}?group={quote_plus(group_id)}"
+            else:
+                other_user_id = sender_id if sender_id and sender_id != user_id else recipient_id
+                other_display = _sidebar_user_display(db_manager, profile_manager, other_user_id)
+                title = str(other_display.get('display_name') or '').strip() or actor_label or 'Direct message'
+                actor_avatar_url = other_display.get('avatar_url') or actor_avatar_url
+                meta = 'Direct message'
+                if other_user_id:
+                    href = f"{href}?with={quote_plus(other_user_id)}"
             if message_id:
                 href = f"{href}#message-{quote_plus(message_id)}"
         elif event_type == EVENT_CHANNEL_MESSAGE_CREATED:
@@ -3958,10 +3984,7 @@ def create_ui_blueprint() -> Blueprint:
         *,
         limit: int = 5,
     ) -> list[dict[str, Any]]:
-        """Build recent direct-message contacts for the shared sidebar.
-
-        Excludes group DMs so the sidebar behaves like a compact contact rail.
-        """
+        """Build recent DM threads for the shared sidebar, including group DMs."""
         if not db_manager or not user_id:
             return []
         contact_limit = _coerce_int(limit, default=5, minimum=1, maximum=8)
@@ -3979,15 +4002,83 @@ def create_ui_blueprint() -> Blueprint:
                 """
                 SELECT id, sender_id, recipient_id, content, metadata, created_at, read_at
                 FROM messages
-                WHERE sender_id = ? OR recipient_id = ?
+                WHERE (
+                    sender_id = ?
+                    OR recipient_id = ?
+                    OR EXISTS (
+                        SELECT 1
+                        FROM json_each(
+                            CASE WHEN json_valid(metadata) THEN metadata ELSE '{}' END,
+                            '$.group_members'
+                        ) gm
+                        WHERE CAST(gm.value AS TEXT) = ?
+                    )
+                )
                 ORDER BY created_at DESC
                 LIMIT 180
                 """,
-                (user_id, user_id),
+                (user_id, user_id, user_id),
             ).fetchall()
 
+        def _normalize_member_ids(raw_members: Any) -> list[str]:
+            members: list[str] = []
+            if isinstance(raw_members, list):
+                for raw_member in raw_members:
+                    member_id = str(raw_member or '').strip()
+                    if member_id and member_id not in members:
+                        members.append(member_id)
+            return members
+
+        def _group_contact_identity(
+            metadata: dict[str, Any],
+            sender_id: str,
+            recipient_id: str,
+        ) -> Optional[dict[str, Any]]:
+            explicit_members = _normalize_member_ids(metadata.get('group_members'))
+            members = list(explicit_members)
+            raw_group_id = str(metadata.get('group_id') or '').strip()
+            group_thread_id = str(metadata.get('group_thread_id') or '').strip()
+            is_groupish = bool(members or raw_group_id or recipient_id.startswith('group:'))
+            if not is_groupish:
+                return None
+
+            if members and user_id not in members and sender_id != user_id and recipient_id != user_id:
+                return None
+            if not members:
+                fallback_members = [user_id]
+                for candidate in (sender_id, recipient_id):
+                    candidate = str(candidate or '').strip()
+                    if candidate and not candidate.startswith('group:') and candidate not in fallback_members:
+                        fallback_members.append(candidate)
+                members = fallback_members
+
+            if group_thread_id and raw_group_id:
+                canonical_group_key = raw_group_id
+            elif explicit_members:
+                canonical_group_key = compute_group_id(members)
+            elif raw_group_id or recipient_id.startswith('group:'):
+                canonical_group_key = raw_group_id or recipient_id
+            else:
+                canonical_group_key = raw_group_id or recipient_id
+
+            display_group_id = raw_group_id or canonical_group_key
+            if not display_group_id and recipient_id.startswith('group:'):
+                display_group_id = recipient_id
+            if not canonical_group_key:
+                canonical_group_key = display_group_id
+            if not display_group_id or not canonical_group_key:
+                return None
+
+            return {
+                'kind': 'group',
+                'key': f"group:{canonical_group_key}",
+                'group_id': display_group_id,
+                'canonical_group_key': canonical_group_key,
+                'member_ids': members,
+            }
+
         contact_map: dict[str, dict[str, Any]] = {}
-        ordered_ids: list[str] = []
+        ordered_keys: list[str] = []
         for row in rows or []:
             sender_id = str(row['sender_id'] or '').strip()
             recipient_id = str(row['recipient_id'] or '').strip()
@@ -3999,35 +4090,58 @@ def create_ui_blueprint() -> Blueprint:
             except Exception:
                 metadata = {}
             metadata = metadata if isinstance(metadata, dict) else {}
-            if recipient_id.startswith('group:') or metadata.get('group_members'):
-                continue
-
-            inbound = False
-            if sender_id == user_id and recipient_id:
-                other_user_id = recipient_id
+            group_thread = _group_contact_identity(metadata, sender_id, recipient_id)
+            if group_thread:
+                contact_key = str(group_thread['key'])
+                inbound = sender_id != user_id
+                member_ids = [
+                    member_id for member_id in (group_thread.get('member_ids') or [])
+                    if member_id and member_id != user_id
+                ]
+            elif sender_id == user_id and recipient_id:
+                contact_key = f"direct:{recipient_id}"
+                inbound = False
             elif recipient_id == user_id and sender_id:
-                other_user_id = sender_id
+                contact_key = f"direct:{sender_id}"
                 inbound = True
             else:
                 continue
 
-            if not other_user_id:
-                continue
-
-            entry = contact_map.get(other_user_id)
+            entry = contact_map.get(contact_key)
             attachments = metadata.get('attachments') or []
             preview = build_dm_preview(row['content'], attachments) or ('Attachment' if attachments else 'Message')
             if entry is None:
                 entry = {
-                    'user_id': other_user_id,
+                    'key': contact_key,
+                    'kind': 'group' if group_thread else 'direct',
+                    'user_id': None,
+                    'group_id': None,
+                    'canonical_group_key': None,
+                    'member_ids': [],
                     'latest_message_id': row['id'],
                     'target_message_id': row['id'],
                     'latest_message_at': row['created_at'],
                     'latest_preview': preview,
                     'unread_count': 0,
                 }
-                contact_map[other_user_id] = entry
-                ordered_ids.append(other_user_id)
+                if group_thread:
+                    entry['group_id'] = group_thread.get('group_id')
+                    entry['canonical_group_key'] = group_thread.get('canonical_group_key')
+                    entry['member_ids'] = list(group_thread.get('member_ids') or [])
+                else:
+                    entry['user_id'] = contact_key.removeprefix('direct:')
+                contact_map[contact_key] = entry
+                ordered_keys.append(contact_key)
+            elif group_thread:
+                existing_members = list(entry.get('member_ids') or [])
+                for member_id in group_thread.get('member_ids') or []:
+                    if member_id and member_id not in existing_members:
+                        existing_members.append(member_id)
+                entry['member_ids'] = existing_members
+                if not entry.get('group_id'):
+                    entry['group_id'] = group_thread.get('group_id')
+                if not entry.get('canonical_group_key'):
+                    entry['canonical_group_key'] = group_thread.get('canonical_group_key')
 
             if inbound and not row['read_at']:
                 entry['unread_count'] = int(entry.get('unread_count') or 0) + 1
@@ -4035,20 +4149,35 @@ def create_ui_blueprint() -> Blueprint:
                     entry['first_unread_message_id'] = row['id']
                     entry['target_message_id'] = row['id']
 
-        selected_ids = ordered_ids[:contact_limit]
-        if not selected_ids:
+        selected_keys = ordered_keys[:contact_limit]
+        if not selected_keys:
             return []
 
-        placeholders = ",".join("?" for _ in selected_ids)
+        selected_user_ids: list[str] = []
+        for contact_key in selected_keys:
+            entry = contact_map.get(contact_key) or {}
+            if entry.get('kind') == 'direct':
+                uid = str(entry.get('user_id') or '').strip()
+                if uid and uid not in selected_user_ids:
+                    selected_user_ids.append(uid)
+                continue
+            for uid in entry.get('member_ids') or []:
+                uid = str(uid or '').strip()
+                if uid and uid != user_id and uid not in selected_user_ids:
+                    selected_user_ids.append(uid)
+
+        user_rows = []
+        placeholders = ",".join("?" for _ in selected_user_ids)
         with db_manager.get_connection() as conn:
-            user_rows = conn.execute(
-                f"""
-                SELECT id, username, display_name, avatar_file_id, origin_peer, account_type, status, agent_directives
-                FROM users
-                WHERE id IN ({placeholders})
-                """,
-                selected_ids,
-            ).fetchall()
+            if selected_user_ids:
+                user_rows = conn.execute(
+                    f"""
+                    SELECT id, username, display_name, avatar_file_id, origin_peer, account_type, status, agent_directives
+                    FROM users
+                    WHERE id IN ({placeholders})
+                    """,
+                    selected_user_ids,
+                ).fetchall()
 
         user_map: dict[str, dict[str, Any]] = {}
         for row in user_rows or []:
@@ -4097,10 +4226,8 @@ def create_ui_blueprint() -> Blueprint:
                 return ('local', 'Local')
             return ('offline', 'Offline')
 
-        contacts: list[dict[str, Any]] = []
-        for contact_id in selected_ids:
-            entry = contact_map.get(contact_id) or {}
-            user_row = user_map.get(contact_id) or {
+        def _fallback_user_row(contact_id: str) -> dict[str, Any]:
+            return {
                 'id': contact_id,
                 'user_id': contact_id,
                 'username': contact_id,
@@ -4111,6 +4238,60 @@ def create_ui_blueprint() -> Blueprint:
                 'status': None,
                 'agent_directives': None,
             }
+
+        def _group_title_and_avatar(member_ids: list[str]) -> tuple[str, str, Optional[str]]:
+            other_members = [member_id for member_id in member_ids if member_id and member_id != user_id]
+            displays = []
+            avatar_url = None
+            for member_id in other_members[:4]:
+                user_row = user_map.get(member_id) or _fallback_user_row(member_id)
+                displays.append(str(user_row.get('display_name') or user_row.get('username') or member_id))
+                if not avatar_url and user_row.get('avatar_url'):
+                    avatar_url = user_row.get('avatar_url')
+            if not displays:
+                return ('Group DM', 'Group', avatar_url)
+            title = ', '.join(displays[:3])
+            if len(other_members) > 3:
+                title += f" +{len(other_members) - 3}"
+            subtitle = f"{len(other_members)} participant{'s' if len(other_members) != 1 else ''}"
+            return (title, subtitle, avatar_url)
+
+        contacts: list[dict[str, Any]] = []
+        messages_base = url_for('ui.messages')
+        for contact_key in selected_keys:
+            entry = contact_map.get(contact_key) or {}
+            target_message_id = str(entry.get('target_message_id') or entry.get('latest_message_id') or '').strip()
+            if entry.get('kind') == 'group':
+                group_id = str(entry.get('canonical_group_key') or entry.get('group_id') or '').strip()
+                member_ids = [str(member_id or '').strip() for member_id in (entry.get('member_ids') or []) if str(member_id or '').strip()]
+                display_name, username, avatar_url = _group_title_and_avatar(member_ids)
+                href = f"{messages_base}?group={quote_plus(group_id)}" if group_id else messages_base
+                if target_message_id:
+                    href = f"{href}#message-{quote_plus(target_message_id)}"
+                contacts.append({
+                    'kind': 'group',
+                    'user_id': '',
+                    'group_id': str(entry.get('group_id') or group_id),
+                    'canonical_group_key': group_id,
+                    'member_ids': member_ids,
+                    'display_name': display_name,
+                    'username': username,
+                    'avatar_url': avatar_url,
+                    'origin_peer': None,
+                    'account_type': 'group',
+                    'status_state': 'group',
+                    'status_label': username,
+                    'href': href,
+                    'latest_message_id': entry.get('latest_message_id'),
+                    'target_message_id': target_message_id,
+                    'latest_message_at': entry.get('latest_message_at'),
+                    'latest_preview': entry.get('latest_preview') or 'Message',
+                    'unread_count': int(entry.get('unread_count') or 0),
+                })
+                continue
+
+            contact_id = str(entry.get('user_id') or contact_key.removeprefix('direct:')).strip()
+            user_row = user_map.get(contact_id) or _fallback_user_row(contact_id)
             account_type = _normalized_account_type(
                 user_row.get('account_type'),
                 status=user_row.get('status'),
@@ -4119,8 +4300,15 @@ def create_ui_blueprint() -> Blueprint:
             )
             status_state, status_label = _status_payload(user_row)
             is_self_contact = contact_id == user_id
+            href = f"{messages_base}?with={quote_plus(contact_id)}" if contact_id else messages_base
+            if target_message_id:
+                href = f"{href}#message-{quote_plus(target_message_id)}"
             contacts.append({
+                'kind': 'direct',
                 'user_id': contact_id,
+                'group_id': '',
+                'canonical_group_key': '',
+                'member_ids': [],
                 'display_name': 'Personal scratchpad' if is_self_contact else (user_row.get('display_name') or contact_id),
                 'username': user_row.get('username') or contact_id,
                 'avatar_url': user_row.get('avatar_url'),
@@ -4128,8 +4316,9 @@ def create_ui_blueprint() -> Blueprint:
                 'account_type': account_type,
                 'status_state': 'local' if is_self_contact else status_state,
                 'status_label': 'Scratchpad' if is_self_contact else status_label,
+                'href': href,
                 'latest_message_id': entry.get('latest_message_id'),
-                'target_message_id': entry.get('target_message_id') or entry.get('latest_message_id'),
+                'target_message_id': target_message_id,
                 'latest_message_at': entry.get('latest_message_at'),
                 'latest_preview': entry.get('latest_preview') or 'Message',
                 'unread_count': int(entry.get('unread_count') or 0),

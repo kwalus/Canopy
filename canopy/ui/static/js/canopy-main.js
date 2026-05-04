@@ -1002,6 +1002,17 @@
         function canopySidebarDmHref(contact) {
             const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
             const base = routes.messages || '/messages';
+            const explicitHref = contact && contact.href ? String(contact.href).trim() : '';
+            if (explicitHref) return explicitHref;
+            const groupId = contact && (contact.canonical_group_key || contact.group_id)
+                ? String(contact.canonical_group_key || contact.group_id).trim()
+                : '';
+            if (groupId) {
+                const url = new URL(base, window.location.origin);
+                url.searchParams.set('group', groupId);
+                const targetMessageId = contact && contact.target_message_id ? String(contact.target_message_id).trim() : '';
+                return `${url.pathname}${url.search}${targetMessageId ? `#message-${targetMessageId}` : ''}`;
+            }
             const userId = contact && contact.user_id ? String(contact.user_id).trim() : '';
             if (!userId) return base;
             const url = new URL(base, window.location.origin);
@@ -1034,12 +1045,15 @@
             const normalized = Array.isArray(contacts) ? contacts.filter(Boolean) : [];
             const visibleContacts = visibleSidebarCardItems('dm', normalized);
             const totalUnread = normalized.reduce((sum, contact) => sum + Math.max(0, Number(contact && contact.unread_count) || 0), 0);
+            const globalUnread = canopySidebarAttentionState && canopySidebarAttentionState.summary
+                ? Math.max(0, Number(canopySidebarAttentionState.summary.messages || 0) || 0)
+                : 0;
             if (totalEl) totalEl.textContent = String(totalUnread);
-            updateDeckInboxUnreadBadge(totalUnread);
+            updateDeckInboxUnreadBadge(Math.max(totalUnread, globalUnread));
 
             // Render-key diffing: skip DOM writes when data is unchanged
             const dmRenderKey = visibleContacts.map(c =>
-                `${c.user_id}:${c.unread_count}:${c.status_state}:${c.latest_preview}:${c.latest_message_at}`
+                `${c.kind || 'direct'}:${c.user_id || ''}:${c.canonical_group_key || c.group_id || ''}:${c.unread_count}:${c.status_state}:${c.latest_preview}:${c.latest_message_at}`
             ).join('|');
             if (listEl.__canopyDmRenderKey === dmRenderKey && listEl.childElementCount > 0) {
                 updateSidebarCardChrome('dm', normalized.length);
@@ -1051,7 +1065,7 @@
             if (!normalized.length) {
                 const empty = document.createElement('div');
                 empty.className = 'sidebar-peer-empty';
-                empty.textContent = 'No recent direct messages';
+                empty.textContent = 'No recent messages';
                 listEl.appendChild(empty);
                 updateSidebarCardChrome('dm', 0);
                 return;
@@ -1066,9 +1080,11 @@
                 }
                 link.href = canopySidebarDmHref(contact);
                 link.setAttribute('data-dm-user-id', contact.user_id || '');
+                link.setAttribute('data-dm-kind', contact.kind || 'direct');
+                link.setAttribute('data-dm-group-id', contact.canonical_group_key || contact.group_id || '');
                 link.setAttribute('data-dm-target-message-id', contact.target_message_id || '');
                 link.setAttribute('data-dm-open-deck', '1');
-                link.title = contact.display_name || contact.username || contact.user_id || 'Direct message';
+                link.title = contact.display_name || contact.username || contact.user_id || 'Message';
 
                 const avatarWrap = document.createElement('div');
                 avatarWrap.className = 'sidebar-dm-avatar-wrap';
@@ -1210,9 +1226,10 @@
             event.preventDefault();
             const href = link.getAttribute('href') || '';
             const userId = String(link.getAttribute('data-dm-user-id') || '').trim();
+            const groupId = String(link.getAttribute('data-dm-group-id') || '').trim();
             const targetMessageId = String(link.getAttribute('data-dm-target-message-id') || '').trim();
             if (typeof window.openDeckInbox === 'function') {
-                window.openDeckInbox({ userId, targetMessageId, targetUrl: href });
+                window.openDeckInbox({ userId, groupId, targetMessageId, targetUrl: href });
             } else {
                 window.location.href = href || (((window.CANOPY_VARS || {}).urls || {}).messages || '/messages');
             }
@@ -1243,6 +1260,7 @@
             setSidebarNavUnreadBadge('messages', safeSummary.messages || 0);
             setSidebarNavUnreadBadge('channels', safeSummary.channels || 0);
             setSidebarNavUnreadBadge('feed', safeSummary.feed || 0);
+            updateDeckInboxUnreadBadge(safeSummary.messages || 0);
         }
 
         const CANOPY_TITLE_ATTENTION_PREFIX_RE = /^\(\d{1,4}\+?\)\s+/;

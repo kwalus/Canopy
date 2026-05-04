@@ -8,6 +8,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from urllib.parse import quote_plus
 from unittest.mock import MagicMock, patch
 
 from flask import Flask
@@ -27,7 +28,7 @@ if 'zeroconf' not in sys.modules:
     zeroconf_stub.ServiceStateChange = _Dummy
     sys.modules['zeroconf'] = zeroconf_stub
 
-from canopy.core.messaging import MessageManager
+from canopy.core.messaging import MessageManager, compute_group_id
 from canopy.ui.routes import create_ui_blueprint
 
 
@@ -230,8 +231,9 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
         self.assertIn('id="sidebar-dm-expand-btn"', body)
         self.assertIn('data-dm-user-id="peer-a"', body)
         self.assertIn('data-dm-user-id="peer-b"', body)
+        self.assertIn('data-dm-kind="group"', body)
+        self.assertIn('data-dm-group-id=', body)
         self.assertIn('/messages?with=peer-a#message-DM-a-unread', body)
-        self.assertNotIn('data-dm-user-id="group:', body)
 
     def test_sidebar_dm_snapshot_includes_recent_dm_contacts(self) -> None:
         response = self.client.get('/ajax/sidebar_dm_snapshot')
@@ -240,10 +242,19 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
 
         self.assertTrue(payload.get('success'))
         contacts = payload.get('recent_dm_contacts') or []
-        self.assertEqual([contact.get('user_id') for contact in contacts[:2]], ['peer-a', 'peer-b'])
+        group_id = compute_group_id(['owner', 'peer-a', 'peer-b'])
+        self.assertEqual([contact.get('kind') for contact in contacts[:3]], ['group', 'direct', 'direct'])
+        self.assertEqual(contacts[0].get('canonical_group_key'), group_id)
         self.assertEqual(contacts[0].get('unread_count'), 1)
-        self.assertEqual(contacts[0].get('target_message_id'), 'DM-a-unread')
-        self.assertEqual(contacts[0].get('status_state'), 'online')
+        self.assertEqual(contacts[0].get('target_message_id'), 'DM-group-ignore')
+        self.assertEqual(
+            contacts[0].get('href'),
+            f"/messages?group={quote_plus(group_id)}#message-DM-group-ignore",
+        )
+        self.assertEqual([contact.get('user_id') for contact in contacts[1:3]], ['peer-a', 'peer-b'])
+        self.assertEqual(contacts[1].get('unread_count'), 1)
+        self.assertEqual(contacts[1].get('target_message_id'), 'DM-a-unread')
+        self.assertEqual(contacts[1].get('status_state'), 'online')
 
     def test_sidebar_dm_snapshot_delta_request_omits_contacts_when_unchanged(self) -> None:
         first = self.client.get('/ajax/sidebar_dm_snapshot')

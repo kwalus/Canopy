@@ -6,6 +6,7 @@ import sys
 import types
 import unittest
 from types import SimpleNamespace
+from urllib.parse import quote_plus
 from unittest.mock import MagicMock, patch
 
 from flask import Flask
@@ -27,6 +28,7 @@ if 'zeroconf' not in sys.modules:
 
 from canopy.ui.routes import create_ui_blueprint
 from canopy.core.events import (
+    EVENT_DM_MESSAGE_CREATED,
     EVENT_FEED_POST_CREATED,
     EVENT_MENTION_CREATED,
     WorkspaceEventManager,
@@ -352,6 +354,36 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         self.assertIn('/channels/locate?message_id=msg-mention', items[1].get('href', ''))
         self.assertEqual(items[1].get('avatar_url'), '/files/avatar-peer-a')
         self.assertGreater(items[1].get('seq') or 0, 0)
+
+    def test_sidebar_attention_snapshot_links_group_dm_events_to_group_thread(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_DM_MESSAGE_CREATED,
+            actor_user_id='peer-b',
+            message_id='group-unread',
+            visibility_scope='dm',
+            dedupe_key='dm:group:test',
+            payload={
+                'preview': 'Unread group',
+                'sender_id': 'peer-b',
+                'recipient_id': 'group:alpha',
+                'group_id': 'group:alpha',
+                'group_members': ['owner', 'peer-b'],
+            },
+        )
+
+        response = self.client.get('/ajax/sidebar_attention_snapshot')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        items = payload.get('items') or []
+        group_dm_items = [item for item in items if item.get('event_type') == EVENT_DM_MESSAGE_CREATED]
+
+        self.assertEqual(len(group_dm_items), 1)
+        self.assertEqual(group_dm_items[0].get('kind'), 'dm')
+        self.assertEqual(group_dm_items[0].get('meta'), 'Group DM')
+        self.assertIn(
+            f"/messages?group={quote_plus('group:alpha')}#message-group-unread",
+            group_dm_items[0].get('href', ''),
+        )
 
     def test_sidebar_attention_snapshot_orders_by_freshness_before_priority(self) -> None:
         self.workspace_events.emit_event(
