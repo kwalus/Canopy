@@ -333,19 +333,67 @@ def _live_invite_endpoint_scheme(config: Any, p2p_manager: Any) -> str:
     return 'wss' if bool(getattr(getattr(config, 'network', None), 'enable_tls', False)) else 'ws'
 
 
+_DEFAULT_AGENT_PERMISSION_VALUES = [
+    Permission.READ_MESSAGES.value,
+    Permission.WRITE_MESSAGES.value,
+    Permission.READ_FEED.value,
+    Permission.WRITE_FEED.value,
+]
+
+
+def _coerce_permission_value(value: Any) -> str:
+    if isinstance(value, Permission):
+        return value.value
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    if text in {permission.value for permission in Permission}:
+        return text
+    # Be tolerant of older/test records that accidentally persisted enum reprs.
+    if text.startswith('Permission.'):
+        text = text.split('.', 1)[1]
+    elif text.startswith('<Permission.') and ':' in text:
+        text = text.split('.', 1)[1].split(':', 1)[0]
+    if text in Permission.__members__:
+        return Permission[text].value
+    return text
+
+
+def _normalize_permission_values(raw_permissions: Any) -> tuple[list[str], list[str]]:
+    if raw_permissions is None:
+        return [], []
+    if isinstance(raw_permissions, (str, Permission)):
+        source = [raw_permissions]
+    elif isinstance(raw_permissions, (list, tuple, set)):
+        source = list(raw_permissions)
+    else:
+        return [], [str(raw_permissions)]
+
+    valid_values = {permission.value for permission in Permission}
+    normalized: list[str] = []
+    invalid: list[str] = []
+    for raw_value in source:
+        value = _coerce_permission_value(raw_value)
+        if not value:
+            continue
+        if value in valid_values:
+            if value not in normalized:
+                normalized.append(value)
+        elif value not in invalid:
+            invalid.append(value)
+    return normalized, invalid
+
+
 def _current_meshspace_default_agent_permissions() -> list[str]:
     record = _current_meshspace_record()
     raw = record.get('default_agent_permissions') if isinstance(record, dict) else None
-    if isinstance(raw, list):
-        values = [str(value or '').strip() for value in raw if str(value or '').strip()]
-        if values:
-            return values
-    return [
-        Permission.READ_MESSAGES.value,
-        Permission.WRITE_MESSAGES.value,
-        Permission.READ_FEED.value,
-        Permission.WRITE_FEED.value,
-    ]
+    values, invalid = _normalize_permission_values(raw)
+    if invalid:
+        logger.warning(
+            "Ignoring invalid meshspace default agent API permissions: %s",
+            invalid,
+        )
+    return values or list(_DEFAULT_AGENT_PERMISSION_VALUES)
 
 
 def _meshspace_status_meta(status: Any) -> dict[str, str]:
@@ -5861,19 +5909,17 @@ def create_ui_blueprint() -> Blueprint:
             user_id = get_current_user()
             
             # Get user's API keys
-            keys = api_key_manager.list_keys(user_id)
+            keys = api_key_manager.list_keys(user_id) or []
             
             # Get available permissions
             all_permissions = api_key_manager.get_all_permissions()
             user = db_manager.get_user(user_id) if db_manager else None
             is_agent_account = ((user or {}).get('account_type') or 'human') == 'agent'
             if is_agent_account:
-                default_permissions = [
-                    Permission(value)
-                    for value in _current_meshspace_default_agent_permissions()
-                ]
+                default_permission_values = _current_meshspace_default_agent_permissions()
             else:
-                default_permissions = api_key_manager.get_default_permissions()
+                default_permission_values = [permission.value for permission in api_key_manager.get_default_permissions()]
+            default_permissions = [Permission(value) for value in default_permission_values]
             
             # Get current time for expiration checks
             from datetime import datetime
@@ -10215,17 +10261,17 @@ def create_ui_blueprint() -> Blueprint:
             if not permissions_raw:
                 user = db_manager.get_user(user_id) if db_manager else None
                 if (user or {}).get('account_type') == 'agent':
-                    permissions = [Permission(value) for value in _current_meshspace_default_agent_permissions()]
+                    permissions_list = _current_meshspace_default_agent_permissions()
                 else:
-                    permissions = ApiKeyManager.get_default_permissions()
-                permissions_list = [p.value for p in permissions]
+                    permissions_list = [p.value for p in ApiKeyManager.get_default_permissions()]
             else:
-                # Convert permission strings to Permission enums
-                try:
-                    permissions = [Permission(p) for p in permissions_raw]
-                except ValueError as e:
-                    return jsonify({'error': f'Invalid permission: {e}'}), 400
-                permissions_list = [p.value for p in permissions]
+                permissions_list, invalid_permissions = _normalize_permission_values(permissions_raw)
+                if invalid_permissions:
+                    return jsonify({
+                        'error': 'Invalid permission(s): ' + ', '.join(invalid_permissions),
+                        'invalid_permissions': invalid_permissions,
+                    }), 400
+            permissions = [Permission(value) for value in permissions_list]
             
             # Generate key
             api_key = api_key_manager.generate_key(user_id, permissions, expires_days)
@@ -11157,9 +11203,46 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_admin_user_keys(user_id):
         """List API keys for a user (admin only). Keys are masked; no raw key returned."""
         try:
-            _, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
-            keys = api_key_manager.list_keys(user_id)
+            db_manager, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user = db_manager.get_user(user_id) if db_manager else None
+            if not user:
+                return jsonify({'error': 'User not found'}), 404
+            if not user.get('password_hash') or user.get('origin_peer'):
+                return jsonify({
+                    'error': 'API keys can only be managed for local registered accounts. This looks like a remote/shadow identity row.',
+                    'reason_code': 'not_local_registered_user',
+                    'user': {
+                        'id': user.get('id') or user_id,
+                        'username': user.get('username'),
+                        'account_type': user.get('account_type') or 'human',
+                        'status': user.get('status') or 'active',
+                        'origin_peer': user.get('origin_peer'),
+                        'is_registered': bool(user.get('password_hash')),
+                    },
+                }), 400
+
+            target_is_agent = (user.get('account_type') or 'human') == 'agent'
+            all_permission_values, _ = _normalize_permission_values(api_key_manager.get_all_permissions())
+            if not all_permission_values:
+                all_permission_values = [permission.value for permission in Permission]
+            default_permission_values = (
+                _current_meshspace_default_agent_permissions()
+                if target_is_agent
+                else all_permission_values
+            )
+            keys = api_key_manager.list_keys(user_id) or []
             return jsonify({
+                'user': {
+                    'id': user.get('id') or user_id,
+                    'username': user.get('username'),
+                    'display_name': user.get('display_name') or user.get('username'),
+                    'account_type': user.get('account_type') or 'human',
+                    'status': user.get('status') or 'active',
+                    'is_registered': True,
+                    'is_local_registered': True,
+                },
+                'default_permissions': default_permission_values,
+                'meshspace_agent_default_permissions': _current_meshspace_default_agent_permissions(),
                 'keys': [
                     {
                         'id': k.id,
@@ -11184,19 +11267,47 @@ def create_ui_blueprint() -> Blueprint:
         try:
             db_manager, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
             user = db_manager.get_user(user_id)
-            if not user or not user.get('password_hash'):
-                return jsonify({'error': 'User not found or not a registered account'}), 400
-            data = request.get_json() or {}
-            perms_raw = data.get('permissions', [])
+            if not user:
+                return jsonify({'error': 'User not found'}), 404
+            if not user.get('password_hash') or user.get('origin_peer'):
+                return jsonify({
+                    'error': 'Select the local registered account before creating an API key. Remote/shadow identity rows cannot receive local API keys.',
+                    'reason_code': 'not_local_registered_user',
+                    'user': {
+                        'id': user.get('id') or user_id,
+                        'username': user.get('username'),
+                        'account_type': user.get('account_type') or 'human',
+                        'status': user.get('status') or 'active',
+                        'origin_peer': user.get('origin_peer'),
+                        'is_registered': bool(user.get('password_hash')),
+                    },
+                }), 400
+
+            data = request.get_json(silent=True) or {}
+            perms_raw = data.get('permissions', None)
+            if perms_raw is not None and isinstance(perms_raw, str):
+                perms_raw = [perms_raw]
+            if perms_raw is not None and not isinstance(perms_raw, list):
+                return jsonify({'error': 'permissions must be a list'}), 400
+
             if not perms_raw:
                 if (user.get('account_type') or 'human') == 'agent':
                     perms_raw = _current_meshspace_default_agent_permissions()
                 else:
-                    perms_raw = [p.value for p in api_key_manager.get_all_permissions()]
-            try:
-                permissions = [Permission(p) for p in perms_raw]
-            except ValueError as e:
-                return jsonify({'error': f'Invalid permission: {e}'}), 400
+                    perms_raw, _ = _normalize_permission_values(api_key_manager.get_all_permissions())
+                    if not perms_raw:
+                        perms_raw = [permission.value for permission in Permission]
+
+            permission_values, invalid_permissions = _normalize_permission_values(perms_raw)
+            if invalid_permissions:
+                return jsonify({
+                    'error': 'Invalid permission(s): ' + ', '.join(invalid_permissions),
+                    'invalid_permissions': invalid_permissions,
+                }), 400
+            if not permission_values:
+                permission_values = list(_DEFAULT_AGENT_PERMISSION_VALUES)
+            permissions = [Permission(value) for value in permission_values]
+
             expires_days = data.get('expires_days')  # None = no expiry
             if expires_days is not None:
                 try:
@@ -11207,12 +11318,19 @@ def create_ui_blueprint() -> Blueprint:
                     expires_days = None
             raw_key = api_key_manager.generate_key(user_id, permissions, expires_days)
             if not raw_key:
-                return jsonify({'error': 'Failed to generate key'}), 500
+                return jsonify({
+                    'error': (
+                        f"Failed to generate API key for @{user.get('username') or user_id}. "
+                        "Confirm this is the local registered account and check server logs for the key-store write error."
+                    ),
+                    'reason_code': 'api_key_store_write_failed',
+                    'user_id': user_id,
+                }), 500
             return jsonify({
                 'success': True,
                 'api_key': raw_key,
                 'user_id': user_id,
-                'permissions': [p.value for p in permissions],
+                'permissions': permission_values,
                 'expires_days': expires_days,
                 'message': 'Copy this key now; it will not be shown again.',
             })

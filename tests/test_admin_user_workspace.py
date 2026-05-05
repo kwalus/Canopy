@@ -838,6 +838,83 @@ class TestAdminUserWorkspace(unittest.TestCase):
             ],
         )
 
+    def test_admin_agent_key_creation_sanitizes_meshspace_template_defaults(self) -> None:
+        csrf_token = 'csrf-admin-agent-key'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        self.api_key_manager.generate_key.return_value = 'raw-admin-agent-key'
+        self.meshspace_registry_manager.record['default_agent_permissions'] = [
+            Permission.READ_MESSAGES,
+            Permission.WRITE_MESSAGES.value,
+            repr(Permission.READ_FEED),
+            'not_a_real_permission',
+            Permission.WRITE_FILES.value,
+            Permission.WRITE_FILES.value,
+        ]
+
+        response = self.client.post(
+            '/ajax/admin/users/agent-local/keys',
+            json={},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('api_key'), 'raw-admin-agent-key')
+        self.assertEqual(
+            payload.get('permissions'),
+            [
+                Permission.READ_MESSAGES.value,
+                Permission.WRITE_MESSAGES.value,
+                Permission.READ_FEED.value,
+                Permission.WRITE_FILES.value,
+            ],
+        )
+        self.api_key_manager.generate_key.assert_called_once()
+        user_id, permissions, expires_days = self.api_key_manager.generate_key.call_args[0]
+        self.assertEqual(user_id, 'agent-local')
+        self.assertEqual(expires_days, None)
+        self.assertEqual(
+            permissions,
+            [
+                Permission.READ_MESSAGES,
+                Permission.WRITE_MESSAGES,
+                Permission.READ_FEED,
+                Permission.WRITE_FILES,
+            ],
+        )
+
+    def test_admin_key_creation_rejects_remote_shadow_identity_rows(self) -> None:
+        csrf_token = 'csrf-admin-remote-key'
+        self._set_authenticated_session(csrf_token=csrf_token)
+
+        response = self.client.post(
+            '/ajax/admin/users/agent-remote/keys',
+            json={},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('reason_code'), 'not_local_registered_user')
+        self.api_key_manager.generate_key.assert_not_called()
+
+    def test_admin_key_creation_reports_store_write_failure_clearly(self) -> None:
+        csrf_token = 'csrf-admin-key-failure'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        self.api_key_manager.generate_key.return_value = None
+
+        response = self.client.post(
+            '/ajax/admin/users/agent-local/keys',
+            json={'permissions': [Permission.READ_MESSAGES.value]},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 500)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('reason_code'), 'api_key_store_write_failed')
+        self.assertIn('@agent_local', payload.get('error') or '')
+
     def test_admin_can_update_local_user_profile(self) -> None:
         csrf_token = 'csrf-profile'
         self._set_authenticated_session(csrf_token=csrf_token)

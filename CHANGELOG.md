@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.71] - 2026-05-05
+
+### Fixed
+- **Admin-created agent API keys are more reliable after account conversion** - the Admin key panel now fetches server-side target metadata/defaults, prevents duplicate create requests, reports key-store failures clearly, rejects remote/shadow identity rows, and normalizes stale meshspace agent permission templates before issuing keys.
+
 ## [0.6.70] - 2026-05-04
 
 ### Fixed

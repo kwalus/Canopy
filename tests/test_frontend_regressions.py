@@ -532,6 +532,15 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("active mesh's default agent API template", template)
         self.assertIn('adjust the template from the Admin workspace', template)
 
+    def test_admin_api_key_panel_uses_single_flight_generation(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        self.assertIn('id="keys-create-status"', admin_template)
+        self.assertIn('let keysCreateInFlight = false;', admin_template)
+        self.assertIn('function setKeysCreateBusy(isBusy)', admin_template)
+        self.assertIn('if (keysCreateInFlight) return;', admin_template)
+        self.assertIn('Too many key-generation attempts', admin_template)
+        self.assertIn('loadKeysForUser(userId, { applyDefaultSelection: true });', admin_template)
+
     def test_pending_approval_templates_expose_guidance_copy(self) -> None:
         login_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'login.html').read_text(encoding='utf-8')
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')

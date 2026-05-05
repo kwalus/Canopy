@@ -2077,6 +2077,7 @@
                     <input type="number" class="form-control form-control-sm" id="keys-expires-days" placeholder="Leave empty for no expiry" min="1" style="max-width: 120px;">
                 </div>
                 <button type="button" class="btn btn-primary btn-sm" id="keys-create-btn">Create key</button>
+                <div class="small text-muted mt-2" id="keys-create-status" aria-live="polite"></div>
             </div>
             <div id="keys-new-key-area" class="mt-3 p-2 rounded border bg-dark bg-opacity-25" style="display: none;">
                 <p class="small text-warning mb-1">Copy this key now; it will not be shown again.</p>
@@ -3872,6 +3873,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     const keysCopyKeyBtn = document.getElementById('keys-copy-key-btn');
     const keysPanelClose = document.getElementById('keys-panel-close');
     const keysPermissionSummary = document.getElementById('keys-permission-summary');
+    const keysCreateStatus = document.getElementById('keys-create-status');
     const keysPresetAgentBtn = document.getElementById('keys-preset-agent-btn');
     const keysPresetReadonlyBtn = document.getElementById('keys-preset-readonly-btn');
     const keysPresetFullBtn = document.getElementById('keys-preset-full-btn');
@@ -3887,6 +3889,25 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             return [];
         }
     })();
+    let keysCreateInFlight = false;
+
+    function setKeysCreateStatus(text, isError = false) {
+        if (!keysCreateStatus) return;
+        keysCreateStatus.textContent = text || '';
+        keysCreateStatus.classList.toggle('text-danger', !!isError);
+        keysCreateStatus.classList.toggle('text-success', !isError && !!text);
+        keysCreateStatus.classList.toggle('text-muted', !text);
+    }
+
+    function setKeysCreateBusy(isBusy) {
+        keysCreateInFlight = !!isBusy;
+        if (!keysCreateBtn) return;
+        if (!keysCreateBtn.dataset.defaultLabel) {
+            keysCreateBtn.dataset.defaultLabel = keysCreateBtn.textContent || 'Create key';
+        }
+        keysCreateBtn.disabled = !!isBusy;
+        keysCreateBtn.textContent = isBusy ? 'Creating...' : keysCreateBtn.dataset.defaultLabel;
+    }
 
     function humanizePermission(permission) {
         return String(permission || '')
@@ -3957,12 +3978,19 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         return allKeyPermissions.filter(permission => permission.startsWith('read_') || permission === 'view_trust');
     }
 
-    async function loadKeysForUser(userId) {
+    async function loadKeysForUser(userId, options = {}) {
         keysListContainer.innerHTML = '<p class="text-muted small">Loading…</p>';
-        const { ok, data } = await api('GET', `/ajax/admin/users/${userId}/keys`);
+        const { ok, data } = await api('GET', `/ajax/admin/users/${encodeURIComponent(userId)}/keys`);
         if (!ok) {
-            keysListContainer.innerHTML = '<p class="text-danger small">Failed to load keys.</p>';
+            keysListContainer.innerHTML = '<p class="text-danger small">' + escapeHtml(data.error || 'Failed to load keys.') + '</p>';
             return;
+        }
+        const targetUser = data.user || {};
+        if (keysPanel && targetUser.account_type) {
+            keysPanel.dataset.accountType = String(targetUser.account_type || 'human');
+        }
+        if (options.applyDefaultSelection && Array.isArray(data.default_permissions) && keysPanelUserId.value === String(userId)) {
+            setKeyPermissionSelection(data.default_permissions);
         }
         const keys = data.keys || [];
         if (keys.length === 0) {
@@ -3985,7 +4013,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 btn.addEventListener('click', async () => {
                     if (!confirm('Revoke this key? It will stop working immediately.')) return;
                     const keyId = btn.getAttribute('data-key-id');
-                    const { ok: ok2 } = await api('DELETE', `/ajax/admin/users/${userId}/keys/${keyId}`);
+                    const { ok: ok2 } = await api('DELETE', `/ajax/admin/users/${encodeURIComponent(userId)}/keys/${encodeURIComponent(keyId)}`);
                     if (ok2) loadKeysForUser(userId);
                     else alert('Failed to revoke');
                 });
@@ -3997,11 +4025,15 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         keysPanelUserId.value = userId;
         keysPanelUsername.textContent = username;
         keysNewKeyArea.style.display = 'none';
-        setKeyPermissionSelection(defaultKeyPermissions.length ? defaultKeyPermissions : allKeyPermissions);
+        setKeysCreateStatus('');
+        const row = rowForUserId(userId);
+        const accountType = String(row?.dataset?.accountType || 'human').toLowerCase();
+        keysPanel.dataset.accountType = accountType;
+        setKeyPermissionSelection(accountType === 'agent' && defaultKeyPermissions.length ? defaultKeyPermissions : allKeyPermissions);
         const expEl = document.getElementById('keys-expires-days');
         if (expEl) expEl.value = '';
         keysPanel.style.display = 'block';
-        loadKeysForUser(userId);
+        loadKeysForUser(userId, { applyDefaultSelection: true });
         keysPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
@@ -4087,18 +4119,31 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
 
     if (keysCreateBtn) {
         keysCreateBtn.addEventListener('click', async () => {
+            if (keysCreateInFlight) return;
             const userId = keysPanelUserId.value;
             if (!userId) return;
             const perms = keyPermissionCheckboxes.filter(cb => cb.checked).map(cb => cb.value);
             const expiresVal = document.getElementById('keys-expires-days').value;
             const expires_days = expiresVal ? parseInt(expiresVal, 10) : null;
-            const { ok, data } = await api('POST', `/ajax/admin/users/${userId}/keys`, { permissions: perms.length ? perms : undefined, expires_days: expires_days || undefined });
-            if (ok && data.api_key) {
-                keysNewKeyInput.value = data.api_key;
-                keysNewKeyArea.style.display = 'block';
-                loadKeysForUser(userId);
-            } else {
-                alert(data.error || 'Failed to create key');
+            setKeysCreateBusy(true);
+            setKeysCreateStatus('Creating key...');
+            try {
+                const { ok, status, data } = await api('POST', `/ajax/admin/users/${encodeURIComponent(userId)}/keys`, { permissions: perms.length ? perms : undefined, expires_days: expires_days || undefined });
+                if (ok && data.api_key) {
+                    keysNewKeyInput.value = data.api_key;
+                    keysNewKeyArea.style.display = 'block';
+                    setKeysCreateStatus('Key created. Copy the raw key now; it will not be shown again.');
+                    loadKeysForUser(userId);
+                } else {
+                    const fallback = status === 429
+                        ? 'Too many key-generation attempts. Wait a few seconds and try once; no key was generated unless it appears in the list.'
+                        : 'Failed to create key';
+                    setKeysCreateStatus(data.error || fallback, true);
+                }
+            } catch (err) {
+                setKeysCreateStatus('Could not reach the server while creating the key. Check the connection and try once.', true);
+            } finally {
+                setKeysCreateBusy(false);
             }
         });
     }
