@@ -3323,7 +3323,7 @@
         const sourceLayoutAttr = sourceLayout ? ` data-canopy-source-layout="${dmEscapeAttr(JSON.stringify(sourceLayout))}"` : '';
         const editedHtml = message && message.edited_at ? `<span title="Edited ${dmEscapeAttr(message.edited_at)}">Edited</span>` : '';
         const replyHtml = replyPreview ? `
-            <button type="button" class="dm-bubble-reply-preview" onclick="jumpToMessage('${dmEscapeAttr(replyPreview.id)}')">
+            <button type="button" class="dm-bubble-reply-preview" data-dm-action="jump-message" data-message-id="${dmEscapeAttr(replyPreview.id)}">
                 <strong>${escapeHtml(replyPreview.sender_name || 'Reply')}</strong>
                 <span>${escapeHtml(replyPreview.preview || 'Replying in thread')}</span>
             </button>
@@ -3347,7 +3347,7 @@
                                 <i class="bi bi-three-dots"></i>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end">
-                                <li><a class="dropdown-item" href="#" onclick="replyToMessage('${dmEscapeAttr(message.id)}', ${JSON.stringify(identity.label)}, ${JSON.stringify(((message.content || '').toString().slice(0, 140)) || '(attachment)')}); return false;"><i class="bi bi-reply"></i> Reply</a></li>
+                                <li><a class="dropdown-item" href="#" data-dm-action="reply" data-message-id="${dmEscapeAttr(message.id)}" data-sender-label="${dmEscapeAttr(identity.label)}" data-preview="${dmEscapeAttr(((message.content || '').toString().slice(0, 140)) || '(attachment)')}"><i class="bi bi-reply"></i> Reply</a></li>
                                 <li><a class="dropdown-item" href="#" data-bookmark-button="1" data-source-type="dm_message" data-source-id="${dmEscapeAttr(message.id)}" data-bookmarked="false" onclick="event.preventDefault();"><i class="bi bi-bookmark"></i> <span data-bookmark-label>Save</span></a></li>
                                 <li><a class="dropdown-item" href="#" onclick="editMessage('${dmEscapeAttr(message.id)}'); return false;"><i class="bi bi-pencil"></i> Edit</a></li>
                                 <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('${dmEscapeAttr(message.id)}'); return false;"><i class="bi bi-trash"></i> Delete</a></li>
@@ -3546,6 +3546,26 @@
         el.classList.remove('flash-focus');
         void el.offsetWidth;
         el.classList.add('flash-focus');
+    }
+
+    function handleDmThreadActionClick(event) {
+        const actionEl = event.target && event.target.closest ? event.target.closest('[data-dm-action]') : null;
+        if (!actionEl) return;
+        const threadBody = document.getElementById('dm-thread-body');
+        if (!threadBody || !threadBody.contains(actionEl)) return;
+
+        const action = String(actionEl.getAttribute('data-dm-action') || '').trim();
+        if (action === 'reply') {
+            event.preventDefault();
+            replyToMessage(
+                actionEl.getAttribute('data-message-id'),
+                actionEl.getAttribute('data-sender-label'),
+                actionEl.getAttribute('data-preview')
+            );
+        } else if (action === 'jump-message') {
+            event.preventDefault();
+            jumpToMessage(actionEl.getAttribute('data-message-id'));
+        }
     }
 
     function deleteMessage(messageId) {
@@ -3807,6 +3827,10 @@
         setupMessageDropzone();
         setupRecipientPicker();
         applyDmRichContent();
+        const dmThreadBody = document.getElementById('dm-thread-body');
+        if (dmThreadBody) {
+            dmThreadBody.addEventListener('click', handleDmThreadActionClick);
+        }
 
         const messageContent = document.getElementById('messageContent');
         if (messageContent) {

@@ -50,14 +50,10 @@
                         <ul class="dropdown-menu dropdown-menu-end">
                             <li><a class="dropdown-item"
                                    href="#"
-                                   {% if dm_is_deck %}
                                    data-dm-action="reply"
                                    data-message-id="{{ message.id }}"
                                    data-sender-label="{{ message.sender_label|e }}"
-                                   data-preview="{{ (message.reply_preview.preview if message.reply_preview else message.content[:140])|e }}"
-                                   {% else %}
-                                   onclick="replyToMessage('{{ message.id }}', {{ message.sender_label|tojson }}, {{ (message.reply_preview.preview if message.reply_preview else message.content[:140])|tojson }}); return false;"
-                                   {% endif %}>
+                                   data-preview="{{ (message.content[:140] if message.content else '(attachment)')|e }}">
                                 <i class="bi bi-reply"></i> Reply
                             </a></li>
                             <li><a class="dropdown-item{% if message.is_bookmarked %} active{% endif %}"
@@ -94,7 +90,8 @@
                             {% if message.reply_preview %}
                                 <button type="button"
                                         class="dm-bubble-reply-preview"
-                                        {% if dm_is_deck %}data-dm-action="jump-message" data-message-id="{{ message.reply_preview.id }}"{% else %}onclick="jumpToMessage('{{ message.reply_preview.id }}')"{% endif %}>
+                                        data-dm-action="jump-message"
+                                        data-message-id="{{ message.reply_preview.id }}">
                                     <strong>{{ message.reply_preview.sender_name }}</strong>
                                     <span>{{ message.reply_preview.preview }}</span>
                                 </button>

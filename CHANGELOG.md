@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.70] - 2026-05-04
+
+### Fixed
+- **DM Reply controls now survive thread refreshes** - full-page Messages reply buttons and reply-preview jumps use delegated thread-body actions instead of inline handlers, including optimistic outbound messages before the next AJAX snapshot refresh.
+
 ## [0.6.69] - 2026-05-04
 
 ### Fixed
