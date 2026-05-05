@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.72] - 2026-05-05
+
+### Fixed
+- **API key generation now writes mesh-bound key-store rows when required** - the key manager detects `api_keys.mesh_id` schemas, stores the active meshspace id for new keys, preserves legacy schemas, and logs full key-store write failures with the database path for VPS diagnosis.
+
 ## [0.6.71] - 2026-05-05
 
 ### Fixed

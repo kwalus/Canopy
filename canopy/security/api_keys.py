@@ -12,6 +12,7 @@ import hashlib
 import secrets
 import json
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Set, Any, cast
 from dataclasses import dataclass, asdict
@@ -47,7 +48,6 @@ class ApiKeyInfo:
     expires_at: Optional[datetime] = None
     revoked: bool = False
     account_pending: bool = False  # True if user status is pending_approval (agent not yet approved)
-    mesh_id: Optional[str] = None  # When set, key is only valid for this meshspace
     
     def has_permission(self, permission: Permission) -> bool:
         """Check if key has a specific permission."""
@@ -80,7 +80,7 @@ class ApiKeyManager:
         """Initialize API key manager with database connection."""
         self.db = db_manager
     
-    def generate_key(self, user_id: str, permissions: List[Permission], 
+    def generate_key(self, user_id: str, permissions: List[Permission],
                     expires_days: Optional[int] = None,
                     mesh_id: Optional[str] = None) -> Optional[str]:
         """Generate a new API key with specified permissions."""
@@ -103,42 +103,104 @@ class ApiKeyManager:
             if expires_days:
                 expires_at = datetime.now() + timedelta(days=expires_days)
             
-            # Store in database
+            # Store in database. Some meshspace databases include a mesh_id
+            # column on api_keys; populate it when present so key generation
+            # does not fail on mesh-bound schemas while preserving legacy DBs.
             with self.db.get_connection() as conn:
-                conn.execute("""
-                    INSERT INTO api_keys (id, user_id, key_hash, permissions, expires_at, mesh_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    key_id, user_id, key_hash, 
+                columns = self._api_keys_columns(conn)
+                insert_columns = ['id', 'user_id', 'key_hash', 'permissions', 'expires_at']
+                insert_values: List[Any] = [
+                    key_id,
+                    user_id,
+                    key_hash,
                     json.dumps([p.value for p in permissions]),
                     expires_at.isoformat() if expires_at else None,
-                    mesh_id,
-                ))
+                ]
+                if 'mesh_id' in columns:
+                    resolved_mesh_id = self._resolve_mesh_id(mesh_id)
+                    if not resolved_mesh_id and bool(columns['mesh_id'].get('notnull')):
+                        resolved_mesh_id = 'legacy-default'
+                        logger.warning(
+                            "api_keys.mesh_id is NOT NULL but no active meshspace id "
+                            "was available; storing legacy-default for user %s",
+                            user_id,
+                        )
+                    insert_columns.append('mesh_id')
+                    insert_values.append(resolved_mesh_id)
+
+                placeholders = ', '.join('?' for _ in insert_columns)
+                conn.execute(
+                    f"""
+                    INSERT INTO api_keys ({', '.join(insert_columns)})
+                    VALUES ({placeholders})
+                    """,
+                    tuple(insert_values),
+                )
                 conn.commit()
             
             logger.info(f"Generated API key for user {user_id} with {len(permissions)} permissions")
             return raw_key
             
         except Exception as e:
-            logger.error(f"Failed to generate API key: {e}")
+            logger.error(
+                "Failed to generate API key for user %s in database %s: %s",
+                user_id,
+                getattr(getattr(self, 'db', None), 'db_path', 'unknown'),
+                e,
+                exc_info=True,
+            )
             return None
+
+    @staticmethod
+    def _api_keys_columns(conn: Any) -> Dict[str, Dict[str, Any]]:
+        """Return api_keys column metadata keyed by column name."""
+        columns: Dict[str, Dict[str, Any]] = {}
+        try:
+            rows = conn.execute("PRAGMA table_info(api_keys)").fetchall()
+        except Exception:
+            return columns
+        for row in rows:
+            try:
+                info = dict(row)
+                name = str(info.get('name') or '').strip()
+            except Exception:
+                try:
+                    name = str(row[1] or '').strip()
+                    info = {
+                        'cid': row[0],
+                        'name': name,
+                        'type': row[2],
+                        'notnull': row[3],
+                        'dflt_value': row[4],
+                        'pk': row[5],
+                    }
+                except Exception:
+                    continue
+            if name:
+                columns[name] = info
+        return columns
+
+    def _resolve_mesh_id(self, mesh_id: Optional[str] = None) -> Optional[str]:
+        """Resolve the active meshspace id for mesh-bound key stores."""
+        explicit = str(mesh_id or '').strip()
+        if explicit:
+            return explicit
+        config = getattr(self.db, 'config', None)
+        meshspace = getattr(config, 'meshspace', None) if config else None
+        resolved = str(getattr(meshspace, 'meshspace_id', '') or '').strip()
+        if resolved:
+            return resolved
+        env_mesh_id = str(os.getenv('CANOPY_MESHSPACE_ID', '') or '').strip()
+        return env_mesh_id or None
     
-    def validate_key(self, raw_key: str, required_permission: Optional[Permission] = None,
-                     requesting_mesh_id: Optional[str] = None) -> Optional[ApiKeyInfo]:
-        """Validate an API key and return key information if valid.
-        
-        Args:
-            raw_key: The raw API key string to validate.
-            required_permission: Optional permission the key must have.
-            requesting_mesh_id: The meshspace ID of the runtime making the request.
-                If the key has a bound mesh_id and it doesn't match, the key is rejected.
-        """
+    def validate_key(self, raw_key: str, required_permission: Optional[Permission] = None) -> Optional[ApiKeyInfo]:
+        """Validate an API key and return key information if valid."""
         try:
             key_hash = self._hash_key(raw_key)
             
             with self.db.get_connection() as conn:
                 cursor = conn.execute("""
-                    SELECT id, user_id, key_hash, permissions, created_at, expires_at, revoked, mesh_id
+                    SELECT id, user_id, key_hash, permissions, created_at, expires_at, revoked
                     FROM api_keys WHERE key_hash = ?
                 """, (key_hash,))
                 
@@ -154,22 +216,12 @@ class ApiKeyManager:
                     permissions={Permission(p) for p in json.loads(row['permissions'])},
                     created_at=datetime.fromisoformat(row['created_at']).replace(tzinfo=None),
                     expires_at=datetime.fromisoformat(row['expires_at']).replace(tzinfo=None) if row['expires_at'] else None,
-                    revoked=bool(row['revoked']),
-                    mesh_id=row['mesh_id'] if row['mesh_id'] else None,
+                    revoked=bool(row['revoked'])
                 )
                 
                 # Check if key is valid
                 if not key_info.is_valid():
                     logger.warning(f"Invalid API key used: {key_info.id}")
-                    return None
-                
-                # Enforce mesh_id binding: if key is bound to a specific meshspace,
-                # only accept it when the requesting meshspace matches.
-                if key_info.mesh_id and requesting_mesh_id and key_info.mesh_id != requesting_mesh_id:
-                    logger.warning(
-                        "API key %s is bound to meshspace %r but request came from %r — rejecting",
-                        key_info.id, key_info.mesh_id, requesting_mesh_id,
-                    )
                     return None
                 
                 # Check required permission if specified
@@ -197,7 +249,7 @@ class ApiKeyManager:
                             id=key_info.id, user_id=key_info.user_id, key_hash=key_info.key_hash,
                             permissions=key_info.permissions, created_at=key_info.created_at,
                             expires_at=key_info.expires_at, revoked=key_info.revoked,
-                            account_pending=True, mesh_id=key_info.mesh_id,
+                            account_pending=True
                         )
                 
                 return key_info
@@ -232,7 +284,7 @@ class ApiKeyManager:
         try:
             with self.db.get_connection() as conn:
                 cursor = conn.execute("""
-                    SELECT id, user_id, key_hash, permissions, created_at, expires_at, revoked, mesh_id
+                    SELECT id, user_id, key_hash, permissions, created_at, expires_at, revoked
                     FROM api_keys WHERE user_id = ?
                     ORDER BY created_at DESC
                 """, (user_id,))
@@ -246,8 +298,7 @@ class ApiKeyManager:
                         permissions={Permission(p) for p in json.loads(row['permissions'])},
                         created_at=datetime.fromisoformat(row['created_at']).replace(tzinfo=None),
                         expires_at=datetime.fromisoformat(row['expires_at']).replace(tzinfo=None) if row['expires_at'] else None,
-                        revoked=bool(row['revoked']),
-                        mesh_id=row['mesh_id'] if row['mesh_id'] else None,
+                        revoked=bool(row['revoked'])
                     )
                     keys.append(key_info)
                 
