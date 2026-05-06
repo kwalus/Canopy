@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.73] - 2026-05-05
+
+### Added
+- **Python source files can now be shared as safe document attachments** - `.py`, `.pyi`, and `.pyw` uploads are accepted through generic or Python MIME metadata when they are valid UTF-8 text, stored as `text/x-python` documents, and capped at 2 MB even on broader upload surfaces.
+
 ## [0.6.72] - 2026-05-05
 
 ### Fixed

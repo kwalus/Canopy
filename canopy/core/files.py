@@ -85,6 +85,9 @@ class FileManager:
         '.xlsm': 'application/vnd.ms-excel.sheet.macroenabled.12',
         '.tex': 'text/x-tex',
         '.latex': 'application/x-latex',
+        '.py': 'text/x-python',
+        '.pyi': 'text/x-python',
+        '.pyw': 'text/x-python',
         '.jpg': 'image/jpeg',
         '.jpeg': 'image/jpeg',
         '.png': 'image/png',
@@ -118,6 +121,7 @@ class FileManager:
         'application/vnd.ms-excel.sheet.macroenabled.12': '.xlsm',
         'text/x-tex': '.tex',
         'application/x-latex': '.tex',
+        'text/x-python': '.py',
         'image/jpeg': '.jpg',
         'image/png': '.png',
         'image/gif': '.gif',
@@ -449,6 +453,8 @@ class FileManager:
                                      content_type: str) -> tuple[str, str]:
         name = self._sanitize_filename(original_name or 'file')
         ctype = str(content_type or '').strip().lower()
+        if ';' in ctype:
+            ctype = ctype.split(';', 1)[0].strip()
         if not ctype:
             ctype = 'application/octet-stream'
 
@@ -491,7 +497,7 @@ class FileManager:
                               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                               'application/vnd.ms-excel.sheet.macroenabled.12',
                               'text/plain', 'text/csv', 'text/markdown',
-                              'text/x-tex', 'application/x-latex',
+                              'text/x-tex', 'application/x-latex', 'text/x-python',
                               'text/html', 'application/xml', 'text/xml',
                               'application/json']:
             return 'documents'
@@ -687,9 +693,24 @@ class FileManager:
                 content_type=content_type,
             )
 
-            # Validate file size
-            if len(file_data) > self.max_file_size:
-                logger.error(f"File too large: {len(file_data)} bytes (max: {self.max_file_size})")
+            # Enforce the shared upload policy here too: agent/MCP paths often
+            # enter at FileManager.save_file() instead of the browser upload route.
+            from ..security.file_validation import detect_zip_bomb, validate_file_upload
+
+            is_valid, error_msg, validated_type = validate_file_upload(
+                file_data,
+                content_type,
+                original_name,
+                max_size_override=self.max_file_size,
+            )
+            if not is_valid:
+                logger.error("File upload rejected for %s: %s", original_name, error_msg)
+                return None
+            content_type = validated_type or content_type
+
+            is_safe_archive, archive_error = detect_zip_bomb(file_data, content_type)
+            if not is_safe_archive:
+                logger.error("Archive upload rejected for %s: %s", original_name, archive_error)
                 return None
             
             # Generate unique file ID and stored name

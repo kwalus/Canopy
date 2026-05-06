@@ -86,6 +86,29 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
         self.assertTrue(info.original_name.endswith('.md'))
         self.assertEqual(info.original_name, 'file.md')
 
+    def test_python_source_upload_is_normalized_and_saved_as_document(self) -> None:
+        py_bytes = b"def hello(name: str) -> str:\n    return f'hello {name}'\n"
+        info = self.file_manager.save_file(
+            file_data=py_bytes,
+            original_name='agent_tool.py',
+            content_type='application/octet-stream',
+            uploaded_by='user-test',
+        )
+        self.assertIsNotNone(info)
+        assert info is not None
+        self.assertEqual(info.content_type, 'text/x-python')
+        self.assertEqual(info.original_name, 'agent_tool.py')
+        self.assertIn('/documents/', info.file_path.replace('\\', '/'))
+
+    def test_file_manager_rejects_binary_python_source(self) -> None:
+        info = self.file_manager.save_file(
+            file_data=b'\x00\x01\x02not-python',
+            original_name='evil.py',
+            content_type='application/octet-stream',
+            uploaded_by='user-test',
+        )
+        self.assertIsNone(info)
+
     def test_get_file_backfills_legacy_generic_metadata(self) -> None:
         file_id = "Flegacymeta001"
         payload = b"# Backfill Test\\n\\nLegacy markdown body\\n"

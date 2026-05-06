@@ -224,6 +224,46 @@ class TestSpreadsheetPreviewSupport(unittest.TestCase):
         self.assertTrue(is_valid, error)
         self.assertEqual(validated_type, 'application/gzip')
 
+    def test_validate_file_upload_accepts_python_source_with_generic_metadata(self):
+        source_bytes = b"def hello(name: str) -> str:\n    return f'hello {name}'\n"
+        is_valid, error, validated_type = validate_file_upload(
+            source_bytes,
+            'application/octet-stream',
+            'agent_tool.py',
+        )
+        self.assertTrue(is_valid, error)
+        self.assertEqual(validated_type, 'text/x-python')
+
+    def test_validate_file_upload_accepts_python_source_with_mime_alias(self):
+        source_bytes = b"from __future__ import annotations\n\nprint('canopy')\n"
+        is_valid, error, validated_type = validate_file_upload(
+            source_bytes,
+            'application/x-python-code; charset=utf-8',
+            'shared_patch.py',
+        )
+        self.assertTrue(is_valid, error)
+        self.assertEqual(validated_type, 'text/x-python')
+
+    def test_validate_file_upload_rejects_binary_python_source(self):
+        is_valid, error, _ = validate_file_upload(
+            b'\x00\x01\x02not-python',
+            'text/x-python',
+            'evil.py',
+        )
+        self.assertFalse(is_valid)
+        self.assertIn('binary data', str(error).lower())
+
+    def test_validate_file_upload_keeps_python_source_cap_when_global_override_is_larger(self):
+        oversized_source = b'#' * (2 * 1024 * 1024 + 1)
+        is_valid, error, _ = validate_file_upload(
+            oversized_source,
+            'text/x-python',
+            'large_agent_tool.py',
+            max_size_override=100 * 1024 * 1024,
+        )
+        self.assertFalse(is_valid)
+        self.assertIn('exceeds maximum', str(error).lower())
+
     def test_validate_file_upload_rejects_canopy_module_with_external_script(self):
         module_bytes = b"""<!doctype html>
 <html><head><meta charset="utf-8"></head><body>

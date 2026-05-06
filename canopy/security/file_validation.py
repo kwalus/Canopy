@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import io
 import logging
-import re
 import zipfile
 from html.parser import HTMLParser
 from typing import Optional, Tuple
@@ -53,6 +52,9 @@ _EXT_TO_MIME = {
     '.bst': 'text/x-tex',
     '.latex': 'application/x-latex',
     '.ltx': 'application/x-latex',
+    '.py': 'text/x-python',
+    '.pyi': 'text/x-python',
+    '.pyw': 'text/x-python',
     '.md': 'text/markdown',
     '.markdown': 'text/markdown',
     '.csv': 'text/csv',
@@ -290,6 +292,9 @@ ALLOWED_TYPES = {
     'application/x-latex': [
         # LaTeX files (alternate MIME)
     ],
+    'text/x-python': [
+        # Python source files — validated as UTF-8 text below
+    ],
     'text/csv': [
         # CSV files — no magic bytes
     ],
@@ -357,6 +362,7 @@ MAX_SIZES = {
     'text/markdown': 1 * 1024 * 1024,
     'text/x-tex': 2 * 1024 * 1024,       # 2MB for TeX/LaTeX
     'application/x-latex': 2 * 1024 * 1024,
+    'text/x-python': 2 * 1024 * 1024,    # 2MB for Python source shared as text
     'text/csv': 5 * 1024 * 1024,          # 5MB for CSV
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 25 * 1024 * 1024,
     'application/vnd.ms-excel.sheet.macroenabled.12': 25 * 1024 * 1024,
@@ -382,6 +388,17 @@ def _has_openxml_workbook_structure(file_data: bytes) -> bool:
             )
     except Exception:
         return False
+
+
+def _validate_utf8_source_payload(file_data: bytes, label: str) -> Tuple[bool, Optional[str]]:
+    """Ensure source-code attachments remain text, not binary files in disguise."""
+    if b'\x00' in file_data:
+        return False, f"{label} source file contains binary data"
+    try:
+        file_data.decode('utf-8', errors='strict')
+    except UnicodeDecodeError:
+        return False, f"{label} source file must be valid UTF-8 text"
+    return True, None
 
 
 def validate_file_upload(
@@ -419,10 +436,15 @@ def validate_file_upload(
         'audio/mp3':    'audio/mpeg',
         'audio/x-wav':  'audio/wav',
         'audio/x-ogg':  'audio/ogg',
+        'application/x-python': 'text/x-python',
+        'application/x-python-code': 'text/x-python',
+        'text/x-python-script': 'text/x-python',
         'application/vnd.ms-excel.sheet.macroenabled.12': 'application/vnd.ms-excel.sheet.macroenabled.12',
         'application/vnd.ms-excel.sheet.macroenabled.12; charset=binary': 'application/vnd.ms-excel.sheet.macroenabled.12',
     }
     claimed_content_type = (claimed_content_type or '').strip().lower()
+    if ';' in claimed_content_type:
+        claimed_content_type = claimed_content_type.split(';', 1)[0].strip()
     if claimed_content_type in _GENERIC_TYPES:
         inferred = _infer_content_type(filename)
         if inferred and inferred in ALLOWED_TYPES:
@@ -435,7 +457,10 @@ def validate_file_upload(
         return False, f"File type '{claimed_content_type}' is not allowed", None
     
     # 2. Check file size
-    max_size = max_size_override or MAX_SIZES.get(claimed_content_type, 10 * 1024 * 1024)
+    default_max_size = MAX_SIZES.get(claimed_content_type, 10 * 1024 * 1024)
+    max_size = max_size_override or default_max_size
+    if claimed_content_type == 'text/x-python':
+        max_size = min(max_size, default_max_size)
     if len(file_data) > max_size:
         return False, f"File size {len(file_data)} bytes exceeds maximum {max_size} bytes", None
     
@@ -512,6 +537,12 @@ def validate_file_upload(
     ):
         if not _has_openxml_workbook_structure(file_data):
             return False, "Spreadsheet file is invalid or malformed", None
+
+    # 4d. Python source is allowed for agent collaboration, but only as text.
+    if claimed_content_type == 'text/x-python':
+        is_text, text_error = _validate_utf8_source_payload(file_data, 'Python')
+        if not is_text:
+            return False, text_error, None
     
     # 5. Validate filename extension matches content type
     extension_map = {
@@ -536,6 +567,7 @@ def validate_file_upload(
         'text/markdown': ['.md', '.markdown'],
         'text/x-tex': ['.tex', '.sty', '.cls', '.bib', '.bst'],
         'application/x-latex': ['.tex', '.latex', '.ltx'],
+        'text/x-python': ['.py', '.pyi', '.pyw'],
         'text/csv': ['.csv', '.tsv'],
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
         'application/vnd.ms-excel.sheet.macroenabled.12': ['.xlsm'],
