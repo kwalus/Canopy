@@ -3795,6 +3795,9 @@
         const sourceLayout = (metadata && metadata.source_layout && typeof metadata.source_layout === 'object') ? metadata.source_layout : null;
         const sourceLayoutAttr = sourceLayout ? ` data-canopy-source-layout="${dmEscapeAttr(JSON.stringify(sourceLayout))}"` : '';
         const editedHtml = message && message.edited_at ? `<span title="Edited ${dmEscapeAttr(message.edited_at)}">Edited</span>` : '';
+        const copyActionHtml = message.content
+            ? `<li><a class="dropdown-item" href="#" data-dm-action="copy-text" data-message-id="${dmEscapeAttr(message.id)}"><i class="bi bi-clipboard"></i> Copy text</a></li>`
+            : '';
         const replyHtml = replyPreview ? `
             <button type="button" class="dm-bubble-reply-preview" data-dm-action="jump-message" data-message-id="${dmEscapeAttr(replyPreview.id)}">
                 <strong>${escapeHtml(replyPreview.sender_name || 'Reply')}</strong>
@@ -3822,6 +3825,7 @@
                             <ul class="dropdown-menu dropdown-menu-end">
                                 <li><a class="dropdown-item" href="#" data-dm-action="reply" data-message-id="${dmEscapeAttr(message.id)}" data-sender-label="${dmEscapeAttr(identity.label)}" data-preview="${dmEscapeAttr(((message.content || '').toString().slice(0, 140)) || '(attachment)')}"><i class="bi bi-reply"></i> Reply</a></li>
                                 <li><a class="dropdown-item" href="#" data-dm-action="open-reactions" data-message-id="${dmEscapeAttr(message.id)}"><i class="bi bi-emoji-smile"></i> React</a></li>
+                                ${copyActionHtml}
                                 <li><a class="dropdown-item" href="#" data-bookmark-button="1" data-source-type="dm_message" data-source-id="${dmEscapeAttr(message.id)}" data-bookmarked="false" onclick="event.preventDefault();"><i class="bi bi-bookmark"></i> <span data-bookmark-label>Save</span></a></li>
                                 <li><a class="dropdown-item" href="#" onclick="editMessage('${dmEscapeAttr(message.id)}'); return false;"><i class="bi bi-pencil"></i> Edit</a></li>
                                 <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('${dmEscapeAttr(message.id)}'); return false;"><i class="bi bi-trash"></i> Delete</a></li>
@@ -3830,7 +3834,7 @@
                         <div class="dm-bubble">
                             <div class="message-content" data-message-content="1"${sourceLayoutAttr}>
                                 ${replyHtml}
-                                ${message.content ? `<div class="dm-bubble-copy dm-message-text" data-canopy-source-ref="content:lede">${escapeHtml(message.content)}</div>` : ''}
+                                ${message.content ? `<div class="dm-bubble-copy dm-message-text" data-message-copy-text="1" data-canopy-source-ref="content:lede">${escapeHtml(message.content)}</div>` : ''}
                                 ${renderOptimisticDmAttachments(attachments)}
                             </div>
                             ${renderDmReactionStrip(message.id, message.reaction_counts || {}, message.user_reaction || '')}
@@ -4023,6 +4027,56 @@
         el.classList.add('flash-focus');
     }
 
+    function getDmMessageCopyText(messageId) {
+        const msgEl = getDmMessageElement(messageId);
+        const contentEl = msgEl ? (msgEl.querySelector('[data-message-copy-text="1"]') || msgEl.querySelector('.dm-message-text')) : null;
+        if (!contentEl) return '';
+        return String(contentEl.innerText || contentEl.textContent || '').trim();
+    }
+
+    function copyTextToClipboard(text, label) {
+        const value = String(text || '').trim();
+        const copyLabel = label || 'message text';
+        if (!value) {
+            showAlert(`No ${copyLabel} available to copy`, 'warning');
+            return;
+        }
+        if (typeof window.canopyCopyTextToClipboard === 'function') {
+            window.canopyCopyTextToClipboard(value, copyLabel);
+            return;
+        }
+        const finish = () => showAlert(`Copied ${copyLabel} to clipboard`, 'success');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(value)
+                .then(finish)
+                .catch(() => {
+                    const ta = document.createElement('textarea');
+                    ta.value = value;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    finish();
+                });
+            return;
+        }
+        const ta = document.createElement('textarea');
+        ta.value = value;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        finish();
+    }
+
+    function copyDmMessageText(messageId) {
+        copyTextToClipboard(getDmMessageCopyText(messageId), 'message text');
+    }
+
     function handleDmThreadActionClick(event) {
         const actionEl = event.target && event.target.closest ? event.target.closest('[data-dm-action]') : null;
         if (!actionEl) return;
@@ -4037,6 +4091,9 @@
                 actionEl.getAttribute('data-sender-label'),
                 actionEl.getAttribute('data-preview')
             );
+        } else if (action === 'copy-text') {
+            event.preventDefault();
+            copyDmMessageText(actionEl.getAttribute('data-message-id'));
         } else if (action === 'jump-message') {
             event.preventDefault();
             jumpToMessage(actionEl.getAttribute('data-message-id'));

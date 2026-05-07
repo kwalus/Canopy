@@ -62,6 +62,14 @@
                                    data-message-id="{{ message.id }}">
                                 <i class="bi bi-emoji-smile"></i> React
                             </a></li>
+                            {% if message.content %}
+                            <li><a class="dropdown-item"
+                                   href="#"
+                                   data-dm-action="copy-text"
+                                   data-message-id="{{ message.id }}">
+                                <i class="bi bi-clipboard"></i> Copy text
+                            </a></li>
+                            {% endif %}
                             <li><a class="dropdown-item{% if message.is_bookmarked %} active{% endif %}"
                                    href="#"
                                    data-bookmark-button="1"
@@ -103,7 +111,7 @@
                                 </button>
                             {% endif %}
                             {% if message.content %}
-                                <div class="dm-bubble-copy dm-message-text" data-canopy-source-ref="content:lede">{{ message.content }}</div>
+                                <div class="dm-bubble-copy dm-message-text" data-message-copy-text="1" data-canopy-source-ref="content:lede">{{ message.content }}</div>
                             {% endif %}
                             {% if message.attachments %}
                                 <div class="dm-attachment-list">

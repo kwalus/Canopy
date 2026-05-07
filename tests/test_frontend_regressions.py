@@ -841,22 +841,31 @@ console.log(JSON.stringify({{
     def test_dm_page_reply_actions_use_delegated_thread_handler(self) -> None:
         template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
         thread_body = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_thread_body.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
 
         self.assertIn('data-dm-action="reply"', thread_body)
         self.assertIn('data-sender-label="{{ message.sender_label|e }}"', thread_body)
         self.assertIn("data-preview=\"{{ (message.content[:140] if message.content else '(attachment)')|e }}\"", thread_body)
+        self.assertIn('data-dm-action="copy-text"', thread_body)
+        self.assertIn('data-message-copy-text="1"', thread_body)
         self.assertNotIn('data-preview="{{ (message.reply_preview.preview if message.reply_preview else message.content[:140])|e }}"', thread_body)
         self.assertIn('data-dm-action="jump-message"', thread_body)
         self.assertNotIn('onclick="replyToMessage', thread_body)
         self.assertNotIn('onclick="jumpToMessage', thread_body)
 
         self.assertIn('function handleDmThreadActionClick(event)', template)
+        self.assertIn('function copyDmMessageText(messageId)', template)
         self.assertIn("event.target.closest('[data-dm-action]')", template)
         self.assertIn("dmThreadBody.addEventListener('click', handleDmThreadActionClick);", template)
         self.assertIn("if (action === 'reply')", template)
+        self.assertIn("} else if (action === 'copy-text')", template)
         self.assertIn("} else if (action === 'jump-message')", template)
         self.assertIn('data-dm-action="reply" data-message-id="${dmEscapeAttr(message.id)}"', template)
+        self.assertIn('data-dm-action="copy-text" data-message-id="${dmEscapeAttr(message.id)}"', template)
         self.assertIn('data-dm-action="jump-message" data-message-id="${dmEscapeAttr(replyPreview.id)}"', template)
+        self.assertIn('window.canopyCopyTextToClipboard = _copyTextToClipboard;', main_js)
+        self.assertIn('function copyDeckInboxMessageText(messageId)', main_js)
+        self.assertIn("} else if (action === 'copy-text')", main_js)
 
     def test_miniplayer_no_longer_eagerly_docks_youtube_on_update(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')

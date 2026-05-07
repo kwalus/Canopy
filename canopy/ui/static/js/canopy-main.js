@@ -4820,6 +4820,8 @@
             showAlert(`Copied ${label || 'value'} to clipboard`, 'success');
         }
 
+        window.canopyCopyTextToClipboard = _copyTextToClipboard;
+
         function _ensureUserIdentityModal() {
             if (_userIdentityModal) return _userIdentityModal;
             let modalEl = document.getElementById('userIdentityModal');
@@ -10997,6 +10999,21 @@
                     .catch((err) => showAlert((err && (err.error || err.message)) || 'Delete failed', 'danger'));
             }
 
+            function getDeckInboxMessageCopyText(messageId) {
+                if (!deckInboxThreadBody) return '';
+                const escapedId = window.CSS && typeof window.CSS.escape === 'function'
+                    ? window.CSS.escape(String(messageId || ''))
+                    : String(messageId || '').replace(/["\\]/g, '\\$&');
+                const row = deckInboxThreadBody.querySelector(`#message-${escapedId}`);
+                const contentEl = row ? (row.querySelector('[data-message-copy-text="1"]') || row.querySelector('.dm-message-text')) : null;
+                if (!contentEl) return '';
+                return String(contentEl.innerText || contentEl.textContent || '').trim();
+            }
+
+            function copyDeckInboxMessageText(messageId) {
+                _copyTextToClipboard(getDeckInboxMessageCopyText(messageId), 'message text');
+            }
+
             function normalizeDeckDmReactionKey(value) {
                 const raw = String(value || '').trim().toLowerCase();
                 if (!raw) return 'like';
@@ -11288,6 +11305,8 @@
                         actionEl.getAttribute('data-sender-label'),
                         actionEl.getAttribute('data-preview')
                     );
+                } else if (action === 'copy-text') {
+                    copyDeckInboxMessageText(actionEl.getAttribute('data-message-id'));
                 } else if (action === 'open-reactions') {
                     openDeckDmReactionPicker(actionEl.getAttribute('data-message-id'));
                 } else if (action === 'jump-message') {

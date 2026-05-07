@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.75] - 2026-05-06
+
+### Added
+- **DM messages now have an explicit Copy text action** - text-bearing direct and group DM bubbles, including Deck Inbox and optimistic outbound rows, expose a menu action that copies the rendered message body while leaving attachment-only messages without a copy affordance.
+
 ## [0.6.74] - 2026-05-06
 
 ### Added
