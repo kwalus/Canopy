@@ -757,6 +757,32 @@ def _serialize_channel_message_for_response(
     return payload
 
 
+def _serialize_dm_message_for_response(
+    message: Any,
+    *,
+    viewer_id: str,
+    interaction_manager: Any = None,
+) -> dict[str, Any]:
+    payload = dict(message.to_dict())
+    if interaction_manager:
+        try:
+            interactions = interaction_manager.get_message_interactions(message.id)
+        except Exception:
+            interactions = {}
+        try:
+            user_reaction = interaction_manager.get_user_has_liked(message.id, viewer_id)
+        except Exception:
+            user_reaction = None
+        payload['reaction_counts'] = (interactions or {}).get('like_counts', {})
+        payload['reaction_total'] = (interactions or {}).get('total_likes', 0)
+        payload['user_reaction'] = user_reaction
+    else:
+        payload['reaction_counts'] = {}
+        payload['reaction_total'] = 0
+        payload['user_reaction'] = None
+    return payload
+
+
 def create_api_blueprint() -> Blueprint:
     """Create and configure the API blueprint."""
     api = Blueprint('api', __name__)
@@ -5469,7 +5495,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.READ_MESSAGES)
     def get_messages():
         """Get messages for the authenticated user."""
-        _, _, _, message_manager, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+        _, _, _, message_manager, _, _, _, interaction_manager, _, _, _ = _get_app_components_any(current_app)
         if not message_manager:
             return jsonify({'error': 'Messaging not available'}), 503
         try:
@@ -5483,7 +5509,14 @@ def create_api_blueprint() -> Blueprint:
             messages = message_manager.get_messages(g.api_key_info.user_id, limit, since)
             
             return jsonify({
-                'messages': [message.to_dict() for message in messages],
+                'messages': [
+                    _serialize_dm_message_for_response(
+                        message,
+                        viewer_id=g.api_key_info.user_id,
+                        interaction_manager=interaction_manager,
+                    )
+                    for message in messages
+                ],
                 'count': len(messages)
             })
             
@@ -5495,7 +5528,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.READ_MESSAGES)
     def get_conversation(other_user_id):
         """Get conversation with another user."""
-        db_manager, _, _, message_manager, _, _, _, _, _, _, _ = get_app_components(current_app)
+        db_manager, _, _, message_manager, _, _, _, interaction_manager, _, _, _ = get_app_components(current_app)
         if not message_manager:
             return jsonify({'error': 'Messaging not available'}), 503
         try:
@@ -5510,7 +5543,14 @@ def create_api_blueprint() -> Blueprint:
             )
             
             return jsonify({
-                'messages': [message.to_dict() for message in messages],
+                'messages': [
+                    _serialize_dm_message_for_response(
+                        message,
+                        viewer_id=g.api_key_info.user_id,
+                        interaction_manager=interaction_manager,
+                    )
+                    for message in messages
+                ],
                 'other_user_id': other_user_id,
                 'count': len(messages)
             })
@@ -5523,7 +5563,7 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.READ_MESSAGES)
     def get_group_conversation(group_id):
         """Get messages for a group DM thread identified by group_id."""
-        _, _, _, message_manager, _, _, _, _, _, _, _ = get_app_components(current_app)
+        _, _, _, message_manager, _, _, _, interaction_manager, _, _, _ = get_app_components(current_app)
         if not message_manager:
             return jsonify({'error': 'Messaging not available'}), 503
         try:
@@ -5536,7 +5576,14 @@ def create_api_blueprint() -> Blueprint:
             )
 
             return jsonify({
-                'messages': [m.to_dict() for m in messages],
+                'messages': [
+                    _serialize_dm_message_for_response(
+                        m,
+                        viewer_id=g.api_key_info.user_id,
+                        interaction_manager=interaction_manager,
+                    )
+                    for m in messages
+                ],
                 'group_id': group_id,
                 'count': len(messages),
             })
@@ -8707,7 +8754,8 @@ def create_api_blueprint() -> Blueprint:
         """Toggle a like/reaction on a feed post.
 
         Request body (JSON, all fields optional):
-          reaction_type: "like" | "love" | "laugh" | "dislike" | "angry"  (default: "like")
+          reaction_type: standard key such as "like" / "love" / "laugh" / "rocket",
+                         or a custom emoji key such as "custom:team-logo" (default: "like")
 
         Returns:
           liked (bool): true if the post is now liked, false if the reaction was removed.
@@ -8717,14 +8765,11 @@ def create_api_blueprint() -> Blueprint:
             _, _, _, _, _, _, feed_manager, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = g.api_key_info.user_id
             data = request.get_json(silent=True) or {}
-            from ..core.interactions import InteractionType
-            raw = (data.get('reaction_type') or 'like').strip().lower()
-            try:
-                reaction_enum = InteractionType(raw)
-            except ValueError:
-                reaction_enum = InteractionType.LIKE
-            liked = interaction_manager.toggle_post_like(post_id, user_id, reaction_enum)
+            from ..core.interactions import normalize_reaction_key
+            reaction_key = normalize_reaction_key(data.get('reaction_type') or 'like')
+            liked = interaction_manager.toggle_post_like(post_id, user_id, reaction_key)
             interactions = interaction_manager.get_post_interactions(post_id)
+            user_reaction = interaction_manager.get_user_has_liked(post_id, user_id)
             if p2p_manager and p2p_manager.is_running():
                 try:
                     display = None
@@ -8736,12 +8781,14 @@ def create_api_blueprint() -> Blueprint:
                         item_id=post_id, user_id=user_id,
                         action='like' if liked else 'unlike',
                         item_type='post', display_name=display,
+                        extra={'reaction_type': reaction_key},
                     )
                 except Exception as _p2p_err:
                     logger.warning(f"P2P broadcast for post like failed: {_p2p_err}")
             return jsonify({
                 'liked': liked,
-                'reaction_type': reaction_enum.value,
+                'reaction_type': reaction_key,
+                'user_reaction': user_reaction,
                 'like_counts': (interactions or {}).get('like_counts', {}),
             })
         except Exception as e:
@@ -8754,7 +8801,8 @@ def create_api_blueprint() -> Blueprint:
         """Toggle a like/reaction on a channel message.
 
         Request body (JSON, all fields optional):
-          reaction_type: "like" | "love" | "laugh" | "dislike" | "angry"  (default: "like")
+          reaction_type: standard key such as "like" / "love" / "laugh" / "rocket",
+                         or a custom emoji key such as "custom:team-logo" (default: "like")
 
         Returns:
           liked (bool): true if the message is now liked, false if removed.
@@ -8764,14 +8812,11 @@ def create_api_blueprint() -> Blueprint:
             _, _, _, _, _, _, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = g.api_key_info.user_id
             data = request.get_json(silent=True) or {}
-            from ..core.interactions import InteractionType
-            raw = (data.get('reaction_type') or 'like').strip().lower()
-            try:
-                reaction_enum = InteractionType(raw)
-            except ValueError:
-                reaction_enum = InteractionType.LIKE
-            liked = interaction_manager.toggle_like(message_id, user_id, reaction_enum)
+            from ..core.interactions import normalize_reaction_key
+            reaction_key = normalize_reaction_key(data.get('reaction_type') or 'like')
+            liked = interaction_manager.toggle_like(message_id, user_id, reaction_key)
             interactions = interaction_manager.get_message_interactions(message_id)
+            user_reaction = interaction_manager.get_user_has_liked(message_id, user_id)
             if p2p_manager and p2p_manager.is_running():
                 try:
                     display = None
@@ -8783,16 +8828,94 @@ def create_api_blueprint() -> Blueprint:
                         item_id=message_id, user_id=user_id,
                         action='like' if liked else 'unlike',
                         item_type='message', display_name=display,
+                        extra={'reaction_type': reaction_key},
                     )
                 except Exception as _p2p_err:
                     logger.warning(f"P2P broadcast for message like failed: {_p2p_err}")
             return jsonify({
                 'liked': liked,
-                'reaction_type': reaction_enum.value,
+                'reaction_type': reaction_key,
+                'user_reaction': user_reaction,
                 'like_counts': (interactions or {}).get('like_counts', {}),
             })
         except Exception as e:
             logger.error(f"toggle_channel_message_like failed: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/messages/<message_id>/like', methods=['POST'])
+    @require_auth(Permission.WRITE_MESSAGES)
+    def toggle_direct_message_like(message_id):
+        """Toggle an emoji reaction on a direct or group DM message."""
+        try:
+            db_manager, _, _, message_manager, _, _, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            user_id = g.api_key_info.user_id
+            message = message_manager.get_message(str(message_id)) if message_manager else None
+            if not message:
+                return jsonify({'error': 'Message not found'}), 404
+            metadata = message.metadata if isinstance(message.metadata, dict) else {}
+            group_members = metadata.get('group_members') if isinstance(metadata, dict) else None
+            can_view = (
+                message.sender_id == user_id
+                or message.recipient_id == user_id
+                or (isinstance(group_members, list) and user_id in {str(member) for member in group_members})
+            )
+            if not can_view:
+                return jsonify({'error': 'Access denied'}), 403
+
+            data = request.get_json(silent=True) or {}
+            from ..core.interactions import normalize_reaction_key
+            reaction_key = normalize_reaction_key(data.get('reaction_type') or 'like')
+            liked = interaction_manager.toggle_like(message_id, user_id, reaction_key)
+            interactions = interaction_manager.get_message_interactions(message_id)
+            user_reaction = interaction_manager.get_user_has_liked(message_id, user_id)
+
+            try:
+                workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+                if workspace_event_manager:
+                    workspace_event_manager.emit_event(
+                        event_type=EVENT_DM_MESSAGE_EDITED,
+                        actor_user_id=user_id,
+                        message_id=str(message_id),
+                        visibility_scope='dm',
+                        dedupe_key=(
+                            f"{EVENT_DM_MESSAGE_EDITED}:reaction:{message_id}:"
+                            f"{user_id}:{reaction_key}:{int(time.time() * 1000)}"
+                        ),
+                        payload={
+                            'update_reason': 'reaction',
+                            'reaction_type': reaction_key,
+                            'liked': bool(liked),
+                        },
+                    )
+            except Exception:
+                pass
+
+            if p2p_manager and p2p_manager.is_running():
+                try:
+                    display = None
+                    if profile_manager:
+                        prof = profile_manager.get_profile(user_id)
+                        if prof:
+                            display = prof.display_name or prof.username
+                    p2p_manager.broadcast_interaction(
+                        item_id=message_id,
+                        user_id=user_id,
+                        action='like' if liked else 'unlike',
+                        item_type='dm_message',
+                        display_name=display,
+                        extra={'reaction_type': reaction_key},
+                    )
+                except Exception as _p2p_err:
+                    logger.warning(f"P2P broadcast for DM reaction failed: {_p2p_err}")
+
+            return jsonify({
+                'liked': liked,
+                'reaction_type': reaction_key,
+                'user_reaction': user_reaction,
+                'like_counts': (interactions or {}).get('like_counts', {}),
+            })
+        except Exception as e:
+            logger.error(f"toggle_direct_message_like failed: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/polls/<poll_id>', methods=['GET'])

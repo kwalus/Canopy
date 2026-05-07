@@ -86,6 +86,89 @@
         color: var(--canopy-text-primary) !important;
     }
 
+    .reaction-control {
+        display: inline-flex;
+        align-items: stretch;
+        gap: 0.18rem;
+    }
+
+    .reaction-control .like-btn {
+        min-width: 2.42rem;
+    }
+
+    .reaction-visual,
+    .reaction-choice-visual {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+    }
+
+    .reaction-custom-emoji-img {
+        width: 1.12rem;
+        height: 1.12rem;
+        object-fit: contain;
+        border-radius: 5px;
+        display: inline-block;
+    }
+
+    .reaction-picker-toggle {
+        min-width: 1.46rem !important;
+        padding-left: 0.28rem !important;
+        padding-right: 0.28rem !important;
+        border-radius: 999px !important;
+    }
+
+    .reaction-palette {
+        min-width: 15.5rem;
+        max-width: min(21rem, calc(100vw - 2rem));
+        padding: 0.45rem;
+        border-radius: 18px;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 74%, var(--canopy-primary) 26%);
+        background: color-mix(in srgb, var(--canopy-bg-card) 94%, #020617 6%);
+        box-shadow: 0 18px 38px rgba(2, 8, 23, 0.36);
+        backdrop-filter: blur(18px);
+    }
+
+    .reaction-choice {
+        width: calc(33.333% - 0.25rem);
+        min-height: 3.25rem;
+        margin: 0.12rem;
+        border-radius: 14px;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 78%, var(--canopy-primary) 22%);
+        background: color-mix(in srgb, var(--canopy-bg-card) 88%, var(--canopy-primary) 12%);
+        color: var(--canopy-text-primary);
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.08rem;
+    }
+
+    .reaction-choice:hover,
+    .reaction-choice:focus-visible,
+    .reaction-choice.is-selected {
+        border-color: color-mix(in srgb, var(--canopy-primary) 54%, var(--canopy-border) 46%);
+        background: linear-gradient(135deg,
+            color-mix(in srgb, var(--canopy-primary) 22%, transparent),
+            color-mix(in srgb, var(--canopy-accent) 14%, transparent)
+        );
+        outline: none;
+    }
+
+    .reaction-choice small {
+        color: var(--canopy-text-secondary);
+        font-size: 0.64rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+
+    .reaction-control.is-busy {
+        opacity: 0.72;
+        pointer-events: none;
+    }
+
     .post-repost-shell,
     .post-variant-shell {
         display: grid;
@@ -6388,6 +6471,7 @@ let currentChannelName = {% if channels %}{{ channels[0].name|tojson }}{% else %
 const currentUserId = {{ user_id|tojson }};
 const isAdmin = {{ (is_admin if is_admin is defined else False)|tojson }};
 const localPeerId = {{ (local_peer_id if local_peer_id else '')|tojson }};
+const CHANNEL_REACTION_OPTIONS = {{ (reaction_options if reaction_options is defined else [])|tojson }};
 let currentChannelRole = null;
 let currentChannelMemberCount = 0;
 let currentChannelMemberIds = new Set();
@@ -8125,6 +8209,7 @@ function displayMessages(messages, options = {}) {
                 window.applyInlineTaskAvatars(messagesContainer);
             }
             updateChannelExpiryBadges();
+            hydrateChannelReactionControls();
             clearNewMessagesBanner();
 
             // Hydrate X/Twitter embeds after injecting message HTML
@@ -8358,6 +8443,122 @@ function renderChannelVariantCard(message) {
         </div>`;
 }
 
+function normalizeChannelReactionKey(value) {
+    const raw = String(value || 'like').trim().toLowerCase();
+    if (raw.startsWith(':') && raw.endsWith(':') && raw.length > 2) {
+        return `custom:${raw.slice(1, -1).replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'emoji'}`;
+    }
+    if (raw.startsWith('custom:')) {
+        const slug = raw.slice(7).replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+        return slug ? `custom:${slug}` : 'like';
+    }
+    return raw || 'like';
+}
+
+function normalizeOptionalChannelReactionKey(value) {
+    const raw = String(value || '').trim();
+    return raw ? normalizeChannelReactionKey(raw) : '';
+}
+
+function normalizeChannelReactionCounts(value) {
+    if (!value || typeof value !== 'object') return {};
+    const counts = {};
+    Object.entries(value).forEach(([type, count]) => {
+        const key = normalizeChannelReactionKey(type);
+        const parsed = Math.max(0, parseInt(count, 10) || 0);
+        if (key && parsed > 0) counts[key] = parsed;
+    });
+    return counts;
+}
+
+function getChannelReactionOption(type) {
+    const key = normalizeChannelReactionKey(type);
+    const found = (CHANNEL_REACTION_OPTIONS || []).find((option) => option && option.type === key);
+    if (found) return found;
+    if (key.startsWith('custom:')) {
+        const name = key.slice(7);
+        return {
+            type: key,
+            emoji: `:${name}:`,
+            label: name.replace(/[-_]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()),
+        };
+    }
+    return { type: key || 'like', emoji: '👍', label: 'Like' };
+}
+
+function renderChannelReactionVisual(reaction) {
+    if (reaction && reaction.image_url) {
+        return `<img class="reaction-custom-emoji-img" src="${reactionEscapeAttr(reaction.image_url)}" alt="" loading="lazy">`;
+    }
+    return escapeHtml((reaction && reaction.emoji) || '👍');
+}
+
+function reactionEscapeAttr(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function renderChannelReactionControl(message) {
+    const messageId = String(message.id || '');
+    const userReaction = normalizeOptionalChannelReactionKey(message.user_reaction || '');
+    const liked = Boolean(userReaction || message.user_has_liked);
+    const counts = normalizeChannelReactionCounts(message.reaction_counts || {});
+    const count = Math.max(0, parseInt(message.reaction_total ?? message.like_count ?? 0, 10) || 0);
+    const activeReaction = userReaction ? getChannelReactionOption(userReaction) : null;
+    const choices = (CHANNEL_REACTION_OPTIONS || []).map((reaction) => {
+        const selected = userReaction === reaction.type;
+        return `
+            <button type="button"
+                    class="reaction-choice${selected ? ' is-selected' : ''}"
+                    onclick="toggleLike('${reactionEscapeAttr(messageId)}', ${JSON.stringify(reaction.type)})"
+                    data-reaction-type="${reactionEscapeAttr(reaction.type)}"
+                    role="menuitemcheckbox"
+                    aria-label="${reactionEscapeAttr(reaction.label)}"
+                    aria-pressed="${selected ? 'true' : 'false'}">
+                <span class="reaction-choice-visual">${renderChannelReactionVisual(reaction)}</span>
+                <small>${escapeHtml(reaction.label)}</small>
+            </button>
+        `;
+    }).join('');
+    return `
+        <div class="reaction-control dropdown"
+             data-reaction-surface="channel_message"
+             data-item-id="${reactionEscapeAttr(messageId)}"
+             data-reaction-counts="${reactionEscapeAttr(JSON.stringify(counts))}"
+             data-user-reaction="${reactionEscapeAttr(userReaction)}">
+            <button class="btn btn-sm btn-outline-secondary icon-action-btn like-btn${liked ? ' is-liked' : ''}"
+                    onclick="toggleLike('${reactionEscapeAttr(messageId)}')"
+                    data-item-id="${reactionEscapeAttr(messageId)}"
+                    data-liked="${liked ? 'true' : 'false'}"
+                    data-user-reaction="${reactionEscapeAttr(userReaction)}"
+                    title="${liked ? 'Remove reaction' : 'React to message'}"
+                    aria-label="${liked ? 'Remove reaction' : 'React to message'}">
+                <span class="reaction-visual" data-reaction-icon>${activeReaction ? renderChannelReactionVisual(activeReaction) : '<i class="bi bi-heart"></i>'}</span>
+                <span class="action-label like-text">${activeReaction ? escapeHtml(activeReaction.label) : (liked ? 'Reacted' : 'React')}</span>
+                <span class="action-count like-count">${count}</span>
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary icon-action-btn reaction-picker-toggle"
+                    data-bs-toggle="dropdown"
+                    data-bs-auto-close="outside"
+                    title="Choose reaction"
+                    aria-label="Choose reaction"
+                    aria-haspopup="menu"
+                    aria-expanded="false">
+                <i class="bi bi-chevron-down"></i>
+            </button>
+            <div class="dropdown-menu dropdown-menu-end reaction-palette"
+                 role="menu"
+                 aria-label="Choose reaction">
+                ${choices}
+            </div>
+        </div>
+    `;
+}
+
 function renderMessage(message, userInfo, isReply) {
     const user = userInfo[message.user_id] || { display_name: message.user_id, avatar_url: null };
     const replyState = (isReply && typeof isReply === 'object')
@@ -8515,16 +8716,7 @@ function renderMessage(message, userInfo, isReply) {
                                 aria-label="Reply in thread">
                             <i class="bi bi-reply"></i><span class="action-label">Reply</span>
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary icon-action-btn like-btn${message.user_has_liked ? ' is-liked' : ''}"
-                                onclick="toggleLike('${message.id}')"
-                                data-item-id="${message.id}"
-                                data-liked="${message.user_has_liked ? 'true' : 'false'}"
-                                title="${message.user_has_liked ? 'Unlike message' : 'Like message'}"
-                                aria-label="${message.user_has_liked ? 'Unlike message' : 'Like message'}">
-                            <i class="bi bi-heart${message.user_has_liked ? '-fill' : ''}"></i>
-                            <span class="action-label like-text">${message.user_has_liked ? 'Liked' : 'Like'}</span>
-                            <span class="action-count like-count">${message.like_count || 0}</span>
-                        </button>
+                        ${renderChannelReactionControl(message)}
                         <button type="button" class="btn btn-sm btn-outline-info icon-action-btn repost-trigger-btn"
                                 id="channel-repost-trigger-${message.id}"
                                 onclick="toggleChannelRepostComposer('${message.id}')"
@@ -10731,6 +10923,7 @@ function appendNewMessages(allMessages) {
         if (typeof hydrateXEmbeds === 'function') {
             hydrateXEmbeds(messagesContainer);
         }
+        hydrateChannelReactionControls();
         scheduleChannelSourceLayouts(messagesContainer);
 
         // Scroll to bottom if user was near bottom
@@ -10992,6 +11185,7 @@ function loadOlderMessages() {
                     window.applyInlineTaskAvatars(messagesContainer);
                 }
                 updateChannelExpiryBadges();
+                hydrateChannelReactionControls();
                 if (typeof hydrateXEmbeds === 'function') {
                     hydrateXEmbeds(messagesContainer);
                 }
@@ -16673,7 +16867,67 @@ function fetchUserDisplayInfo(userIds) {
 }
 
 // Like and Comment functions (same as feed template)
-function toggleLike(messageId) {
+function getChannelReactionControl(itemId) {
+    return document.querySelector(`.reaction-control[data-item-id="${CSS.escape(String(itemId))}"]`);
+}
+
+function buildOptimisticChannelReactionCounts(counts, previousReaction, selectedReaction) {
+    const next = normalizeChannelReactionCounts(counts);
+    const previous = normalizeOptionalChannelReactionKey(previousReaction);
+    const selected = normalizeChannelReactionKey(selectedReaction || 'like');
+    if (previous && previous === selected) {
+        next[selected] = Math.max(0, (next[selected] || 0) - 1);
+        if (next[selected] <= 0) delete next[selected];
+        return { counts: next, userReaction: '' };
+    }
+    if (previous) {
+        next[previous] = Math.max(0, (next[previous] || 0) - 1);
+        if (next[previous] <= 0) delete next[previous];
+    }
+    next[selected] = Math.max(0, next[selected] || 0) + 1;
+    return { counts: next, userReaction: selected };
+}
+
+function setChannelReactionControlBusy(itemId, busy) {
+    const control = getChannelReactionControl(itemId);
+    if (!control) return;
+    control.classList.toggle('is-busy', Boolean(busy));
+    control.setAttribute('aria-busy', busy ? 'true' : 'false');
+    control.querySelectorAll('button').forEach((button) => {
+        button.disabled = Boolean(busy);
+    });
+}
+
+function closeChannelReactionPicker(itemId) {
+    const control = getChannelReactionControl(itemId);
+    const toggle = control ? control.querySelector('.reaction-picker-toggle') : null;
+    if (!toggle || !window.bootstrap || !window.bootstrap.Dropdown) return;
+    const instance = window.bootstrap.Dropdown.getInstance(toggle);
+    if (instance) instance.hide();
+}
+
+function hydrateChannelReactionControls() {
+    document.querySelectorAll('.reaction-control').forEach((control) => {
+        const button = control.querySelector('.like-btn');
+        if (!button) return;
+        const itemId = control.dataset.itemId || button.dataset.itemId;
+        if (!itemId) return;
+        let counts = {};
+        try {
+            counts = normalizeChannelReactionCounts(JSON.parse(control.dataset.reactionCounts || '{}'));
+        } catch (_) {
+            counts = {};
+        }
+        updateLikeButton(
+            itemId,
+            Boolean(control.dataset.userReaction || button.dataset.liked === 'true'),
+            { total_likes: Object.values(counts).reduce((sum, count) => sum + count, 0), like_counts: counts },
+            control.dataset.userReaction || button.dataset.userReaction || ''
+        );
+    });
+}
+
+function toggleLike(messageId, reactionType) {
     const normalizedId = String(messageId || '').trim();
     if (!normalizedId) return;
     if (channelLikeInFlight.has(normalizedId)) return;
@@ -16681,66 +16935,96 @@ function toggleLike(messageId) {
     const button = document.querySelector(`.like-btn[data-item-id="${CSS.escape(normalizedId)}"]`);
     if (!button) return;
     const currentLiked = button.dataset.liked === 'true';
+    const currentReaction = normalizeOptionalChannelReactionKey(button.dataset.userReaction || '');
+    const selectedReaction = normalizeChannelReactionKey(reactionType || currentReaction || 'like');
+    const control = getChannelReactionControl(normalizedId);
     const countEl = button.querySelector('.like-count');
     const currentCount = Math.max(0, parseInt(countEl?.textContent || '0', 10) || 0);
-    const optimisticLiked = !currentLiked;
-    const optimisticCount = Math.max(0, currentCount + (optimisticLiked ? 1 : -1));
+    let currentCounts = {};
+    try {
+        currentCounts = normalizeChannelReactionCounts(JSON.parse(control?.dataset.reactionCounts || '{}'));
+    } catch (_) {
+        currentCounts = {};
+    }
+    if (!Object.keys(currentCounts).length && currentReaction && currentCount > 0) {
+        currentCounts[currentReaction] = currentCount;
+    }
+    const optimistic = buildOptimisticChannelReactionCounts(currentCounts, currentReaction, selectedReaction);
+    const optimisticLiked = Boolean(optimistic.userReaction);
+    const optimisticCount = Object.values(optimistic.counts).reduce((sum, count) => sum + count, 0);
 
-    updateLikeButton(normalizedId, optimisticLiked, { total_likes: optimisticCount });
-    button.disabled = true;
-    button.classList.add('opacity-75');
+    updateLikeButton(normalizedId, optimisticLiked, { total_likes: optimisticCount, like_counts: optimistic.counts }, optimistic.userReaction);
+    setChannelReactionControlBusy(normalizedId, true);
     channelLikeInFlight.add(normalizedId);
 
     apiCall('/ajax/toggle_like', {
         method: 'POST',
         body: JSON.stringify({
             message_id: normalizedId,
-            reaction_type: 'like'
+            reaction_type: selectedReaction
         })
     })
     .then(data => {
         if (data.success) {
-            updateLikeButton(normalizedId, data.liked, data.interactions || { total_likes: optimisticCount });
+            updateLikeButton(
+                normalizedId,
+                data.liked,
+                data.interactions || { total_likes: optimisticCount, like_counts: optimistic.counts },
+                data.user_reaction || ''
+            );
+            closeChannelReactionPicker(normalizedId);
         } else {
             throw new Error(data?.error || 'Like update failed');
         }
     })
     .catch(error => {
         console.error('Error toggling like:', error);
-        updateLikeButton(normalizedId, currentLiked, { total_likes: currentCount });
-        showAlert('Failed to update like', 'danger');
+        updateLikeButton(normalizedId, currentLiked, { total_likes: currentCount, like_counts: currentCounts }, currentReaction);
+        showAlert('Failed to update reaction', 'danger');
     })
     .finally(() => {
         channelLikeInFlight.delete(normalizedId);
-        button.disabled = false;
-        button.classList.remove('opacity-75');
+        setChannelReactionControlBusy(normalizedId, false);
     });
 }
 
-function updateLikeButton(messageId, liked, interactions) {
+function updateLikeButton(messageId, liked, interactions, userReaction) {
     const button = document.querySelector(`.like-btn[data-item-id="${CSS.escape(String(messageId))}"]`);
     if (!button) return;
     
     const likeText = button.querySelector('.like-text');
     const likeCount = button.querySelector('.like-count');
-    const icon = button.querySelector('i');
-    
+    const iconWrap = button.querySelector('[data-reaction-icon]');
+    const control = getChannelReactionControl(messageId);
+    const counts = normalizeChannelReactionCounts(interactions?.like_counts || {});
+    const reactionKey = normalizeOptionalChannelReactionKey(userReaction || (liked ? button.dataset.userReaction || 'like' : ''));
+    const reaction = reactionKey ? getChannelReactionOption(reactionKey) : null;
+
     button.dataset.liked = liked ? 'true' : 'false';
+    button.dataset.userReaction = liked ? reactionKey : '';
     button.classList.toggle('is-liked', !!liked);
-    
+
+    if (control) {
+        control.dataset.userReaction = liked ? reactionKey : '';
+        control.dataset.reactionCounts = JSON.stringify(counts);
+        control.querySelectorAll('.reaction-choice').forEach((choice) => {
+            const selected = liked && choice.dataset.reactionType === reactionKey;
+            choice.classList.toggle('is-selected', selected);
+            choice.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
+    }
+
     if (liked) {
-        if (likeText) likeText.textContent = 'Liked';
-        button.setAttribute('title', 'Unlike message');
-        button.setAttribute('aria-label', 'Unlike message');
-        icon.classList.remove('bi-heart');
-        icon.classList.add('bi-heart-fill');
+        if (likeText) likeText.textContent = reaction ? reaction.label : 'Reacted';
+        button.setAttribute('title', `Remove ${reaction ? reaction.label : 'reaction'} reaction`);
+        button.setAttribute('aria-label', `Remove ${reaction ? reaction.label : 'reaction'} reaction`);
+        if (iconWrap) iconWrap.innerHTML = renderChannelReactionVisual(reaction);
     } else {
-        if (likeText) likeText.textContent = 'Like';
-        button.setAttribute('title', 'Like message');
-            button.setAttribute('aria-label', 'Like message');
-            icon.classList.remove('bi-heart-fill');
-            icon.classList.add('bi-heart');
-        }
+        if (likeText) likeText.textContent = 'React';
+        button.setAttribute('title', 'React to message');
+        button.setAttribute('aria-label', 'React to message');
+        if (iconWrap) iconWrap.innerHTML = '<i class="bi bi-heart"></i>';
+    }
 
     const totalLikes = Math.max(0, parseInt(interactions?.total_likes ?? likeCount?.textContent ?? '0', 10) || 0);
     if (likeCount) likeCount.textContent = String(totalLikes);

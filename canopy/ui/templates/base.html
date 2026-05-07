@@ -3340,6 +3340,134 @@
             margin-bottom: 7px;
         }
 
+        .deck-inbox-surface .dm-reaction-strip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 7px;
+            min-height: 28px;
+        }
+
+        .deck-inbox-surface .dm-message-row.outbound .dm-reaction-strip {
+            justify-content: flex-end;
+        }
+
+        .deck-inbox-surface .dm-reaction-strip.is-busy {
+            opacity: 0.72;
+            pointer-events: none;
+        }
+
+        .deck-inbox-surface .dm-reaction-pills {
+            display: inline-flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .deck-inbox-surface .dm-reaction-pills:empty {
+            display: none;
+        }
+
+        .deck-inbox-surface .dm-reaction-pill,
+        .deck-inbox-surface .dm-reaction-add,
+        .deck-inbox-surface .dm-reaction-choice {
+            border: 1px solid var(--deck-inbox-panel-border);
+            color: var(--canopy-text-primary);
+            background: var(--deck-inbox-panel-bg-soft);
+        }
+
+        .deck-inbox-surface .dm-reaction-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            min-height: 24px;
+            padding: 2px 7px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+        }
+
+        .deck-inbox-surface .dm-reaction-pill:hover,
+        .deck-inbox-surface .dm-reaction-pill:focus-visible,
+        .deck-inbox-surface .dm-reaction-add:hover,
+        .deck-inbox-surface .dm-reaction-add:focus-visible,
+        .deck-inbox-surface .dm-reaction-choice:hover,
+        .deck-inbox-surface .dm-reaction-choice:focus-visible,
+        .deck-inbox-surface .dm-reaction-pill.is-selected,
+        .deck-inbox-surface .dm-reaction-choice.is-selected {
+            border-color: color-mix(in srgb, var(--canopy-primary) 52%, var(--deck-inbox-panel-border));
+            background: color-mix(in srgb, var(--canopy-primary) 18%, var(--deck-inbox-panel-bg-soft));
+            outline: none;
+        }
+
+        .deck-inbox-surface .dm-reaction-count {
+            color: var(--canopy-text-secondary);
+            font-size: 0.72rem;
+            font-weight: 700;
+        }
+
+        .deck-inbox-surface .dm-reaction-add {
+            width: 26px;
+            height: 26px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.16s ease, transform 0.16s ease;
+        }
+
+        .deck-inbox-surface .dm-reaction-strip.has-reactions .dm-reaction-add,
+        .deck-inbox-surface .dm-message-row:hover .dm-reaction-add,
+        .deck-inbox-surface .dm-reaction-strip:focus-within .dm-reaction-add,
+        .deck-inbox-surface .dm-reaction-picker.picker-open .dm-reaction-add {
+            opacity: 1;
+        }
+
+        .deck-inbox-surface .dm-reaction-palette {
+            min-width: 230px;
+            max-width: min(280px, calc(100vw - 28px));
+            padding: 8px;
+            border-radius: 16px;
+            border: 1px solid var(--deck-inbox-panel-border);
+            background: color-mix(in srgb, var(--canopy-bg-card) 95%, #020617 5%);
+            box-shadow: 0 18px 36px rgba(2, 8, 23, 0.34);
+            backdrop-filter: blur(16px);
+        }
+
+        .deck-inbox-surface .dm-reaction-choice {
+            width: calc(33.333% - 4px);
+            min-height: 48px;
+            margin: 2px;
+            padding: 5px 4px;
+            border-radius: 13px;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            font-weight: 700;
+        }
+
+        .deck-inbox-surface .dm-reaction-choice small {
+            color: var(--canopy-text-secondary);
+            font-size: 0.58rem;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+
+        .deck-inbox-surface .dm-reaction-custom-img {
+            width: 1.08rem;
+            height: 1.08rem;
+            object-fit: contain;
+            border-radius: 5px;
+            display: inline-block;
+        }
+
+        .deck-inbox-surface .dm-reaction-pill .dm-reaction-custom-img {
+            width: 0.98rem;
+            height: 0.98rem;
+        }
+
         @media (max-width: 680px) {
             .sidebar-media-deck.is-dm-mode {
                 left: 10px;

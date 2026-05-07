@@ -36,7 +36,8 @@ class TestUiPolishRegressions(unittest.TestCase):
     def test_feed_primary_actions_keep_reply_bookmark_repost_visible(self) -> None:
         feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
         self.assertIn("Reply</span>", feed)
-        self.assertIn("Like{% endif %}</span>", feed)
+        self.assertIn("React{% endif %}</span>", feed)
+        self.assertIn("reaction-palette", feed)
         self.assertIn('data-bookmark-label', feed)
         self.assertIn("Repost</span>", feed)
         self.assertIn('aria-label="More post actions"', feed)
@@ -87,7 +88,8 @@ class TestUiPolishRegressions(unittest.TestCase):
     def test_channel_primary_actions_keep_reply_bookmark_repost_visible(self) -> None:
         channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
         self.assertIn("Reply</span>", channels)
-        self.assertIn("Like'}</span>", channels)
+        self.assertIn("renderChannelReactionControl(message)", channels)
+        self.assertIn("reaction-palette", channels)
         self.assertIn("Repost</span>", channels)
         self.assertIn('data-bookmark-label', channels)
         self.assertIn('aria-label="More message actions"', channels)

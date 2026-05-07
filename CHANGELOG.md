@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.74] - 2026-05-06
+
+### Added
+- **Reactions now use the full shared palette across DMs, Deck Inbox, Channels, Feed, API, and P2P** - standard reactions and `custom:<slug>` emoji keys round-trip through UI/API surfaces, render custom emoji images when local assets exist, and fall back to readable shortcodes when peers do not have the asset.
+
 ## [0.6.73] - 2026-05-05
 
 ### Added

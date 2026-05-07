@@ -72,6 +72,7 @@ from ..core.events import (
     EVENT_CHANNEL_STATE_UPDATED,
     EVENT_DM_MESSAGE_CREATED,
     EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_EDITED,
     EVENT_DM_MESSAGE_READ,
     EVENT_FEED_POST_CREATED,
     EVENT_FEED_POST_DELETED,
@@ -5117,13 +5118,56 @@ def create_ui_blueprint() -> Blueprint:
         return redirect(url_for('ui.channels'))
     
     # Messages interface
+    def _get_reaction_options() -> list[dict[str, Any]]:
+        try:
+            from ..core.interactions import REACTION_OPTIONS, normalize_reaction_key
+            options: list[dict[str, Any]] = [dict(option) for option in REACTION_OPTIONS]
+            seen = {str(option.get('type') or '') for option in options}
+            with _CUSTOM_EMOJI_LOCK:
+                custom_entries = _load_custom_emojis()
+            for entry in custom_entries:
+                name = str(entry.get('name') or '').strip()
+                url = str(entry.get('url') or '').strip()
+                if not name or not url:
+                    continue
+                reaction_type = normalize_reaction_key(f"custom:{name}")
+                if reaction_type in seen:
+                    continue
+                seen.add(reaction_type)
+                options.append({
+                    'type': reaction_type,
+                    'emoji': f":{name}:",
+                    'label': name.replace('-', ' ').replace('_', ' ').title(),
+                    'image_url': url,
+                    'custom': True,
+                })
+            return options
+        except Exception:
+            return [
+                {'type': 'like', 'emoji': '👍', 'label': 'Like'},
+                {'type': 'love', 'emoji': '❤️', 'label': 'Love'},
+                {'type': 'laugh', 'emoji': '😂', 'label': 'Laugh'},
+                {'type': 'wow', 'emoji': '😮', 'label': 'Wow'},
+                {'type': 'sad', 'emoji': '😢', 'label': 'Sad'},
+                {'type': 'angry', 'emoji': '😡', 'label': 'Angry'},
+                {'type': 'celebrate', 'emoji': '🎉', 'label': 'Celebrate'},
+                {'type': 'rocket', 'emoji': '🚀', 'label': 'Ship it'},
+                {'type': 'eyes', 'emoji': '👀', 'label': 'Watching'},
+                {'type': 'check', 'emoji': '✅', 'label': 'Done'},
+                {'type': 'pray', 'emoji': '🙏', 'label': 'Thanks'},
+                {'type': 'dislike', 'emoji': '👎', 'label': 'Dislike'},
+            ]
+
+    def _get_dm_reaction_options() -> list[dict[str, Any]]:
+        return _get_reaction_options()
+
     def _build_dm_workspace_template_data(
         user_id: str,
         conversation_with: Optional[str] = None,
         conversation_group: Optional[str] = None,
         search_query: str = '',
     ) -> dict[str, Any]:
-        db_manager, _, _, message_manager, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+        db_manager, _, _, message_manager, _, _, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
         workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
         try:
             # Capture the cursor before rebuilding sidebar/thread state so the
@@ -5681,6 +5725,37 @@ def create_ui_blueprint() -> Blueprint:
             if bookmark_manager and active_messages_sorted
             else {}
         )
+        dm_reaction_by_message: dict[str, dict[str, Any]] = {}
+        dm_user_reactions: dict[str, str] = {}
+        if interaction_manager and active_messages_sorted:
+            message_ids = [message.id for message in active_messages_sorted if getattr(message, 'id', None)]
+            try:
+                reaction_map = interaction_manager.get_user_reaction_map(message_ids, user_id)
+                if isinstance(reaction_map, dict):
+                    dm_user_reactions = {
+                        str(item_id): str(reaction_type)
+                        for item_id, reaction_type in reaction_map.items()
+                        if reaction_type
+                    }
+            except Exception:
+                dm_user_reactions = {}
+            try:
+                if hasattr(interaction_manager, 'get_message_interactions_map'):
+                    reaction_map = interaction_manager.get_message_interactions_map(message_ids)
+                    if isinstance(reaction_map, dict):
+                        dm_reaction_by_message = {
+                            str(message_id): (payload if isinstance(payload, dict) else {})
+                            for message_id, payload in reaction_map.items()
+                        }
+                else:
+                    for message_id in message_ids:
+                        try:
+                            interactions = interaction_manager.get_message_interactions(message_id)
+                            dm_reaction_by_message[message_id] = interactions if isinstance(interactions, dict) else {}
+                        except Exception:
+                            dm_reaction_by_message[message_id] = {}
+            except Exception:
+                dm_reaction_by_message = {}
         for index, message in enumerate(active_messages_sorted):
             prev_message = active_messages_sorted[index - 1] if index > 0 else None
             next_message = active_messages_sorted[index + 1] if index + 1 < len(active_messages_sorted) else None
@@ -5722,6 +5797,9 @@ def create_ui_blueprint() -> Blueprint:
                 'reply_to': reply_to_id,
                 'reply_preview': _reply_preview(reply_to_id),
                 'security': meta.get('security') if isinstance(meta.get('security'), dict) else None,
+                'reaction_counts': (dm_reaction_by_message.get(message.id) or {}).get('like_counts', {}),
+                'reaction_total': (dm_reaction_by_message.get(message.id) or {}).get('total_likes', 0),
+                'user_reaction': dm_user_reactions.get(message.id),
                 'cluster_start': cluster_start,
                 'cluster_end': cluster_end,
                 'day_divider': day_divider,
@@ -5784,6 +5862,8 @@ def create_ui_blueprint() -> Blueprint:
                         str(row.get('created_at') or ''),
                         str(row.get('edited_at') or ''),
                         str((row.get('security') or {}).get('state') if isinstance(row.get('security'), dict) else ''),
+                        json.dumps(row.get('reaction_counts') or {}, sort_keys=True),
+                        str(row.get('user_reaction') or ''),
                         ','.join(
                             ':'.join(
                                 [
@@ -5827,6 +5907,7 @@ def create_ui_blueprint() -> Blueprint:
             'recipient_directory_seed': recipient_directory_seed,
             'conversation_with': conversation_with,
             'conversation_group': conversation_group,
+            'dm_reaction_options': _get_dm_reaction_options(),
             'latest_message_id': latest_message_id,
             'latest_message_created_at': latest_message_created_at,
             'workspace_event_cursor': workspace_event_cursor,
@@ -6860,6 +6941,13 @@ def create_ui_blueprint() -> Blueprint:
             # Batch-check which posts the current user has liked
             post_ids = [p.id for p in posts_obj]
             user_liked_ids = interaction_manager.get_user_liked_ids(post_ids, user_id)
+            user_reactions_by_post: dict[str, str] = {}
+            try:
+                reaction_map = interaction_manager.get_user_reaction_map(post_ids, user_id)
+                if isinstance(reaction_map, dict):
+                    user_reactions_by_post = reaction_map
+            except Exception:
+                user_reactions_by_post = {}
             bookmark_manager = _get_bookmark_manager()
             bookmarked_posts = (
                 bookmark_manager.get_bookmark_map(
@@ -6873,7 +6961,8 @@ def create_ui_blueprint() -> Blueprint:
             # Convert Post objects to dicts for template
             posts = []
             for post in posts_obj:
-                interactions = interaction_manager.get_post_interactions(post.id) if interaction_manager else {'total_likes': 0, 'comment_count': 0}
+                interactions = interaction_manager.get_post_interactions(post.id) if interaction_manager else {'total_likes': 0, 'like_counts': {}, 'comment_count': 0}
+                reaction_counts = (interactions or {}).get('like_counts') or {}
                 post_dict = {
                     'id': post.id,
                     'author_id': post.author_id,
@@ -6884,8 +6973,11 @@ def create_ui_blueprint() -> Blueprint:
                     'visibility': post.visibility.value,
                     'metadata': post.metadata,
                     'permissions': post.permissions,
-                    'likes': interactions['total_likes'],
-                    'comments': interactions['comment_count'],
+                    'likes': (interactions or {}).get('total_likes', 0),
+                    'comments': (interactions or {}).get('comment_count', 0),
+                    'reaction_counts': reaction_counts,
+                    'reaction_total': (interactions or {}).get('total_likes', 0),
+                    'user_reaction': user_reactions_by_post.get(post.id),
                     'user_has_liked': post.id in user_liked_ids,
                     'is_bookmarked': ('feed_post', post.id) in bookmarked_posts,
                     'source_type': post.source_type or 'human',
@@ -7532,6 +7624,7 @@ def create_ui_blueprint() -> Blueprint:
                 'algorithm': algorithm,
                 'is_admin': _is_admin(),
                 'poll_edit_window_seconds': poll_edit_window_seconds(),
+                'reaction_options': _get_reaction_options(),
                 'workspace_onboarding': _build_workspace_onboarding(
                     user_id,
                     page='feed',
@@ -7786,6 +7879,7 @@ def create_ui_blueprint() -> Blueprint:
                                  is_admin=_is_admin(),
                                  channel_sidebar_rev=channel_sidebar_snapshot.get('rev', ''),
                                  workspace_event_cursor=workspace_event_cursor,
+                                 reaction_options=_get_reaction_options(),
                                  poll_edit_window_seconds=poll_edit_window_seconds())
                                  
         except Exception as e:
@@ -9980,7 +10074,7 @@ def create_ui_blueprint() -> Blueprint:
             db_manager, _, _, message_manager, _, file_manager, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             
-            data = request.get_json()
+            data = request.get_json(silent=True) or {}
             logger.info(f"Send message request: user_id={user_id}, data={data}")
             
             content = data.get('content', '').strip()
@@ -14155,8 +14249,9 @@ def create_ui_blueprint() -> Blueprint:
             user_id = get_current_user()
             from ..core.polls import parse_poll, poll_edit_lock_reason
             
-            data = request.get_json()
+            data = request.get_json(silent=True) or {}
             post_id = data.get('post_id')
+            reaction_type = data.get('reaction_type', 'like')
             content = data.get('content', '').strip()
             post_type = data.get('post_type')
             visibility = data.get('visibility')
@@ -14607,15 +14702,18 @@ def create_ui_blueprint() -> Blueprint:
             _, _, _, _, _, _, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             
-            data = request.get_json()
+            data = request.get_json(silent=True) or {}
             post_id = data.get('post_id')
+            reaction_type = data.get('reaction_type', 'like')
             
             if not post_id:
                 return jsonify({'error': 'Post ID required'}), 400
             
-            from ..core.interactions import InteractionType
-            liked = interaction_manager.toggle_post_like(post_id, user_id, InteractionType.LIKE)
+            from ..core.interactions import normalize_reaction_key
+            reaction_key = normalize_reaction_key(reaction_type)
+            liked = interaction_manager.toggle_post_like(post_id, user_id, reaction_key)
             interactions = interaction_manager.get_post_interactions(post_id)
+            user_reaction = interaction_manager.get_user_has_liked(post_id, user_id)
             
             # Broadcast interaction to P2P peers
             if p2p_manager and p2p_manager.is_running():
@@ -14631,6 +14729,7 @@ def create_ui_blueprint() -> Blueprint:
                         action='like' if liked else 'unlike',
                         item_type='post',
                         display_name=sender_display,
+                        extra={'reaction_type': reaction_key},
                     )
                 except Exception as p2p_err:
                     logger.warning(f"Failed to broadcast post like via P2P: {p2p_err}")
@@ -14638,6 +14737,8 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({
                 'success': True,
                 'liked': liked,
+                'reaction_type': reaction_key,
+                'user_reaction': user_reaction,
                 'interactions': interactions
             })
                 
@@ -16060,6 +16161,8 @@ def create_ui_blueprint() -> Blueprint:
             # Batch-check which messages the current user has liked
             msg_ids = [m.id for m in messages]
             user_liked_ids = set()
+            user_reactions_by_message: dict[str, str] = {}
+            interactions_by_message: dict[str, dict[str, Any]] = {}
             stream_manager = current_app.config.get('STREAM_MANAGER')
             stream_status_cache: dict[str, str] = {}
             bookmark_manager = _get_bookmark_manager()
@@ -16073,6 +16176,19 @@ def create_ui_blueprint() -> Blueprint:
             )
             if interaction_manager:
                 user_liked_ids = interaction_manager.get_user_liked_ids(msg_ids, user_id)
+                try:
+                    reaction_map = interaction_manager.get_user_reaction_map(msg_ids, user_id)
+                    if isinstance(reaction_map, dict):
+                        user_reactions_by_message = reaction_map
+                except Exception:
+                    user_reactions_by_message = {}
+                try:
+                    if hasattr(interaction_manager, 'get_message_interactions_map'):
+                        mapped_interactions = interaction_manager.get_message_interactions_map(msg_ids)
+                        if isinstance(mapped_interactions, dict):
+                            interactions_by_message = mapped_interactions
+                except Exception:
+                    interactions_by_message = {}
             
             # Build response with like data (skip any corrupt messages)
             messages_data = []
@@ -16149,13 +16265,22 @@ def create_ui_blueprint() -> Blueprint:
                     # Add like info
                     if interaction_manager:
                         try:
-                            interactions = interaction_manager.get_post_interactions(message.id)
-                            msg_dict['like_count'] = interactions['total_likes']
+                            interactions = interactions_by_message.get(message.id)
+                            if interactions is None:
+                                interactions = interaction_manager.get_post_interactions(message.id)
+                            msg_dict['like_count'] = (interactions or {}).get('total_likes', 0)
+                            msg_dict['reaction_counts'] = (interactions or {}).get('like_counts', {}) or {}
+                            msg_dict['reaction_total'] = (interactions or {}).get('total_likes', 0)
                         except Exception:
                             msg_dict['like_count'] = 0
+                            msg_dict['reaction_counts'] = {}
+                            msg_dict['reaction_total'] = 0
                     else:
                         msg_dict['like_count'] = 0
+                        msg_dict['reaction_counts'] = {}
+                        msg_dict['reaction_total'] = 0
                     msg_dict['user_has_liked'] = message.id in user_liked_ids
+                    msg_dict['user_reaction'] = user_reactions_by_message.get(message.id)
                     msg_dict['is_bookmarked'] = ('channel_message', message.id) in bookmarked_messages
 
                     poll_spec = parse_poll(message.content or '')
@@ -16664,6 +16789,7 @@ def create_ui_blueprint() -> Blueprint:
                 'focus_message_id': focus_message_id or None,
                 'focus_message_found': focus_message_found,
                 'focus_context_mode': focus_context_mode if focus_message_id else None,
+                'reaction_options': _get_reaction_options(),
             }
             if focus_message_id and not focus_message_found:
                 payload['warning'] = 'Target message is no longer available in this channel.'
@@ -20748,24 +20874,59 @@ def create_ui_blueprint() -> Blueprint:
     def ajax_toggle_like():
         """AJAX endpoint to toggle like on a message."""
         try:
-            _, _, _, _, _, _, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, message_manager, _, _, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             
-            data = request.get_json()
+            data = request.get_json(silent=True) or {}
             message_id = data.get('message_id')
             reaction_type = data.get('reaction_type', 'like')
+            item_type = str(data.get('item_type') or 'message').strip().lower()
             
             if not message_id:
                 return jsonify({'error': 'Message ID required'}), 400
+
+            if item_type == 'dm_message':
+                message = message_manager.get_message(str(message_id)) if message_manager else None
+                if not message:
+                    return jsonify({'error': 'Message not found'}), 404
+                meta = message.metadata if isinstance(message.metadata, dict) else {}
+                group_members = meta.get('group_members') if isinstance(meta, dict) else None
+                can_view = (
+                    message.sender_id == user_id
+                    or message.recipient_id == user_id
+                    or (isinstance(group_members, list) and user_id in {str(member) for member in group_members})
+                )
+                if not can_view:
+                    return jsonify({'error': 'Not authorized to react to this message'}), 403
             
-            from ..core.interactions import InteractionType
-            try:
-                reaction_enum = InteractionType(reaction_type)
-            except ValueError:
-                reaction_enum = InteractionType.LIKE
+            from ..core.interactions import normalize_reaction_key
+            reaction_key = normalize_reaction_key(reaction_type)
             
-            liked = interaction_manager.toggle_like(message_id, user_id, reaction_enum)
+            liked = interaction_manager.toggle_like(message_id, user_id, reaction_key)
             interactions = interaction_manager.get_message_interactions(message_id)
+            user_reaction = interaction_manager.get_user_has_liked(message_id, user_id)
+
+            if item_type == 'dm_message':
+                try:
+                    workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+                    if workspace_event_manager:
+                        workspace_event_manager.emit_event(
+                            event_type=EVENT_DM_MESSAGE_EDITED,
+                            actor_user_id=user_id,
+                            message_id=str(message_id),
+                            visibility_scope='dm',
+                            dedupe_key=(
+                                f"{EVENT_DM_MESSAGE_EDITED}:reaction:{message_id}:"
+                                f"{user_id}:{reaction_key}:{int(time.time() * 1000)}"
+                            ),
+                            payload={
+                                'update_reason': 'reaction',
+                                'reaction_type': reaction_key,
+                                'liked': bool(liked),
+                            },
+                        )
+                except Exception as event_err:
+                    logger.debug(f"Failed to emit DM reaction event for {message_id}: {event_err}")
             
             # Broadcast interaction to P2P peers
             if p2p_manager and p2p_manager.is_running():
@@ -20779,8 +20940,9 @@ def create_ui_blueprint() -> Blueprint:
                         item_id=message_id,
                         user_id=user_id,
                         action='like' if liked else 'unlike',
-                        item_type='message',
+                        item_type='dm_message' if item_type == 'dm_message' else 'message',
                         display_name=sender_display,
+                        extra={'reaction_type': reaction_key},
                     )
                 except Exception as p2p_err:
                     logger.warning(f"Failed to broadcast message like via P2P: {p2p_err}")
@@ -20788,6 +20950,8 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({
                 'success': True,
                 'liked': liked,
+                'reaction_type': reaction_key,
+                'user_reaction': user_reaction,
                 'interactions': interactions
             })
             

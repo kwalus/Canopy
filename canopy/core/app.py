@@ -68,6 +68,7 @@ from .events import (
     EVENT_CHANNEL_MESSAGE_DELETED,
     EVENT_CHANNEL_MESSAGE_EDITED,
     EVENT_DM_MESSAGE_DELETED,
+    EVENT_DM_MESSAGE_EDITED,
     EVENT_FEED_POST_CREATED,
     EVENT_FEED_POST_DELETED,
     EVENT_FEED_POST_UPDATED,
@@ -332,12 +333,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
         profile_manager = ProfileManager(db_manager, file_manager)
         app.config['PROFILE_MANAGER'] = profile_manager
         logger.info("Profile manager initialized successfully")
-
-        logger.info("Initializing Canopy AI compose manager...")
-        from .canopy_ai import CanopyLLMManager
-        canopy_llm_manager = CanopyLLMManager(db_manager, config.secret_key)
-        app.config['CANOPY_LLM_MANAGER'] = canopy_llm_manager
-        logger.info("Canopy AI compose manager initialized successfully")
         
         logger.info("Initializing channel manager...")
         channel_manager = ChannelManager(db_manager, api_key_manager)
@@ -379,12 +374,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
         request_manager = RequestManager(db_manager)
         app.config['REQUEST_MANAGER'] = request_manager
         logger.info("Request manager initialized successfully")
-
-        logger.info("Initializing collaboration card manager...")
-        from .collab_cards import CollabCardManager
-        collab_card_manager = CollabCardManager(db_manager)
-        app.config['COLLAB_CARD_MANAGER'] = collab_card_manager
-        logger.info("Collaboration card manager initialized successfully")
 
         logger.info("Initializing objective manager...")
         from .objectives import ObjectiveManager
@@ -710,24 +699,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
             origin_file_id = get_attachment_origin_file_id(attachment)
             if not source_peer_id or not origin_file_id or not p2p_manager:
                 return False
-
-            direct_connected = bool(
-                p2p_manager.connection_manager
-                and p2p_manager.connection_manager.is_connected(source_peer_id)
-            )
-            route_available = False
-            route_check = getattr(p2p_manager, 'can_route_to_peer', None)
-            if callable(route_check):
-                try:
-                    route_available = route_check(source_peer_id) is True
-                except Exception:
-                    route_available = False
-            if not (direct_connected or route_available):
+            if not p2p_manager.peer_supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
                 return False
-            # A relayed remote-large reference is itself evidence that the source
-            # speaks the attachment protocol. Only reject on a live direct link
-            # where the peer explicitly lacks the advertised capability.
-            if direct_connected and not p2p_manager.peer_supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
+            if not p2p_manager.connection_manager or not p2p_manager.connection_manager.is_connected(source_peer_id):
                 return False
 
             download_mode = get_large_attachment_download_mode(db_manager)
@@ -1129,11 +1103,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
             download_mode = get_large_attachment_download_mode(db_manager)
             if download_mode == LARGE_ATTACHMENT_DOWNLOAD_PAUSED:
                 return
-            direct_connected = bool(
-                p2p_manager.connection_manager
-                and p2p_manager.connection_manager.is_connected(peer_id)
-            )
-            if direct_connected:
+            if p2p_manager.connection_manager and p2p_manager.connection_manager.is_connected(peer_id):
                 if not p2p_manager.peer_supports_capability(peer_id, LARGE_ATTACHMENT_CAPABILITY):
                     for transfer in file_manager.list_pending_remote_attachment_transfers(
                         origin_peer_id=peer_id,
@@ -7246,6 +7216,29 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 )
                 meta = metadata or {}
 
+                def _emit_dm_reaction_event(reaction_type: str, liked: bool) -> None:
+                    if item_type != 'dm_message' or not workspace_event_manager:
+                        return
+                    try:
+                        workspace_event_manager.emit_event(
+                            event_type=EVENT_DM_MESSAGE_EDITED,
+                            actor_user_id=user_id,
+                            message_id=str(item_id),
+                            visibility_scope='dm',
+                            dedupe_key=(
+                                f"{EVENT_DM_MESSAGE_EDITED}:p2p-reaction:{item_id}:"
+                                f"{user_id}:{reaction_type}:{int(time.time() * 1000)}"
+                            ),
+                            payload={
+                                'update_reason': 'reaction',
+                                'reaction_type': reaction_type,
+                                'liked': bool(liked),
+                                'from_peer': from_peer,
+                            },
+                        )
+                    except Exception:
+                        pass
+
                 if action == 'mention':
                     target_ids = meta.get('target_user_ids') or []
                     if isinstance(target_ids, str):
@@ -7306,26 +7299,6 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         if from_peer and not task_payload.get('origin_peer'):
                             task_payload['origin_peer'] = from_peer
                         task_manager.apply_task_snapshot(task_payload)
-                    return
-
-                if action in ('collab_card_update', 'collab_card_response', 'collab_card_telemetry') or item_type == 'collab_card':
-                    collab_card_manager = app.config.get('COLLAB_CARD_MANAGER')
-                    if collab_card_manager:
-                        card_payload = meta.get('card') or {}
-                        if not isinstance(card_payload, dict):
-                            card_payload = {}
-                        if item_id and not card_payload.get('id'):
-                            card_payload['id'] = item_id
-                        if user_id and not card_payload.get('created_by'):
-                            card_payload['created_by'] = user_id
-                        if user_id and not card_payload.get('owner_id'):
-                            card_payload['owner_id'] = user_id
-                        if from_peer and not card_payload.get('origin_peer'):
-                            card_payload['origin_peer'] = from_peer
-                        card_obj = collab_card_manager.ingest_card_snapshot(card_payload)
-                        response_payload = meta.get('response') or {}
-                        if card_obj and isinstance(response_payload, dict) and response_payload:
-                            collab_card_manager.ingest_response_snapshot(card_obj.get('id'), response_payload)
                     return
 
                 if action == 'circle_entry' or item_type == 'circle_entry':
@@ -7411,13 +7384,32 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 ).fetchone():
                                     return
 
+                    from .interactions import normalize_reaction_key
+                    reaction_type = normalize_reaction_key(meta.get('reaction_type') or 'like')
+
                     if action == 'like':
                         import secrets as _sec2
+                        existing_reaction = conn.execute(
+                            "SELECT id, reaction_type FROM likes WHERE message_id = ? AND user_id = ?",
+                            (item_id, user_id),
+                        ).fetchone()
+                        if existing_reaction:
+                            conn.execute(
+                                "UPDATE likes SET reaction_type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?",
+                                (reaction_type, existing_reaction['id']),
+                            )
+                            conn.commit()
+                            _emit_dm_reaction_event(reaction_type, True)
+                            logger.info(
+                                f"Applied P2P reaction update: {reaction_type} on {item_type} {item_id} "
+                                f"by {user_id} from peer {from_peer}"
+                            )
+                            return
                         like_id = f"L{_sec2.token_hex(8)}"
                         conn.execute("""
                             INSERT OR IGNORE INTO likes (id, message_id, user_id, reaction_type)
-                            VALUES (?, ?, ?, 'like')
-                        """, (like_id, item_id, user_id))
+                            VALUES (?, ?, ?, ?)
+                        """, (like_id, item_id, user_id, reaction_type))
 
                         if item_type == 'post':
                             conn.execute(
@@ -7426,15 +7418,24 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 (item_id, item_id, user_id, like_id))
 
                     elif action == 'unlike':
+                        existing_reaction = conn.execute(
+                            "SELECT id FROM likes WHERE message_id = ? AND user_id = ?",
+                            (item_id, user_id),
+                        ).fetchone()
                         conn.execute("""
                             DELETE FROM likes WHERE message_id = ? AND user_id = ?
                         """, (item_id, user_id))
-                        if item_type == 'post':
+                        if item_type == 'post' and existing_reaction:
                             conn.execute(
                                 "UPDATE feed_posts SET likes = MAX(0, likes - 1) WHERE id = ?",
                                 (item_id,))
 
                     conn.commit()
+                    if action in ('like', 'unlike'):
+                        _emit_dm_reaction_event(
+                            reaction_type,
+                            action == 'like',
+                        )
 
                 logger.info(f"Applied P2P interaction: {action} on {item_type} {item_id} "
                             f"by {user_id} from peer {from_peer}")

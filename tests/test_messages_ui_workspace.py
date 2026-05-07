@@ -31,6 +31,7 @@ if 'zeroconf' not in sys.modules:
 from canopy.core.messaging import MessageManager
 from canopy.core.messaging import compute_group_id
 from canopy.core.mentions import MentionManager
+from canopy.core.interactions import InteractionManager, normalize_reaction_key
 from canopy.ui.routes import create_ui_blueprint
 
 
@@ -52,7 +53,7 @@ class _FakeDbManager:
             INSERT INTO messages (
                 id, sender_id, recipient_id, content, message_type, status,
                 created_at, delivered_at, read_at, edited_at, metadata
-            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), NULL, NULL, NULL, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
             """,
             (
                 message_id,
@@ -61,6 +62,7 @@ class _FakeDbManager:
                 content,
                 message_type,
                 'pending',
+                '2026-03-07T10:10:00+00:00',
                 json.dumps(metadata) if metadata else None,
             ),
         )
@@ -71,12 +73,21 @@ class _FakeDbManager:
 class _FakeP2PManager:
     def __init__(self) -> None:
         self.direct_messages = []
+        self.interactions = []
 
     def is_running(self) -> bool:
         return True
 
     def broadcast_direct_message(self, **kwargs):
         self.direct_messages.append(dict(kwargs))
+
+    def broadcast_interaction(self, **kwargs):
+        payload = dict(kwargs)
+        extra = payload.pop('extra', None)
+        if isinstance(extra, dict):
+            payload.update(extra)
+        self.interactions.append(payload)
+        return True
 
     def get_peer_id(self) -> str:
         return 'peer-local'
@@ -177,6 +188,7 @@ class TestMessagesUiWorkspace(unittest.TestCase):
 
         self.db_manager = _FakeDbManager(self.conn, db_path)
         self.message_manager = MessageManager(self.db_manager, MagicMock())
+        self.interaction_manager = InteractionManager(self.db_manager)
         self.profile_manager = MagicMock()
         self.profile_manager.get_profile.return_value = None
         self.p2p_manager = _FakeP2PManager()
@@ -190,7 +202,7 @@ class TestMessagesUiWorkspace(unittest.TestCase):
             MagicMock(),
             MagicMock(),
             MagicMock(),
-            MagicMock(),
+            self.interaction_manager,
             self.profile_manager,
             MagicMock(),
             self.p2p_manager,
@@ -230,10 +242,15 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('Bob, Cara', body)
         self.assertIn('Need update', body)
         self.assertIn('Hello owner', body)
+        self.assertIn('data-dm-reactions="1"', body)
+        self.assertIn('dm-reaction-choice', body)
+        self.assertIn('data-dm-action="open-reactions"', body)
+        self.assertIn('aria-haspopup="menu"', body)
+        self.assertIn('role="menuitemcheckbox"', body)
         self.assertIn('New conversation', body)
         self.assertIn('E2E over mesh', body)
         active_direct_card = re.search(
-            r'<a href="/messages\?with=peer-a" class="dm-conversation-card active">([\s\S]*?)</a>',
+            r'(<a href="/messages\?with=peer-a"[\s\S]*?class="dm-conversation-card\s+active"[\s\S]*?</a>)',
             body,
         )
         self.assertIsNotNone(active_direct_card)
@@ -264,6 +281,70 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('toggleDmMobileSidebar(true)', body)
         self.assertIn('function syncDmMobileLayoutState(options)', body)
         self.assertIn("window.addEventListener('resize', scheduleDmMobileLayoutSync);", body)
+
+    def test_dm_reactions_toggle_and_render_in_thread(self) -> None:
+        response = self.client.post(
+            '/ajax/toggle_like',
+            json={
+                'message_id': 'DM-root',
+                'item_type': 'dm_message',
+                'reaction_type': 'love',
+            },
+            headers={'X-CSRFToken': 'csrf-ui-messages'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('user_reaction'), 'love')
+        self.assertEqual((payload.get('interactions') or {}).get('like_counts', {}).get('love'), 1)
+        self.assertEqual(self.p2p_manager.interactions[-1].get('item_type'), 'dm_message')
+        self.assertEqual(self.p2p_manager.interactions[-1].get('reaction_type'), 'love')
+
+        page = self.client.get('/messages?with=peer-a')
+        body = page.get_data(as_text=True)
+        self.assertIn('data-user-reaction="love"', body)
+        self.assertIn('class="dm-reaction-strip has-reactions"', body)
+        self.assertIn('aria-pressed="true"', body)
+        self.assertIn('❤️', body)
+
+    def test_dm_custom_reaction_keys_round_trip_with_fallback_label(self) -> None:
+        self.assertEqual(normalize_reaction_key(':Lab Team:'), 'custom:lab-team')
+
+        response = self.client.post(
+            '/ajax/toggle_like',
+            json={
+                'message_id': 'DM-root',
+                'item_type': 'dm_message',
+                'reaction_type': ':Lab Team:',
+            },
+            headers={'X-CSRFToken': 'csrf-ui-messages'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('reaction_type'), 'custom:lab-team')
+        self.assertEqual(payload.get('user_reaction'), 'custom:lab-team')
+        self.assertEqual((payload.get('interactions') or {}).get('like_counts', {}).get('custom:lab-team'), 1)
+        self.assertEqual(self.p2p_manager.interactions[-1].get('reaction_type'), 'custom:lab-team')
+
+        page = self.client.get('/messages?with=peer-a')
+        body = page.get_data(as_text=True)
+        self.assertIn('data-user-reaction="custom:lab-team"', body)
+        self.assertIn(':lab-team:', body)
+
+    def test_dm_reaction_ui_has_mobile_and_keyboard_affordances(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (root / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        partial = (root / 'canopy' / 'ui' / 'templates' / '_messages_thread_body.html').read_text(encoding='utf-8')
+
+        self.assertIn('@media (hover: none), (pointer: coarse)', template)
+        self.assertIn('function openDmReactionPicker(messageId)', template)
+        self.assertIn("data-dm-action=\"open-reactions\"", partial)
+        self.assertIn("strip.classList.toggle('has-reactions'", template)
+        self.assertIn("strip.setAttribute('aria-busy'", template)
+        self.assertIn("choice.setAttribute('aria-pressed'", template)
+        self.assertIn("dropdown.classList.add('picker-open')", template)
+        self.assertIn("window.bootstrap.Dropdown.getOrCreateInstance(toggle", template)
 
     def test_self_dm_renders_as_personal_scratchpad(self) -> None:
         response = self.client.post(

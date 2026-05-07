@@ -791,6 +791,197 @@
         margin-bottom: 0;
     }
 
+    .dm-reaction-strip {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 0.28rem;
+        flex-wrap: wrap;
+        margin-top: 0.48rem;
+        min-height: 1.65rem;
+        transition: opacity 0.16s ease;
+    }
+
+    .dm-message-row.outbound .dm-reaction-strip {
+        justify-content: flex-end;
+    }
+
+    .dm-reaction-strip.is-busy {
+        opacity: 0.72;
+        pointer-events: none;
+    }
+
+    .dm-reaction-pills {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex-wrap: wrap;
+    }
+
+    .dm-reaction-pills:empty {
+        display: none;
+    }
+
+    .dm-reaction-pill,
+    .dm-reaction-add,
+    .dm-reaction-choice {
+        border: 1px solid var(--dm-bubble-border);
+        background: var(--dm-surface-soft);
+        color: var(--canopy-text-primary);
+    }
+
+    .dm-reaction-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        min-height: 1.55rem;
+        padding: 0.12rem 0.46rem;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        line-height: 1;
+        box-shadow: 0 8px 18px rgba(3, 10, 22, 0.08);
+        transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
+    }
+
+    .dm-reaction-pill:hover,
+    .dm-reaction-pill:focus-visible,
+    .dm-reaction-add:hover,
+    .dm-reaction-add:focus-visible,
+    .dm-reaction-choice:hover,
+    .dm-reaction-choice:focus-visible {
+        background: color-mix(in srgb, var(--canopy-primary) 15%, var(--dm-surface-soft));
+        border-color: color-mix(in srgb, var(--canopy-primary) 38%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 12%, transparent), 0 10px 22px rgba(3, 10, 22, 0.12);
+        outline: none;
+        transform: translateY(-1px);
+    }
+
+    .dm-reaction-pill.is-selected,
+    .dm-reaction-choice.is-selected {
+        background: linear-gradient(135deg,
+            color-mix(in srgb, var(--canopy-primary) 22%, transparent),
+            color-mix(in srgb, var(--canopy-accent) 14%, transparent)
+        );
+        border-color: color-mix(in srgb, var(--canopy-primary) 54%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 13%, transparent), 0 10px 24px rgba(3, 10, 22, 0.14);
+    }
+
+    .dm-reaction-strip.just-updated .dm-reaction-pill.is-selected {
+        animation: dmReactionPop 0.34s ease;
+    }
+
+    .dm-reaction-count {
+        font-weight: 800;
+        font-size: 0.72rem;
+        color: var(--canopy-text-secondary);
+    }
+
+    .dm-reaction-add {
+        width: 1.58rem;
+        height: 1.58rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        color: var(--canopy-text-secondary);
+        opacity: 0.48;
+        transform: scale(0.94);
+        transition: opacity 0.16s ease, transform 0.16s ease, background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+    }
+
+    .dm-reaction-strip.has-reactions .dm-reaction-add {
+        opacity: 0.22;
+    }
+
+    .dm-message-row:hover .dm-reaction-add,
+    .dm-reaction-picker.picker-open .dm-reaction-add,
+    .dm-reaction-strip:focus-within .dm-reaction-add {
+        opacity: 1;
+        color: var(--canopy-text-primary);
+        transform: scale(1);
+    }
+
+    .dm-reaction-palette {
+        min-width: 15.5rem;
+        max-width: min(21rem, calc(100vw - 2rem));
+        padding: 0.45rem;
+        border-radius: 18px;
+        border: 1px solid var(--dm-menu-border);
+        background: var(--dm-menu-bg);
+        box-shadow: var(--dm-menu-shadow);
+        backdrop-filter: blur(18px);
+    }
+
+    .dm-reaction-picker.dropup .dm-reaction-palette {
+        margin-bottom: 0.4rem;
+    }
+
+    .dm-reaction-choice {
+        width: calc(33.333% - 0.25rem);
+        min-height: 3.35rem;
+        margin: 0.12rem;
+        border-radius: 14px;
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.08rem;
+    }
+
+    .dm-reaction-choice.is-selected::after {
+        content: "";
+        width: 0.38rem;
+        height: 0.38rem;
+        border-radius: 999px;
+        background: var(--canopy-primary);
+        box-shadow: 0 0 12px color-mix(in srgb, var(--canopy-primary) 70%, transparent);
+    }
+
+    .dm-reaction-choice span {
+        font-size: 1.18rem;
+        line-height: 1;
+    }
+
+    .dm-reaction-custom-img {
+        width: 1.18rem;
+        height: 1.18rem;
+        object-fit: contain;
+        border-radius: 5px;
+        display: inline-block;
+    }
+
+    .dm-reaction-pill .dm-reaction-custom-img {
+        width: 1rem;
+        height: 1rem;
+    }
+
+    .dm-reaction-choice small {
+        color: var(--canopy-text-secondary);
+        font-size: 0.64rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+
+    @keyframes dmReactionPop {
+        0% { transform: scale(0.92); }
+        55% { transform: scale(1.08); }
+        100% { transform: scale(1); }
+    }
+
+    @media (hover: none), (pointer: coarse) {
+        .dm-reaction-add,
+        .dm-reaction-strip.has-reactions .dm-reaction-add {
+            opacity: 0.9;
+            transform: scale(1);
+        }
+
+        .dm-reaction-palette {
+            min-width: min(18rem, calc(100vw - 2rem));
+        }
+    }
+
     .dm-bubble-footer {
         display: flex;
         justify-content: flex-end;
@@ -1290,6 +1481,7 @@
         .dm-conversation-card,
         .dm-message-menu,
         .dm-message-menu .dropdown-toggle,
+        .dm-reaction-strip.just-updated .dm-reaction-pill.is-selected,
         .dm-search-result-card,
         .flash-focus {
             animation: none !important;
@@ -1827,6 +2019,8 @@
     let dmCanopyLLMInFlight = false;
     let dmCanopyLLMDraftReady = false;
     let dmCanopyLLMIgnoredDraft = '';
+    const DM_REACTION_OPTIONS = {{ dm_reaction_options|tojson }};
+    const DM_REACTION_IN_FLIGHT = new Set();
     const DM_WORKSPACE_EVENT_TYPES = ['dm.message.created', 'dm.message.edited', 'dm.message.deleted', 'attachment.available'];
     const DM_SEARCH_QUERY = {{ search_query|tojson }};
 
@@ -3229,6 +3423,285 @@
             .replace(/>/g, '&gt;');
     }
 
+    function getDmReactionOption(type) {
+        const normalized = String(type || 'like').trim().toLowerCase();
+        return (DM_REACTION_OPTIONS || []).find((item) => item && item.type === normalized)
+            || {
+                type: normalized || 'like',
+                emoji: normalized.startsWith('custom:') ? `:${normalized.slice(7)}:` : '👍',
+                label: normalized.startsWith('custom:')
+                    ? normalized.slice(7).replace(/[-_]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
+                    : 'Like',
+            };
+    }
+
+    function normalizeDmReactionCounts(value) {
+        if (!value || typeof value !== 'object') return {};
+        const counts = {};
+        Object.entries(value).forEach(([type, count]) => {
+            const normalized = String(type || '').trim().toLowerCase();
+            const parsed = Math.max(0, parseInt(count, 10) || 0);
+            if (normalized && parsed > 0) counts[normalized] = parsed;
+        });
+        return counts;
+    }
+
+    function getDmReactionStrip(messageId) {
+        const escapedId = window.CSS && typeof window.CSS.escape === 'function'
+            ? window.CSS.escape(String(messageId))
+            : String(messageId).replace(/["\\]/g, '\\$&');
+        return document.querySelector(`.dm-reaction-strip[data-message-id="${escapedId}"]`);
+    }
+
+    function getDmReactionState(messageId) {
+        const strip = getDmReactionStrip(messageId);
+        if (!strip) return { counts: {}, userReaction: '' };
+        let counts = {};
+        try {
+            counts = normalizeDmReactionCounts(JSON.parse(strip.dataset.reactions || '{}'));
+        } catch (_) {
+            counts = {};
+        }
+        return {
+            counts,
+            userReaction: String(strip.dataset.userReaction || '').trim().toLowerCase(),
+        };
+    }
+
+    function buildDmReactionState(current, selectedType) {
+        const selected = String(selectedType || 'like').trim().toLowerCase() || 'like';
+        const counts = normalizeDmReactionCounts((current && current.counts) || {});
+        const previous = String((current && current.userReaction) || '').trim().toLowerCase();
+        let userReaction = selected;
+        if (previous === selected) {
+            counts[selected] = Math.max(0, (counts[selected] || 0) - 1);
+            if (counts[selected] <= 0) delete counts[selected];
+            userReaction = '';
+        } else {
+            if (previous) {
+                counts[previous] = Math.max(0, (counts[previous] || 0) - 1);
+                if (counts[previous] <= 0) delete counts[previous];
+            }
+            counts[selected] = Math.max(0, (counts[selected] || 0)) + 1;
+        }
+        return { counts, userReaction };
+    }
+
+    function renderDmReactionVisual(reaction, className = 'dm-reaction-emoji') {
+        if (reaction && reaction.image_url) {
+            return `<img class="dm-reaction-custom-img" src="${dmEscapeAttr(reaction.image_url)}" alt="" loading="lazy">`;
+        }
+        return `<span class="${dmEscapeAttr(className)}">${escapeHtml((reaction && reaction.emoji) || '👍')}</span>`;
+    }
+
+    function listDmReactionOptionsForCounts(counts) {
+        const normalizedCounts = normalizeDmReactionCounts(counts);
+        const seen = new Set();
+        const ordered = [];
+        (DM_REACTION_OPTIONS || []).forEach((reaction) => {
+            if (!reaction || !reaction.type || !normalizedCounts[reaction.type]) return;
+            seen.add(reaction.type);
+            ordered.push(reaction);
+        });
+        Object.keys(normalizedCounts).sort().forEach((type) => {
+            if (!seen.has(type)) ordered.push(getDmReactionOption(type));
+        });
+        return ordered;
+    }
+
+    function renderDmReactionPills(messageId, counts, userReaction) {
+        const normalizedCounts = normalizeDmReactionCounts(counts);
+        return listDmReactionOptionsForCounts(normalizedCounts)
+            .map((reaction) => {
+                const count = normalizedCounts[reaction.type] || 0;
+                if (!count) return '';
+                const selected = userReaction === reaction.type ? ' is-selected' : '';
+                return `
+                    <button type="button"
+                            class="dm-reaction-pill${selected}"
+                            data-reaction-type="${dmEscapeAttr(reaction.type)}"
+                            onclick="toggleDmReaction(${JSON.stringify(String(messageId))}, ${JSON.stringify(reaction.type)})"
+                            title="${dmEscapeAttr(reaction.label)}"
+                            aria-label="${dmEscapeAttr(`${reaction.label} reaction, ${count}`)}"
+                            aria-pressed="${userReaction === reaction.type ? 'true' : 'false'}">
+                        ${renderDmReactionVisual(reaction)}
+                        <span class="dm-reaction-count">${count}</span>
+                    </button>
+                `;
+            })
+            .join('');
+    }
+
+    function renderDmReactionPalette(messageId, userReaction) {
+        return (DM_REACTION_OPTIONS || [])
+            .map((reaction) => {
+                const selected = userReaction === reaction.type ? ' is-selected' : '';
+                return `
+                    <button type="button"
+                            class="dm-reaction-choice${selected}"
+                            data-reaction-type="${dmEscapeAttr(reaction.type)}"
+                            onclick="toggleDmReaction(${JSON.stringify(String(messageId))}, ${JSON.stringify(reaction.type)})"
+                            title="${dmEscapeAttr(reaction.label)}"
+                            role="menuitemcheckbox"
+                            aria-label="${dmEscapeAttr(reaction.label)}"
+                            aria-pressed="${userReaction === reaction.type ? 'true' : 'false'}">
+                        ${renderDmReactionVisual(reaction)}
+                        <small>${escapeHtml(reaction.label)}</small>
+                    </button>
+                `;
+            })
+            .join('');
+    }
+
+    function renderDmReactionStrip(messageId, counts = {}, userReaction = '') {
+        const normalizedReaction = String(userReaction || '').trim().toLowerCase();
+        const normalizedCounts = normalizeDmReactionCounts(counts);
+        const hasReactions = Object.keys(normalizedCounts).length > 0;
+        return `
+            <div class="dm-reaction-strip${hasReactions ? ' has-reactions' : ''}"
+                 data-dm-reactions="1"
+                 data-message-id="${dmEscapeAttr(messageId)}"
+                 data-reactions="${dmEscapeAttr(JSON.stringify(normalizedCounts))}"
+                 data-user-reaction="${dmEscapeAttr(normalizedReaction)}">
+                <div class="dm-reaction-pills" data-dm-reaction-pills="1">
+                    ${renderDmReactionPills(messageId, normalizedCounts, normalizedReaction)}
+                </div>
+                <div class="dropdown dm-reaction-picker">
+                    <button type="button"
+                            class="dm-reaction-add"
+                            data-bs-toggle="dropdown"
+                            data-bs-auto-close="outside"
+                            title="Add reaction"
+                            aria-label="Add reaction"
+                            aria-haspopup="menu"
+                            aria-expanded="false">
+                        <i class="bi bi-emoji-smile"></i>
+                    </button>
+                    <div class="dropdown-menu dm-reaction-palette dropdown-menu-end"
+                         role="menu"
+                         aria-label="Choose reaction">
+                        ${renderDmReactionPalette(messageId, normalizedReaction)}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    function updateDmReactionStrip(messageId, counts, userReaction) {
+        const strip = getDmReactionStrip(messageId);
+        if (!strip) return;
+        const normalizedCounts = normalizeDmReactionCounts(counts);
+        const normalizedReaction = String(userReaction || '').trim().toLowerCase();
+        strip.dataset.reactions = JSON.stringify(normalizedCounts);
+        strip.dataset.userReaction = normalizedReaction;
+        strip.classList.toggle('has-reactions', Object.keys(normalizedCounts).length > 0);
+        const pills = strip.querySelector('[data-dm-reaction-pills]');
+        if (pills) {
+            pills.innerHTML = renderDmReactionPills(messageId, normalizedCounts, normalizedReaction);
+        }
+        strip.querySelectorAll('.dm-reaction-choice').forEach((choice) => {
+            const selected = choice.dataset.reactionType === normalizedReaction;
+            choice.classList.toggle('is-selected', selected);
+            choice.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
+    }
+
+    function setDmReactionBusy(messageId, busy) {
+        const strip = getDmReactionStrip(messageId);
+        if (!strip) return;
+        strip.classList.toggle('is-busy', Boolean(busy));
+        strip.setAttribute('aria-busy', busy ? 'true' : 'false');
+        strip.querySelectorAll('button').forEach((button) => {
+            button.disabled = Boolean(busy);
+        });
+    }
+
+    function flashDmReactionUpdate(messageId) {
+        const strip = getDmReactionStrip(messageId);
+        if (!strip) return;
+        strip.classList.remove('just-updated');
+        void strip.offsetWidth;
+        strip.classList.add('just-updated');
+        window.setTimeout(() => {
+            if (strip.isConnected) strip.classList.remove('just-updated');
+        }, 360);
+    }
+
+    function openDmReactionPicker(messageId) {
+        const strip = getDmReactionStrip(messageId);
+        const toggle = strip ? strip.querySelector('.dm-reaction-add') : null;
+        if (!toggle || toggle.disabled) return;
+        if (window.bootstrap && window.bootstrap.Dropdown) {
+            window.bootstrap.Dropdown.getOrCreateInstance(toggle, { autoClose: 'outside' }).show();
+        } else {
+            const menu = strip.querySelector('.dm-reaction-palette');
+            if (menu) menu.classList.add('show');
+            toggle.setAttribute('aria-expanded', 'true');
+        }
+        if (typeof toggle.focus === 'function') {
+            toggle.focus({ preventScroll: true });
+        }
+    }
+
+    function closeDmReactionPicker(messageId) {
+        const strip = getDmReactionStrip(messageId);
+        const toggle = strip ? strip.querySelector('.dm-reaction-add') : null;
+        if (!toggle) return;
+        if (window.bootstrap && window.bootstrap.Dropdown) {
+            const instance = window.bootstrap.Dropdown.getInstance(toggle);
+            if (instance) instance.hide();
+        } else {
+            const menu = strip.querySelector('.dm-reaction-palette');
+            if (menu) menu.classList.remove('show');
+        }
+        toggle.setAttribute('aria-expanded', 'false');
+    }
+
+    function toggleDmReaction(messageId, reactionType) {
+        const normalizedId = String(messageId || '').trim();
+        if (!normalizedId || DM_REACTION_IN_FLIGHT.has(normalizedId)) return;
+        const normalizedReaction = String(reactionType || 'like').trim().toLowerCase() || 'like';
+        const before = getDmReactionState(normalizedId);
+        const optimistic = buildDmReactionState(before, normalizedReaction);
+        updateDmReactionStrip(normalizedId, optimistic.counts, optimistic.userReaction);
+        DM_REACTION_IN_FLIGHT.add(normalizedId);
+        setDmReactionBusy(normalizedId, true);
+
+        apiCall('/ajax/toggle_like', {
+            method: 'POST',
+            body: JSON.stringify({
+                message_id: normalizedId,
+                item_type: 'dm_message',
+                reaction_type: normalizedReaction,
+            }),
+        })
+            .then((data) => {
+                if (!data || !data.success) {
+                    throw new Error((data && data.error) || 'Reaction update failed');
+                }
+                const interactions = data.interactions || {};
+                updateDmReactionStrip(
+                    normalizedId,
+                    interactions.like_counts || optimistic.counts,
+                    data.user_reaction || ''
+                );
+                flashDmReactionUpdate(normalizedId);
+                dmLastThreadToken = '';
+                closeDmReactionPicker(normalizedId);
+            })
+            .catch((error) => {
+                console.error('Error toggling DM reaction:', error);
+                updateDmReactionStrip(normalizedId, before.counts, before.userReaction);
+                if (typeof showAlert === 'function') {
+                    showAlert('Failed to update reaction', 'danger');
+                }
+            })
+            .finally(() => {
+                DM_REACTION_IN_FLIGHT.delete(normalizedId);
+                setDmReactionBusy(normalizedId, false);
+            });
+    }
+
     function getCurrentUserDmIdentity() {
         const existingLabel = document.querySelector('.dm-message-row.outbound .dm-message-sender');
         const existingAvatar = document.querySelector('.dm-message-row.outbound .dm-avatar img');
@@ -3348,6 +3821,7 @@
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end">
                                 <li><a class="dropdown-item" href="#" data-dm-action="reply" data-message-id="${dmEscapeAttr(message.id)}" data-sender-label="${dmEscapeAttr(identity.label)}" data-preview="${dmEscapeAttr(((message.content || '').toString().slice(0, 140)) || '(attachment)')}"><i class="bi bi-reply"></i> Reply</a></li>
+                                <li><a class="dropdown-item" href="#" data-dm-action="open-reactions" data-message-id="${dmEscapeAttr(message.id)}"><i class="bi bi-emoji-smile"></i> React</a></li>
                                 <li><a class="dropdown-item" href="#" data-bookmark-button="1" data-source-type="dm_message" data-source-id="${dmEscapeAttr(message.id)}" data-bookmarked="false" onclick="event.preventDefault();"><i class="bi bi-bookmark"></i> <span data-bookmark-label>Save</span></a></li>
                                 <li><a class="dropdown-item" href="#" onclick="editMessage('${dmEscapeAttr(message.id)}'); return false;"><i class="bi bi-pencil"></i> Edit</a></li>
                                 <li><a class="dropdown-item text-danger" href="#" onclick="deleteMessage('${dmEscapeAttr(message.id)}'); return false;"><i class="bi bi-trash"></i> Delete</a></li>
@@ -3359,6 +3833,7 @@
                                 ${message.content ? `<div class="dm-bubble-copy dm-message-text" data-canopy-source-ref="content:lede">${escapeHtml(message.content)}</div>` : ''}
                                 ${renderOptimisticDmAttachments(attachments)}
                             </div>
+                            ${renderDmReactionStrip(message.id, message.reaction_counts || {}, message.user_reaction || '')}
                             <div class="dm-bubble-footer">
                                 ${buildOptimisticDmSecurityChip(security)}
                                 ${editedHtml}
@@ -3565,6 +4040,16 @@
         } else if (action === 'jump-message') {
             event.preventDefault();
             jumpToMessage(actionEl.getAttribute('data-message-id'));
+        } else if (action === 'open-reactions') {
+            event.preventDefault();
+            const messageId = actionEl.getAttribute('data-message-id');
+            const menu = actionEl.closest('.dm-message-menu');
+            const toggle = menu ? menu.querySelector('[data-bs-toggle="dropdown"]') : null;
+            if (toggle && window.bootstrap && window.bootstrap.Dropdown) {
+                const instance = window.bootstrap.Dropdown.getInstance(toggle);
+                if (instance) instance.hide();
+            }
+            window.setTimeout(() => openDmReactionPicker(messageId), 0);
         }
     }
 
@@ -3797,7 +4282,8 @@
     function resolveDmDropdownElement(target) {
         if (!(target instanceof Element)) return null;
         if (target.classList.contains('dm-message-menu')) return target;
-        return target.closest('.dm-message-menu');
+        if (target.classList.contains('dm-reaction-picker')) return target;
+        return target.closest('.dm-message-menu, .dm-reaction-picker');
     }
 
     function updateDmDropdownDirection(dropdown) {
@@ -3870,11 +4356,21 @@
         document.addEventListener('shown.bs.dropdown', (event) => {
             const dropdown = resolveDmDropdownElement(event.target);
             const msgRow = dropdown ? dropdown.closest('.message-item') : null;
+            const toggle = dropdown ? dropdown.querySelector('[data-bs-toggle="dropdown"]') : null;
+            if (toggle) toggle.setAttribute('aria-expanded', 'true');
+            if (dropdown && dropdown.classList.contains('dm-reaction-picker')) {
+                dropdown.classList.add('picker-open');
+            }
             if (msgRow) msgRow.classList.add('dropdown-open');
         });
         document.addEventListener('hidden.bs.dropdown', (event) => {
             const dropdown = resolveDmDropdownElement(event.target);
             const msgRow = dropdown ? dropdown.closest('.message-item') : null;
+            const toggle = dropdown ? dropdown.querySelector('[data-bs-toggle="dropdown"]') : null;
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+            if (dropdown && dropdown.classList.contains('dm-reaction-picker')) {
+                dropdown.classList.remove('picker-open');
+            }
             if (msgRow) msgRow.classList.remove('dropdown-open');
             if (dropdown) dropdown.classList.remove('dropup');
         });

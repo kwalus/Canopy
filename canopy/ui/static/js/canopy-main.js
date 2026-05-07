@@ -6559,6 +6559,7 @@
                 deckInboxCanopyLLMInFlight: false,
                 deckInboxCanopyLLMDraftReady: false,
                 deckInboxCanopyLLMIgnoredDraft: '',
+                deckInboxReactionInFlight: new Set(),
                 deckDesktopMode: normalizeDeckDesktopMode(loadSidebarRailPreference('deckDesktopMode', 'default')),
                 /** Last `state.deckItems.length` applied in `syncDeckLayoutMode` (module layout). */
                 deckLayoutLastQueueCount: -1,
@@ -10996,6 +10997,256 @@
                     .catch((err) => showAlert((err && (err.error || err.message)) || 'Delete failed', 'danger'));
             }
 
+            function normalizeDeckDmReactionKey(value) {
+                const raw = String(value || '').trim().toLowerCase();
+                if (!raw) return 'like';
+                if (raw.startsWith(':') && raw.endsWith(':') && raw.length > 2) {
+                    const slug = raw.slice(1, -1)
+                        .replace(/[^a-z0-9_-]+/g, '-')
+                        .replace(/^-+|-+$/g, '');
+                    return `custom:${slug || 'emoji'}`;
+                }
+                if (raw.startsWith('custom:')) {
+                    const slug = raw.slice('custom:'.length)
+                        .replace(/[^a-z0-9_-]+/g, '-')
+                        .replace(/^-+|-+$/g, '');
+                    return `custom:${slug || 'emoji'}`;
+                }
+                return raw;
+            }
+
+            function normalizeDeckDmOptionalReactionKey(value) {
+                const raw = String(value || '').trim();
+                return raw ? normalizeDeckDmReactionKey(raw) : '';
+            }
+
+            function normalizeDeckDmReactionCounts(value) {
+                if (!value || typeof value !== 'object') return {};
+                const counts = {};
+                Object.entries(value).forEach(([type, count]) => {
+                    const key = normalizeDeckDmReactionKey(type);
+                    const parsed = Math.max(0, parseInt(count, 10) || 0);
+                    if (key && parsed > 0) counts[key] = parsed;
+                });
+                return counts;
+            }
+
+            function getDeckDmReactionStrip(messageId) {
+                const root = deckInboxSurface || document;
+                const escapedId = window.CSS && typeof window.CSS.escape === 'function'
+                    ? window.CSS.escape(String(messageId))
+                    : String(messageId).replace(/["\\]/g, '\\$&');
+                return root.querySelector(`.dm-reaction-strip[data-message-id="${escapedId}"]`);
+            }
+
+            function getDeckDmReactionState(messageId) {
+                const strip = getDeckDmReactionStrip(messageId);
+                if (!strip) return { counts: {}, userReaction: '' };
+                let counts = {};
+                try {
+                    counts = normalizeDeckDmReactionCounts(JSON.parse(strip.dataset.reactions || '{}'));
+                } catch (_) {
+                    counts = {};
+                }
+                return {
+                    counts,
+                    userReaction: normalizeDeckDmOptionalReactionKey(strip.dataset.userReaction || ''),
+                };
+            }
+
+            function getDeckDmReactionOptions(strip, counts = {}) {
+                const options = [];
+                const seen = new Set();
+                const root = strip || deckInboxSurface || document;
+                root.querySelectorAll('.dm-reaction-choice[data-reaction-type]').forEach((choice) => {
+                    const type = normalizeDeckDmReactionKey(choice.getAttribute('data-reaction-type') || '');
+                    if (!type || seen.has(type)) return;
+                    const img = choice.querySelector('img');
+                    const emoji = (choice.querySelector('span')?.textContent || '').trim();
+                    const small = (choice.querySelector('small')?.textContent || '').trim();
+                    seen.add(type);
+                    options.push({
+                        type,
+                        label: small || choice.getAttribute('title') || (type.startsWith('custom:') ? type.slice(7) : 'Reaction'),
+                        emoji: emoji || (type.startsWith('custom:') ? `:${type.slice(7)}:` : '👍'),
+                        image_url: img ? (img.getAttribute('src') || img.src || '') : '',
+                    });
+                });
+                Object.keys(normalizeDeckDmReactionCounts(counts)).sort().forEach((type) => {
+                    if (seen.has(type)) return;
+                    const label = type.startsWith('custom:')
+                        ? type.slice(7).replace(/[-_]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
+                        : 'Reaction';
+                    options.push({
+                        type,
+                        label,
+                        emoji: type.startsWith('custom:') ? `:${type.slice(7)}:` : '👍',
+                        image_url: '',
+                    });
+                });
+                return options;
+            }
+
+            function buildDeckDmReactionState(current, selectedType) {
+                const selected = normalizeDeckDmReactionKey(selectedType || 'like');
+                const counts = normalizeDeckDmReactionCounts((current && current.counts) || {});
+                const previous = normalizeDeckDmOptionalReactionKey((current && current.userReaction) || '');
+                let userReaction = selected;
+                if (previous === selected) {
+                    counts[selected] = Math.max(0, (counts[selected] || 0) - 1);
+                    if (counts[selected] <= 0) delete counts[selected];
+                    userReaction = '';
+                } else {
+                    if (previous) {
+                        counts[previous] = Math.max(0, (counts[previous] || 0) - 1);
+                        if (counts[previous] <= 0) delete counts[previous];
+                    }
+                    counts[selected] = Math.max(0, (counts[selected] || 0)) + 1;
+                }
+                return { counts, userReaction };
+            }
+
+            function renderDeckDmReactionVisual(option) {
+                if (option && option.image_url) {
+                    return `<img class="dm-reaction-custom-img" src="${escapeEmbedAttr(option.image_url)}" alt="" loading="lazy">`;
+                }
+                return `<span class="dm-reaction-emoji">${escapeEmbedHtml((option && option.emoji) || '👍')}</span>`;
+            }
+
+            function renderDeckDmReactionPills(messageId, strip, counts, userReaction) {
+                const normalizedCounts = normalizeDeckDmReactionCounts(counts);
+                return getDeckDmReactionOptions(strip, normalizedCounts)
+                    .map((option) => {
+                        const count = normalizedCounts[option.type] || 0;
+                        if (!count) return '';
+                        const selected = userReaction === option.type ? ' is-selected' : '';
+                        return `
+                            <button type="button"
+                                    class="dm-reaction-pill${selected}"
+                                    data-reaction-type="${escapeEmbedAttr(option.type)}"
+                                    onclick="toggleDmReaction(${JSON.stringify(String(messageId))}, ${JSON.stringify(option.type)})"
+                                    title="${escapeEmbedAttr(option.label)}"
+                                    aria-label="${escapeEmbedAttr(`${option.label} reaction, ${count}`)}"
+                                    aria-pressed="${selected ? 'true' : 'false'}">
+                                ${renderDeckDmReactionVisual(option)}
+                                <span class="dm-reaction-count">${count}</span>
+                            </button>
+                        `;
+                    })
+                    .join('');
+            }
+
+            function updateDeckDmReactionStrip(messageId, counts, userReaction) {
+                const strip = getDeckDmReactionStrip(messageId);
+                if (!strip) return;
+                const normalizedCounts = normalizeDeckDmReactionCounts(counts);
+                const normalizedReaction = normalizeDeckDmOptionalReactionKey(userReaction);
+                strip.dataset.reactions = JSON.stringify(normalizedCounts);
+                strip.dataset.userReaction = normalizedReaction;
+                strip.classList.toggle('has-reactions', Object.keys(normalizedCounts).length > 0);
+                const pills = strip.querySelector('[data-dm-reaction-pills]');
+                if (pills) {
+                    pills.innerHTML = renderDeckDmReactionPills(messageId, strip, normalizedCounts, normalizedReaction);
+                }
+                strip.querySelectorAll('.dm-reaction-choice[data-reaction-type]').forEach((choice) => {
+                    const selected = normalizeDeckDmReactionKey(choice.getAttribute('data-reaction-type') || '') === normalizedReaction;
+                    choice.classList.toggle('is-selected', selected);
+                    choice.setAttribute('aria-pressed', selected ? 'true' : 'false');
+                });
+            }
+
+            function setDeckDmReactionBusy(messageId, busy) {
+                const strip = getDeckDmReactionStrip(messageId);
+                if (!strip) return;
+                strip.classList.toggle('is-busy', Boolean(busy));
+                strip.setAttribute('aria-busy', busy ? 'true' : 'false');
+                strip.querySelectorAll('button').forEach((button) => {
+                    button.disabled = Boolean(busy);
+                });
+            }
+
+            function openDeckDmReactionPicker(messageId) {
+                const strip = getDeckDmReactionStrip(messageId);
+                const toggle = strip ? strip.querySelector('.dm-reaction-add') : null;
+                if (!toggle || toggle.disabled) return;
+                if (window.bootstrap && window.bootstrap.Dropdown) {
+                    window.bootstrap.Dropdown.getOrCreateInstance(toggle, { autoClose: 'outside' }).show();
+                } else {
+                    const menu = strip.querySelector('.dm-reaction-palette');
+                    if (menu) menu.classList.add('show');
+                    toggle.setAttribute('aria-expanded', 'true');
+                }
+                if (typeof toggle.focus === 'function') {
+                    try {
+                        toggle.focus({ preventScroll: true });
+                    } catch (_) {
+                        toggle.focus();
+                    }
+                }
+            }
+
+            function closeDeckDmReactionPicker(messageId) {
+                const strip = getDeckDmReactionStrip(messageId);
+                const toggle = strip ? strip.querySelector('.dm-reaction-add') : null;
+                if (!toggle) return;
+                if (window.bootstrap && window.bootstrap.Dropdown) {
+                    const instance = window.bootstrap.Dropdown.getInstance(toggle);
+                    if (instance) instance.hide();
+                } else {
+                    const menu = strip.querySelector('.dm-reaction-palette');
+                    if (menu) menu.classList.remove('show');
+                }
+                toggle.setAttribute('aria-expanded', 'false');
+            }
+
+            function toggleDeckDmReaction(messageId, reactionType) {
+                const normalizedId = String(messageId || '').trim();
+                if (!normalizedId || state.deckInboxReactionInFlight.has(normalizedId)) return;
+                const selectedReaction = normalizeDeckDmReactionKey(reactionType || 'like');
+                const before = getDeckDmReactionState(normalizedId);
+                const optimistic = buildDeckDmReactionState(before, selectedReaction);
+                updateDeckDmReactionStrip(normalizedId, optimistic.counts, optimistic.userReaction);
+                state.deckInboxReactionInFlight.add(normalizedId);
+                setDeckDmReactionBusy(normalizedId, true);
+
+                apiCall('/ajax/toggle_like', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        message_id: normalizedId,
+                        item_type: 'dm_message',
+                        reaction_type: selectedReaction,
+                    }),
+                })
+                    .then((data) => {
+                        if (!data || !data.success) {
+                            throw new Error((data && data.error) || 'Reaction update failed');
+                        }
+                        const interactions = data.interactions || {};
+                        updateDeckDmReactionStrip(
+                            normalizedId,
+                            interactions.like_counts || optimistic.counts,
+                            data.user_reaction || ''
+                        );
+                        closeDeckDmReactionPicker(normalizedId);
+                    })
+                    .catch((err) => {
+                        console.error('Deck Inbox reaction update failed:', err);
+                        updateDeckDmReactionStrip(normalizedId, before.counts, before.userReaction);
+                        showAlert((err && (err.error || err.message)) || 'Failed to update reaction', 'danger');
+                    })
+                    .finally(() => {
+                        state.deckInboxReactionInFlight.delete(normalizedId);
+                        setDeckDmReactionBusy(normalizedId, false);
+                    });
+            }
+
+            if (typeof window.toggleDmReaction !== 'function') {
+                window.toggleDmReaction = toggleDeckDmReaction;
+            }
+            if (typeof window.openDmReactionPicker !== 'function') {
+                window.openDmReactionPicker = openDeckDmReactionPicker;
+            }
+
             function setDeckInboxListOpen(nextOpen) {
                 state.deckInboxListOpen = !!nextOpen;
                 updateDeckModeChrome();
@@ -11037,6 +11288,8 @@
                         actionEl.getAttribute('data-sender-label'),
                         actionEl.getAttribute('data-preview')
                     );
+                } else if (action === 'open-reactions') {
+                    openDeckDmReactionPicker(actionEl.getAttribute('data-message-id'));
                 } else if (action === 'jump-message') {
                     const messageId = String(actionEl.getAttribute('data-message-id') || '').trim();
                     const esc = window.CSS && typeof window.CSS.escape === 'function'

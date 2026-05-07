@@ -56,6 +56,12 @@
                                    data-preview="{{ (message.content[:140] if message.content else '(attachment)')|e }}">
                                 <i class="bi bi-reply"></i> Reply
                             </a></li>
+                            <li><a class="dropdown-item"
+                                   href="#"
+                                   data-dm-action="open-reactions"
+                                   data-message-id="{{ message.id }}">
+                                <i class="bi bi-emoji-smile"></i> React
+                            </a></li>
                             <li><a class="dropdown-item{% if message.is_bookmarked %} active{% endif %}"
                                    href="#"
                                    data-bookmark-button="1"
@@ -104,6 +110,86 @@
                                     {{ render_dm_attachments(message.attachments, message.id) }}
                                 </div>
                             {% endif %}
+                        </div>
+                        {% set dm_counts = message.reaction_counts or {} %}
+                        {% set dm_user_reaction = message.user_reaction or '' %}
+                        <div class="dm-reaction-strip{% if dm_counts %} has-reactions{% endif %}"
+                             data-dm-reactions="1"
+                             data-message-id="{{ message.id }}"
+                             data-reactions="{{ dm_counts|tojson|forceescape }}"
+                             data-user-reaction="{{ dm_user_reaction }}">
+                            <div class="dm-reaction-pills" data-dm-reaction-pills="1">
+                                {% set rendered_reactions = namespace(keys=[]) %}
+                                {% for reaction in dm_reaction_options %}
+                                    {% set count = dm_counts.get(reaction.type, 0) %}
+                                    {% if count %}
+                                        {% set rendered_reactions.keys = rendered_reactions.keys + [reaction.type] %}
+                                            <button type="button"
+                                                    class="dm-reaction-pill{% if dm_user_reaction == reaction.type %} is-selected{% endif %}"
+                                                    data-reaction-type="{{ reaction.type }}"
+                                                    onclick="toggleDmReaction({{ message.id|tojson|forceescape }}, {{ reaction.type|tojson|forceescape }})"
+                                                    title="{{ reaction.label }}"
+                                                    aria-label="{{ reaction.label }} reaction, {{ count }}"
+                                                    aria-pressed="{{ 'true' if dm_user_reaction == reaction.type else 'false' }}">
+                                            {% if reaction.image_url %}
+                                                <img class="dm-reaction-custom-img" src="{{ reaction.image_url }}" alt="" loading="lazy">
+                                            {% else %}
+                                                <span class="dm-reaction-emoji">{{ reaction.emoji }}</span>
+                                            {% endif %}
+                                            <span class="dm-reaction-count">{{ count }}</span>
+                                        </button>
+                                    {% endif %}
+                                {% endfor %}
+                                {% for reaction_type, count in dm_counts.items() %}
+                                    {% if count and reaction_type not in rendered_reactions.keys %}
+                                        {% set fallback_name = reaction_type[7:] if reaction_type.startswith('custom:') else reaction_type %}
+                                        {% set fallback_label = fallback_name.replace('-', ' ').replace('_', ' ').title() %}
+                                        <button type="button"
+                                                class="dm-reaction-pill{% if dm_user_reaction == reaction_type %} is-selected{% endif %}"
+                                                data-reaction-type="{{ reaction_type }}"
+                                                onclick="toggleDmReaction({{ message.id|tojson|forceescape }}, {{ reaction_type|tojson|forceescape }})"
+                                                title="{{ fallback_label }}"
+                                                aria-label="{{ fallback_label }} reaction, {{ count }}"
+                                                aria-pressed="{{ 'true' if dm_user_reaction == reaction_type else 'false' }}">
+                                            <span class="dm-reaction-emoji">{{ ':' ~ fallback_name ~ ':' if reaction_type.startswith('custom:') else '👍' }}</span>
+                                            <span class="dm-reaction-count">{{ count }}</span>
+                                        </button>
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                            <div class="dropdown dm-reaction-picker">
+                                <button type="button"
+                                        class="dm-reaction-add"
+                                        data-bs-toggle="dropdown"
+                                        data-bs-auto-close="outside"
+                                        title="Add reaction"
+                                        aria-label="Add reaction"
+                                        aria-haspopup="menu"
+                                        aria-expanded="false">
+                                    <i class="bi bi-emoji-smile"></i>
+                                </button>
+                                <div class="dropdown-menu dm-reaction-palette dropdown-menu-end"
+                                     role="menu"
+                                     aria-label="Choose reaction">
+                                    {% for reaction in dm_reaction_options %}
+                                        <button type="button"
+                                                class="dm-reaction-choice{% if dm_user_reaction == reaction.type %} is-selected{% endif %}"
+                                                onclick="toggleDmReaction({{ message.id|tojson|forceescape }}, {{ reaction.type|tojson|forceescape }})"
+                                                data-reaction-type="{{ reaction.type }}"
+                                                title="{{ reaction.label }}"
+                                                role="menuitemcheckbox"
+                                                aria-label="{{ reaction.label }}"
+                                                aria-pressed="{{ 'true' if dm_user_reaction == reaction.type else 'false' }}">
+                                            {% if reaction.image_url %}
+                                                <img class="dm-reaction-custom-img" src="{{ reaction.image_url }}" alt="" loading="lazy">
+                                            {% else %}
+                                                <span>{{ reaction.emoji }}</span>
+                                            {% endif %}
+                                            <small>{{ reaction.label }}</small>
+                                        </button>
+                                    {% endfor %}
+                                </div>
+                            </div>
                         </div>
                         <div class="dm-bubble-footer">
                             {% if message.security %}

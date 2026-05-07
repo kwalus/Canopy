@@ -7,6 +7,7 @@ License: Apache 2.0
 """
 
 import logging
+import re
 import secrets
 from pathlib import Path
 from typing import Dict, List, Optional, Any, cast
@@ -23,10 +24,74 @@ logger = logging.getLogger('canopy.interactions')
 class InteractionType(Enum):
     """Types of interactions."""
     LIKE = "like"
-    DISLIKE = "dislike"
     LOVE = "love"
     LAUGH = "laugh"
+    WOW = "wow"
+    SAD = "sad"
     ANGRY = "angry"
+    CELEBRATE = "celebrate"
+    ROCKET = "rocket"
+    EYES = "eyes"
+    CHECK = "check"
+    PRAY = "pray"
+    DISLIKE = "dislike"
+
+CUSTOM_REACTION_PREFIX = "custom:"
+_CUSTOM_REACTION_NAME_RE = re.compile(r"[^a-z0-9_-]+")
+_MAX_CUSTOM_REACTION_NAME_LEN = 48
+
+REACTION_OPTIONS: List[Dict[str, str]] = [
+    {"type": InteractionType.LIKE.value, "emoji": "👍", "label": "Like"},
+    {"type": InteractionType.LOVE.value, "emoji": "❤️", "label": "Love"},
+    {"type": InteractionType.LAUGH.value, "emoji": "😂", "label": "Laugh"},
+    {"type": InteractionType.WOW.value, "emoji": "😮", "label": "Wow"},
+    {"type": InteractionType.SAD.value, "emoji": "😢", "label": "Sad"},
+    {"type": InteractionType.ANGRY.value, "emoji": "😡", "label": "Angry"},
+    {"type": InteractionType.CELEBRATE.value, "emoji": "🎉", "label": "Celebrate"},
+    {"type": InteractionType.ROCKET.value, "emoji": "🚀", "label": "Ship it"},
+    {"type": InteractionType.EYES.value, "emoji": "👀", "label": "Watching"},
+    {"type": InteractionType.CHECK.value, "emoji": "✅", "label": "Done"},
+    {"type": InteractionType.PRAY.value, "emoji": "🙏", "label": "Thanks"},
+    {"type": InteractionType.DISLIKE.value, "emoji": "👎", "label": "Dislike"},
+]
+
+
+def _slugify_custom_reaction_name(value: Any) -> str:
+    raw = str(value or '').strip().lower()
+    raw = raw.strip(':')
+    raw = _CUSTOM_REACTION_NAME_RE.sub('-', raw)
+    raw = re.sub(r'-{2,}', '-', raw).strip('-_')
+    return raw[:_MAX_CUSTOM_REACTION_NAME_LEN].strip('-_')
+
+
+def normalize_reaction_key(value: Any) -> str:
+    """Normalize an untrusted reaction value to a persisted reaction key.
+
+    Standard reactions use the InteractionType values. Team-specific custom
+    emojis are persisted as ``custom:<slug>`` so they can round-trip through
+    UI, API, and P2P without expanding the enum for every meshspace.
+    """
+    if isinstance(value, InteractionType):
+        return value.value
+    raw = str(value or InteractionType.LIKE.value).strip().lower()
+    if raw.startswith(':') and raw.endswith(':') and len(raw) > 2:
+        raw = f"{CUSTOM_REACTION_PREFIX}{raw[1:-1]}"
+    if raw.startswith(CUSTOM_REACTION_PREFIX):
+        slug = _slugify_custom_reaction_name(raw[len(CUSTOM_REACTION_PREFIX):])
+        return f"{CUSTOM_REACTION_PREFIX}{slug}" if slug else InteractionType.LIKE.value
+    try:
+        return InteractionType(raw).value
+    except ValueError:
+        return InteractionType.LIKE.value
+
+
+def normalize_reaction_type(value: Any) -> InteractionType:
+    """Normalize an untrusted reaction value to a supported reaction enum."""
+    raw = normalize_reaction_key(value)
+    try:
+        return InteractionType(raw)
+    except ValueError:
+        return InteractionType.LIKE
 
 @dataclass
 class Like:
@@ -35,13 +100,13 @@ class Like:
     message_id: str
     user_id: str
     created_at: datetime
-    reaction_type: InteractionType = InteractionType.LIKE
+    reaction_type: Any = InteractionType.LIKE
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         data = asdict(self)
         data['created_at'] = self.created_at.isoformat()
-        data['reaction_type'] = self.reaction_type.value
+        data['reaction_type'] = normalize_reaction_key(self.reaction_type)
         return data
 
 @dataclass
@@ -314,8 +379,8 @@ class InteractionManager:
             logger.info("Continuing with existing table structure...")
     
     @log_performance('interactions')
-    def toggle_like(self, message_id: str, user_id: str, 
-                   reaction_type: InteractionType = InteractionType.LIKE) -> bool:
+    def toggle_like(self, message_id: str, user_id: str,
+                   reaction_type: Any = InteractionType.LIKE) -> bool:
         """Toggle a like/reaction on a message.
         
         Args:
@@ -326,31 +391,39 @@ class InteractionManager:
         Returns:
             True if like was added, False if like was removed
         """
-        logger.info(f"Toggling {reaction_type.value} on message {message_id} by user {user_id}")
+        reaction_key = normalize_reaction_key(reaction_type)
+        logger.info(f"Toggling {reaction_key} on message {message_id} by user {user_id}")
         
         try:
             with self.db.get_connection() as conn:
                 # Check if user already liked this message
                 cursor = conn.execute("""
-                    SELECT id FROM likes 
+                    SELECT id, reaction_type FROM likes
                     WHERE message_id = ? AND user_id = ?
                 """, (message_id, user_id))
                 
                 existing_like = cursor.fetchone()
                 
                 if existing_like:
-                    # Remove existing like
-                    conn.execute("DELETE FROM likes WHERE id = ?", (existing_like['id'],))
+                    if str(existing_like['reaction_type'] or InteractionType.LIKE.value) == reaction_key:
+                        conn.execute("DELETE FROM likes WHERE id = ?", (existing_like['id'],))
+                        conn.commit()
+                        logger.info(f"Removed {reaction_key} from message {message_id}")
+                        return False
+                    conn.execute(
+                        "UPDATE likes SET reaction_type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (reaction_key, existing_like['id']),
+                    )
                     conn.commit()
-                    logger.info(f"Removed {reaction_type.value} from message {message_id}")
-                    return False
+                    logger.info(f"Changed reaction on message {message_id} to {reaction_key}")
+                    return True
                 else:
                     # Add new like - use INSERT OR IGNORE to handle foreign key constraints gracefully
                     like_id = f"L{secrets.token_hex(8)}"
                     conn.execute("""
                         INSERT OR IGNORE INTO likes (id, message_id, user_id, reaction_type)
                         VALUES (?, ?, ?, ?)
-                    """, (like_id, message_id, user_id, reaction_type.value))
+                    """, (like_id, message_id, user_id, reaction_key))
                     
                     # Check if the insert was successful
                     cursor = conn.execute("SELECT changes()")
@@ -358,7 +431,7 @@ class InteractionManager:
                     
                     if changes > 0:
                         conn.commit()
-                        logger.info(f"Added {reaction_type.value} to message {message_id}")
+                        logger.info(f"Added {reaction_key} to message {message_id}")
                         return True
                     else:
                         logger.warning(f"Failed to like message {message_id} - foreign key constraint or duplicate")
@@ -440,7 +513,7 @@ class InteractionManager:
                 # Get like counts by reaction type
                 cursor = conn.execute("""
                     SELECT reaction_type, COUNT(*) as count
-                    FROM likes 
+                    FROM likes
                     WHERE message_id = ?
                     GROUP BY reaction_type
                 """, (message_id,))
@@ -454,7 +527,7 @@ class InteractionManager:
                 # Get recent likers
                 cursor = conn.execute("""
                     SELECT user_id, reaction_type, created_at
-                    FROM likes 
+                    FROM likes
                     WHERE message_id = ?
                     ORDER BY created_at DESC
                     LIMIT 10
@@ -495,6 +568,63 @@ class InteractionManager:
                 'recent_likes': [],
                 'comment_count': 0
             }
+
+    def get_message_interactions_map(self, message_ids: list[str]) -> Dict[str, Dict[str, Any]]:
+        """Batch interaction counts for many messages/posts."""
+        clean_ids = [str(item_id).strip() for item_id in (message_ids or []) if str(item_id).strip()]
+        if not clean_ids:
+            return {}
+        result = {
+            item_id: {
+                'message_id': item_id,
+                'total_likes': 0,
+                'like_counts': {},
+                'recent_likes': [],
+                'comment_count': 0,
+            }
+            for item_id in clean_ids
+        }
+        try:
+            with self.db.get_connection() as conn:
+                chunk_size = 250
+                for start in range(0, len(clean_ids), chunk_size):
+                    chunk = clean_ids[start:start + chunk_size]
+                    placeholders = ','.join('?' for _ in chunk)
+                    like_rows = conn.execute(f"""
+                        SELECT message_id, reaction_type, COUNT(*) as count
+                        FROM likes
+                        WHERE message_id IN ({placeholders})
+                        GROUP BY message_id, reaction_type
+                    """, chunk).fetchall()
+                    for row in like_rows:
+                        item_id = str(row['message_id'])
+                        reaction_type = str(row['reaction_type'] or InteractionType.LIKE.value)
+                        count = int(row['count'] or 0)
+                        bucket = result.setdefault(item_id, {
+                            'message_id': item_id,
+                            'total_likes': 0,
+                            'like_counts': {},
+                            'recent_likes': [],
+                            'comment_count': 0,
+                        })
+                        bucket['like_counts'][reaction_type] = count
+                        bucket['total_likes'] += count
+
+                    comment_rows = conn.execute(f"""
+                        SELECT message_id, COUNT(*) as count
+                        FROM comments
+                        WHERE message_id IN ({placeholders})
+                          AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                        GROUP BY message_id
+                    """, chunk).fetchall()
+                    for row in comment_rows:
+                        item_id = str(row['message_id'])
+                        if item_id in result:
+                            result[item_id]['comment_count'] = int(row['count'] or 0)
+            return result
+        except Exception as e:
+            logger.error(f"Failed to batch fetch message interactions: {e}", exc_info=True)
+            return result
     
     @log_performance('interactions')
     def get_message_comments(self, message_id: str, limit: int = 50) -> List[Comment]:
@@ -591,7 +721,7 @@ class InteractionManager:
         try:
             with self.db.get_connection() as conn:
                 cursor = conn.execute("""
-                    SELECT reaction_type FROM likes 
+                    SELECT reaction_type FROM likes
                     WHERE message_id = ? AND user_id = ?
                 """, (message_id, user_id))
                 
@@ -618,18 +748,37 @@ class InteractionManager:
             with self.db.get_connection() as conn:
                 placeholders = ','.join('?' for _ in item_ids)
                 cursor = conn.execute(f"""
-                    SELECT message_id FROM likes 
+                    SELECT message_id FROM likes
                     WHERE message_id IN ({placeholders}) AND user_id = ?
                 """, (*item_ids, user_id))
                 return {row['message_id'] for row in cursor.fetchall()}
         except Exception as e:
             logger.error(f"Failed to batch check user likes: {e}", exc_info=True)
             return set()
+
+    def get_user_reaction_map(self, item_ids: list, user_id: str) -> Dict[str, str]:
+        """Return the current user's reaction type for each requested item."""
+        if not item_ids:
+            return {}
+        try:
+            with self.db.get_connection() as conn:
+                placeholders = ','.join('?' for _ in item_ids)
+                cursor = conn.execute(f"""
+                    SELECT message_id, reaction_type FROM likes
+                    WHERE message_id IN ({placeholders}) AND user_id = ?
+                """, (*item_ids, user_id))
+                return {
+                    str(row['message_id']): str(row['reaction_type'] or InteractionType.LIKE.value)
+                    for row in cursor.fetchall()
+                }
+        except Exception as e:
+            logger.error(f"Failed to batch fetch user reactions: {e}", exc_info=True)
+            return {}
     
     # POST-specific interaction methods
     @log_performance('interactions')
-    def toggle_post_like(self, post_id: str, user_id: str, 
-                        reaction_type: InteractionType = InteractionType.LIKE) -> bool:
+    def toggle_post_like(self, post_id: str, user_id: str,
+                        reaction_type: Any = InteractionType.LIKE) -> bool:
         """Toggle a like/reaction on a post.
         
         Args:
@@ -640,18 +789,28 @@ class InteractionManager:
         Returns:
             True if now liked, False if unliked
         """
+        reaction_key = normalize_reaction_key(reaction_type)
         try:
             with self.db.get_connection() as conn:
                 # Check if user already liked this post
                 cursor = conn.execute("""
-                    SELECT id FROM likes 
+                    SELECT id, reaction_type FROM likes
                     WHERE message_id = ? AND user_id = ?
                 """, (post_id, user_id))
                 
                 existing_like = cursor.fetchone()
                 
                 if existing_like:
-                    # Unlike the post
+                    if str(existing_like['reaction_type'] or InteractionType.LIKE.value) != reaction_key:
+                        conn.execute(
+                            "UPDATE likes SET reaction_type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            (reaction_key, existing_like['id']),
+                        )
+                        logger.info(f"User {user_id} changed reaction on post {post_id} to {reaction_key}")
+                        conn.commit()
+                        return True
+
+                    # Unlike the post when the same reaction is selected again.
                     conn.execute("DELETE FROM likes WHERE id = ?", (existing_like['id'],))
                     conn.execute(
                         "UPDATE feed_posts SET likes = MAX(0, likes - 1) WHERE id = ?",
@@ -665,12 +824,12 @@ class InteractionManager:
                     conn.execute("""
                         INSERT OR IGNORE INTO likes (id, message_id, user_id, reaction_type)
                         VALUES (?, ?, ?, ?)
-                    """, (like_id, post_id, user_id, reaction_type.value))
+                    """, (like_id, post_id, user_id, reaction_key))
                     conn.execute(
                         "UPDATE feed_posts SET likes = likes + 1 WHERE id = ?",
                         (post_id,))
                     
-                    logger.info(f"User {user_id} liked post {post_id} with {reaction_type.value}")
+                    logger.info(f"User {user_id} liked post {post_id} with {reaction_key}")
                     conn.commit()
                     return True
                     
@@ -768,7 +927,7 @@ class InteractionManager:
                 # Get like counts
                 cursor = conn.execute("""
                     SELECT reaction_type, COUNT(*) as count 
-                    FROM likes 
+                    FROM likes
                     WHERE message_id = ?
                     GROUP BY reaction_type
                 """, (post_id,))
