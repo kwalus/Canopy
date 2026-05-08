@@ -485,6 +485,170 @@
     padding: 0.95rem;
 }
 
+.agent-launchpad {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(74, 220, 191, 0.28);
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 12% 4%, rgba(74, 220, 191, 0.18), transparent 34%),
+        radial-gradient(circle at 92% 12%, rgba(88, 166, 255, 0.2), transparent 32%),
+        linear-gradient(135deg, rgba(9, 25, 45, 0.88), rgba(13, 31, 54, 0.74));
+    box-shadow: 0 18px 42px rgba(3, 10, 24, 0.34);
+    padding: 1rem;
+}
+
+.agent-launchpad::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(125, 211, 252, 0.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(125, 211, 252, 0.045) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: linear-gradient(90deg, rgba(0,0,0,0.88), transparent 82%);
+}
+
+.agent-launchpad > * {
+    position: relative;
+    z-index: 1;
+}
+
+.agent-launchpad-grid {
+    display: grid;
+    grid-template-columns: minmax(210px, 0.88fr) minmax(260px, 1fr) minmax(280px, 1.08fr);
+    gap: 0.9rem;
+    align-items: stretch;
+}
+
+.agent-launchpad-intro,
+.agent-launchpad-card,
+.agent-launchpad-result {
+    border: 1px solid rgba(126, 157, 222, 0.2);
+    border-radius: 16px;
+    background: rgba(7, 17, 30, 0.46);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+}
+
+.agent-launchpad-intro,
+.agent-launchpad-card {
+    padding: 0.9rem;
+}
+
+.agent-launchpad-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.42rem;
+    border: 1px solid rgba(74, 220, 191, 0.36);
+    border-radius: 999px;
+    background: rgba(20, 184, 166, 0.12);
+    color: #99f6e4;
+    padding: 0.18rem 0.56rem;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.agent-launchpad-title {
+    color: #f4fbff;
+    font-size: 1.35rem;
+    font-weight: 850;
+    letter-spacing: -0.03em;
+    line-height: 1.04;
+    margin: 0.65rem 0 0.45rem;
+}
+
+.agent-launchpad-copy {
+    color: #b9c8df;
+    font-size: 0.88rem;
+    line-height: 1.45;
+}
+
+.agent-launchpad-step {
+    display: flex;
+    gap: 0.55rem;
+    align-items: flex-start;
+    color: #c9d7ec;
+    font-size: 0.8rem;
+    margin-top: 0.56rem;
+}
+
+.agent-launchpad-step i {
+    color: #65e4c6;
+    margin-top: 0.08rem;
+}
+
+.agent-launchpad .form-control,
+.agent-launchpad .form-select {
+    background-color: rgba(8, 17, 30, 0.68);
+    border-color: rgba(126, 157, 222, 0.26);
+    color: var(--canopy-text-primary, #e5eefc);
+}
+
+.agent-launchpad .form-control:focus,
+.agent-launchpad .form-select:focus {
+    border-color: rgba(74, 220, 191, 0.7);
+    box-shadow: 0 0 0 0.18rem rgba(74, 220, 191, 0.16);
+}
+
+.agent-launchpad-permissions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+    max-height: 168px;
+    overflow-y: auto;
+    padding-right: 0.2rem;
+}
+
+.agent-launchpad-permission {
+    border: 1px solid rgba(126, 157, 222, 0.18);
+    border-radius: 12px;
+    background: rgba(14, 27, 46, 0.58);
+    padding: 0.45rem 0.52rem;
+}
+
+.agent-launchpad-permission .form-check-label {
+    color: #dbeafe;
+}
+
+.agent-launchpad-result {
+    display: none;
+    margin-top: 0.9rem;
+    padding: 0.85rem;
+    border-color: rgba(74, 222, 128, 0.3);
+    background:
+        linear-gradient(135deg, rgba(20, 83, 45, 0.22), rgba(7, 17, 30, 0.54)),
+        rgba(7, 17, 30, 0.52);
+}
+
+.agent-launchpad-result.is-error {
+    border-color: rgba(248, 113, 113, 0.38);
+    background:
+        linear-gradient(135deg, rgba(127, 29, 29, 0.2), rgba(7, 17, 30, 0.56)),
+        rgba(7, 17, 30, 0.52);
+}
+
+.agent-launchpad-secret-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.45rem;
+    align-items: center;
+}
+
+.agent-launchpad-secret-row + .agent-launchpad-secret-row {
+    margin-top: 0.5rem;
+}
+
+.agent-launchpad-secret-row input {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.agent-launchpad-status {
+    min-height: 1.1rem;
+}
+
 .workspace-avatar-wrap {
     width: 72px;
     height: 72px;
@@ -978,6 +1142,10 @@
 }
 
 @media (max-width: 1200px) {
+    .agent-launchpad-grid {
+        grid-template-columns: 1fr;
+    }
+
     .workspace-metric-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -1084,6 +1252,16 @@
 }
 
 @media (max-width: 576px) {
+    .agent-launchpad {
+        padding: 0.75rem;
+        border-radius: 14px;
+    }
+
+    .agent-launchpad-permissions,
+    .agent-launchpad-secret-row {
+        grid-template-columns: 1fr;
+    }
+
     .workspace-metric-grid {
         grid-template-columns: 1fr;
     }
@@ -1332,12 +1510,142 @@
             </li>
         </ul>
     </div>
-	    <div class="card-body">
-	        <div class="tab-content" id="agent-ops-tab-content">
-	        <div class="tab-pane fade show active" id="agent-ops-workspace-pane" role="tabpanel" aria-labelledby="agent-ops-workspace-tab">
-	        <div class="row g-3">
-	            <div class="col-lg-4">
-	                <div class="workspace-user-list" id="workspace-user-list">
+		    <div class="card-body">
+		        <div class="tab-content" id="agent-ops-tab-content">
+		        <div class="tab-pane fade show active" id="agent-ops-workspace-pane" role="tabpanel" aria-labelledby="agent-ops-workspace-tab">
+		        {% set launch_default_permissions = default_permissions if default_permissions is sequence and default_permissions is not string else [] %}
+		        {% set launch_mesh = current_meshspace if current_meshspace is mapping else {} %}
+		        <div class="agent-launchpad mb-3" id="admin-agent-launchpad" data-default-permissions='{{ launch_default_permissions|tojson|safe }}'>
+		            <div class="agent-launchpad-grid">
+		                <div class="agent-launchpad-intro">
+		                    <span class="agent-launchpad-kicker"><i class="bi bi-stars"></i> Agent launchpad</span>
+		                    <div class="agent-launchpad-title">Create a governed Canopy agent in one pass.</div>
+		                    <div class="agent-launchpad-copy">
+		                        This creates a local registered <strong>agent</strong>, stores its crypto identity,
+		                        places it in <code>#agent-start-here</code>, applies quarantine governance, and can mint the first API key.
+		                    </div>
+		                    <div class="agent-launchpad-step"><i class="bi bi-shield-lock"></i><span>Starts controlled: no broad public-channel access until an admin expands governance.</span></div>
+		                    <div class="agent-launchpad-step"><i class="bi bi-key"></i><span>Credential output is shown once. Copy the password and API key before refreshing.</span></div>
+		                    <div class="agent-launchpad-step"><i class="bi bi-diagram-3"></i><span>Template scope: {{ launch_mesh.get('name') or 'Current meshspace' }}</span></div>
+		                </div>
+
+		                <div class="agent-launchpad-card">
+		                    <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+		                        <h6 class="mb-0"><i class="bi bi-person-plus me-1"></i>Identity</h6>
+		                        <span class="workspace-signal-chip info">local agent</span>
+		                    </div>
+		                    <div class="row g-2">
+		                        <div class="col-md-6">
+		                            <label class="form-label small mb-1" for="agent-create-display-name">Display name</label>
+		                            <input type="text" class="form-control form-control-sm" id="agent-create-display-name" maxlength="100" placeholder="Forge McClaw">
+		                        </div>
+		                        <div class="col-md-6">
+		                            <label class="form-label small mb-1" for="agent-create-username">Username</label>
+		                            <div class="input-group input-group-sm">
+		                                <span class="input-group-text">@</span>
+		                                <input type="text" class="form-control" id="agent-create-username" maxlength="64" placeholder="forge_mcclaw">
+		                            </div>
+		                        </div>
+		                        <div class="col-12">
+		                            <div class="form-check form-switch">
+		                                <input class="form-check-input" type="checkbox" role="switch" id="agent-create-generate-password" checked>
+		                                <label class="form-check-label small" for="agent-create-generate-password">Generate secure one-time password</label>
+		                            </div>
+		                        </div>
+		                        <div class="col-12" id="agent-create-password-wrap" style="display:none;">
+		                            <label class="form-label small mb-1" for="agent-create-password">Custom password</label>
+		                            <input type="password" class="form-control form-control-sm" id="agent-create-password" autocomplete="new-password" placeholder="Only if you need a specific handoff password">
+		                        </div>
+		                        <div class="col-md-6">
+		                            <label class="form-label small mb-1" for="agent-create-status">Starting state</label>
+		                            <select class="form-select form-select-sm" id="agent-create-status">
+		                                <option value="active" selected>Active in quarantine</option>
+		                                <option value="pending_approval">Pending approval</option>
+		                            </select>
+		                        </div>
+		                        <div class="col-md-6">
+		                            <label class="form-label small mb-1" for="agent-create-key-expires-days">Key expiry</label>
+		                            <input type="number" class="form-control form-control-sm" id="agent-create-key-expires-days" min="1" placeholder="No expiry">
+		                        </div>
+		                        <div class="col-12">
+		                            <label class="form-label small mb-1" for="agent-create-directive-preset">Directive preset</label>
+		                            <select class="form-select form-select-sm" id="agent-create-directive-preset">
+		                                <option value="">Use Canopy default directives</option>
+		                                {% for p in directive_presets %}
+		                                <option value="{{ p.id }}">{{ p.label }} — {{ p.description }}</option>
+		                                {% endfor %}
+		                                <option value="custom">Custom directives below</option>
+		                            </select>
+		                        </div>
+		                        <div class="col-12" id="agent-create-directives-wrap" style="display:none;">
+		                            <label class="form-label small mb-1" for="agent-create-directives">Custom directives</label>
+		                            <textarea class="form-control form-control-sm" id="agent-create-directives" rows="3" maxlength="{{ directive_max_length }}" placeholder="Concise operating policy for this agent..."></textarea>
+		                        </div>
+		                    </div>
+		                </div>
+
+		                <div class="agent-launchpad-card">
+		                    <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+		                        <h6 class="mb-0"><i class="bi bi-key me-1"></i>First API key</h6>
+		                        <span class="workspace-signal-chip good">mesh template</span>
+		                    </div>
+		                    <div class="row g-2 mb-2">
+		                        <div class="col-12">
+		                            <label class="form-label small mb-1" for="agent-create-key-preset">Scope preset</label>
+		                            <select class="form-select form-select-sm" id="agent-create-key-preset">
+		                                <option value="template" selected>Meshspace agent template</option>
+		                                <option value="readonly">Read-only observer</option>
+		                                <option value="files">Files read/write agent</option>
+		                                <option value="full">Full API permissions</option>
+		                                <option value="none">No key now</option>
+		                                <option value="custom">Custom checked permissions</option>
+		                            </select>
+		                        </div>
+		                    </div>
+		                    <div class="agent-launchpad-permissions mb-2" id="agent-create-permissions">
+		                        {% for p in all_permissions %}
+		                        <div class="agent-launchpad-permission">
+		                            <div class="form-check">
+		                                <input class="form-check-input agent-create-perm-cb" type="checkbox" id="agent-create-perm-{{ p }}" value="{{ p }}" {% if p in launch_default_permissions %}checked{% endif %}>
+		                                <label class="form-check-label small fw-semibold" for="agent-create-perm-{{ p }}">{{ p }}</label>
+		                            </div>
+		                        </div>
+		                        {% endfor %}
+		                    </div>
+		                    <div class="small text-muted mb-2" id="agent-create-permission-summary">Using the meshspace agent template.</div>
+		                    <div class="d-grid gap-2">
+		                        <button type="button" class="btn btn-success btn-sm" id="agent-create-submit-btn">
+		                            <i class="bi bi-rocket-takeoff me-1"></i>Create Agent
+		                        </button>
+		                    </div>
+		                    <div class="small text-muted mt-2 agent-launchpad-status" id="agent-create-status-line" aria-live="polite"></div>
+		                </div>
+		            </div>
+
+		            <div class="agent-launchpad-result" id="agent-create-result" aria-live="polite">
+		                <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
+		                    <div>
+		                        <div class="fw-semibold" id="agent-create-result-title">Agent created</div>
+		                        <div class="small text-muted" id="agent-create-result-meta"></div>
+		                    </div>
+		                    <button type="button" class="btn btn-outline-secondary btn-sm" id="agent-create-refresh-btn">
+		                        Refresh Admin Lists
+		                    </button>
+		                </div>
+		                <div class="agent-launchpad-secret-row">
+		                    <input type="text" class="form-control form-control-sm" id="agent-create-password-output" readonly aria-label="Generated agent password">
+		                    <button type="button" class="btn btn-outline-info btn-sm agent-create-copy-btn" data-copy-target="agent-create-password-output">Copy password</button>
+		                </div>
+		                <div class="agent-launchpad-secret-row" id="agent-create-key-output-row">
+		                    <input type="text" class="form-control form-control-sm" id="agent-create-key-output" readonly aria-label="Generated agent API key">
+		                    <button type="button" class="btn btn-outline-info btn-sm agent-create-copy-btn" data-copy-target="agent-create-key-output">Copy key</button>
+		                </div>
+		                <div class="small mt-2" id="agent-create-result-note"></div>
+		            </div>
+		        </div>
+		        <div class="row g-3">
+		            <div class="col-lg-4">
+		                <div class="workspace-user-list" id="workspace-user-list">
 	                    {% if workspace_users %}
 	                        {% for u in workspace_users %}
 	                        {% set workspace_label = u.display_name or u.username or u.id %}
@@ -3976,6 +4284,266 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
 
     function readOnlyPermissionPreset() {
         return allKeyPermissions.filter(permission => permission.startsWith('read_') || permission === 'view_trust');
+    }
+
+    function filesRwAgentPreset() {
+        return Array.from(new Set([
+            'read_messages',
+            'write_messages',
+            'read_feed',
+            'write_feed',
+            'read_files',
+            'write_files',
+        ].filter(permission => allKeyPermissions.includes(permission))));
+    }
+
+    // Agent launchpad: create a governed local agent account from Admin.
+    const agentCreateSubmitBtn = document.getElementById('agent-create-submit-btn');
+    const agentCreateDisplayName = document.getElementById('agent-create-display-name');
+    const agentCreateUsername = document.getElementById('agent-create-username');
+    const agentCreateGeneratePassword = document.getElementById('agent-create-generate-password');
+    const agentCreatePasswordWrap = document.getElementById('agent-create-password-wrap');
+    const agentCreatePassword = document.getElementById('agent-create-password');
+    const agentCreateStatus = document.getElementById('agent-create-status');
+    const agentCreateKeyPreset = document.getElementById('agent-create-key-preset');
+    const agentCreateKeyExpiresDays = document.getElementById('agent-create-key-expires-days');
+    const agentCreateDirectivePreset = document.getElementById('agent-create-directive-preset');
+    const agentCreateDirectivesWrap = document.getElementById('agent-create-directives-wrap');
+    const agentCreateDirectives = document.getElementById('agent-create-directives');
+    const agentCreateStatusLine = document.getElementById('agent-create-status-line');
+    const agentCreateResult = document.getElementById('agent-create-result');
+    const agentCreateResultTitle = document.getElementById('agent-create-result-title');
+    const agentCreateResultMeta = document.getElementById('agent-create-result-meta');
+    const agentCreateResultNote = document.getElementById('agent-create-result-note');
+    const agentCreatePasswordOutput = document.getElementById('agent-create-password-output');
+    const agentCreateKeyOutput = document.getElementById('agent-create-key-output');
+    const agentCreateKeyOutputRow = document.getElementById('agent-create-key-output-row');
+    const agentCreateRefreshBtn = document.getElementById('agent-create-refresh-btn');
+    const agentCreatePermissionSummary = document.getElementById('agent-create-permission-summary');
+    const agentCreatePermissionCheckboxes = Array.from(document.querySelectorAll('.agent-create-perm-cb'));
+    let agentCreateUsernameTouched = false;
+    let agentCreateInFlight = false;
+
+    function slugAgentUsername(value) {
+        return String(value || '')
+            .trim()
+            .replace(/^@+/, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9_.-]+/g, '_')
+            .replace(/^[._-]+|[._-]+$/g, '')
+            .slice(0, 64);
+    }
+
+    function setAgentCreateStatus(text, isError = false) {
+        if (!agentCreateStatusLine) return;
+        agentCreateStatusLine.textContent = text || '';
+        agentCreateStatusLine.classList.toggle('text-danger', !!isError);
+        agentCreateStatusLine.classList.toggle('text-success', !isError && !!text);
+        agentCreateStatusLine.classList.toggle('text-muted', !text);
+    }
+
+    function setAgentCreateBusy(isBusy) {
+        agentCreateInFlight = !!isBusy;
+        if (!agentCreateSubmitBtn) return;
+        if (!agentCreateSubmitBtn.dataset.defaultLabel) {
+            agentCreateSubmitBtn.dataset.defaultLabel = agentCreateSubmitBtn.innerHTML || 'Create Agent';
+        }
+        agentCreateSubmitBtn.disabled = !!isBusy;
+        agentCreateSubmitBtn.innerHTML = isBusy
+            ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Creating...'
+            : agentCreateSubmitBtn.dataset.defaultLabel;
+    }
+
+    function setAgentCreatePermissionSelection(values) {
+        const selected = new Set((values || []).map(v => String(v || '').trim()).filter(Boolean));
+        agentCreatePermissionCheckboxes.forEach(cb => {
+            cb.checked = selected.has(String(cb.value || '').trim());
+            cb.disabled = agentCreateKeyPreset && agentCreateKeyPreset.value === 'none';
+        });
+        updateAgentCreatePermissionSummary();
+    }
+
+    function readAgentCreatePermissionSelection() {
+        return agentCreatePermissionCheckboxes
+            .filter(cb => cb.checked && !cb.disabled)
+            .map(cb => String(cb.value || '').trim())
+            .filter(Boolean);
+    }
+
+    function updateAgentCreatePermissionSummary() {
+        if (!agentCreatePermissionSummary) return;
+        const preset = String(agentCreateKeyPreset?.value || 'template');
+        if (preset === 'none') {
+            agentCreatePermissionSummary.textContent = 'No API key will be created. You can mint one later from the Keys panel.';
+            return;
+        }
+        const selected = readAgentCreatePermissionSelection();
+        if (!selected.length) {
+            agentCreatePermissionSummary.textContent = 'No permissions selected; the server will fall back to conservative agent defaults.';
+            return;
+        }
+        const prefix = preset === 'template'
+            ? 'Mesh template'
+            : preset === 'readonly'
+                ? 'Read-only'
+                : preset === 'files'
+                    ? 'Files RW'
+                    : preset === 'full'
+                        ? 'Full'
+                        : 'Custom';
+        const preview = selected.slice(0, 4).map(humanizePermission).join(' • ');
+        const extra = selected.length > 4 ? ` +${selected.length - 4} more` : '';
+        agentCreatePermissionSummary.textContent = `${prefix}: ${selected.length} permission${selected.length === 1 ? '' : 's'} · ${preview}${extra}`;
+    }
+
+    function applyAgentCreateKeyPreset() {
+        const preset = String(agentCreateKeyPreset?.value || 'template');
+        let values = defaultKeyPermissions.length ? defaultKeyPermissions : [
+            'read_messages',
+            'write_messages',
+            'read_feed',
+            'write_feed',
+        ];
+        if (preset === 'readonly') values = readOnlyPermissionPreset();
+        else if (preset === 'files') values = filesRwAgentPreset();
+        else if (preset === 'full') values = allKeyPermissions;
+        else if (preset === 'none') values = [];
+        setAgentCreatePermissionSelection(values);
+    }
+
+    function renderAgentCreateResult(data, isError = false) {
+        if (!agentCreateResult) return;
+        const user = data?.user || {};
+        const username = user.username || agentCreateUsername?.value || 'agent';
+        const status = user.status || agentCreateStatus?.value || 'active';
+        agentCreateResult.classList.toggle('is-error', !!isError);
+        agentCreateResult.style.display = 'block';
+        if (agentCreateResultTitle) {
+            agentCreateResultTitle.textContent = isError && !data?.success
+                ? 'Agent partially created'
+                : `@${username} is ready`;
+        }
+        if (agentCreateResultMeta) {
+            agentCreateResultMeta.textContent = `${user.id || 'new agent'} · ${status} · ${data?.quarantine_channel_id || '#agent-start-here'}`;
+        }
+        if (agentCreatePasswordOutput) {
+            agentCreatePasswordOutput.value = data?.one_time_password || '';
+        }
+        if (agentCreateKeyOutput && agentCreateKeyOutputRow) {
+            const rawKey = data?.api_key || '';
+            agentCreateKeyOutput.value = rawKey;
+            agentCreateKeyOutputRow.style.display = rawKey ? 'grid' : 'none';
+        }
+        if (agentCreateResultNote) {
+            const permissions = Array.isArray(data?.permissions) ? data.permissions : [];
+            const warnings = Array.isArray(data?.warnings) ? data.warnings.filter(Boolean) : [];
+            const pieces = [];
+            if (data?.message) pieces.push(escapeHtml(data.message));
+            if (permissions.length) pieces.push(`Key scope: ${escapeHtml(permissions.map(humanizePermission).join(' • '))}.`);
+            if (warnings.length) pieces.push(`<span class="text-warning">${escapeHtml(warnings.join(' '))}</span>`);
+            if (isError && data?.error) pieces.unshift(`<span class="text-danger">${escapeHtml(data.error)}</span>`);
+            agentCreateResultNote.innerHTML = pieces.join(' ');
+        }
+        agentCreateResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    if (agentCreateDisplayName && agentCreateUsername) {
+        agentCreateUsername.addEventListener('input', () => {
+            agentCreateUsernameTouched = true;
+        });
+        agentCreateDisplayName.addEventListener('input', () => {
+            if (!agentCreateUsernameTouched && !String(agentCreateUsername.value || '').trim()) {
+                agentCreateUsername.value = slugAgentUsername(agentCreateDisplayName.value);
+            }
+        });
+    }
+    if (agentCreateGeneratePassword && agentCreatePasswordWrap) {
+        agentCreateGeneratePassword.addEventListener('change', () => {
+            agentCreatePasswordWrap.style.display = agentCreateGeneratePassword.checked ? 'none' : '';
+        });
+    }
+    if (agentCreateDirectivePreset && agentCreateDirectivesWrap) {
+        agentCreateDirectivePreset.addEventListener('change', () => {
+            agentCreateDirectivesWrap.style.display = agentCreateDirectivePreset.value === 'custom' ? '' : 'none';
+        });
+    }
+    if (agentCreateKeyPreset) {
+        agentCreateKeyPreset.addEventListener('change', applyAgentCreateKeyPreset);
+    }
+    agentCreatePermissionCheckboxes.forEach(cb => {
+        cb.addEventListener('change', () => {
+            if (agentCreateKeyPreset && agentCreateKeyPreset.value !== 'none') {
+                agentCreateKeyPreset.value = 'custom';
+            }
+            updateAgentCreatePermissionSummary();
+        });
+    });
+    applyAgentCreateKeyPreset();
+
+    document.querySelectorAll('.agent-create-copy-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const targetId = btn.getAttribute('data-copy-target') || '';
+            const target = targetId ? document.getElementById(targetId) : null;
+            const copied = await copyTextToClipboard(target?.value || '');
+            const oldText = btn.textContent;
+            btn.textContent = copied ? 'Copied' : 'Copy failed';
+            btn.classList.toggle('btn-outline-danger', !copied);
+            btn.classList.toggle('btn-outline-info', copied);
+            setTimeout(() => {
+                btn.textContent = oldText || 'Copy';
+                btn.classList.remove('btn-outline-danger');
+                btn.classList.add('btn-outline-info');
+            }, 1600);
+        });
+    });
+    if (agentCreateRefreshBtn) {
+        agentCreateRefreshBtn.addEventListener('click', () => window.location.reload());
+    }
+    if (agentCreateSubmitBtn) {
+        agentCreateSubmitBtn.addEventListener('click', async () => {
+            if (agentCreateInFlight) return;
+            const displayName = String(agentCreateDisplayName?.value || '').trim();
+            const username = slugAgentUsername(agentCreateUsername?.value || displayName);
+            const preset = String(agentCreateKeyPreset?.value || 'template');
+            const createApiKey = preset !== 'none';
+            const permissions = readAgentCreatePermissionSelection();
+            const expiresRaw = String(agentCreateKeyExpiresDays?.value || '').trim();
+            const directivePreset = String(agentCreateDirectivePreset?.value || '').trim();
+            const payload = {
+                display_name: displayName,
+                username,
+                generate_password: !!agentCreateGeneratePassword?.checked,
+                password: agentCreateGeneratePassword?.checked ? undefined : String(agentCreatePassword?.value || ''),
+                status: String(agentCreateStatus?.value || 'active'),
+                create_api_key: createApiKey,
+                permissions: createApiKey && permissions.length ? permissions : undefined,
+                expires_days: expiresRaw || undefined,
+                directive_preset_id: directivePreset && directivePreset !== 'custom' ? directivePreset : undefined,
+                agent_directives: directivePreset === 'custom' ? String(agentCreateDirectives?.value || '') : undefined,
+            };
+            if (!payload.username || payload.username.length < 2) {
+                setAgentCreateStatus('Enter a display name or username first.', true);
+                return;
+            }
+            setAgentCreateBusy(true);
+            setAgentCreateStatus('Creating governed agent account...');
+            try {
+                const { ok, data } = await api('POST', '/ajax/admin/agents', payload);
+                if (ok && data.success) {
+                    setAgentCreateStatus(`Created @${data?.user?.username || payload.username}. Copy credentials before refreshing.`);
+                    renderAgentCreateResult(data, false);
+                } else {
+                    setAgentCreateStatus(data.error || 'Agent creation failed.', true);
+                    if (data?.user_created || data?.one_time_password || data?.api_key) {
+                        renderAgentCreateResult(data, true);
+                    }
+                }
+            } catch (err) {
+                setAgentCreateStatus('Could not reach the server while creating the agent.', true);
+            } finally {
+                setAgentCreateBusy(false);
+            }
+        });
     }
 
     async function loadKeysForUser(userId, options = {}) {

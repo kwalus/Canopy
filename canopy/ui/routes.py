@@ -10433,6 +10433,212 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Admin list users error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    def _generate_admin_agent_password() -> str:
+        """Generate a strong one-time password suitable for admin-created agents."""
+        return f"Canopy-{secrets.token_urlsafe(18)}-A1!"
+
+    @ui.route('/ajax/admin/agents', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_create_agent_account():
+        """Create a local governed agent account and optionally mint its first API key."""
+        try:
+            db_manager, api_key_manager, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            data = request.get_json(silent=True) or {}
+
+            raw_display_name = str(data.get('display_name') or '').strip()
+            raw_username = str(data.get('username') or '').strip()
+            if raw_username.startswith('@'):
+                return jsonify({
+                    'error': 'username may use letters, numbers, dot, underscore, or hyphen, and cannot start with @'
+                }), 400
+            if not raw_username and raw_display_name:
+                raw_username = re.sub(r'[^A-Za-z0-9_.-]+', '_', raw_display_name.strip().lower()).strip('._-')
+            username = raw_username
+            display_name = raw_display_name or username
+            if not username or len(username) < 2:
+                return jsonify({'error': 'username is required and must be at least 2 characters'}), 400
+            if len(username) > 64:
+                return jsonify({'error': 'username must be 64 characters or fewer'}), 400
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{1,63}', username):
+                return jsonify({
+                    'error': 'username may use letters, numbers, dot, underscore, or hyphen, and cannot start with @'
+                }), 400
+            if len(display_name) > 100:
+                return jsonify({'error': 'display_name must be 100 characters or fewer'}), 400
+
+            if db_manager.get_user_by_username(username):
+                return jsonify({'error': f'Username "{username}" is already taken'}), 409
+
+            requested_status = str(data.get('status') or 'active').strip().lower()
+            if requested_status not in {'active', 'pending_approval'}:
+                return jsonify({'error': "status must be 'active' or 'pending_approval'"}), 400
+
+            generate_password = bool(data.get('generate_password', True))
+            password = str(data.get('password') or '')
+            if generate_password or not password:
+                password = _generate_admin_agent_password()
+            from ..security.password import validate_password_strength
+            is_valid_password, password_error = validate_password_strength(password)
+            if not is_valid_password:
+                return jsonify({'error': password_error}), 400
+
+            preset_id = str(data.get('directive_preset_id') or '').strip()
+            custom_directives: Optional[str] = None
+            if preset_id and preset_id != 'custom':
+                preset = (DEFAULT_AGENT_DIRECTIVE_PRESETS or {}).get(preset_id)
+                if not preset:
+                    return jsonify({'error': 'Unknown directive preset'}), 400
+                try:
+                    custom_directives = normalize_agent_directives(preset.get('content'))
+                except ValueError as ve:
+                    return jsonify({'error': str(ve)}), 400
+            elif preset_id == 'custom' or 'agent_directives' in data:
+                raw_directives = data.get('agent_directives')
+                if raw_directives:
+                    try:
+                        custom_directives = normalize_agent_directives(raw_directives)
+                    except ValueError as ve:
+                        return jsonify({'error': str(ve)}), 400
+
+            create_api_key = bool(data.get('create_api_key', True))
+            permissions_raw = data.get('permissions')
+            permission_values: list[str] = []
+            if create_api_key:
+                if not permissions_raw:
+                    permissions_raw = _current_meshspace_default_agent_permissions()
+                permission_values, invalid_permissions = _normalize_permission_values(permissions_raw)
+                if invalid_permissions:
+                    return jsonify({
+                        'error': 'Invalid permission(s): ' + ', '.join(invalid_permissions),
+                        'invalid_permissions': invalid_permissions,
+                    }), 400
+                if not permission_values:
+                    permission_values = list(_DEFAULT_AGENT_PERMISSION_VALUES)
+
+            expires_days = data.get('expires_days')
+            if expires_days in ('', None):
+                expires_days = None
+            elif create_api_key:
+                try:
+                    expires_days = int(expires_days)
+                    if expires_days < 1:
+                        expires_days = None
+                except (TypeError, ValueError):
+                    return jsonify({'error': 'expires_days must be a positive integer or blank'}), 400
+
+            user_id = f"user_{secrets.token_hex(8)}"
+            keypair = _generate_user_keypair()
+            pw_hash = _hash_password(password)
+
+            created = db_manager.create_user(
+                user_id=user_id,
+                username=username,
+                public_key=keypair['ed25519_public'],
+                password_hash=pw_hash,
+                display_name=display_name,
+                account_type='agent',
+                status='pending_approval',
+            )
+            if not created:
+                return jsonify({'error': 'Failed to create agent account. Username may already be taken.'}), 500
+
+            def _cleanup_created_agent() -> None:
+                try:
+                    deleter = getattr(db_manager, 'delete_user', None)
+                    if callable(deleter):
+                        deleter(user_id)
+                except Exception:
+                    logger.debug("Could not clean up failed admin-created agent %s", user_id, exc_info=True)
+
+            if not db_manager.store_user_keys(
+                user_id=user_id,
+                ed25519_pub=keypair['ed25519_public'],
+                ed25519_priv=keypair['ed25519_private'],
+                x25519_pub=keypair['x25519_public'],
+                x25519_priv=keypair['x25519_private'],
+            ):
+                _cleanup_created_agent()
+                return jsonify({'error': 'Agent account was created but crypto keys could not be stored'}), 500
+
+            quarantine_channel_id = None
+            if not channel_manager or not hasattr(channel_manager, 'ensure_agent_quarantine_assignment'):
+                _cleanup_created_agent()
+                return jsonify({'error': 'Channel governance service unavailable; refusing to create an ungoverned agent'}), 503
+            quarantine_channel_id = getattr(channel_manager, 'AGENT_START_CHANNEL_ID', 'agent-start-here')
+            quarantine_ok = bool(channel_manager.ensure_agent_quarantine_assignment(
+                user_id,
+                updated_by=get_current_user(),
+            ))
+            if not quarantine_ok:
+                _cleanup_created_agent()
+                return jsonify({'error': 'Failed to apply default agent quarantine; no active agent was created'}), 500
+
+            warnings: list[str] = []
+            if custom_directives is not None:
+                set_directives = getattr(db_manager, 'set_user_agent_directives', None)
+                if callable(set_directives):
+                    if not set_directives(user_id, custom_directives):
+                        warnings.append('Agent was created, but custom directives could not be saved.')
+                else:
+                    warnings.append('Agent was created, but this database manager cannot store custom directives.')
+
+            if requested_status == 'active':
+                if not db_manager.set_user_status(user_id, 'active'):
+                    warnings.append('Agent remains pending because status activation failed.')
+                    requested_status = 'pending_approval'
+
+            raw_key = None
+            if create_api_key:
+                permissions = [Permission(value) for value in permission_values]
+                raw_key = api_key_manager.generate_key(user_id, permissions, expires_days)
+                if not raw_key:
+                    return jsonify({
+                        'success': False,
+                        'error': (
+                            f"Created @{username}, but failed to generate the first API key. "
+                            "Open the user's Keys panel after copying the password."
+                        ),
+                        'reason_code': 'api_key_store_write_failed',
+                        'user_created': True,
+                        'one_time_password': password,
+                        'user': {
+                            'id': user_id,
+                            'username': username,
+                            'display_name': display_name,
+                            'account_type': 'agent',
+                            'status': requested_status,
+                            'is_registered': True,
+                            'is_local_registered': True,
+                        },
+                        'warnings': warnings,
+                    }), 500
+
+            refreshed = db_manager.get_user(user_id) or {}
+            return jsonify({
+                'success': True,
+                'message': 'Agent account created. Copy the one-time credentials before refreshing.',
+                'user': {
+                    'id': refreshed.get('id') or user_id,
+                    'username': refreshed.get('username') or username,
+                    'display_name': refreshed.get('display_name') or display_name,
+                    'account_type': refreshed.get('account_type') or 'agent',
+                    'status': refreshed.get('status') or requested_status,
+                    'is_registered': True,
+                    'is_local_registered': True,
+                },
+                'one_time_password': password,
+                'api_key': raw_key,
+                'permissions': permission_values,
+                'expires_days': expires_days,
+                'quarantine_channel_id': quarantine_channel_id,
+                'directive_source': 'custom' if custom_directives else 'default',
+                'warnings': warnings,
+            }), 201
+        except Exception as e:
+            logger.error(f"Admin create agent account error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/admin/transport-security/status', methods=['GET'])
     @require_login
     @require_admin

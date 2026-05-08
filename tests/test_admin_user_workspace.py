@@ -36,6 +36,7 @@ class _FakeDbManager:
     def __init__(self, conn: sqlite3.Connection, owner_user_id: str) -> None:
         self._conn = conn
         self._owner_user_id = owner_user_id
+        self.stored_user_keys = []
 
     def get_connection(self) -> sqlite3.Connection:
         return self._conn
@@ -49,6 +50,74 @@ class _FakeDbManager:
             (user_id,),
         ).fetchone()
         return dict(row) if row else None
+
+    def get_user_by_username(self, username: str):
+        row = self._conn.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def create_user(
+        self,
+        user_id: str,
+        username: str,
+        public_key: str,
+        password_hash=None,
+        display_name=None,
+        account_type='human',
+        status='active',
+        origin_peer=None,
+    ):
+        try:
+            self._conn.execute(
+                """
+                INSERT INTO users (
+                    id, username, password_hash, display_name, account_type, status,
+                    origin_peer, bio, avatar_file_id, theme_preference, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    username,
+                    password_hash,
+                    display_name or username,
+                    account_type,
+                    status,
+                    origin_peer,
+                    '',
+                    None,
+                    'dark',
+                    '2026-02-23T00:00:00+00:00',
+                ),
+            )
+            self._conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def store_user_keys(self, user_id: str, ed25519_pub: str, ed25519_priv: str, x25519_pub: str, x25519_priv: str):
+        self.stored_user_keys.append({
+            'user_id': user_id,
+            'ed25519_pub': ed25519_pub,
+            'ed25519_priv': ed25519_priv,
+            'x25519_pub': x25519_pub,
+            'x25519_priv': x25519_priv,
+        })
+        return True
+
+    def set_user_status(self, user_id: str, status: str):
+        cur = self._conn.execute(
+            "UPDATE users SET status = ? WHERE id = ?",
+            (status, user_id),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def delete_user(self, user_id: str):
+        cur = self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        self._conn.commit()
+        return cur.rowcount > 0
 
     def get_all_users_for_admin(self):
         rows = self._conn.execute("SELECT * FROM users ORDER BY username ASC").fetchall()
@@ -274,6 +343,7 @@ class _FakeWorkspaceEventManager:
 
 class _FakeChannelManager:
     def __init__(self) -> None:
+        self.AGENT_START_CHANNEL_ID = 'agent-start-here'
         self.policies = {
             'agent-local': {
                 'enabled': True,
@@ -342,6 +412,7 @@ class _FakeChannelManager:
         ]
         self.saved_payloads = []
         self.enforce_calls = []
+        self.quarantine_calls = []
 
     def _policy_defaults(self, user_id: str):
         base = {
@@ -424,6 +495,35 @@ class _FakeChannelManager:
             'removed_count': 2 if policy.get('enabled') else 0,
             'removed_channel_ids': ['general', 'Cpublic'] if policy.get('enabled') else [],
         }
+
+    def ensure_agent_quarantine_assignment(self, user_id: str, *, updated_by=None, role='member'):
+        self.quarantine_calls.append({
+            'user_id': user_id,
+            'updated_by': updated_by,
+            'role': role,
+        })
+        for row in self.channels:
+            if row['id'] == self.AGENT_START_CHANNEL_ID:
+                row.setdefault('members', set()).add(user_id)
+                break
+        else:
+            self.channels.append({
+                'id': self.AGENT_START_CHANNEL_ID,
+                'name': 'agent-start-here',
+                'channel_type': 'private',
+                'privacy_mode': 'private',
+                'origin_peer': None,
+                'member_count': 1,
+                'members': {user_id},
+            })
+        return self.set_user_channel_governance(
+            user_id,
+            enabled=True,
+            block_public_channels=True,
+            restrict_to_allowed_channels=True,
+            allowed_channel_ids=[self.AGENT_START_CHANNEL_ID],
+            updated_by=updated_by,
+        )
 
 
 class _FakeMeshspaceRegistryManager:
@@ -742,6 +842,8 @@ class TestAdminUserWorkspace(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('Stage current memberships', html)
         self.assertIn('Quarantine preset', html)
+        self.assertIn('Agent launchpad', html)
+        self.assertIn('Create Agent', html)
         self.assertIn('Agent default', html)
         self.assertIn('Meshspace Agent API Template', html)
         self.assertIn('Read only', html)
@@ -914,6 +1016,102 @@ class TestAdminUserWorkspace(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertEqual(payload.get('reason_code'), 'api_key_store_write_failed')
         self.assertIn('@agent_local', payload.get('error') or '')
+
+    def test_admin_can_create_governed_agent_with_default_key(self) -> None:
+        csrf_token = 'csrf-create-agent'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        self.api_key_manager.generate_key.return_value = 'raw-launch-agent-key'
+        self.meshspace_registry_manager.record['default_agent_permissions'] = [
+            Permission.READ_MESSAGES.value,
+            Permission.WRITE_MESSAGES.value,
+            Permission.READ_FILES.value,
+            Permission.WRITE_FILES.value,
+        ]
+
+        response = self.client.post(
+            '/ajax/admin/agents',
+            json={
+                'display_name': 'Launch Agent',
+                'username': 'launch_agent',
+                'generate_password': True,
+                'status': 'active',
+                'create_api_key': True,
+            },
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('api_key'), 'raw-launch-agent-key')
+        self.assertTrue(payload.get('one_time_password'))
+        user = payload.get('user') or {}
+        self.assertEqual(user.get('username'), 'launch_agent')
+        self.assertEqual(user.get('account_type'), 'agent')
+        self.assertEqual(user.get('status'), 'active')
+
+        created = self.db_manager.get_user(user.get('id'))
+        self.assertIsNotNone(created)
+        self.assertEqual(created.get('account_type'), 'agent')
+        self.assertEqual(created.get('status'), 'active')
+        self.assertTrue(self.db_manager.stored_user_keys)
+        self.assertEqual(self.channel_manager.quarantine_calls[-1]['user_id'], user.get('id'))
+        self.assertEqual(self.channel_manager.saved_payloads[-1]['allowed_channel_ids'], ['agent-start-here'])
+
+        self.api_key_manager.generate_key.assert_called_once()
+        key_user_id, permissions, expires_days = self.api_key_manager.generate_key.call_args[0]
+        self.assertEqual(key_user_id, user.get('id'))
+        self.assertEqual(expires_days, None)
+        self.assertEqual(
+            permissions,
+            [
+                Permission.READ_MESSAGES,
+                Permission.WRITE_MESSAGES,
+                Permission.READ_FILES,
+                Permission.WRITE_FILES,
+            ],
+        )
+
+    def test_admin_agent_create_rejects_duplicate_username_before_key_generation(self) -> None:
+        csrf_token = 'csrf-create-agent-dupe'
+        self._set_authenticated_session(csrf_token=csrf_token)
+
+        response = self.client.post(
+            '/ajax/admin/agents',
+            json={
+                'display_name': 'Duplicate Agent',
+                'username': 'agent_local',
+                'generate_password': True,
+                'create_api_key': True,
+            },
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.get_json() or {}
+        self.assertIn('already taken', payload.get('error') or '')
+        self.api_key_manager.generate_key.assert_not_called()
+
+    def test_admin_agent_create_rejects_leading_at_username(self) -> None:
+        csrf_token = 'csrf-create-agent-at'
+        self._set_authenticated_session(csrf_token=csrf_token)
+
+        response = self.client.post(
+            '/ajax/admin/agents',
+            json={
+                'display_name': 'At Agent',
+                'username': '@at_agent',
+                'generate_password': True,
+                'create_api_key': True,
+            },
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json() or {}
+        self.assertIn('cannot start with @', payload.get('error') or '')
+        self.assertIsNone(self.db_manager.get_user_by_username('at_agent'))
+        self.api_key_manager.generate_key.assert_not_called()
 
     def test_admin_can_update_local_user_profile(self) -> None:
         csrf_token = 'csrf-profile'

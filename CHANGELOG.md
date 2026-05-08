@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.76] - 2026-05-08
+
+### Added
+- **Admin Agent Launchpad can create governed local agents in one pass** - admins can create an agent account, generate crypto keys, apply quarantine governance, choose directive and API key presets, and copy one-time credentials from a dedicated handoff panel.
+
 ## [0.6.75] - 2026-05-06
 
 ### Added
