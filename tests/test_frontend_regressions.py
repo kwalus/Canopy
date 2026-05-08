@@ -60,6 +60,7 @@ class TestFrontendRegressions(unittest.TestCase):
         ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
         api_routes = (ROOT / 'canopy' / 'api' / 'routes.py').read_text(encoding='utf-8')
         agent_instructions = (ROOT / 'canopy' / 'api' / 'agent_instructions_data.py').read_text(encoding='utf-8')
+        app_core = (ROOT / 'canopy' / 'core' / 'app.py').read_text(encoding='utf-8')
 
         for template in (feed_template, channels_template):
             self.assertIn('collab-card-stack', template)
@@ -84,6 +85,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("/agents/me/collab-cards", api_routes)
         self.assertIn("/collab-cards/<card_id>/responses", api_routes)
         self.assertIn("/collab-cards/<card_id>/telemetry", api_routes)
+        self.assertIn('CollabCardManager', app_core)
+        self.assertIn("app.config['COLLAB_CARD_MANAGER']", app_core)
         self.assertIn("'collab_cards': {", agent_instructions)
         self.assertIn("'my_cards': {'method': 'GET', 'path': '/api/v1/agents/me/collab-cards'", agent_instructions)
         self.assertIn("'list_responses': {'method': 'GET', 'path': '/api/v1/collab-cards/<card_id>/responses'", agent_instructions)

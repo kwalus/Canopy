@@ -30,6 +30,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.api.routes import create_api_blueprint
+from canopy.core.app import create_app
 from canopy.core.collab_cards import CollabCardManager, InputCardSpec, TelemetryCardSpec
 from canopy.security.api_keys import ApiKeyInfo, Permission
 
@@ -81,6 +82,46 @@ class _FakeP2PManager:
 
     def broadcast_interaction(self, **kwargs):
         return True
+
+
+class _FakeP2PNetworkManager:
+    def __init__(self, *args, **kwargs) -> None:
+        self.running = False
+
+    def start(self) -> None:
+        self.running = True
+
+    def stop(self) -> None:
+        self.running = False
+
+    def get_peer_id(self) -> str:
+        return 'peer-local'
+
+
+class TestCollabCardAppFactory(unittest.TestCase):
+    def test_create_app_registers_collab_card_manager(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir) / 'mesh'
+            registry_root = Path(tempdir) / 'registry'
+            env = {
+                'CANOPY_TESTING': 'true',
+                'CANOPY_DISABLE_MESH': 'true',
+                'CANOPY_MESHSPACE_ID': 'collab-manager-test',
+                'CANOPY_MESHSPACE_NAME': 'Collab Manager Test',
+                'CANOPY_MESHSPACE_ROOT': str(root),
+                'CANOPY_MESHSPACE_REGISTRY_ROOT': str(registry_root),
+                'CANOPY_SECRET_KEY': 'collab-manager-secret',
+            }
+
+            with patch.dict(os.environ, env, clear=False), \
+                 patch('canopy.core.database.DatabaseManager._start_checkpoint_thread', lambda self: None), \
+                 patch('canopy.core.app.setup_logging', lambda debug=False: None), \
+                 patch('canopy.core.app.P2PNetworkManager', _FakeP2PNetworkManager):
+                app = create_app()
+
+        manager = app.config.get('COLLAB_CARD_MANAGER')
+        self.assertIsInstance(manager, CollabCardManager)
+        self.assertIs(manager.db, app.config.get('DB_MANAGER'))
 
 
 class TestCollabCardApi(unittest.TestCase):

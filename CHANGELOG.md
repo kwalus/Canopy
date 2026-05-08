@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.77] - 2026-05-08
+
+### Fixed
+- **Collaboration card APIs are now backed by the app-level card manager at startup** - `create_app()` initializes `CollabCardManager` and registers it in Flask config so advertised card tooling does not return manager-unavailable errors after deployment.
+
 ## [0.6.76] - 2026-05-08
 
 ### Added

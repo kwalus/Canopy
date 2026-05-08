@@ -405,6 +405,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
         app.config['CIRCLE_MANAGER'] = circle_manager
         logger.info("Circle manager initialized successfully")
 
+        logger.info("Initializing collaboration card manager...")
+        from .collab_cards import CollabCardManager
+        collab_card_manager = CollabCardManager(db_manager)
+        app.config['COLLAB_CARD_MANAGER'] = collab_card_manager
+        logger.info("Collaboration card manager initialized successfully")
+
         logger.info("Initializing search manager...")
         search_manager = SearchManager(db_manager)
         app.config['SEARCH_MANAGER'] = search_manager
