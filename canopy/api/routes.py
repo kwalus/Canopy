@@ -862,6 +862,66 @@ def create_api_blueprint() -> Blueprint:
             return False
         return _request_authenticated_user_id() == owner_user_id
 
+    def _api_custom_emoji_dir() -> str:
+        canopy_config = current_app.config.get('CANOPY_CONFIG')
+        storage = getattr(canopy_config, 'storage', None)
+        data_dir = str(getattr(storage, 'data_dir', '') or './data')
+        return os.path.join(data_dir, 'custom_emojis')
+
+    def _api_load_custom_emojis() -> list[dict[str, Any]]:
+        """Load local custom emoji metadata for API reaction discovery."""
+        base_dir = os.path.abspath(_api_custom_emoji_dir())
+        index_path = os.path.join(base_dir, 'index.json')
+        if not os.path.exists(index_path):
+            return []
+        try:
+            with open(index_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception:
+            return []
+        if not isinstance(data, list):
+            return []
+        valid: list[dict[str, Any]] = []
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            filename = str(entry.get('filename') or '').strip()
+            name = str(entry.get('name') or '').strip()
+            if not filename or not name:
+                continue
+            file_path = os.path.abspath(os.path.join(base_dir, filename))
+            if not (file_path == base_dir or file_path.startswith(base_dir + os.sep)):
+                continue
+            if not os.path.isfile(file_path):
+                continue
+            valid.append({
+                'name': name,
+                'filename': filename,
+                'url': entry.get('url') or f"/custom_emojis/{filename}",
+            })
+        return valid
+
+    def _api_channel_removal_mesh_context(trust_manager: Any, p2p_manager: Any) -> tuple[Optional[str], list[str], list[str]]:
+        local_peer_id = None
+        connected_peer_ids: list[str] = []
+        trusted_peer_ids: list[str] = []
+        try:
+            if p2p_manager:
+                local_peer_id = p2p_manager.get_peer_id()
+        except Exception:
+            local_peer_id = None
+        try:
+            if p2p_manager:
+                connected_peer_ids = list(p2p_manager.get_connected_peers() or [])
+        except Exception:
+            connected_peer_ids = []
+        try:
+            if trust_manager:
+                trusted_peer_ids = list(trust_manager.get_trusted_peers() or [])
+        except Exception:
+            trusted_peer_ids = []
+        return local_peer_id, connected_peer_ids, trusted_peer_ids
+
     def _cleanup_forgotten_peer_runtime_state(p2p_manager: Any, peer_id: str, *, remove_introduced: bool) -> dict[str, int]:
         counts = {
             'introduced_removed': 0,
@@ -1478,6 +1538,74 @@ def create_api_blueprint() -> Blueprint:
         if value is None:
             return False
         return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
+
+    def _broadcast_source_advance_api(result: Optional[dict[str, Any]]) -> None:
+        """Best-effort mesh notification that an existing source was brought forward."""
+        if not result:
+            return
+        if result.get('success') is False:
+            return
+        if result.get('unchanged') is True:
+            return
+        try:
+            components = _get_app_components_any(current_app)
+            db_manager = components[0] if len(components) > 0 else None
+            feed_manager = components[6] if len(components) > 6 else None
+            profile_manager = components[8] if len(components) > 8 else None
+            p2p_manager = components[-1] if components else None
+            if not p2p_manager or not p2p_manager.is_running():
+                return
+            source_type = str(result.get('source_type') or '').strip()
+            source_id = str(result.get('source_id') or result.get('message_id') or result.get('post_id') or '').strip()
+            if not source_type or not source_id:
+                return
+            if source_type == 'feed_post':
+                post = feed_manager.get_post(source_id) if feed_manager else None
+                visibility = str(getattr(getattr(post, 'visibility', None), 'value', getattr(post, 'visibility', '')) or '').strip().lower()
+                if visibility not in {'public', 'network', 'trusted'}:
+                    return
+            elif source_type == 'channel_message':
+                channel_id = str(result.get('channel_id') or '').strip()
+                if not channel_id or not db_manager:
+                    return
+                with db_manager.get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT privacy_mode FROM channels WHERE id = ?",
+                        (channel_id,),
+                    ).fetchone()
+                privacy_mode = str((row['privacy_mode'] if row else '') or 'open').strip().lower()
+                if privacy_mode in {'private', 'confidential'}:
+                    return
+            else:
+                return
+
+            actor_id = str(result.get('advanced_by') or _request_authenticated_user_id() or '').strip()
+            display_name = None
+            if profile_manager and actor_id:
+                try:
+                    profile = profile_manager.get_profile(actor_id)
+                    if profile:
+                        display_name = profile.display_name or profile.username
+                except Exception:
+                    display_name = None
+            p2p_manager.broadcast_interaction(
+                item_id=source_id,
+                user_id=actor_id,
+                action='source_advanced',
+                item_type=source_type,
+                display_name=display_name,
+                extra={
+                    'source_type': source_type,
+                    'source_id': source_id,
+                    'channel_id': result.get('channel_id'),
+                    'root_message_id': result.get('root_message_id'),
+                    'last_activity_at': result.get('last_activity_at'),
+                    'reason': result.get('reason') or '',
+                    'source_advanced': result,
+                },
+            )
+        except Exception as p2p_err:
+            logger.warning(f"Failed to broadcast source advance: {p2p_err}")
 
     def _channel_not_found_response() -> tuple[Any, int]:
         """Generic channel-scope miss to reduce enumeration leakage."""
@@ -6369,6 +6497,32 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"Failed to get post: {e}")
             return jsonify({'error': 'Failed to get post'}), 500
 
+    @api.route('/feed/posts/<post_id>/advance', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED)
+    def advance_feed_post_api(post_id):
+        """Bring an existing feed post forward without creating a repost."""
+        try:
+            components = _get_app_components_any(current_app)
+            db_manager = components[0] if len(components) > 0 else None
+            feed_manager = components[6] if len(components) > 6 else None
+            if not feed_manager:
+                return jsonify({'error': 'Feed unavailable'}), 503
+            data = request.get_json(silent=True) or {}
+            actor_id = g.api_key_info.user_id
+            result = feed_manager.advance_post(
+                post_id,
+                actor_id,
+                allow_admin=_request_is_instance_admin(db_manager),
+                reason=data.get('reason') or data.get('advance_reason') or 'manual',
+            )
+            if not result:
+                return jsonify({'error': 'Post not found or access denied'}), 404
+            _broadcast_source_advance_api(result)
+            return jsonify({'success': True, 'source_advanced': result})
+        except Exception as e:
+            logger.error(f"Failed to advance feed post {post_id}: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/feed/posts/<post_id>/repost', methods=['POST'])
     @require_auth(Permission.WRITE_FEED)
     def repost_feed_post(post_id):
@@ -8748,6 +8902,48 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"Failed to delete post: {e}")
             return jsonify({'error': 'Failed to delete post'}), 500
 
+    @api.route('/reaction-options', methods=['GET'])
+    @api.route('/reactions', methods=['GET'])
+    @require_auth(Permission.READ_MESSAGES)
+    def get_reaction_options_api():
+        """Return standard and local custom reaction keys usable by agents."""
+        try:
+            from ..core.interactions import REACTION_OPTIONS, normalize_reaction_key
+            reactions = [dict(option) for option in REACTION_OPTIONS]
+            seen = {str(option.get('type') or '') for option in reactions}
+            custom_emojis = []
+            for entry in _api_load_custom_emojis():
+                name = str(entry.get('name') or '').strip()
+                if not name:
+                    continue
+                reaction_type = normalize_reaction_key(f"custom:{name}")
+                custom_entry = {
+                    'type': reaction_type,
+                    'emoji': f":{name}:",
+                    'label': name.replace('-', ' ').replace('_', ' ').title(),
+                    'name': name,
+                    'url': entry.get('url'),
+                    'image_url': entry.get('url'),
+                    'custom': True,
+                }
+                custom_emojis.append(custom_entry)
+                if reaction_type not in seen:
+                    reactions.append(custom_entry)
+                    seen.add(reaction_type)
+            return jsonify({
+                'reactions': reactions,
+                'custom_emojis': custom_emojis,
+                'count': len(reactions),
+                'usage': {
+                    'field': 'reaction_type',
+                    'standard_examples': ['like', 'love', 'laugh', 'rocket', 'check', 'beer'],
+                    'custom_format': 'custom:<slug> or :<slug>:',
+                },
+            })
+        except Exception as e:
+            logger.error(f"get_reaction_options_api failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/feed/posts/<post_id>/like', methods=['POST'])
     @require_auth(Permission.WRITE_FEED)
     def toggle_feed_post_like(post_id):
@@ -9663,6 +9859,36 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'message': d})
         except Exception as e:
             logger.error(f"Get channel message failed: {e}")
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/channels/<channel_id>/messages/<message_id>/advance', methods=['POST'])
+    @require_auth(Permission.WRITE_MESSAGES)
+    def advance_channel_message_api(channel_id, message_id):
+        """Bring a channel message thread forward without creating a repost."""
+        try:
+            components = _get_app_components_any(current_app)
+            db_manager = components[0] if len(components) > 0 else None
+            channel_manager = components[4] if len(components) > 4 else None
+            if not channel_manager:
+                return jsonify({'error': 'Channels not available'}), 503
+            data = request.get_json(silent=True) or {}
+            user_id = g.api_key_info.user_id
+            result = channel_manager.advance_message_thread(
+                channel_id,
+                message_id,
+                user_id,
+                allow_admin=_request_is_instance_admin(db_manager),
+                require_post_permission=True,
+                reason=data.get('reason') or data.get('advance_reason') or 'manual',
+            )
+            if not result:
+                return jsonify({'error': 'Message not found or access denied'}), 404
+            if result.get('success') is False:
+                return jsonify({'error': result.get('error') or 'Not authorized'}), int(result.get('status_code') or 403)
+            _broadcast_source_advance_api(result)
+            return jsonify({'success': True, 'source_advanced': result})
+        except Exception as e:
+            logger.error(f"Advance channel message failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/channels/<channel_id>/messages/<message_id>', methods=['DELETE'])
@@ -13098,6 +13324,202 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"Set member role failed: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/channels/<channel_id>/removal', methods=['GET'])
+    @require_auth(Permission.READ_FEED)
+    def get_channel_removal_status_api(channel_id):
+        """Return mesh vote-removal status for a channel visible to the caller."""
+        db_manager, _, trust_manager, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        if not channel_manager:
+            return jsonify({'error': 'Channels unavailable'}), 503
+        try:
+            user_id = g.api_key_info.user_id
+            allow_admin = _request_is_instance_admin(db_manager)
+            if not allow_admin:
+                access = channel_manager.get_channel_access_decision(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    require_membership=True,
+                )
+                if not access.get('allowed'):
+                    return _channel_not_found_response()
+
+            local_peer_id, connected_peer_ids, trusted_peer_ids = _api_channel_removal_mesh_context(
+                trust_manager,
+                p2p_manager,
+            )
+            status = channel_manager.get_channel_removal_status(
+                channel_id,
+                local_peer_id=local_peer_id,
+                viewer_user_id=user_id,
+                allow_admin=allow_admin,
+                connected_peer_ids=connected_peer_ids,
+                trusted_peer_ids=trusted_peer_ids,
+            )
+            if not status.get('channel_exists'):
+                return _channel_not_found_response()
+            return jsonify({'success': True, 'status': status})
+        except Exception as e:
+            logger.error(f"Channel removal status API failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/channels/<channel_id>/removal/vote', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED)
+    def vote_channel_removal_api(channel_id):
+        """Start or cast a mesh removal vote for a channel visible to the caller."""
+        db_manager, _, trust_manager, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        if not channel_manager:
+            return jsonify({'error': 'Channels unavailable'}), 503
+        try:
+            user_id = g.api_key_info.user_id
+            allow_admin = _request_is_instance_admin(db_manager)
+            data = request.get_json(silent=True) or {}
+            requested_vote = str(data.get('vote') or '').strip().lower()
+            proposal_id = str(data.get('proposal_id') or '').strip() or None
+            reason = str(data.get('reason') or '').strip() or None
+            if requested_vote not in {'remove', 'keep'}:
+                return jsonify({'error': 'vote must be "remove" or "keep"'}), 400
+            if not allow_admin:
+                access = channel_manager.get_channel_access_decision(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    require_membership=True,
+                )
+                if not access.get('allowed'):
+                    return _channel_not_found_response()
+
+            local_peer_id, connected_peer_ids, trusted_peer_ids = _api_channel_removal_mesh_context(
+                trust_manager,
+                p2p_manager,
+            )
+            if not local_peer_id:
+                return jsonify({'error': 'Local peer identity unavailable'}), 503
+
+            pre_status = channel_manager.get_channel_removal_status(
+                channel_id,
+                local_peer_id=local_peer_id,
+                viewer_user_id=user_id,
+                allow_admin=allow_admin,
+                connected_peer_ids=connected_peer_ids,
+                trusted_peer_ids=trusted_peer_ids,
+            )
+            if not pre_status.get('channel_exists'):
+                return _channel_not_found_response()
+
+            active_proposal = pre_status.get('active_proposal') or {}
+            action = 'cast'
+            if active_proposal:
+                manager_result = channel_manager.cast_channel_removal_vote(
+                    channel_id=channel_id,
+                    proposal_id=proposal_id or str(active_proposal.get('proposal_id') or '').strip(),
+                    user_id=user_id,
+                    local_peer_id=str(local_peer_id),
+                    vote=requested_vote,
+                    allow_admin=allow_admin,
+                    reason=reason,
+                    connected_peer_ids=connected_peer_ids,
+                    trusted_peer_ids=trusted_peer_ids,
+                )
+            else:
+                if requested_vote != 'remove':
+                    return jsonify({'error': 'A keep vote requires an active removal proposal'}), 400
+                action = 'start'
+                manager_result = channel_manager.start_channel_removal_vote(
+                    channel_id=channel_id,
+                    user_id=user_id,
+                    local_peer_id=str(local_peer_id),
+                    connected_peer_ids=connected_peer_ids,
+                    trusted_peer_ids=trusted_peer_ids,
+                    allow_admin=allow_admin,
+                    reason=reason,
+                )
+
+            if not manager_result.get('ok'):
+                error = str(manager_result.get('error') or 'Unable to update vote')
+                http_status = 403 if error in {
+                    'not_authorized',
+                    'peer_not_in_electorate',
+                    'already_retired',
+                    'proposal_exists',
+                    'already_voted',
+                    'system_channel',
+                    'channel_type_ineligible',
+                    'preserved_channel',
+                } else 400
+                return jsonify({
+                    'error': error,
+                    'status': manager_result.get('status'),
+                }), http_status
+
+            post_status = manager_result.get('status') or channel_manager.get_channel_removal_status(
+                channel_id,
+                local_peer_id=local_peer_id,
+                viewer_user_id=user_id,
+                allow_admin=allow_admin,
+                connected_peer_ids=connected_peer_ids,
+                trusted_peer_ids=trusted_peer_ids,
+            )
+            finalization = manager_result.get('finalization') or {}
+            vote_changed = bool(manager_result.get('changed', True))
+            if action == 'start':
+                electorate_peer_ids = list(manager_result.get('electorate_peer_ids') or [])
+            elif active_proposal:
+                electorate_peer_ids = [
+                    entry.get('peer_id')
+                    for entry in (active_proposal.get('electorate') or [])
+                    if isinstance(entry, dict) and entry.get('peer_id')
+                ]
+            else:
+                electorate_peer_ids = []
+
+            if vote_changed and p2p_manager and p2p_manager.is_running():
+                try:
+                    if action == 'start':
+                        active_status = post_status.get('active_proposal') or {}
+                        p2p_manager.broadcast_channel_removal_proposal(
+                            proposal_id=manager_result.get('proposal_id'),
+                            channel_id=channel_id,
+                            channel_name=str(active_status.get('channel_name') or channel_id),
+                            channel_origin_peer=active_status.get('channel_origin_peer'),
+                            channel_privacy_mode=active_status.get('channel_privacy_mode'),
+                            initiator_user_id=user_id,
+                            electorate_peer_ids=electorate_peer_ids,
+                            threshold_count=int(active_status.get('threshold_count') or len(electorate_peer_ids) or 0),
+                            opened_at=active_status.get('opened_at'),
+                        )
+                    if electorate_peer_ids:
+                        p2p_manager.broadcast_channel_removal_vote(
+                            proposal_id=(manager_result.get('proposal_id') or proposal_id or active_proposal.get('proposal_id')),
+                            channel_id=channel_id,
+                            voter_user_id=user_id,
+                            vote=requested_vote,
+                            electorate_peer_ids=electorate_peer_ids,
+                            reason=reason,
+                        )
+                    if finalization:
+                        p2p_manager.broadcast_channel_removal_result(
+                            proposal_id=str(finalization.get('proposal_id') or manager_result.get('proposal_id') or proposal_id or ''),
+                            channel_id=channel_id,
+                            result=str(finalization.get('result') or finalization.get('status') or ''),
+                            electorate_peer_ids=list(finalization.get('electorate_peer_ids') or electorate_peer_ids),
+                            threshold_count=int(finalization.get('threshold_count') or len(electorate_peer_ids) or 0),
+                            finalizing_user_id=user_id,
+                            tombstone_id=finalization.get('tombstone_id'),
+                            finalized_at=finalization.get('finalized_at'),
+                        )
+                except Exception as mesh_err:
+                    logger.warning(f"Channel removal vote API mesh propagation failed: {mesh_err}")
+
+            return jsonify({
+                'success': True,
+                'action': action,
+                'changed': vote_changed,
+                'status': post_status,
+                'finalization': finalization,
+            })
+        except Exception as e:
+            logger.error(f"Channel removal vote API failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/channels/<channel_id>', methods=['DELETE'])
     @require_auth(Permission.DELETE_DATA)
     def delete_channel_api(channel_id):
@@ -13687,9 +14109,12 @@ def create_api_blueprint() -> Blueprint:
     def _broadcast_collab_card_update(card: dict[str, Any],
                                       *,
                                       action: str,
-                                      response: Optional[dict[str, Any]] = None) -> None:
+                                      response: Optional[dict[str, Any]] = None,
+                                      source_advanced: Optional[dict[str, Any]] = None) -> None:
         try:
-            _, _, _, _, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            components = _get_app_components_any(current_app)
+            profile_manager = components[8] if len(components) > 8 else None
+            p2p_manager = components[-1] if components else None
             if not card or (card.get('visibility') or 'network') != 'network':
                 return
             if not p2p_manager or not p2p_manager.is_running():
@@ -13706,6 +14131,8 @@ def create_api_blueprint() -> Blueprint:
             extra: dict[str, Any] = {'card': card}
             if response:
                 extra['response'] = response
+            if source_advanced and source_advanced.get('success') is not False and not source_advanced.get('unchanged'):
+                extra['source_advanced'] = source_advanced
             p2p_manager.broadcast_interaction(
                 item_id=card.get('id'),
                 user_id=actor_id or card.get('updated_by') or card.get('created_by') or card.get('owner_id'),
@@ -13716,6 +14143,54 @@ def create_api_blueprint() -> Blueprint:
             )
         except Exception as p2p_err:
             logger.warning(f"Failed to broadcast collaboration card update: {p2p_err}")
+
+    def _advance_collab_card_source_api(
+        card: dict[str, Any],
+        *,
+        actor_id: str,
+        reason: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Bring the source containing a collaboration card forward."""
+        if not card or not actor_id:
+            return None
+        try:
+            components = _get_app_components_any(current_app)
+            db_manager = components[0] if len(components) > 0 else None
+            channel_manager = components[4] if len(components) > 4 else None
+            feed_manager = components[6] if len(components) > 6 else None
+            source_type = str(card.get('source_type') or '').strip().lower()
+            source_id = str(card.get('source_id') or '').strip()
+            clean_reason = str(reason or '').strip() or f"{str(card.get('card_type') or 'collaboration')} card updated"
+            allow_admin = _request_is_instance_admin(db_manager)
+            if source_type == 'feed_post' and source_id and feed_manager:
+                return feed_manager.advance_post(
+                    source_id,
+                    actor_id,
+                    allow_admin=allow_admin,
+                    reason=clean_reason,
+                )
+            if source_type == 'channel_message' and source_id and channel_manager:
+                channel_id = str(card.get('channel_id') or '').strip()
+                if not channel_id and db_manager:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            "SELECT channel_id FROM channel_messages WHERE id = ?",
+                            (source_id,),
+                        ).fetchone()
+                    channel_id = str((row['channel_id'] if row else '') or '').strip()
+                if not channel_id:
+                    return None
+                return channel_manager.advance_message_thread(
+                    channel_id,
+                    source_id,
+                    actor_id,
+                    allow_admin=allow_admin,
+                    require_post_permission=False,
+                    reason=clean_reason,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to advance collaboration card source: {e}")
+        return None
 
     def _can_collect_collab_card_responses(card: dict[str, Any]) -> bool:
         response_visibility = str((card.get('config') or {}).get('responses_visible') or '').strip().lower()
@@ -13982,6 +14457,39 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"Create collaboration card failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/collab-cards/<card_id>/advance-source', methods=['POST'])
+    @require_auth(Permission.WRITE_FEED, allow_session=True)
+    def advance_collab_card_source_api(card_id):
+        """Bring the post/message containing a collaboration card forward."""
+        try:
+            db_manager, *_ = _get_app_components_any(current_app)
+            collab_card_manager, unavailable = _require_collab_card_manager_api('advance_collab_card_source_api')
+            if unavailable:
+                return unavailable
+            data = request.get_json(silent=True) or {}
+            actor_id = _request_authenticated_user_id()
+            if not actor_id:
+                return jsonify({'error': 'Authentication required'}), 401
+            admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
+            card = collab_card_manager.get_card(card_id, viewer_id=actor_id, admin_user_id=admin_id, include_responses=True)
+            if not card:
+                return jsonify({'error': 'Not found'}), 404
+            if not (card.get('can_update') or card.get('can_respond')):
+                return jsonify({'error': 'Not authorized to advance this card source'}), 403
+            source_advanced = _advance_collab_card_source_api(
+                card,
+                actor_id=actor_id,
+                reason=data.get('reason') or data.get('advance_reason') or 'card update',
+            )
+            if not source_advanced:
+                return jsonify({'error': 'Source could not be advanced'}), 400
+            _broadcast_source_advance_api(source_advanced)
+            _broadcast_collab_card_update(card, action='collab_card_update', source_advanced=source_advanced)
+            return jsonify({'success': True, 'card': card, 'source_advanced': source_advanced})
+        except Exception as e:
+            logger.error(f"Advance collaboration card source failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/collab-cards/<card_id>/responses', methods=['POST'])
     @require_auth(Permission.WRITE_FEED, allow_session=True)
     def respond_collab_card_api(card_id):
@@ -14007,8 +14515,21 @@ def create_api_blueprint() -> Blueprint:
                 admin_user_id=admin_id,
             )
             response_payload = card.get('my_response') if isinstance(card, dict) else None
-            _broadcast_collab_card_update(card, action='collab_card_response', response=response_payload)
-            return jsonify({'card': card, 'response': response_payload})
+            source_advanced = None
+            if _as_bool(data.get('advance_source')):
+                source_advanced = _advance_collab_card_source_api(
+                    card,
+                    actor_id=actor_id,
+                    reason=data.get('advance_reason') or 'input response updated',
+                )
+                _broadcast_source_advance_api(source_advanced)
+            _broadcast_collab_card_update(
+                card,
+                action='collab_card_response',
+                response=response_payload,
+                source_advanced=source_advanced,
+            )
+            return jsonify({'success': True, 'card': card, 'response': response_payload, 'source_advanced': source_advanced})
         except KeyError:
             return jsonify({'error': 'Not found'}), 404
         except PermissionError:
@@ -14043,8 +14564,16 @@ def create_api_blueprint() -> Blueprint:
                 telemetry_patch=data.get('telemetry') if isinstance(data.get('telemetry'), dict) else None,
                 admin_user_id=admin_id,
             )
-            _broadcast_collab_card_update(card, action='collab_card_telemetry')
-            return jsonify({'card': card})
+            source_advanced = None
+            if _as_bool(data.get('advance_source')):
+                source_advanced = _advance_collab_card_source_api(
+                    card,
+                    actor_id=actor_id,
+                    reason=data.get('advance_reason') or data.get('stage') or 'telemetry updated',
+                )
+                _broadcast_source_advance_api(source_advanced)
+            _broadcast_collab_card_update(card, action='collab_card_telemetry', source_advanced=source_advanced)
+            return jsonify({'success': True, 'card': card, 'source_advanced': source_advanced})
         except KeyError:
             return jsonify({'error': 'Not found'}), 404
         except PermissionError:
@@ -14072,8 +14601,16 @@ def create_api_blueprint() -> Blueprint:
                 return jsonify({'error': 'status required'}), 400
             admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
             card = collab_card_manager.update_input_status(card_id, actor_id=actor_id, status=status, admin_user_id=admin_id)
-            _broadcast_collab_card_update(card, action='collab_card_update')
-            return jsonify({'card': card})
+            source_advanced = None
+            if _as_bool(data.get('advance_source')):
+                source_advanced = _advance_collab_card_source_api(
+                    card,
+                    actor_id=actor_id,
+                    reason=data.get('advance_reason') or f"input card {status}",
+                )
+                _broadcast_source_advance_api(source_advanced)
+            _broadcast_collab_card_update(card, action='collab_card_update', source_advanced=source_advanced)
+            return jsonify({'success': True, 'card': card, 'source_advanced': source_advanced})
         except KeyError:
             return jsonify({'error': 'Not found'}), 404
         except PermissionError:

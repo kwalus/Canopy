@@ -477,6 +477,7 @@ class Post:
     source_agent_id: Optional[str] = None
     source_url: Optional[str] = None
     tags: Optional[str] = None  # JSON array string
+    last_activity_at: Optional[datetime] = None
     author_origin_peer: Optional[str] = None
     author_peer_trusted: Optional[bool] = None
 
@@ -511,6 +512,7 @@ class Post:
             'post_type': self.post_type.value,
             'visibility': self.visibility.value,
             'created_at': self.created_at.isoformat(),
+            'last_activity_at': self.last_activity_at.isoformat() if self.last_activity_at else None,
             'expires_at': self.expires_at.isoformat() if self.expires_at else None,
             'metadata': self.metadata,
             'permissions': self.permissions,
@@ -588,6 +590,7 @@ class FeedManager:
         created_at: Optional[datetime] = None,
         preview: Optional[str] = None,
         update_reason: Optional[str] = None,
+        actor_user_id: Optional[str] = None,
     ) -> None:
         manager = self.workspace_events
         if not manager or not post:
@@ -596,7 +599,7 @@ class FeedManager:
         created_dt = created_at or datetime.now(timezone.utc)
         manager.emit_event(
             event_type=event_type,
-            actor_user_id=post.author_id,
+            actor_user_id=actor_user_id or post.author_id,
             post_id=post.id,
             visibility_scope='feed',
             dedupe_key=f"{event_type}:{post.id}:{created_dt.isoformat()}",
@@ -609,6 +612,7 @@ class FeedManager:
                 'permissions': list(post.permissions or []),
                 'source_type': post.source_type or 'human',
                 'update_reason': update_reason or '',
+                'actor_user_id': actor_user_id or post.author_id,
             },
         )
 
@@ -849,6 +853,7 @@ class FeedManager:
             source_agent_id=row['source_agent_id'] if 'source_agent_id' in row.keys() else None,
             source_url=row['source_url'] if 'source_url' in row.keys() else None,
             tags=row['tags'] if 'tags' in row.keys() else None,
+            last_activity_at=self._parse_datetime(row['last_activity_at']) if 'last_activity_at' in row.keys() else None,
             author_origin_peer=str(author_origin_peer or '').strip() or None,
             author_peer_trusted=self._is_author_origin_peer_trusted(author_origin_peer),
         )
@@ -980,9 +985,9 @@ class FeedManager:
                         (p.visibility = 'custom' AND pp.user_id = ?) OR
                         p.author_id = ?
                     )
-                      AND p.created_at > ?
+                      AND COALESCE(p.last_activity_at, p.created_at) > ?
                       AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP)
-                    ORDER BY p.created_at DESC
+                    ORDER BY COALESCE(p.last_activity_at, p.created_at) DESC
                     LIMIT ?
                 """
                 rows = conn.execute(query, (user_id, user_id, since_db, limit_val)).fetchall()
@@ -1170,6 +1175,83 @@ class FeedManager:
         except Exception as e:
             logger.error(f"Failed to update post: {e}")
             return False
+
+    def advance_post(
+        self,
+        post_id: str,
+        actor_id: str,
+        *,
+        allow_admin: bool = False,
+        reason: Optional[str] = None,
+        advanced_at: Optional[Any] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Move a visible post back into the activity stream without reposting it."""
+        clean_post_id = str(post_id or '').strip()
+        clean_actor_id = str(actor_id or '').strip()
+        if not clean_post_id or not clean_actor_id:
+            return None
+
+        try:
+            post = self.get_post(clean_post_id)
+            if not post:
+                return None
+            if not allow_admin and not self._post_visible_to_user(post, clean_actor_id):
+                return None
+
+            advance_dt = self._parse_datetime(advanced_at) or datetime.now(timezone.utc)
+            advance_db = self._format_db_timestamp(advance_dt)
+            clean_reason = str(reason or '').strip()[:120]
+
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT COALESCE(last_activity_at, created_at) AS effective_activity_at FROM feed_posts WHERE id = ?",
+                    (clean_post_id,),
+                ).fetchone()
+                if not row:
+                    return None
+                current_activity = (
+                    self._parse_datetime(row['effective_activity_at'])
+                    if 'effective_activity_at' in row.keys() else None
+                )
+                if current_activity and advance_dt <= current_activity:
+                    return {
+                        'source_type': 'feed_post',
+                        'source_id': clean_post_id,
+                        'post_id': clean_post_id,
+                        'last_activity_at': current_activity.isoformat(),
+                        'advanced_by': clean_actor_id,
+                        'reason': clean_reason,
+                        'unchanged': True,
+                    }
+                cursor = conn.execute(
+                    "UPDATE feed_posts SET last_activity_at = ? WHERE id = ?",
+                    (advance_db, clean_post_id),
+                )
+                conn.commit()
+                if cast(int, cursor.rowcount) <= 0:
+                    return None
+
+            updated_post = self.get_post(clean_post_id) or post
+            self._emit_post_event(
+                event_type=EVENT_FEED_POST_UPDATED,
+                post=updated_post,
+                created_at=advance_dt,
+                preview=clean_reason or self._build_event_preview(updated_post.content or '', 'Post brought forward'),
+                update_reason='source_advanced',
+                actor_user_id=clean_actor_id,
+            )
+
+            return {
+                'source_type': 'feed_post',
+                'source_id': clean_post_id,
+                'post_id': clean_post_id,
+                'last_activity_at': advance_dt.isoformat(),
+                'advanced_by': clean_actor_id,
+                'reason': clean_reason,
+            }
+        except Exception as e:
+            logger.error(f"Failed to advance feed post {post_id}: {e}", exc_info=True)
+            return None
 
     def update_post_expiry(self, post_id: str, user_id: str,
                           expires_at: Optional[Any] = None,

@@ -5485,7 +5485,9 @@
                 method: 'POST',
                 body: JSON.stringify({
                     value: finalValue,
-                    response_type: responseType || 'text'
+                    response_type: responseType || 'text',
+                    advance_source: true,
+                    advance_reason: 'input response updated'
                 })
             })
                 .then(data => {
@@ -5507,7 +5509,11 @@
             if (!cardId || !status) return;
             apiCall(`/ajax/collab_cards/${encodeURIComponent(cardId)}/status`, {
                 method: 'POST',
-                body: JSON.stringify({ status })
+                body: JSON.stringify({
+                    status,
+                    advance_source: true,
+                    advance_reason: `input card ${status}`
+                })
             })
                 .then(data => {
                     if (!data || !data.success) {
@@ -5541,7 +5547,11 @@
             }
             apiCall(`/ajax/collab_cards/${encodeURIComponent(cardId)}/telemetry`, {
                 method: 'POST',
-                body: JSON.stringify(payload)
+                body: JSON.stringify({
+                    ...payload,
+                    advance_source: true,
+                    advance_reason: payload.stage || 'telemetry updated'
+                })
             })
                 .then(data => {
                     if (!data || !data.success) {
@@ -5605,6 +5615,36 @@
                     stageEl.textContent = telemetry.stage;
                 }
             });
+        }
+
+        function advanceCollabCardSource(cardId) {
+            if (!cardId) return;
+            apiCall(`/ajax/collab_cards/${encodeURIComponent(cardId)}/advance_source`, {
+                method: 'POST',
+                body: JSON.stringify({ reason: 'manual' })
+            })
+                .then(data => {
+                    if (!data || !data.success) {
+                        showAlert((data && data.error) || 'Could not bring this card source forward', 'danger');
+                        return;
+                    }
+                    if (data.card) {
+                        applyCollabCardUpdate(data.card);
+                    }
+                    showAlert('Card source brought forward.', 'success');
+                    if (typeof requestChannelThreadRefresh === 'function') {
+                        requestChannelThreadRefresh({ forceScroll: false });
+                    }
+                    if (typeof refreshSidebarChannelState === 'function') {
+                        refreshSidebarChannelState();
+                    }
+                    if (window.location && String(window.location.pathname || '').startsWith('/feed')) {
+                        window.setTimeout(() => window.location.reload(), 180);
+                    }
+                })
+                .catch(err => {
+                    showAlert((err && (err.error || err.message)) || 'Could not bring card source forward', 'danger');
+                });
         }
 
         // --- Circle (structured deliberation) helpers ---

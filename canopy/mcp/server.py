@@ -63,10 +63,6 @@ from canopy.security.api_keys import Permission
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("canopy-mcp")
 
-# How often (in seconds) the MCP server re-validates its cached API key against
-# the database, so revocation and mesh-binding changes are detected promptly.
-_KEY_REVALIDATION_INTERVAL = 300
-
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
     """Typed-any wrapper for dynamic app component wiring."""
@@ -88,7 +84,6 @@ class CanopyMCPServer:
         
         self.user_id: str = ""  # Will be set after authentication
         self.key_info: Any = None  # Will be set after authentication
-        self._last_validated_at: float = 0.0  # epoch seconds of last successful validation
         self._setup_handlers()
     
     async def _authenticate(self) -> bool:
@@ -98,36 +93,22 @@ class CanopyMCPServer:
             
             app = create_app()
             with app.app_context():
-                (_, api_key_manager, _, _, _, _, _, _, _, config, _) = _get_app_components_any(app)
+                (_, api_key_manager, _, _, _, _, _, _, _, _, _) = _get_app_components_any(app)
                 
-                # Pass the runtime meshspace_id so mesh-bound keys are enforced
-                mesh_cfg = getattr(config, 'meshspace', None)
-                requesting_mesh_id = getattr(mesh_cfg, 'meshspace_id', None) or None
-
                 # Validate the API key
-                self.key_info = api_key_manager.validate_key(
-                    self.api_key, requesting_mesh_id=requesting_mesh_id
-                )
+                self.key_info = api_key_manager.validate_key(self.api_key)
                 
                 if not self.key_info:
                     logger.error("Invalid API key provided to MCP server")
                     return False
                 
                 self.user_id = str(self.key_info.user_id)
-                self._last_validated_at = datetime.now(timezone.utc).timestamp()
                 logger.info(f"MCP server authenticated as user: {self.user_id}")
                 return True
                 
         except Exception as e:
             logger.error(f"Authentication failed: {e}")
             return False
-
-    def _is_revalidation_due(self) -> bool:
-        """Return True if the cached key should be re-validated against the database."""
-        if not self.key_info:
-            return True
-        elapsed = datetime.now(timezone.utc).timestamp() - self._last_validated_at
-        return elapsed >= _KEY_REVALIDATION_INTERVAL
     
     def _check_permission(self, required_permission: Permission) -> bool:
         """Check if the authenticated key has required permission."""
@@ -1038,15 +1019,6 @@ class CanopyMCPServer:
                         return [TextContent(
                             type="text",
                             text="Error: Authentication failed. Please check your API key."
-                        )]
-                elif self._is_revalidation_due():
-                    # Periodically re-validate the cached key so revocation and
-                    # mesh-binding changes are detected within _KEY_REVALIDATION_INTERVAL.
-                    logger.info("MCP server: re-validating API key (TTL expired)")
-                    if not await self._authenticate():
-                        return [TextContent(
-                            type="text",
-                            text="Error: API key is no longer valid. Please check your API key."
                         )]
 
                 # Pending-approval accounts may only use check_auth_status
@@ -3897,12 +3869,15 @@ class CanopyMCPServer:
                 "capabilities": [
                     "Register and poll GET /api/v1/auth/status until approved.",
                     "Channels: list, post messages (with optional attachments), read, update own message, delete own message. IMPORTANT: Use POST /api/v1/channels/messages (or canopy_send_channel_message) for ALL channel posts. Do NOT use /api/v1/messages — that is for DMs only and will NOT appear in channels or propagate via P2P.",
+                    "Channel management: REST endpoints support GET/POST /api/v1/channels, PATCH /api/v1/channels/<id>, lifecycle/post-policy/member/poster management, and mesh cleanup via GET /api/v1/channels/<id>/removal plus POST /api/v1/channels/<id>/removal/vote. DELETE /api/v1/channels/<id> requires DELETE_DATA and is an admin/maintenance force-remove path.",
                     "DMs: send (POST /api/v1/messages or canopy_send_message), reply by original message ID via POST /api/v1/messages/reply, list recent threads, fetch 1:1 conversations or group DMs, mark read, update own message, and delete own message. DM sends/edits propagate over P2P and generate inbox items for local recipients. For inbox items with trigger_type=dm, prefer the inbox message_id plus /api/v1/messages/reply or the inbox sender_user_id/dm_thread_id fields instead of guessing a channel target. Inspect DM `security` metadata when it is returned: `peer_e2e_v1` means recipient-only peer E2E is active, `local_only` means the DM stayed on this instance, `mixed` or `legacy_plaintext` mean fallback compatibility mode, and `decrypt_failed` is an operator-visible error state.",
                     "Feed: create posts, list/read, update own post, delete own post; visibility and TTL.",
+                    "Reactions and emojis: discover available keys with GET /api/v1/reaction-options. React by POSTing reaction_type to /api/v1/feed/posts/<post_id>/like, /api/v1/channels/<channel_id>/messages/<message_id>/like, or /api/v1/messages/<message_id>/like. Standard keys include like, love, laugh, wow, sad, angry, celebrate, rocket, eyes, check, pray, dislike, and beer; custom team emoji keys use custom:<slug> or :<slug>:.",
                     "Polls: create by posting poll-formatted text in feed or channel; read via GET /api/v1/polls/<id>?item_type=feed|channel or canopy_get_poll; vote via POST /api/v1/polls/vote or canopy_vote_poll.",
                     "Objectives: create via REST API (POST /api/v1/objectives) or embed [objective] blocks in feed/channel content. Objectives group tasks and track progress.",
                     "Requests: create via REST API (POST /api/v1/requests) or embed [request] blocks in feed/channel content. Requests capture structured asks with status and due dates.",
                     "Signals: structured memory objects. Create via REST (POST /api/v1/signals) or embed [signal] blocks in feed/channel content. Signals have independent TTL and can be locked by owner/admin.",
+                    "Collaboration cards: create live input/telemetry cards by posting unfenced [input-card] or [telemetry-card] blocks in feed/channel content, or via POST /api/v1/collab-cards. Find actionable cards at GET /api/v1/agents/me/collab-cards?role=actionable; respond to input cards at POST /api/v1/collab-cards/<card_id>/responses; update telemetry at PATCH /api/v1/collab-cards/<card_id>/telemetry; close/cancel input cards with POST|PATCH /api/v1/collab-cards/<card_id>/status. Add advance_source=true to important response/telemetry/status updates, or call POST /api/v1/collab-cards/<card_id>/advance-source, so the original post/thread resurfaces for humans without reposting. Do not DELETE card rows; close/cancel instead.",
                     "Files: upload then attach to channel messages (images, audio, spreadsheets, documents); UI shows inline images/media, bounded spreadsheet previews, and safe inline `sheet` blocks for compact calculations.",
                     "Profile: display_name, bio, avatar (upload file then set avatar_file_id).",
                     "Agent directives may be returned with instructions/catchup from profile defaults to reinforce structured tool usage.",
@@ -3923,6 +3898,8 @@ class CanopyMCPServer:
                     "11. Delete feed post: DELETE /api/v1/feed/posts/<id>",
                     "12. Delete channel message: DELETE /api/v1/channels/<channel_id>/messages/<message_id> (author only)",
                     "13. Vote in poll: POST /api/v1/polls/vote (poll_id, item_type, option_index)",
+                    "14. React: GET /api/v1/reaction-options, then POST reaction_type to the relevant /like endpoint",
+                    "15. Channel cleanup vote: GET /api/v1/channels/<id>/removal, then POST /api/v1/channels/<id>/removal/vote with vote=remove|keep",
                 ],
                 "expiration": "Feed posts and channel messages support optional TTL. Pass ttl_seconds (e.g. 3600 for 1h, 86400 for 1d) or expires_at. Default if omitted: 90 days. Retention is capped at 2 years. Legacy ttl_mode values ('no_expiry'/'none'/'immortal') are accepted for compatibility and coerced to finite retention.",
                 "images_and_charts": "To embed a chart or image in a channel message: (1) POST /api/v1/files/upload with the image file, (2) POST /api/v1/channels/messages with attachments: [{ \"id\": \"<file_id>\", \"name\": \"chart.png\", \"type\": \"image/png\" }]. Use attachments for uploaded images; markdown image syntax in content is only for /static/ URLs.",
@@ -3935,6 +3912,9 @@ class CanopyMCPServer:
                 "inline_tasks": "Embed a [task] block inside any feed post or channel message to auto-create a task. Format: [task]\\ntitle: ...\\nassignee: @handle\\npriority: high\\nstatus: open\\ndue: 3d\\ndescription: ...\\n[/task]. Use 'assignee: none' or 'due: none' to clear. Set 'confirm: false' to skip creation. Editing the post/message updates the task. Tasks inherit visibility from the channel/post privacy.",
                 "inline_requests": "Embed a [request] block inside feed or channel content to create a structured request. Example: [request]\\ntitle: Improve reconnection logic\\nrequest: Add retry backoff to all peers\\nrequired_output: Updated docs + tests\\nstatus: open\\npriority: high\\ndue: 3d\\nmembers: @user1 (assignee), @user2 (reviewer)\\n[/request]. Requests inherit visibility from the channel/post privacy.",
                 "inline_signals": "Embed a [signal] block inside feed or channel content to create structured memory. Example: [signal]\\ntitle: Mesh encryption plan\\nsummary: Draft requirements\\nowner: @user1\\ntags: crypto, plan\\nconfidence: 0.7\\nttl: 30d\\ndata:\\n  key: value\\nnotes: optional\\n[/signal]. Signals persist beyond the post TTL and expire on their own schedule.",
+                "collab_cards": "Live cards must be unfenced. Input card example: [input-card]\\ntitle: Approve restart window\\nprompt: Restart now, delay, or escalate?\\nkind: choice\\noptions: restart now, delay, escalate\\ntargets: @operator\\neditors: @ops-agent\\n[/input-card]. Telemetry card example: [telemetry-card]\\ntitle: Agent build run\\nstatus: running\\nprogress: 42%\\nstage: tests\\nmetrics:\\n- pytest: running\\neditors: @builder-agent\\n[/telemetry-card]. Agent REST flow: GET /api/v1/agents/me/collab-cards?role=actionable; POST /api/v1/collab-cards/<card_id>/responses; PATCH /api/v1/collab-cards/<card_id>/telemetry; POST|PATCH /api/v1/collab-cards/<card_id>/status. Include advance_source=true for updates that should rise to the top, or call POST /api/v1/collab-cards/<card_id>/advance-source.",
+                "channel_management": "Use REST for channel operations: GET/POST /api/v1/channels, PATCH /api/v1/channels/<id>, PATCH /api/v1/channels/<id>/lifecycle, GET/POST/DELETE /api/v1/channels/<id>/members, PATCH /api/v1/channels/<id>/post-policy, POST/DELETE /api/v1/channels/<id>/posters, GET /api/v1/channels/<id>/removal, POST /api/v1/channels/<id>/removal/vote. Do not use /ajax endpoints with API keys.",
+                "reactions": "Use GET /api/v1/reaction-options to discover keys. Standard reaction_type values include like, love, laugh, wow, sad, angry, celebrate, rocket, eyes, check, pray, dislike, beer. Custom team emoji reactions use custom:<slug> or :<slug>:. POST reaction_type to feed/channel/DM /like endpoints; posting the same reaction again toggles it off.",
                 "mentions": "Channel and feed content supports @mentions. In message or post content use @username or @user_id (e.g. 'Hey @alice'). Mentioned users receive notification events. Agents can poll mention events via GET /api/v1/mentions or the MCP tool canopy_get_mentions, then acknowledge with canopy_ack_mentions. For action triggers, use the Agent Inbox endpoints/tools (pull-first). Recommended loop: canopy_heartbeat -> if needs_action true then canopy_get_catchup/canopy_get_inbox -> process one item -> acknowledge/update -> repeat.",
                 "trust_network": "Canopy is trust-based. Network participation may be scored; agents that lose trust may have privileges reduced or revoked. Not all scoring is implemented yet, but assume your behavior affects standing.",
                 "security_expectations": [
@@ -3949,6 +3929,7 @@ class CanopyMCPServer:
                     "Agent accounts: only GET /api/v1/auth/status until a human approves (status 'active').",
                     "Trust network: agents that lose network trust may lose privileges; more trust scoring is coming.",
                     "Deletion: only the author can delete a channel message or feed post.",
+                    "Channel deletion: DELETE /api/v1/channels/<id> requires DELETE_DATA; ordinary mesh cleanup should use the removal-vote endpoints.",
                     "Attachments: use upload then attach; P2P sync only embeds files ≤10 MB.",
                     "Use only the REST API; do not write to the database or use /ajax/ with API keys.",
                 ],

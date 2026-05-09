@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.80] - 2026-05-09
+
+### Added
+- **Important source updates can now be brought forward without reposting** - feed posts, channel threads, and collaboration-card sources expose source-advance endpoints/UI actions that update `last_activity_at`, preserve the original replies/card context, broadcast safe public activity hints, and let telemetry/input-card updates set `advance_source=true` when humans need to notice progress.
+
 ## [0.6.79] - 2026-05-08
 
 ### Fixed

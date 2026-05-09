@@ -78,6 +78,9 @@ class _FakeApiKeyManager:
 
 
 class _FakeP2PManager:
+    def get_peer_id(self):
+        return 'peer-local'
+
     def get_mesh_diagnostics(self):
         return {
             'connected_peers': ['peer-alpha'],
@@ -88,6 +91,21 @@ class _FakeP2PManager:
 
     def get_connected_peers(self):
         return ['peer-alpha']
+
+    def is_running(self):
+        return True
+
+    def broadcast_channel_removal_proposal(self, **kwargs):
+        return None
+
+    def broadcast_channel_removal_vote(self, **kwargs):
+        return None
+
+    def broadcast_channel_removal_result(self, **kwargs):
+        return None
+
+    def broadcast_interaction(self, **kwargs):
+        return None
 
     def get_discovered_peers(self):
         return [
@@ -178,6 +196,15 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
                 id TEXT PRIMARY KEY,
                 owner TEXT
             );
+            CREATE TABLE channels (
+                id TEXT PRIMARY KEY,
+                privacy_mode TEXT
+            );
+            CREATE TABLE channel_members (
+                channel_id TEXT,
+                user_id TEXT,
+                role TEXT
+            );
             """
         )
         self.conn.executemany(
@@ -226,15 +253,18 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
 
         self.message_manager = MagicMock()
         self.message_manager.get_messages.return_value = []
+        self.channel_manager = MagicMock()
+        self.channel_manager.get_channel_access_decision.return_value = {'allowed': True}
+        self.feed_manager = MagicMock()
 
         components = (
             self.db_manager,              # db_manager
             self.api_key_manager,         # api_key_manager
             MagicMock(),                  # trust_manager
             self.message_manager,         # message_manager
-            MagicMock(),                  # channel_manager
+            self.channel_manager,         # channel_manager
             MagicMock(),                  # file_manager
-            MagicMock(),                  # feed_manager
+            self.feed_manager,            # feed_manager
             MagicMock(),                  # interaction_manager
             MagicMock(),                  # profile_manager
             MagicMock(),                  # config
@@ -478,6 +508,147 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         self.assertEqual((api_examples.get('collect_responses') or {}).get('path'), '/api/v1/collab-cards/<card_id>/responses?scope=all')
         self.assertEqual((api_examples.get('update_telemetry') or {}).get('method'), 'PATCH')
         self.assertIn('metrics', (api_examples.get('update_telemetry') or {}).get('body') or {})
+        self.assertTrue((api_examples.get('update_telemetry') or {}).get('body', {}).get('advance_source'))
+        self.assertEqual((api_examples.get('advance_card_source_only') or {}).get('path'), '/api/v1/collab-cards/<card_id>/advance-source')
+
+        source_advancement = collab.get('source_advancement') or {}
+        self.assertEqual((source_advancement.get('feed_post') or {}).get('path'), '/api/v1/feed/posts/<post_id>/advance')
+        self.assertEqual((source_advancement.get('channel_thread') or {}).get('path'), '/api/v1/channels/<channel_id>/messages/<message_id>/advance')
+        self.assertIn('advance_source=true', source_advancement.get('inline_update_flag') or '')
+
+    def test_agent_instructions_include_channel_reaction_and_card_api_contracts(self) -> None:
+        response = self.client.get('/api/v1/agent-instructions')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+
+        channel_management = payload.get('channel_management') or {}
+        channel_endpoints = channel_management.get('endpoints') or {}
+        self.assertEqual((channel_endpoints.get('create') or {}).get('path'), '/api/v1/channels')
+        self.assertEqual((channel_endpoints.get('removal_status') or {}).get('path'), '/api/v1/channels/<channel_id>/removal')
+        self.assertEqual((channel_endpoints.get('removal_vote') or {}).get('permission'), 'WRITE_FEED')
+        self.assertEqual((channel_endpoints.get('delete_channel') or {}).get('permission'), 'DELETE_DATA')
+        self.assertIn('removal-vote endpoints', ' '.join(channel_management.get('notes') or []))
+
+        reactions = payload.get('reactions') or {}
+        self.assertEqual((reactions.get('discover') or {}).get('path'), '/api/v1/reaction-options')
+        self.assertIn('beer', reactions.get('standard_reaction_keys') or [])
+        self.assertEqual((reactions.get('endpoints') or {}).get('direct_message', {}).get('path'), '/api/v1/messages/<message_id>/like')
+        self.assertIn('custom:<slug>', reactions.get('custom_reactions') or '')
+
+        collab = payload.get('collab_cards') or {}
+        self.assertIn('Do not wrap live [input-card]', collab.get('fenced_block_warning') or '')
+        self.assertEqual((collab.get('endpoints') or {}).get('advance_source', {}).get('path'), '/api/v1/collab-cards/<card_id>/advance-source')
+
+    def test_source_advance_endpoints_call_underlying_managers(self) -> None:
+        self.feed_manager.advance_post.return_value = {
+            'source_type': 'feed_post',
+            'source_id': 'post-advance-1',
+            'post_id': 'post-advance-1',
+            'last_activity_at': '2026-05-09T12:00:00+00:00',
+            'advanced_by': 'agent-a',
+            'reason': 'operator attention',
+        }
+        feed_resp = self.client.post(
+            '/api/v1/feed/posts/post-advance-1/advance',
+            json={'reason': 'operator attention'},
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(feed_resp.status_code, 200)
+        feed_payload = feed_resp.get_json() or {}
+        self.assertTrue(feed_payload.get('success'))
+        self.feed_manager.advance_post.assert_called_once()
+        feed_args, feed_kwargs = self.feed_manager.advance_post.call_args
+        self.assertEqual(feed_args[:2], ('post-advance-1', 'agent-a'))
+        self.assertEqual(feed_kwargs.get('reason'), 'operator attention')
+
+        self.channel_manager.advance_message_thread.return_value = {
+            'success': True,
+            'source_type': 'channel_message',
+            'source_id': 'msg-advance-1',
+            'channel_id': 'general',
+            'message_id': 'msg-advance-1',
+            'root_message_id': 'msg-root-1',
+            'last_activity_at': '2026-05-09T12:01:00+00:00',
+            'advanced_by': 'agent-a',
+            'reason': 'telemetry updated',
+        }
+        self.conn.execute(
+            "INSERT INTO channels (id, privacy_mode) VALUES (?, ?)",
+            ('general', 'open'),
+        )
+        self.conn.commit()
+        channel_resp = self.client.post(
+            '/api/v1/channels/general/messages/msg-advance-1/advance',
+            json={'advance_reason': 'telemetry updated'},
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(channel_resp.status_code, 200)
+        channel_payload = channel_resp.get_json() or {}
+        self.assertTrue(channel_payload.get('success'))
+        self.channel_manager.advance_message_thread.assert_called_once()
+        channel_args, channel_kwargs = self.channel_manager.advance_message_thread.call_args
+        self.assertEqual(channel_args[:3], ('general', 'msg-advance-1', 'agent-a'))
+        self.assertTrue(channel_kwargs.get('require_post_permission'))
+        self.assertEqual(channel_kwargs.get('reason'), 'telemetry updated')
+
+    def test_reaction_options_endpoint_exposes_standard_keys_for_agents(self) -> None:
+        response = self.client.get(
+            '/api/v1/reaction-options',
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        reaction_keys = {str(item.get('type')) for item in payload.get('reactions') or []}
+        self.assertIn('like', reaction_keys)
+        self.assertIn('rocket', reaction_keys)
+        self.assertIn('beer', reaction_keys)
+        self.assertEqual((payload.get('usage') or {}).get('field'), 'reaction_type')
+        self.assertIn('custom:<slug>', (payload.get('usage') or {}).get('custom_format') or '')
+
+    def test_channel_removal_vote_api_exposes_mesh_cleanup_to_agents(self) -> None:
+        self.conn.execute(
+            "INSERT INTO channel_members (channel_id, user_id, role) VALUES (?, ?, ?)",
+            ('chan-api', 'agent-a', 'member'),
+        )
+        self.conn.commit()
+        pre_status = {'channel_exists': True, 'active_proposal': None}
+        post_status = {
+            'channel_exists': True,
+            'active_proposal': {
+                'proposal_id': 'CRP-api',
+                'channel_name': 'chan-api',
+                'channel_origin_peer': 'peer-origin',
+                'channel_privacy_mode': 'open',
+                'threshold_count': 2,
+                'opened_at': '2026-05-09 10:00:00',
+            },
+        }
+        self.channel_manager.get_channel_removal_status.return_value = pre_status
+        self.channel_manager.start_channel_removal_vote.return_value = {
+            'ok': True,
+            'proposal_id': 'CRP-api',
+            'status': post_status,
+            'electorate_peer_ids': ['peer-local', 'peer-alpha'],
+            'finalization': None,
+        }
+
+        status_response = self.client.get(
+            '/api/v1/channels/chan-api/removal',
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(status_response.status_code, 200)
+        self.assertTrue((status_response.get_json() or {}).get('success'))
+
+        vote_response = self.client.post(
+            '/api/v1/channels/chan-api/removal/vote',
+            json={'vote': 'remove', 'reason': 'orphaned test channel'},
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(vote_response.status_code, 200)
+        vote_payload = vote_response.get_json() or {}
+        self.assertTrue(vote_payload.get('success'))
+        self.assertEqual(vote_payload.get('action'), 'start')
+        self.channel_manager.start_channel_removal_vote.assert_called_once()
 
     def test_agents_endpoint_exposes_stable_handles_and_workload_counts(self) -> None:
         self.mention_manager.record_mentions(

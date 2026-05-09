@@ -1220,7 +1220,18 @@
                                                             <i class="bi bi-activity"></i> Telemetry
                                                         {% endif %}
                                                     </span>
-                                                    <span class="collab-card-status {{ card.status }}">{{ card.status_label }}</span>
+                                                    <span class="collab-card-head-actions">
+                                                        {% if card.can_update or card.can_respond %}
+                                                            <button type="button"
+                                                                    class="collab-card-advance"
+                                                                    onclick='advanceCollabCardSource("{{ card.id }}")'
+                                                                    title="Bring the source post forward"
+                                                                    aria-label="Bring the source post forward">
+                                                                <i class="bi bi-arrow-up-circle"></i>
+                                                            </button>
+                                                        {% endif %}
+                                                        <span class="collab-card-status {{ card.status }}">{{ card.status_label }}</span>
+                                                    </span>
                                                 </div>
                                                 <div class="collab-card-title">{{ card.title }}</div>
                                                 {% if card.summary %}
@@ -1722,6 +1733,11 @@
                                             <li>
                                                 <a class="dropdown-item" href="#" onclick="toggleVariantComposer('{{ post.id }}'); return false;">
                                                     <i class="bi bi-bezier2 me-2"></i>Variant
+                                                </a>
+                                            </li>
+                                            <li>
+                                                <a class="dropdown-item" href="#" onclick="advanceFeedPost('{{ post.id }}'); return false;">
+                                                    <i class="bi bi-arrow-up-circle me-2"></i>Bring forward
                                                 </a>
                                             </li>
                                             <li>
@@ -4517,6 +4533,33 @@
     font-weight: 700;
 }
 
+.collab-card-head-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
+.collab-card-advance {
+    width: 1.85rem;
+    height: 1.85rem;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(125, 211, 252, 0.24);
+    border-radius: 999px;
+    background: rgba(14, 165, 233, 0.10);
+    color: #7dd3fc;
+}
+
+.collab-card-advance:hover,
+.collab-card-advance:focus {
+    border-color: rgba(45, 212, 191, 0.48);
+    background: rgba(45, 212, 191, 0.18);
+    color: #ccfbf1;
+}
+
 .collab-card-status.open,
 .collab-card-status.waiting,
 .collab-card-status.running {
@@ -6545,6 +6588,26 @@
 	    function refreshFeed() {
 	        window.location.reload();
 	    }
+
+        function advanceFeedPost(postId) {
+            if (!postId) {
+                showAlert('Missing post id', 'warning');
+                return;
+            }
+            apiCall(`/ajax/feed/posts/${encodeURIComponent(postId)}/advance`, {
+                method: 'POST',
+                body: JSON.stringify({ reason: 'manual' })
+            }).then((data) => {
+                if (!data || !data.success) {
+                    showAlert((data && data.error) || 'Could not bring this post forward.', 'danger');
+                    return;
+                }
+                showAlert('Post brought forward.', 'success');
+                setTimeout(refreshFeed, 180);
+            }).catch((error) => {
+                showAlert(error.error || error.message || 'Could not bring this post forward.', 'danger');
+            });
+        }
 
         function openCommunityNoteModal(targetType, targetId) {
             const existing = document.getElementById('communityNoteModal');

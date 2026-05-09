@@ -434,6 +434,7 @@ class Message:
     expires_at: Optional[datetime] = None
     origin_peer: Optional[str] = None
     crypto_state: Optional[str] = None
+    last_activity_at: Optional[datetime] = None
 
     @staticmethod
     def normalize_attachment(attachment: Any) -> Optional[Dict[str, Any]]:
@@ -529,6 +530,7 @@ class Message:
             'content': self.content,
             'type': self.message_type.value,
             'created_at': self.created_at.isoformat(),
+            'last_activity_at': self.last_activity_at.isoformat() if self.last_activity_at else None,
             'expires_at': self.expires_at.isoformat() if self.expires_at else None,
             'thread_id': self.thread_id,
             'parent_message_id': self.parent_message_id,
@@ -6632,6 +6634,158 @@ class ChannelManager:
             )
             return result
 
+    def advance_message_thread(
+        self,
+        channel_id: str,
+        message_id: str,
+        actor_id: str,
+        *,
+        allow_admin: bool = False,
+        require_post_permission: bool = True,
+        reason: Optional[str] = None,
+        advanced_at: Optional[Any] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Resurface a channel message thread by updating its root activity timestamp."""
+        clean_channel_id = str(channel_id or '').strip()
+        clean_message_id = str(message_id or '').strip()
+        clean_actor_id = str(actor_id or '').strip()
+        if not clean_channel_id or not clean_message_id or not clean_actor_id:
+            return None
+
+        try:
+            access = self.get_channel_access_decision(
+                channel_id=clean_channel_id,
+                user_id=clean_actor_id,
+                require_membership=True,
+            )
+            if not access.get('allowed') and not allow_admin:
+                return {
+                    'success': False,
+                    'error': str(access.get('reason') or 'membership_required'),
+                    'status_code': 403,
+                }
+
+            with self.db.get_connection() as conn:
+                root_id = self._resolve_thread_root_id_conn(conn, clean_channel_id, clean_message_id)
+                if not root_id:
+                    return None
+                row = conn.execute(
+                    """
+                    SELECT id, user_id, content, expires_at,
+                           COALESCE(last_activity_at, created_at) AS effective_activity_at
+                    FROM channel_messages
+                    WHERE id = ? AND channel_id = ?
+                    """,
+                    (root_id, clean_channel_id),
+                ).fetchone()
+                if not row:
+                    return None
+                expires_dt = self._parse_datetime(row['expires_at']) if 'expires_at' in row.keys() else None
+                if expires_dt:
+                    now_dt = datetime.now(timezone.utc)
+                    if expires_dt.tzinfo is None:
+                        expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+                    if expires_dt <= now_dt:
+                        return None
+                current_activity = (
+                    self._parse_datetime(row['effective_activity_at'])
+                    if 'effective_activity_at' in row.keys() else None
+                )
+                channel_row = conn.execute(
+                    "SELECT COALESCE(last_activity_at, created_at) AS effective_activity_at FROM channels WHERE id = ?",
+                    (clean_channel_id,),
+                ).fetchone()
+                channel_activity = (
+                    self._parse_datetime(channel_row['effective_activity_at'])
+                    if channel_row and 'effective_activity_at' in channel_row.keys() else None
+                )
+                if channel_activity and (not current_activity or channel_activity > current_activity):
+                    current_activity = channel_activity
+
+            if require_post_permission and not allow_admin:
+                decision = self.can_user_post_message(
+                    channel_id=clean_channel_id,
+                    user_id=clean_actor_id,
+                    parent_message_id=root_id,
+                    allow_admin=allow_admin,
+                )
+                if not decision.get('allowed'):
+                    return {
+                        'success': False,
+                        'error': str(decision.get('reason') or 'not_authorized'),
+                        'status_code': 403,
+                    }
+
+            advance_dt = self._parse_datetime(advanced_at) or datetime.now(timezone.utc)
+            advance_db = self._format_db_timestamp(advance_dt)
+            clean_reason = str(reason or '').strip()[:120]
+            if current_activity and advance_dt <= current_activity:
+                return {
+                    'success': True,
+                    'source_type': 'channel_message',
+                    'source_id': clean_message_id,
+                    'channel_id': clean_channel_id,
+                    'message_id': clean_message_id,
+                    'root_message_id': root_id,
+                    'last_activity_at': current_activity.isoformat(),
+                    'advanced_by': clean_actor_id,
+                    'reason': clean_reason,
+                    'unchanged': True,
+                }
+
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    "UPDATE channel_messages SET last_activity_at = ? WHERE id = ? AND channel_id = ?",
+                    (advance_db, root_id, clean_channel_id),
+                )
+                conn.execute(
+                    """
+                    UPDATE channels
+                       SET last_activity_at = ?,
+                           lifecycle_archived_at = NULL,
+                           lifecycle_archive_reason = NULL
+                     WHERE id = ?
+                       AND (
+                           COALESCE(last_activity_at, created_at) IS NULL
+                           OR julianday(?) > julianday(COALESCE(last_activity_at, created_at))
+                       )
+                    """,
+                    (advance_db, clean_channel_id, advance_db),
+                )
+                conn.commit()
+
+            result = {
+                'success': True,
+                'source_type': 'channel_message',
+                'source_id': clean_message_id,
+                'channel_id': clean_channel_id,
+                'message_id': clean_message_id,
+                'root_message_id': root_id,
+                'last_activity_at': advance_dt.isoformat(),
+                'advanced_by': clean_actor_id,
+                'reason': clean_reason,
+            }
+            self._emit_channel_user_event(
+                channel_id=clean_channel_id,
+                event_type=EVENT_CHANNEL_STATE_UPDATED,
+                actor_user_id=clean_actor_id,
+                payload={
+                    'reason': 'source_advanced',
+                    'message_id': clean_message_id,
+                    'root_message_id': root_id,
+                    'last_activity_at': result['last_activity_at'],
+                    'advance_reason': clean_reason,
+                },
+                dedupe_suffix=f"advance:{root_id}:{advance_db}:{clean_actor_id}",
+            )
+            return result
+        except Exception as e:
+            logger.error(
+                f"Failed to advance channel message {message_id} in {channel_id}: {e}",
+                exc_info=True,
+            )
+            return None
+
     def get_thread_subscriber_ids(self, channel_id: str, thread_root_message_id: str) -> List[str]:
         """Return subscribed user ids for a channel thread root."""
         if not channel_id or not thread_root_message_id:
@@ -7046,7 +7200,7 @@ class ChannelManager:
                             FROM channel_messages unread
                             WHERE unread.channel_id = cm.channel_id
                               AND (unread.expires_at IS NULL OR unread.expires_at > CURRENT_TIMESTAMP)
-                              AND (cm.last_read_at IS NULL OR unread.created_at > cm.last_read_at)
+                              AND (cm.last_read_at IS NULL OR COALESCE(unread.last_activity_at, unread.created_at) > cm.last_read_at)
                             LIMIT 1
                       )
                     LIMIT 1
@@ -7700,6 +7854,7 @@ class ChannelManager:
                 expires_at=expires_at,
                 origin_peer=row['origin_peer'] if 'origin_peer' in row.keys() else None,
                 crypto_state=row['crypto_state'] if 'crypto_state' in row.keys() else None,
+                last_activity_at=self._parse_datetime(row['last_activity_at']) if 'last_activity_at' in row.keys() else None,
             )
         except Exception as row_err:
             row_id = '?'
@@ -8548,7 +8703,7 @@ class ChannelManager:
                             FROM channel_messages unread
                             WHERE unread.channel_id = c.id
                               AND (unread.expires_at IS NULL OR unread.expires_at > CURRENT_TIMESTAMP)
-                              AND (cm.last_read_at IS NULL OR unread.created_at > cm.last_read_at)
+                              AND (cm.last_read_at IS NULL OR COALESCE(unread.last_activity_at, unread.created_at) > cm.last_read_at)
                            ) as unread_count
                     FROM channels c
                     INNER JOIN channel_members cm ON c.id = cm.channel_id AND cm.user_id = ?

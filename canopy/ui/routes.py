@@ -2050,6 +2050,81 @@ def create_ui_blueprint() -> Blueprint:
         owner_id = db_manager.get_instance_owner_user_id()
         return owner_id is not None and session.get('user_id') == owner_id
 
+    def _ui_as_bool(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    def _broadcast_source_advance_ui(result: Optional[dict[str, Any]]) -> None:
+        """Best-effort mesh notification for a source brought forward by the web UI."""
+        if not result:
+            return
+        if result.get('success') is False:
+            return
+        if result.get('unchanged') is True:
+            return
+        try:
+            components = _get_app_components_any(current_app)
+            db_manager = components[0] if len(components) > 0 else None
+            feed_manager = components[6] if len(components) > 6 else None
+            profile_manager = components[8] if len(components) > 8 else None
+            p2p_manager = components[-1] if components else None
+            if not p2p_manager or not p2p_manager.is_running():
+                return
+            source_type = str(result.get('source_type') or '').strip()
+            source_id = str(result.get('source_id') or result.get('message_id') or result.get('post_id') or '').strip()
+            if not source_type or not source_id:
+                return
+            if source_type == 'feed_post':
+                post = feed_manager.get_post(source_id) if feed_manager else None
+                visibility = str(getattr(getattr(post, 'visibility', None), 'value', getattr(post, 'visibility', '')) or '').strip().lower()
+                if visibility not in {'public', 'network', 'trusted'}:
+                    return
+            elif source_type == 'channel_message':
+                channel_id = str(result.get('channel_id') or '').strip()
+                if not channel_id or not db_manager:
+                    return
+                with db_manager.get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT privacy_mode FROM channels WHERE id = ?",
+                        (channel_id,),
+                    ).fetchone()
+                privacy_mode = str((row['privacy_mode'] if row else '') or 'open').strip().lower()
+                if privacy_mode in {'private', 'confidential'}:
+                    return
+            else:
+                return
+
+            actor_id = str(result.get('advanced_by') or get_current_user() or '').strip()
+            display_name = None
+            if profile_manager and actor_id:
+                try:
+                    profile = profile_manager.get_profile(actor_id)
+                    if profile:
+                        display_name = profile.display_name or profile.username
+                except Exception:
+                    display_name = None
+            p2p_manager.broadcast_interaction(
+                item_id=source_id,
+                user_id=actor_id,
+                action='source_advanced',
+                item_type=source_type,
+                display_name=display_name,
+                extra={
+                    'source_type': source_type,
+                    'source_id': source_id,
+                    'channel_id': result.get('channel_id'),
+                    'root_message_id': result.get('root_message_id'),
+                    'last_activity_at': result.get('last_activity_at'),
+                    'reason': result.get('reason') or '',
+                    'source_advanced': result,
+                },
+            )
+        except Exception as p2p_err:
+            logger.warning(f"Failed to broadcast source advance: {p2p_err}")
+
     def _get_canopy_llm_manager() -> Any:
         manager = current_app.config.get('CANOPY_LLM_MANAGER')
         if manager:
@@ -13341,9 +13416,12 @@ def create_ui_blueprint() -> Blueprint:
     def _broadcast_collab_card_update_ui(card: dict[str, Any],
                                          *,
                                          action: str,
-                                         response: Optional[dict[str, Any]] = None) -> None:
+                                         response: Optional[dict[str, Any]] = None,
+                                         source_advanced: Optional[dict[str, Any]] = None) -> None:
         try:
-            _, _, _, _, _, _, _, _, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
+            components = _get_app_components_any(current_app)
+            profile_manager = components[8] if len(components) > 8 else None
+            p2p_manager = components[-1] if components else None
             if not card or (card.get('visibility') or 'network') != 'network':
                 return
             if not p2p_manager or not p2p_manager.is_running():
@@ -13360,6 +13438,8 @@ def create_ui_blueprint() -> Blueprint:
             extra: dict[str, Any] = {'card': card}
             if response:
                 extra['response'] = response
+            if source_advanced and source_advanced.get('success') is not False and not source_advanced.get('unchanged'):
+                extra['source_advanced'] = source_advanced
             p2p_manager.broadcast_interaction(
                 item_id=card.get('id'),
                 user_id=actor_id or card.get('created_by') or card.get('owner_id'),
@@ -13370,6 +13450,53 @@ def create_ui_blueprint() -> Blueprint:
             )
         except Exception as p2p_err:
             logger.warning(f"Failed to broadcast collaboration card update: {p2p_err}")
+
+    def _advance_collab_card_source_ui(
+        card: dict[str, Any],
+        *,
+        actor_id: str,
+        reason: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Bring the source containing a collaboration card forward."""
+        if not card or not actor_id:
+            return None
+        try:
+            components = _get_app_components_any(current_app)
+            db_manager = components[0] if len(components) > 0 else None
+            channel_manager = components[4] if len(components) > 4 else None
+            feed_manager = components[6] if len(components) > 6 else None
+            source_type = str(card.get('source_type') or '').strip().lower()
+            source_id = str(card.get('source_id') or '').strip()
+            clean_reason = str(reason or '').strip() or f"{str(card.get('card_type') or 'collaboration')} card updated"
+            if source_type == 'feed_post' and source_id and feed_manager:
+                return feed_manager.advance_post(
+                    source_id,
+                    actor_id,
+                    allow_admin=_is_admin(),
+                    reason=clean_reason,
+                )
+            if source_type == 'channel_message' and source_id and channel_manager:
+                channel_id = str(card.get('channel_id') or '').strip()
+                if not channel_id and db_manager:
+                    with db_manager.get_connection() as conn:
+                        row = conn.execute(
+                            "SELECT channel_id FROM channel_messages WHERE id = ?",
+                            (source_id,),
+                        ).fetchone()
+                    channel_id = str((row['channel_id'] if row else '') or '').strip()
+                if not channel_id:
+                    return None
+                return channel_manager.advance_message_thread(
+                    channel_id,
+                    source_id,
+                    actor_id,
+                    allow_admin=_is_admin(),
+                    require_post_permission=False,
+                    reason=clean_reason,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to advance collaboration card source: {e}")
+        return None
 
     def _require_collab_card_manager_ui(route_name: str):
         collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
@@ -13387,6 +13514,37 @@ def create_ui_blueprint() -> Blueprint:
             }),
             503,
         )
+
+    @ui.route('/ajax/collab_cards/<card_id>/advance_source', methods=['POST'])
+    @require_login
+    def ajax_advance_collab_card_source(card_id):
+        """Bring the source containing a collaboration card forward."""
+        try:
+            db_manager, *_ = _get_app_components_any(current_app)
+            collab_card_manager, unavailable = _require_collab_card_manager_ui('ajax_advance_collab_card_source')
+            if unavailable:
+                return unavailable
+            data = request.get_json(silent=True) or {}
+            user_id = get_current_user()
+            admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
+            card = collab_card_manager.get_card(card_id, viewer_id=user_id, admin_user_id=admin_id, include_responses=True)
+            if not card:
+                return jsonify({'success': False, 'error': 'Card not found'}), 404
+            if not (card.get('can_update') or card.get('can_respond')):
+                return jsonify({'success': False, 'error': 'You are not allowed to advance this card source.'}), 403
+            source_advanced = _advance_collab_card_source_ui(
+                card,
+                actor_id=user_id,
+                reason=data.get('reason') or data.get('advance_reason') or 'card update',
+            )
+            if not source_advanced:
+                return jsonify({'success': False, 'error': 'Source could not be advanced'}), 400
+            _broadcast_source_advance_ui(source_advanced)
+            _broadcast_collab_card_update_ui(card, action='collab_card_update', source_advanced=source_advanced)
+            return jsonify({'success': True, 'card': card, 'source_advanced': source_advanced})
+        except Exception as e:
+            logger.error(f"Advance collaboration card source error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to advance card source'}), 500
 
     @ui.route('/ajax/collab_cards/<card_id>/respond', methods=['POST'])
     @require_login
@@ -13412,8 +13570,21 @@ def create_ui_blueprint() -> Blueprint:
                 admin_user_id=admin_id,
             )
             response_payload = card.get('my_response') if isinstance(card, dict) else None
-            _broadcast_collab_card_update_ui(card, action='collab_card_response', response=response_payload)
-            return jsonify({'success': True, 'card': card, 'response': response_payload})
+            source_advanced = None
+            if _ui_as_bool(data.get('advance_source')):
+                source_advanced = _advance_collab_card_source_ui(
+                    card,
+                    actor_id=user_id,
+                    reason=data.get('advance_reason') or 'input response updated',
+                )
+                _broadcast_source_advance_ui(source_advanced)
+            _broadcast_collab_card_update_ui(
+                card,
+                action='collab_card_response',
+                response=response_payload,
+                source_advanced=source_advanced,
+            )
+            return jsonify({'success': True, 'card': card, 'response': response_payload, 'source_advanced': source_advanced})
         except KeyError:
             return jsonify({'success': False, 'error': 'Card not found'}), 404
         except PermissionError:
@@ -13447,8 +13618,16 @@ def create_ui_blueprint() -> Blueprint:
                 telemetry_patch=data.get('telemetry') if isinstance(data.get('telemetry'), dict) else None,
                 admin_user_id=admin_id,
             )
-            _broadcast_collab_card_update_ui(card, action='collab_card_telemetry')
-            return jsonify({'success': True, 'card': card})
+            source_advanced = None
+            if _ui_as_bool(data.get('advance_source')):
+                source_advanced = _advance_collab_card_source_ui(
+                    card,
+                    actor_id=user_id,
+                    reason=data.get('advance_reason') or data.get('stage') or 'telemetry updated',
+                )
+                _broadcast_source_advance_ui(source_advanced)
+            _broadcast_collab_card_update_ui(card, action='collab_card_telemetry', source_advanced=source_advanced)
+            return jsonify({'success': True, 'card': card, 'source_advanced': source_advanced})
         except KeyError:
             return jsonify({'success': False, 'error': 'Card not found'}), 404
         except PermissionError:
@@ -13475,8 +13654,16 @@ def create_ui_blueprint() -> Blueprint:
             user_id = get_current_user()
             admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
             card = collab_card_manager.update_input_status(card_id, actor_id=user_id, status=status, admin_user_id=admin_id)
-            _broadcast_collab_card_update_ui(card, action='collab_card_update')
-            return jsonify({'success': True, 'card': card})
+            source_advanced = None
+            if _ui_as_bool(data.get('advance_source')):
+                source_advanced = _advance_collab_card_source_ui(
+                    card,
+                    actor_id=user_id,
+                    reason=data.get('advance_reason') or f"input card {status}",
+                )
+                _broadcast_source_advance_ui(source_advanced)
+            _broadcast_collab_card_update_ui(card, action='collab_card_update', source_advanced=source_advanced)
+            return jsonify({'success': True, 'card': card, 'source_advanced': source_advanced})
         except KeyError:
             return jsonify({'success': False, 'error': 'Card not found'}), 404
         except PermissionError:
@@ -15459,6 +15646,31 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Update post expiry error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/feed/posts/<post_id>/advance', methods=['POST'])
+    @require_login
+    def ajax_advance_feed_post(post_id):
+        """Bring an existing feed post forward without creating a repost."""
+        try:
+            components = _get_app_components_any(current_app)
+            feed_manager = components[6] if len(components) > 6 else None
+            if not feed_manager:
+                return jsonify({'success': False, 'error': 'Feed unavailable'}), 503
+            data = request.get_json(silent=True) or {}
+            user_id = get_current_user()
+            result = feed_manager.advance_post(
+                post_id,
+                user_id,
+                allow_admin=_is_admin(),
+                reason=data.get('reason') or data.get('advance_reason') or 'manual',
+            )
+            if not result:
+                return jsonify({'success': False, 'error': 'Post not found or access denied'}), 404
+            _broadcast_source_advance_ui(result)
+            return jsonify({'success': True, 'source_advanced': result})
+        except Exception as e:
+            logger.error(f"Advance feed post error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
     
     @ui.route('/ajax/share_post', methods=['POST'])
     @ui.route('/ajax/repost_post', methods=['POST'])
@@ -15522,6 +15734,35 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Variant post error: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/channels/<channel_id>/messages/<message_id>/advance', methods=['POST'])
+    @require_login
+    def ajax_advance_channel_message(channel_id, message_id):
+        """Bring an existing channel message thread forward without creating a repost."""
+        try:
+            components = _get_app_components_any(current_app)
+            channel_manager = components[4] if len(components) > 4 else None
+            if not channel_manager:
+                return jsonify({'success': False, 'error': 'Channels unavailable'}), 503
+            data = request.get_json(silent=True) or {}
+            user_id = get_current_user()
+            result = channel_manager.advance_message_thread(
+                channel_id,
+                message_id,
+                user_id,
+                allow_admin=_is_admin(),
+                require_post_permission=True,
+                reason=data.get('reason') or data.get('advance_reason') or 'manual',
+            )
+            if not result:
+                return jsonify({'success': False, 'error': 'Message not found or access denied'}), 404
+            if result.get('success') is False:
+                return jsonify({'success': False, 'error': result.get('error') or 'Not authorized'}), int(result.get('status_code') or 403)
+            _broadcast_source_advance_ui(result)
+            return jsonify({'success': True, 'source_advanced': result})
+        except Exception as e:
+            logger.error(f"Advance channel message error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
     @ui.route('/ajax/repost_channel_message', methods=['POST'])
     @require_login

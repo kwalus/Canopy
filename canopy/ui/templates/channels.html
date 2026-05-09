@@ -6090,6 +6090,33 @@
     font-weight: 700;
 }
 
+.collab-card-head-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+
+.collab-card-advance {
+    width: 1.85rem;
+    height: 1.85rem;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(125, 211, 252, 0.24);
+    border-radius: 999px;
+    background: rgba(14, 165, 233, 0.10);
+    color: #7dd3fc;
+}
+
+.collab-card-advance:hover,
+.collab-card-advance:focus {
+    border-color: rgba(45, 212, 191, 0.48);
+    background: rgba(45, 212, 191, 0.18);
+    color: #ccfbf1;
+}
+
 .collab-card-status.open,
 .collab-card-status.waiting,
 .collab-card-status.running {
@@ -8815,6 +8842,11 @@ function renderMessage(message, userInfo, isReply) {
                                     </a>
                                 </li>
                                 <li>
+                                    <a class="dropdown-item" href="#" onclick="advanceChannelMessage('${message.id}'); return false;">
+                                        <i class="bi bi-arrow-up-circle me-2"></i>Bring forward
+                                    </a>
+                                </li>
+                                <li>
                                     <a class="dropdown-item" href="#" onclick="toggleChannelVariantComposer('${message.id}'); return false;">
                                         <i class="bi bi-bezier2 me-2"></i>Variant
                                     </a>
@@ -9027,6 +9059,33 @@ function submitChannelRepostInline(messageId) {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="bi bi-repeat me-1"></i>Repost';
         }
+	    });
+	}
+
+function advanceChannelMessage(messageId) {
+    if (!currentChannelId || !messageId) {
+        showAlert('Select a channel before bringing a thread forward.', 'warning');
+        return;
+    }
+    apiCall(`/ajax/channels/${encodeURIComponent(currentChannelId)}/messages/${encodeURIComponent(messageId)}/advance`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'manual' })
+    })
+    .then((data) => {
+        if (!data || !data.success) {
+            showAlert((data && data.error) || 'Could not bring this thread forward.', 'danger');
+            return;
+        }
+        showAlert('Thread brought forward.', 'success');
+        if (typeof refreshSidebarChannelState === 'function') {
+            refreshSidebarChannelState();
+        }
+        if (typeof requestChannelThreadRefresh === 'function') {
+            requestChannelThreadRefresh({ forceScroll: false });
+        }
+    })
+    .catch((err) => {
+        showAlert('Could not bring this thread forward: ' + ((err && (err.message || err.error)) || err), 'danger');
     });
 }
 
@@ -9668,6 +9727,14 @@ function renderCollabCards(message) {
                 const label = type === 'telemetry'
                     ? '<i class="bi bi-activity"></i> Telemetry'
                     : '<i class="bi bi-ui-checks-grid"></i> Input Request';
+                const advanceAction = (card.can_update || card.can_respond) ? `
+                    <button type="button"
+                            class="collab-card-advance"
+                            onclick="advanceCollabCardSource('${cardId}')"
+                            title="Bring the source thread forward"
+                            aria-label="Bring the source thread forward">
+                        <i class="bi bi-arrow-up-circle"></i>
+                    </button>` : '';
 
                 if (type === 'telemetry') {
                     const metrics = Array.isArray(telemetry.metrics) ? telemetry.metrics : [];
@@ -9692,7 +9759,10 @@ function renderCollabCards(message) {
                         <div class="collab-card collab-card--telemetry" data-collab-card-id="${cardId}" data-card-type="telemetry" data-status="${escapeHtml(status)}">
                             <div class="collab-card-head">
                                 <span class="collab-card-label">${label}</span>
-                                <span class="collab-card-status ${escapeHtml(status)}">${statusLabel}</span>
+                                <span class="collab-card-head-actions">
+                                    ${advanceAction}
+                                    <span class="collab-card-status ${escapeHtml(status)}">${statusLabel}</span>
+                                </span>
                             </div>
                             <div class="collab-card-title">${title}</div>
                             ${summary}
@@ -9714,7 +9784,10 @@ function renderCollabCards(message) {
                     <div class="collab-card collab-card--input" data-collab-card-id="${cardId}" data-card-type="input" data-status="${escapeHtml(status)}">
                         <div class="collab-card-head">
                             <span class="collab-card-label">${label}</span>
-                            <span class="collab-card-status ${escapeHtml(status)}">${statusLabel}</span>
+                            <span class="collab-card-head-actions">
+                                ${advanceAction}
+                                <span class="collab-card-status ${escapeHtml(status)}">${statusLabel}</span>
+                            </span>
                         </div>
                         <div class="collab-card-title">${title}</div>
                         ${summary}
@@ -11675,6 +11748,30 @@ function applySidebarChannelStateUpdate(channelId, payload) {
         }
         if (String(currentChannelId) === cleanChannelId) {
             applyChannelNotificationsFromSelection(cleanChannelId);
+        }
+        return true;
+    }
+
+    if (reason === 'source_advanced') {
+        const lastActivityAt = String(payload && payload.last_activity_at || '').trim();
+        if (lastActivityAt) {
+            item.setAttribute('data-last-activity-at', lastActivityAt);
+            applyChannelLifecycleToItem(item, {
+                status: item.getAttribute('data-lifecycle-status') || 'active',
+                ttlDays: parseChannelLifecycleInt(item.getAttribute('data-lifecycle-ttl-days'), 180),
+                preserved: parseChannelLifecycleBool(item.getAttribute('data-lifecycle-preserved')),
+                archivedAt: item.getAttribute('data-archived-at') || '',
+                archiveReason: item.getAttribute('data-archive-reason') || '',
+                daysUntilArchive: parseChannelLifecycleInt(item.getAttribute('data-days-until-archive'), null),
+                ownerPeerState: item.getAttribute('data-owner-peer-state') || '',
+                lastActivityAt,
+            });
+            sortChannelListByPins();
+        }
+        if (String(currentChannelId) === cleanChannelId) {
+            requestChannelThreadRefresh({ forceScroll: false });
+        } else {
+            refreshSidebarChannelState();
         }
         return true;
     }

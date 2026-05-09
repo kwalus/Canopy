@@ -1962,8 +1962,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                    lifecycle_archived_at = NULL,
                                    lifecycle_archive_reason = NULL
                              WHERE id = ?
+                               AND (
+                                   COALESCE(last_activity_at, created_at) IS NULL
+                                   OR julianday(COALESCE(?, CURRENT_TIMESTAMP)) > julianday(COALESCE(last_activity_at, created_at))
+                               )
                             """,
-                            (normalised_ts, channel_id),
+                            (normalised_ts, channel_id, normalised_ts),
                         )
                         conn.commit()
                     channel_manager.mark_message_processed(message_id)
@@ -2050,8 +2054,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                lifecycle_archived_at = NULL,
                                lifecycle_archive_reason = NULL
                          WHERE id = ?
+                           AND (
+                               COALESCE(last_activity_at, created_at) IS NULL
+                               OR julianday(COALESCE(?, CURRENT_TIMESTAMP)) > julianday(COALESCE(last_activity_at, created_at))
+                           )
                         """,
-                        (normalised_ts, channel_id),
+                        (normalised_ts, channel_id, normalised_ts),
                     )
                     conn.commit()
 
@@ -5416,6 +5424,17 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         except Exception:
                             normalised_ts = timestamp
 
+                    last_activity_raw = msg.get('last_activity_at')
+                    normalised_last_activity = None
+                    if last_activity_raw:
+                        try:
+                            from datetime import datetime as _dt
+                            last_activity_dt = _dt.fromisoformat(
+                                str(last_activity_raw).replace('Z', '+00:00'))
+                            normalised_last_activity = last_activity_dt.strftime('%Y-%m-%d %H:%M:%S')
+                        except Exception:
+                            normalised_last_activity = str(last_activity_raw)
+
                     created_dt = None
                     if timestamp:
                         try:
@@ -5580,13 +5599,27 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             INSERT OR IGNORE INTO channel_messages
                             (id, channel_id, user_id, content,
                              message_type, attachments, source_layout, source_reference, repost_policy, created_at, origin_peer, expires_at,
-                             parent_message_id, encrypted_content, crypto_state, key_id, nonce)
+                             parent_message_id, encrypted_content, crypto_state, key_id, nonce, last_activity_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
-                                    COALESCE(?, datetime('now')), ?, ?, ?, ?, ?, ?, ?)
+                                    COALESCE(?, datetime('now')), ?, ?, ?, ?, ?, ?, ?, ?)
                         """, (mid, channel_id, user_id, content,
                               message_type, attachments_json, source_layout_json, source_reference_json, repost_policy_db,
                               normalised_ts, origin_peer, expires_db, parent_message_id,
-                              encrypted_content_db, crypto_state_db, key_id_db, nonce_db))
+                              encrypted_content_db, crypto_state_db, key_id_db, nonce_db, normalised_last_activity))
+                        if normalised_last_activity:
+                            conn.execute(
+                                """
+                                UPDATE channel_messages
+                                   SET last_activity_at = COALESCE(?, last_activity_at)
+                                 WHERE id = ? AND channel_id = ?
+                                   AND (
+                                       COALESCE(last_activity_at, created_at) IS NULL
+                                       OR julianday(?) > julianday(COALESCE(last_activity_at, created_at))
+                                   )
+                                """,
+                                (normalised_last_activity, mid, channel_id, normalised_last_activity),
+                            )
+                        message_activity_db = normalised_last_activity or normalised_ts
                         conn.execute(
                             """
                             UPDATE channels
@@ -5594,8 +5627,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                    lifecycle_archived_at = NULL,
                                    lifecycle_archive_reason = NULL
                              WHERE id = ?
+                               AND (
+                                   COALESCE(last_activity_at, created_at) IS NULL
+                                   OR julianday(COALESCE(?, CURRENT_TIMESTAMP)) > julianday(COALESCE(last_activity_at, created_at))
+                               )
                             """,
-                            (normalised_ts, channel_id),
+                            (message_activity_db, channel_id, message_activity_db),
                         )
                         conn.commit()
 
@@ -5630,6 +5667,17 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         except Exception:
                             feed_origin_peer = ''
                         feed_origin_peer = str(fp.get('origin_peer') or feed_origin_peer or from_peer or '').strip() or str(from_peer or '').strip()
+                        feed_last_activity_raw = fp.get('last_activity_at')
+                        feed_last_activity_db = None
+                        if feed_last_activity_raw:
+                            try:
+                                from datetime import datetime as _dt
+                                feed_last_activity_dt = _dt.fromisoformat(
+                                    str(feed_last_activity_raw).replace('Z', '+00:00')
+                                )
+                                feed_last_activity_db = feed_last_activity_dt.strftime('%Y-%m-%d %H:%M:%S')
+                            except Exception:
+                                feed_last_activity_db = str(feed_last_activity_raw)
                         _ensure_shadow_user(
                             author_id,
                             display_name,
@@ -5644,16 +5692,31 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 conn.execute("""
                                     INSERT OR IGNORE INTO feed_posts
                                     (id, author_id, content, content_type,
-                                     visibility, metadata, created_at, expires_at)
-                                    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
+                                     visibility, metadata, created_at, expires_at, last_activity_at)
+                                    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?)
                                 """, (pid, author_id, content,
                                       fp.get('content_type', 'text'),
                                       fp.get('visibility', 'network'),
                                       fp.get('metadata'),
                                       fp.get('created_at'),
-                                      fp.get('expires_at')))
+                                      fp.get('expires_at'),
+                                      feed_last_activity_db))
                                 conn.commit()
                                 fp_stored += 1
+                            elif feed_last_activity_db:
+                                conn.execute(
+                                    """
+                                    UPDATE feed_posts
+                                       SET last_activity_at = COALESCE(?, last_activity_at)
+                                     WHERE id = ?
+                                       AND (
+                                           COALESCE(last_activity_at, created_at) IS NULL
+                                           OR julianday(?) > julianday(COALESCE(last_activity_at, created_at))
+                                       )
+                                    """,
+                                    (feed_last_activity_db, pid, feed_last_activity_db),
+                                )
+                                conn.commit()
                     except Exception as fp_err:
                         logger.debug(f"Catchup feed post {fp.get('id','?')} failed: {fp_err}")
                 if fp_stored:
@@ -7222,6 +7285,53 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 )
                 meta = metadata or {}
 
+                def _apply_source_advance_snapshot(snapshot: Optional[dict[str, Any]] = None) -> None:
+                    payload = snapshot if isinstance(snapshot, dict) else meta
+                    source_type = str(payload.get('source_type') or item_type or '').strip().lower()
+                    source_id = str(
+                        payload.get('source_id')
+                        or payload.get('message_id')
+                        or payload.get('post_id')
+                        or item_id
+                        or ''
+                    ).strip()
+                    if not source_type or not source_id:
+                        return
+                    advanced_at = payload.get('last_activity_at')
+                    reason = payload.get('reason') or payload.get('advance_reason') or 'remote source advance'
+                    if source_type == 'feed_post' and feed_manager:
+                        feed_manager.advance_post(
+                            source_id,
+                            user_id,
+                            allow_admin=True,
+                            reason=reason,
+                            advanced_at=advanced_at,
+                        )
+                        return
+                    if source_type == 'channel_message' and channel_manager:
+                        channel_id = str(payload.get('channel_id') or '').strip()
+                        if not channel_id:
+                            try:
+                                with db_manager.get_connection() as conn:
+                                    row = conn.execute(
+                                        "SELECT channel_id FROM channel_messages WHERE id = ?",
+                                        (source_id,),
+                                    ).fetchone()
+                                channel_id = str((row['channel_id'] if row else '') or '').strip()
+                            except Exception:
+                                channel_id = ''
+                        if not channel_id:
+                            return
+                        channel_manager.advance_message_thread(
+                            channel_id,
+                            source_id,
+                            user_id,
+                            allow_admin=True,
+                            require_post_permission=False,
+                            reason=reason,
+                            advanced_at=advanced_at,
+                        )
+
                 def _emit_dm_reaction_event(reaction_type: str, liked: bool) -> None:
                     if item_type != 'dm_message' or not workspace_event_manager:
                         return
@@ -7291,6 +7401,27 @@ def create_app(config: Optional[Config] = None) -> Flask:
                             preview=preview,
                             source_content=p2p_source_content,
                         )
+                    return
+
+                if action == 'source_advanced':
+                    _apply_source_advance_snapshot(meta.get('source_advanced') if isinstance(meta.get('source_advanced'), dict) else meta)
+                    return
+
+                if item_type == 'collab_card':
+                    if collab_card_manager:
+                        card_payload = meta.get('card') or {}
+                        if isinstance(card_payload, dict) and card_payload:
+                            collab_card_manager.ingest_card_snapshot(card_payload)
+                        response_payload = meta.get('response') or {}
+                        card_id = str(
+                            (card_payload.get('id') if isinstance(card_payload, dict) else '')
+                            or item_id
+                            or ''
+                        ).strip()
+                        if isinstance(response_payload, dict) and response_payload and card_id:
+                            collab_card_manager.ingest_response_snapshot(card_id, response_payload)
+                    if isinstance(meta.get('source_advanced'), dict):
+                        _apply_source_advance_snapshot(meta.get('source_advanced'))
                     return
 
                 if action in ('task_create', 'task_update', 'task_status', 'task_assign') or item_type == 'task':
