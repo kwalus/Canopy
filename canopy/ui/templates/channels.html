@@ -2643,6 +2643,28 @@
     .channel-item-head > i.bi {
         flex: 0 0 auto;
     }
+    .channel-item.channel-quiet:not(.active) {
+        color: color-mix(in srgb, var(--canopy-text-secondary) 72%, transparent);
+    }
+    .channel-item.channel-quiet:not(.active) .channel-item-head > i.bi {
+        opacity: 0.62;
+    }
+    .channel-item.channel-has-unread:not(.active),
+    .channel-item.channel-has-mentions:not(.active) {
+        color: var(--canopy-text-primary);
+    }
+    .channel-item.channel-has-unread:not(.active) .channel-name,
+    .channel-item.channel-has-mentions:not(.active) .channel-name {
+        font-weight: 800;
+    }
+    .channel-mention-badge {
+        background: linear-gradient(135deg, #f08ab4, #e0447a);
+        color: #1c0710;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        box-shadow: 0 6px 16px rgba(224, 68, 122, 0.28);
+        min-width: 1.45rem;
+        font-weight: 800;
+    }
     .channel-row-actions {
         flex: 0 0 auto;
         min-width: fit-content;
@@ -3539,13 +3561,18 @@
             <div class="channel-list p-2" id="channel-list">
                 {% for channel in channels %}
                 {% set lifecycle_status = channel.lifecycle_status or 'active' %}
-                <div class="channel-item p-2 rounded mb-1 {% if loop.first %}active{% endif %} {% if lifecycle_status == 'archived' %}lifecycle-archived{% elif lifecycle_status == 'cooling' %}lifecycle-cooling{% elif lifecycle_status == 'preserved' %}lifecycle-preserved{% endif %}" 
+                {% set unread_count = (channel.unread_count if channel.unread_count is not none else 0)|int %}
+                {% set mention_count = (channel.mention_count if channel.mention_count is defined and channel.mention_count is not none else 0)|int %}
+                {% set visible_unread_count = 0 if loop.first else unread_count %}
+                {% set visible_mention_count = 0 if loop.first else mention_count %}
+                <div class="channel-item p-2 rounded mb-1 {% if loop.first %}active{% endif %} {% if visible_unread_count > 0 %}channel-has-unread{% else %}channel-quiet{% endif %} {% if visible_mention_count > 0 %}channel-has-mentions{% endif %} {% if lifecycle_status == 'archived' %}lifecycle-archived{% elif lifecycle_status == 'cooling' %}lifecycle-cooling{% elif lifecycle_status == 'preserved' %}lifecycle-preserved{% endif %}"
                      data-channel-id="{{ channel.id }}"
                      data-channel-base-name="{{ channel.name|e }}"
                      data-display-name="{{ channel.name|e }}"
                      data-privacy-mode="{{ channel.privacy_mode }}"
                      data-member-count="{{ channel.member_count if channel.member_count is not none else 0 }}"
-                     data-unread-count="{{ channel.unread_count if channel.unread_count is not none else 0 }}"
+                     data-unread-count="{{ visible_unread_count }}"
+                     data-mention-count="{{ visible_mention_count }}"
                      data-channel-type="{{ channel.channel_type.value if channel.channel_type is not string and channel.channel_type is not none else channel.channel_type }}"
                      data-user-role="{{ channel.user_role }}"
                      data-origin-peer="{{ channel.origin_peer or '' }}"
@@ -3633,8 +3660,8 @@
                                 </ul>
                             </div>
                             <i class="bi bi-bell-slash text-muted channel-muted-icon {% if channel.notifications_enabled %}d-none{% endif %}" title="Muted"></i>
-                            {% if channel.unread_count > 0 %}
-                                <span class="badge bg-danger channel-unread-badge">{{ channel.unread_count }}</span>
+                            {% if visible_mention_count > 0 %}
+                                <span class="badge channel-mention-badge" title="{{ visible_mention_count }} unacknowledged mention{{ '' if visible_mention_count == 1 else 's' }}">{{ '99+' if visible_mention_count > 99 else visible_mention_count }}</span>
                             {% endif %}
                         </span>
                     </div>
@@ -6564,6 +6591,8 @@ const CHANNEL_SIDEBAR_EVENT_TYPES = [
     'channel.message.created',
     'channel.message.read',
     'channel.state.updated',
+    'mention.created',
+    'mention.acknowledged',
 ];
 const CHANNEL_THREAD_EVENT_TYPES = [
     'channel.message.created',
@@ -6610,11 +6639,31 @@ const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
     'text/markdown'
 ]);
 const CHANNEL_FILE_ALLOWED_EXTENSIONS = [
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg',
     '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
     '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
     '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx',
     '.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar'
 ];
+const CHANNEL_FILE_EXT_TO_MIME = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.bmp': 'image/bmp',
+    '.svg': 'image/svg+xml',
+    '.md': 'text/markdown',
+    '.txt': 'text/plain',
+    '.py': 'text/x-python',
+    '.json': 'application/json',
+    '.pdf': 'application/pdf'
+};
+const CHANNEL_FILE_MIME_TO_EXT = Object.entries(CHANNEL_FILE_EXT_TO_MIME).reduce((acc, pair) => {
+    const [ext, mime] = pair;
+    if (!acc[mime]) acc[mime] = ext;
+    return acc;
+}, {});
 const POLL_EDIT_WINDOW_SECONDS = {{ (poll_edit_window_seconds if poll_edit_window_seconds is defined else 0)|tojson }};
 const POLL_EDIT_WINDOW_LABEL = POLL_EDIT_WINDOW_SECONDS
     ? `Edits lock after ${Math.max(1, Math.round(POLL_EDIT_WINDOW_SECONDS / 60))}m or first vote`
@@ -7197,9 +7246,7 @@ function selectChannel(channelId, channelName, options = {}) {
     });
     const activeItem = document.querySelector(`.channel-item[data-channel-id="${CSS.escape(targetChannelId)}"]`);
     if (activeItem) {
-        activeItem.setAttribute('data-unread-count', '0');
-        const badge = activeItem.querySelector('.channel-unread-badge, .badge.bg-danger');
-        if (badge) badge.remove();
+        updateSidebarChannelAttention(activeItem, 0, 0);
     }
 
     applyChannelPrivacyFromSelection(channelId);
@@ -8000,6 +8047,9 @@ function loadChannelMessages(channelId, options = {}) {
                             return;
                         }
                         if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
+                            if (Number(data.acknowledged_mentions || 0) > 0) {
+                                setSidebarChannelMentionCount(requestedChannelId, 0);
+                            }
                             window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
                         }
                     })
@@ -8014,6 +8064,9 @@ function loadChannelMessages(channelId, options = {}) {
             const hint = data.warning ? ` <small class="d-block mt-2 text-muted">${escapeHtml(String(data.warning).slice(0, 120))}</small>` : '';
             messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet' + hint + '</div>';
             if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
+                if (Number(data.acknowledged_mentions || 0) > 0) {
+                    setSidebarChannelMentionCount(requestedChannelId, 0);
+                }
                 window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
             }
             return undefined;
@@ -11233,6 +11286,45 @@ function applyPendingChannelMessages() {
     }
 }
 
+function normalizeChannelAttentionCount(value) {
+    return Math.max(0, parseInt(value || 0, 10) || 0);
+}
+
+function formatChannelAttentionCount(value) {
+    const count = normalizeChannelAttentionCount(value);
+    return count > 99 ? '99+' : String(count);
+}
+
+function updateSidebarChannelAttention(item, unreadCount, mentionCount) {
+    if (!item) return;
+    const normalizedUnread = normalizeChannelAttentionCount(unreadCount);
+    const normalizedMentions = normalizeChannelAttentionCount(mentionCount);
+    const channelId = item.getAttribute('data-channel-id') || '';
+    const isActive = currentChannelId && String(currentChannelId) === String(channelId);
+    const showUnread = normalizedUnread > 0 && !isActive;
+    const showMentions = normalizedMentions > 0 && !isActive;
+    item.setAttribute('data-unread-count', String(normalizedUnread));
+    item.setAttribute('data-mention-count', String(normalizedMentions));
+    item.classList.toggle('channel-has-unread', showUnread);
+    item.classList.toggle('channel-has-mentions', showMentions);
+    item.classList.toggle('channel-quiet', !showUnread && !showMentions);
+
+    const badgeHost = item.querySelector('.channel-row-actions') || item;
+    item.querySelectorAll('.channel-unread-badge').forEach((legacyBadge) => legacyBadge.remove());
+    let mentionBadge = item.querySelector('.channel-mention-badge');
+    if (showMentions) {
+        if (!mentionBadge) {
+            mentionBadge = document.createElement('span');
+            mentionBadge.className = 'badge channel-mention-badge';
+            badgeHost.appendChild(mentionBadge);
+        }
+        mentionBadge.textContent = formatChannelAttentionCount(normalizedMentions);
+        mentionBadge.title = `${normalizedMentions} unacknowledged mention${normalizedMentions === 1 ? '' : 's'}`;
+    } else if (mentionBadge) {
+        mentionBadge.remove();
+    }
+}
+
 function applySidebarChannelState(channels) {
     if (!Array.isArray(channels)) return;
     const channelList = document.querySelector('.channel-list');
@@ -11253,14 +11345,17 @@ function applySidebarChannelState(channels) {
                 ownerPeerState: String(ch.owner_peer_state || ''),
                 lastActivityAt: String(ch.last_activity_at || ''),
             };
+            const unread = normalizeChannelAttentionCount(ch.unread_count);
+            const mentions = normalizeChannelAttentionCount(ch.mention_count);
             const div = document.createElement('div');
-            div.className = 'channel-item p-2 rounded mb-1';
+            div.className = `channel-item p-2 rounded mb-1 ${unread > 0 ? 'channel-has-unread' : 'channel-quiet'} ${mentions > 0 ? 'channel-has-mentions' : ''}`;
             div.setAttribute('data-channel-id', ch.id);
             div.setAttribute('data-channel-base-name', ch.name);
             div.setAttribute('data-display-name', ch.name);
             div.setAttribute('data-privacy-mode', privacy);
             div.setAttribute('data-member-count', String(ch.member_count || 0));
-            div.setAttribute('data-unread-count', String(ch.unread_count || 0));
+            div.setAttribute('data-unread-count', String(unread));
+            div.setAttribute('data-mention-count', String(mentions));
             div.setAttribute('data-channel-type', ctype);
             div.setAttribute('data-user-role', ch.user_role || 'member');
             div.setAttribute('data-origin-peer', ch.origin_peer || '');
@@ -11281,7 +11376,6 @@ function applySidebarChannelState(channels) {
             div.setAttribute('data-owner-peer-state', lifecycle.ownerPeerState);
             div.setAttribute('data-last-activity-at', lifecycle.lastActivityAt);
             div.onclick = () => selectChannel(ch.id, ch.name);
-            const unread = Math.max(0, parseInt(ch.unread_count || 0, 10) || 0);
             const channelIdAttr = escapeHtml(String(ch.id));
             div.innerHTML = `
                 <div class="d-flex align-items-center channel-item-head">
@@ -11338,7 +11432,7 @@ function applySidebarChannelState(channels) {
                             </ul>
                         </div>
                         <i class="bi bi-bell-slash text-muted channel-muted-icon ${ch.notifications_enabled !== false ? 'd-none' : ''}" title="Muted"></i>
-                        ${unread > 0 ? `<span class="badge bg-danger channel-unread-badge">${unread}</span>` : ''}
+                        ${mentions > 0 ? `<span class="badge channel-mention-badge" title="${mentions} unacknowledged mention${mentions === 1 ? '' : 's'}">${formatChannelAttentionCount(mentions)}</span>` : ''}
                     </span>
                 </div>`;
             ensureChannelSortIndex(div);
@@ -11395,20 +11489,13 @@ function applySidebarChannelState(channels) {
             const icon = ctype === 'private' ? 'lock' : ctype === 'dm' ? 'person' : (privacy === 'guarded' ? 'shield-check' : 'hash');
             iconEl.className = `bi bi-${icon} me-2`;
         }
-        const unreadCount = Math.max(0, parseInt(ch.unread_count || 0, 10) || 0);
-        item.setAttribute('data-unread-count', String(unreadCount));
-        const badgeHost = item.querySelector('.channel-row-actions') || item;
-        let badge = item.querySelector('.channel-unread-badge');
-        if (unreadCount > 0 && String(currentChannelId) !== String(ch.id)) {
-            if (!badge) {
-                badge = document.createElement('span');
-                badge.className = 'badge bg-danger channel-unread-badge';
-                badgeHost.appendChild(badge);
-            }
-            badge.textContent = String(unreadCount);
-        } else if (badge) {
-            badge.remove();
-        }
+        const unreadCount = Object.prototype.hasOwnProperty.call(ch, 'unread_count')
+            ? normalizeChannelAttentionCount(ch.unread_count)
+            : normalizeChannelAttentionCount(item.getAttribute('data-unread-count'));
+        const mentionCount = Object.prototype.hasOwnProperty.call(ch, 'mention_count')
+            ? normalizeChannelAttentionCount(ch.mention_count)
+            : normalizeChannelAttentionCount(item.getAttribute('data-mention-count'));
+        updateSidebarChannelAttention(item, unreadCount, mentionCount);
         if (Object.prototype.hasOwnProperty.call(ch, 'notifications_enabled')) {
             const enabled = !!ch.notifications_enabled;
             item.setAttribute('data-notifications-enabled', enabled ? 'true' : 'false');
@@ -11491,20 +11578,28 @@ function setSidebarChannelUnreadCount(channelId, unreadCount) {
     if (!item) {
         return false;
     }
-    const normalizedCount = Math.max(0, parseInt(unreadCount || 0, 10) || 0);
-    item.setAttribute('data-unread-count', String(normalizedCount));
-    const badgeHost = item.querySelector('.channel-row-actions') || item;
-    let badge = item.querySelector('.channel-unread-badge');
-    if (normalizedCount > 0 && String(currentChannelId) !== String(channelId)) {
-        if (!badge) {
-            badge = document.createElement('span');
-            badge.className = 'badge bg-danger channel-unread-badge';
-            badgeHost.appendChild(badge);
-        }
-        badge.textContent = String(normalizedCount);
-    } else if (badge) {
-        badge.remove();
+    updateSidebarChannelAttention(
+        item,
+        unreadCount,
+        item.getAttribute('data-mention-count') || 0,
+    );
+    return true;
+}
+
+function setSidebarChannelMentionCount(channelId, mentionCount) {
+    const channelList = document.getElementById('channel-list');
+    if (!channelList || !channelId) {
+        return false;
     }
+    const item = channelList.querySelector(`.channel-item[data-channel-id="${CSS.escape(String(channelId))}"]`);
+    if (!item) {
+        return false;
+    }
+    updateSidebarChannelAttention(
+        item,
+        item.getAttribute('data-unread-count') || 0,
+        mentionCount,
+    );
     return true;
 }
 
@@ -11692,6 +11787,13 @@ function applyChannelSidebarEventItems(items) {
         if (eventType === 'channel.message.read') {
             if (!setSidebarChannelUnreadCount(channelId, 0)) {
                 needsSnapshotRefresh = true;
+            }
+            return;
+        }
+        if (eventType === 'mention.created' || eventType === 'mention.acknowledged') {
+            needsSnapshotRefresh = true;
+            if (typeof window.requestCanopySidebarAttentionRefresh === 'function') {
+                window.requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
             }
             return;
         }
@@ -15180,10 +15282,61 @@ function setupFileUpload() {
     });
 }
 
+function getChannelFileExtension(name) {
+    const cleanName = String(name || '').trim().toLowerCase();
+    const extIdx = cleanName.lastIndexOf('.');
+    return extIdx >= 0 ? cleanName.slice(extIdx) : '';
+}
+
+function inferChannelMimeFromName(name) {
+    return CHANNEL_FILE_EXT_TO_MIME[getChannelFileExtension(name)] || '';
+}
+
+function channelExtensionForMime(mimeType) {
+    const cleanType = String(mimeType || '').split(';', 1)[0].trim().toLowerCase();
+    return CHANNEL_FILE_MIME_TO_EXT[cleanType] || '';
+}
+
+function normalizeChannelUploadFile(file, options = {}) {
+    if (!file) return file;
+    const forcedName = String(options.name || '').trim();
+    const originalName = String(file.name || '').trim();
+    const preferredName = forcedName || originalName || (options.forceImage ? 'pasted-image' : 'upload');
+    let contentType = String(options.type || file.type || inferChannelMimeFromName(preferredName) || '').split(';', 1)[0].trim().toLowerCase();
+    if (options.forceImage && (!contentType || !contentType.startsWith('image/'))) {
+        contentType = inferChannelMimeFromName(preferredName) || 'image/png';
+    }
+    if (!contentType) {
+        contentType = inferChannelMimeFromName(preferredName) || 'application/octet-stream';
+    }
+    let normalizedName = preferredName;
+    if (!getChannelFileExtension(normalizedName)) {
+        normalizedName += channelExtensionForMime(contentType) || (options.forceImage ? '.png' : '');
+    }
+    if (originalName === normalizedName && String(file.type || '').toLowerCase() === contentType) {
+        return file;
+    }
+    try {
+        return new File([file], normalizedName, {
+            type: contentType,
+            lastModified: file.lastModified || Date.now()
+        });
+    } catch (_) {
+        return file;
+    }
+}
+
+function isLikelyChannelImageFile(file, hintedType = '') {
+    const fileType = String(hintedType || file?.type || '').toLowerCase();
+    if (fileType.startsWith('image/')) return true;
+    return ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'].includes(
+        getChannelFileExtension(file?.name || '')
+    );
+}
+
 function isAllowedChannelAttachment(file) {
     const name = String(file && file.name || '').toLowerCase();
-    const extIdx = name.lastIndexOf('.');
-    const ext = extIdx >= 0 ? name.slice(extIdx) : '';
+    const ext = getChannelFileExtension(name);
     const fileType = String(file && file.type || '').toLowerCase();
     if (ext && CHANNEL_FILE_ALLOWED_EXTENSIONS.includes(ext)) return true;
     if (CHANNEL_FILE_ALLOWED_MIME_PREFIXES.some(prefix => fileType.startsWith(prefix))) return true;
@@ -15195,7 +15348,8 @@ function isAllowedChannelAttachment(file) {
 function addFiles(files) {
     const maxSize = 100 * 1024 * 1024; // 100MB
     
-    files.forEach(file => {
+    files.forEach(rawFile => {
+        const file = normalizeChannelUploadFile(rawFile);
         if (file.size > maxSize) {
             alert(`File ${file.name} is too large. Maximum size is 100MB.`);
             return;
@@ -16812,30 +16966,44 @@ function handleChannelPaste(e) {
     e.__canopyChannelPasteHandled = true;
     maybeAutoExpandChannelComposerForPaste(e);
 
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    
-    let hasImage = false;
+    const clipboard = e.clipboardData;
+    const items = clipboard?.items || [];
+    const pastedImages = [];
+
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
-        
-        // Check if the item is an image
-        if (item.type.indexOf('image') !== -1) {
-            hasImage = true;
-            const file = item.getAsFile();
-            if (file) {
-                // Generate a filename for the pasted image
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const newFile = new File([file], `pasted-image-${timestamp}.png`, { type: file.type });
-                
-                addFiles([newFile]);
-                showAlert('Image pasted successfully!', 'success');
-            }
-            break;
+        const clipboardType = String(item && item.type || '').toLowerCase();
+        const file = item && typeof item.getAsFile === 'function' ? item.getAsFile() : null;
+        if (!file || !isLikelyChannelImageFile(file, clipboardType)) {
+            continue;
         }
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const mimeType = clipboardType || file.type || 'image/png';
+        const ext = channelExtensionForMime(mimeType) || getChannelFileExtension(file.name) || '.png';
+        pastedImages.push(normalizeChannelUploadFile(file, {
+            name: `pasted-image-${timestamp}-${pastedImages.length + 1}${ext}`,
+            type: mimeType,
+            forceImage: true
+        }));
     }
-    
-    if (hasImage) {
+
+    if (!pastedImages.length && clipboard?.files?.length) {
+        Array.from(clipboard.files).forEach((file) => {
+            if (!isLikelyChannelImageFile(file)) return;
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const mimeType = file.type || inferChannelMimeFromName(file.name) || 'image/png';
+            const ext = channelExtensionForMime(mimeType) || getChannelFileExtension(file.name) || '.png';
+            pastedImages.push(normalizeChannelUploadFile(file, {
+                name: file.name || `pasted-image-${timestamp}-${pastedImages.length + 1}${ext}`,
+                type: mimeType,
+                forceImage: true
+            }));
+        });
+    }
+
+    if (pastedImages.length) {
+        addFiles(pastedImages);
+        showAlert(pastedImages.length === 1 ? 'Image pasted successfully!' : `${pastedImages.length} images pasted successfully!`, 'success');
         e.preventDefault(); // Prevent default paste behavior for images
     }
 }

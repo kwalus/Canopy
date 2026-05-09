@@ -3499,21 +3499,90 @@ def create_ui_blueprint() -> Blueprint:
         text = str(value).strip()
         return text or None
 
+    def _count_channel_unacked_mentions(
+        db_manager: Any,
+        user_id: str,
+        channel_ids: list[str],
+    ) -> dict[str, int]:
+        """Return unacknowledged channel mention counts keyed by channel id."""
+        clean_ids = [str(cid).strip() for cid in (channel_ids or []) if str(cid or '').strip()]
+        if not db_manager or not user_id or not clean_ids:
+            return {}
+        get_connection = getattr(db_manager, 'get_connection', None)
+        if not callable(get_connection):
+            return {}
+        try:
+            counts: dict[str, int] = {}
+            with db_manager.get_connection() as conn:
+                for start in range(0, len(clean_ids), 500):
+                    chunk = clean_ids[start:start + 500]
+                    placeholders = ','.join('?' for _ in chunk)
+                    rows = conn.execute(
+                        f"""
+                        SELECT channel_id, COUNT(*) AS n
+                        FROM mention_events
+                        WHERE user_id = ?
+                          AND acknowledged_at IS NULL
+                          AND source_type = 'channel_message'
+                          AND channel_id IN ({placeholders})
+                        GROUP BY channel_id
+                        """,
+                        [user_id] + chunk,
+                    ).fetchall()
+                    for row in rows or []:
+                        try:
+                            channel_id = str(row['channel_id'] or '').strip()
+                            count = int(row['n'] or 0)
+                        except Exception:
+                            channel_id = str(row[0] or '').strip()
+                            count = int(row[1] or 0)
+                        if channel_id:
+                            counts[channel_id] = counts.get(channel_id, 0) + max(0, count)
+            return counts
+        except Exception:
+            return {}
+
+    def _apply_channel_mention_counts(
+        channels: list[Any],
+        db_manager: Any,
+        user_id: str,
+    ) -> list[Any]:
+        counts = _count_channel_unacked_mentions(
+            db_manager,
+            user_id,
+            [getattr(ch, 'id', '') for ch in (channels or [])],
+        )
+        for ch in channels or []:
+            try:
+                setattr(ch, 'mention_count', counts.get(str(getattr(ch, 'id', '') or ''), 0))
+            except Exception:
+                continue
+        return channels
+
     def _build_channel_sidebar_snapshot(
         channel_manager: Any,
         p2p_manager: Any,
         user_id: str,
+        db_manager: Any = None,
+        channels: Any = None,
     ) -> dict[str, Any]:
-        channels = channel_manager.get_user_channels(user_id) if channel_manager else []
-        channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
+        if channels is None:
+            channels = channel_manager.get_user_channels(user_id) if channel_manager else []
+            channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
+        mention_counts = _count_channel_unacked_mentions(
+            db_manager,
+            user_id,
+            [getattr(ch, 'id', '') for ch in (channels or [])],
+        )
         payload = []
         default_ttl = getattr(channel_manager, 'DEFAULT_CHANNEL_LIFECYCLE_DAYS', 180)
         for ch in channels:
             ctype = ch.channel_type
             if hasattr(ctype, 'value'):
                 ctype = ctype.value
+            ch_id = str(ch.id)
             payload.append({
-                'id': ch.id,
+                'id': ch_id,
                 'name': ch.name,
                 'description': getattr(ch, 'description', '') or '',
                 'channel_type': str(ctype or 'public'),
@@ -3527,6 +3596,7 @@ def create_ui_blueprint() -> Blueprint:
                 'user_role': getattr(ch, 'user_role', 'member') or 'member',
                 'member_count': int(getattr(ch, 'member_count', 0) or 0),
                 'unread_count': int(getattr(ch, 'unread_count', 0) or 0),
+                'mention_count': int(mention_counts.get(ch_id, getattr(ch, 'mention_count', 0) or 0) or 0),
                 'notifications_enabled': bool(getattr(ch, 'notifications_enabled', True)),
                 'crypto_mode': getattr(ch, 'crypto_mode', '') or '',
                 'lifecycle_status': getattr(ch, 'lifecycle_status', 'active') or 'active',
@@ -7848,7 +7918,14 @@ def create_ui_blueprint() -> Blueprint:
                 if repaired:
                     channels = channel_manager.get_user_channels(user_id)
             channels = _enrich_channel_lifecycle_state(channels, channel_manager, p2p_manager)
-            channel_sidebar_snapshot = _build_channel_sidebar_snapshot(channel_manager, p2p_manager, user_id)
+            channels = _apply_channel_mention_counts(channels, db_manager, user_id)
+            channel_sidebar_snapshot = _build_channel_sidebar_snapshot(
+                channel_manager,
+                p2p_manager,
+                user_id,
+                db_manager=db_manager,
+            channels=channels,
+            )
             logger.debug(f"Channels page: user_id={user_id}, channels_count={len(channels)}")
             for channel in channels:
                 logger.debug(f"Channel: id={channel.id}, name={channel.name}, type={channel.channel_type}")
@@ -12500,7 +12577,7 @@ def create_ui_blueprint() -> Blueprint:
         channels that were added after page load (e.g. via member_sync).
         """
         try:
-            _, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
             user_id = get_current_user()
             client_rev = str(request.args.get('rev') or '').strip()
             workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
@@ -12508,7 +12585,12 @@ def create_ui_blueprint() -> Blueprint:
                 workspace_event_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
             except Exception:
                 workspace_event_cursor = 0
-            snapshot = _build_channel_sidebar_snapshot(channel_manager, p2p_manager, user_id)
+            snapshot = _build_channel_sidebar_snapshot(
+                channel_manager,
+                p2p_manager,
+                user_id,
+                db_manager=db_manager,
+            )
             payload = snapshot['channels']
             rev = snapshot['rev']
             if client_rev and client_rev == rev:

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.79] - 2026-05-08
+
+### Fixed
+- **Channel PNG paste handling is more tolerant of clipboard metadata gaps** - pasted images are normalized by extension and MIME hints before upload validation, covering screenshot clipboard paths that omit useful content type metadata.
+- **Channel sidebar attention now separates unread activity from mentions** - quiet channels are muted, unread channels become visually clear/bold, and pink badges are reserved for explicit unacknowledged mentions.
+
 ## [0.6.78] - 2026-05-08
 
 ### Fixed

@@ -1124,6 +1124,31 @@ console.log(JSON.stringify({{
         # pollChannelSidebarEvents (all using getElementById) can find it.
         self.assertIn('id="channel-list"', channels_template)
 
+    def test_channel_sidebar_separates_unread_state_from_mention_badges(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        routes_py = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+
+        self.assertIn('{% set visible_mention_count = 0 if loop.first else mention_count %}', channels_template)
+        self.assertIn('data-mention-count="{{ visible_mention_count }}"', channels_template)
+        self.assertIn('{% if visible_mention_count > 0 %}', channels_template)
+        self.assertIn('channel-has-unread', channels_template)
+        self.assertIn('channel-quiet', channels_template)
+        self.assertIn('channel-mention-badge', channels_template)
+        self.assertIn('function updateSidebarChannelAttention(item, unreadCount, mentionCount)', channels_template)
+        self.assertIn('mention.created', channels_template)
+        self.assertIn('mention.acknowledged', channels_template)
+        self.assertIn('def _count_channel_unacked_mentions(', routes_py)
+        self.assertIn("'mention_count': int(mention_counts.get", routes_py)
+
+    def test_channel_paste_normalizes_clipboard_image_metadata(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+
+        self.assertIn("'.png', '.jpg', '.jpeg', '.gif', '.webp'", channels_template)
+        self.assertIn('function normalizeChannelUploadFile(file, options = {})', channels_template)
+        self.assertIn("contentType = inferChannelMimeFromName(preferredName) || 'image/png';", channels_template)
+        self.assertIn('clipboard?.files?.length', channels_template)
+        self.assertIn('isLikelyChannelImageFile(file, clipboardType)', channels_template)
+
     def test_sidebar_navigation_renders_unread_badges_and_attention_refresh(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
