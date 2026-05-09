@@ -35,6 +35,7 @@ class InteractionType(Enum):
     CHECK = "check"
     PRAY = "pray"
     DISLIKE = "dislike"
+    BEER = "beer"
 
 CUSTOM_REACTION_PREFIX = "custom:"
 _CUSTOM_REACTION_NAME_RE = re.compile(r"[^a-z0-9_-]+")
@@ -53,6 +54,7 @@ REACTION_OPTIONS: List[Dict[str, str]] = [
     {"type": InteractionType.CHECK.value, "emoji": "✅", "label": "Done"},
     {"type": InteractionType.PRAY.value, "emoji": "🙏", "label": "Thanks"},
     {"type": InteractionType.DISLIKE.value, "emoji": "👎", "label": "Dislike"},
+    {"type": InteractionType.BEER.value, "emoji": "🍺", "label": "Beer"},
 ]
 
 

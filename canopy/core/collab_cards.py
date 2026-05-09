@@ -12,6 +12,7 @@ import json
 import logging
 import re
 import secrets
+import sqlite3
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
@@ -484,6 +485,45 @@ def _parse_telemetry_card_block(block: str, raw_block: str) -> Optional[Telemetr
 class CollabCardManager:
     """Durable storage and permission checks for input and telemetry cards."""
 
+    _COLLAB_CARD_COLUMNS: dict[str, str] = {
+        "id": "TEXT",
+        "card_type": "TEXT",
+        "title": "TEXT",
+        "summary": "TEXT",
+        "prompt": "TEXT",
+        "status": "TEXT DEFAULT 'open'",
+        "owner_id": "TEXT",
+        "created_by": "TEXT",
+        "source_type": "TEXT",
+        "source_id": "TEXT",
+        "channel_id": "TEXT",
+        "visibility": "TEXT DEFAULT 'network'",
+        "origin_peer": "TEXT",
+        "permissions": "TEXT",
+        "editors": "TEXT",
+        "config": "TEXT",
+        "telemetry": "TEXT",
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "closed_at": "TIMESTAMP",
+        "expires_at": "TIMESTAMP",
+    }
+    _COLLAB_CARD_RESPONSE_COLUMNS: dict[str, str] = {
+        "id": "TEXT",
+        "card_id": "TEXT",
+        "responder_id": "TEXT",
+        "response_type": "TEXT DEFAULT 'text'",
+        "value": "TEXT",
+        "comment": "TEXT",
+        "metadata": "TEXT",
+        "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    }
+    _TABLE_COLUMN_SPECS: dict[str, dict[str, str]] = {
+        "collab_cards": _COLLAB_CARD_COLUMNS,
+        "collab_card_responses": _COLLAB_CARD_RESPONSE_COLUMNS,
+    }
+
     def __init__(self, db: DatabaseManager):
         self.db = db
         logger.info("Initializing CollabCardManager")
@@ -536,10 +576,35 @@ class CollabCardManager:
                 )
                 """
             )
+            self._ensure_table_columns(conn, "collab_cards")
+            self._ensure_table_columns(conn, "collab_card_responses")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_collab_cards_source ON collab_cards(source_type, source_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_collab_cards_type_status ON collab_cards(card_type, status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_collab_card_responses_card ON collab_card_responses(card_id)")
             conn.commit()
+
+    def _ensure_table_columns(
+        self,
+        conn: sqlite3.Connection,
+        table_name: str,
+    ) -> None:
+        columns = self._TABLE_COLUMN_SPECS.get(table_name)
+        if columns is None:
+            raise ValueError(f"Unsupported table for schema migration: {table_name}")
+
+        existing_columns = {
+            str(row["name"] or "").strip()
+            for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        }
+        for column_name, column_spec in columns.items():
+            if column_name in existing_columns:
+                continue
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", column_name):
+                raise ValueError(f"Invalid column name for schema migration: {column_name}")
+            if ";" in column_spec:
+                raise ValueError(f"Invalid column spec for schema migration: {column_name}")
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_spec}")
+            logger.info("Added missing column %s.%s", table_name, column_name)
 
     def _json_loads(self, raw: Any, fallback: Any) -> Any:
         if raw is None or raw == "":

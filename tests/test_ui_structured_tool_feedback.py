@@ -30,6 +30,7 @@ if 'zeroconf' not in sys.modules:
     zeroconf_stub.ServiceStateChange = _Dummy
     sys.modules['zeroconf'] = zeroconf_stub
 
+from canopy.core.collab_cards import CollabCardManager
 from canopy.ui.routes import create_ui_blueprint
 
 
@@ -128,7 +129,8 @@ class _FakePost:
 
 
 class _FakeFeedManager:
-    def __init__(self) -> None:
+    def __init__(self, conn: Optional[sqlite3.Connection] = None) -> None:
+        self.conn = conn
         self.last_post = None
 
     def create_post(self, *, author_id, content, post_type, visibility, metadata, permissions, source_type, tags, expires_at, ttl_seconds, ttl_mode):
@@ -140,6 +142,12 @@ class _FakeFeedManager:
             created_at=datetime.now(timezone.utc),
             metadata=metadata or {},
         )
+        if self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO feed_posts (id, author_id, visibility) VALUES (?, ?, ?)",
+                (post.id, author_id, getattr(visibility, 'value', visibility)),
+            )
+            self.conn.commit()
         self.last_post = post
         return post
 
@@ -168,7 +176,8 @@ class _FakeMessage:
 
 
 class _FakeChannelManager:
-    def __init__(self) -> None:
+    def __init__(self, conn: Optional[sqlite3.Connection] = None) -> None:
+        self.conn = conn
         self.last_message = None
 
     def get_channel_access_decision(self, **kwargs):
@@ -187,6 +196,12 @@ class _FakeChannelManager:
             parent_message_id=kwargs.get('parent_message_id'),
             attachments=list(kwargs.get('attachments') or []),
         )
+        if self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO channel_messages (id, channel_id, user_id, content) VALUES (?, ?, ?, ?)",
+                (message.id, channel_id, user_id, content),
+            )
+            self.conn.commit()
         self.last_message = message
         return message
 
@@ -215,6 +230,25 @@ class TestUiStructuredToolFeedback(unittest.TestCase):
                 name TEXT,
                 privacy_mode TEXT
             );
+            CREATE TABLE feed_posts (
+                id TEXT PRIMARY KEY,
+                author_id TEXT,
+                visibility TEXT
+            );
+            CREATE TABLE post_permissions (
+                post_id TEXT,
+                user_id TEXT
+            );
+            CREATE TABLE channel_messages (
+                id TEXT PRIMARY KEY,
+                channel_id TEXT,
+                user_id TEXT,
+                content TEXT
+            );
+            CREATE TABLE channel_members (
+                channel_id TEXT,
+                user_id TEXT
+            );
             """
         )
         self.conn.execute(
@@ -225,12 +259,17 @@ class TestUiStructuredToolFeedback(unittest.TestCase):
             "INSERT INTO channels (id, name, privacy_mode) VALUES (?, ?, ?)",
             ('CHAN-1', 'architecture', 'open'),
         )
+        self.conn.execute(
+            "INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)",
+            ('CHAN-1', 'owner'),
+        )
         self.conn.commit()
 
         self.db_manager = _FakeDbManager(self.conn, db_path)
-        self.feed_manager = _FakeFeedManager()
-        self.channel_manager = _FakeChannelManager()
+        self.feed_manager = _FakeFeedManager(self.conn)
+        self.channel_manager = _FakeChannelManager(self.conn)
         self.handoff_manager = _FakeHandoffManager()
+        self.collab_card_manager = CollabCardManager(self.db_manager)
 
         components = (
             self.db_manager,
@@ -260,6 +299,7 @@ class TestUiStructuredToolFeedback(unittest.TestCase):
         app.config['TESTING'] = True
         app.secret_key = 'structured-ui'
         app.config['HANDOFF_MANAGER'] = self.handoff_manager
+        app.config['COLLAB_CARD_MANAGER'] = self.collab_card_manager
         app.register_blueprint(create_ui_blueprint())
 
         self.client = app.test_client()
@@ -345,6 +385,49 @@ class TestUiStructuredToolFeedback(unittest.TestCase):
         self.assertIn('structured_validation', payload)
         self.assertIn('request', json.dumps(payload.get('structured_validation') or {}))
         self.assertIsNone(self.channel_manager.last_message)
+
+    def test_collab_cards_sync_from_feed_and_channel_creation_paths(self) -> None:
+        feed_response = self.client.post(
+            '/ajax/create_post',
+            json={
+                'content': '[input-card]\ntitle: Deployment decision\nprompt: Proceed?\n[/input-card]',
+                'post_type': 'text',
+                'visibility': 'network',
+                'attachments': [],
+                'source_type': 'human',
+            },
+        )
+        self.assertEqual(feed_response.status_code, 200)
+        feed_cards = self.collab_card_manager.list_cards_for_source(
+            'feed_post',
+            'POST-1',
+            viewer_id='owner',
+            admin_user_id='owner',
+            include_responses=True,
+        )
+        self.assertEqual(len(feed_cards), 1)
+        self.assertEqual(feed_cards[0].get('card_type'), 'input')
+        self.assertEqual(feed_cards[0].get('title'), 'Deployment decision')
+
+        channel_response = self.client.post(
+            '/ajax/send_channel_message',
+            json={
+                'channel_id': 'CHAN-1',
+                'content': '[telemetry-card]\ntitle: Build run\nstatus: running\nprogress: 12%\n[/telemetry-card]',
+                'attachments': [],
+            },
+        )
+        self.assertEqual(channel_response.status_code, 200)
+        channel_cards = self.collab_card_manager.list_cards_for_source(
+            'channel_message',
+            'MSG-1',
+            viewer_id='owner',
+            admin_user_id='owner',
+            include_responses=True,
+        )
+        self.assertEqual(len(channel_cards), 1)
+        self.assertEqual(channel_cards[0].get('card_type'), 'telemetry')
+        self.assertEqual(channel_cards[0].get('title'), 'Build run')
 
 
 if __name__ == '__main__':

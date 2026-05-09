@@ -375,3 +375,89 @@ class TestCollabCardApi(unittest.TestCase):
         self.assertTrue(payload.get('can_collect'))
         self.assertEqual((payload.get('responses') or [])[0].get('value'), 'Proceed with the low-risk path.')
 
+    def test_collab_card_endpoints_return_503_when_manager_is_missing(self) -> None:
+        self.client.application.config.pop('COLLAB_CARD_MANAGER', None)
+        requests = [
+            ('get', '/api/v1/collab-cards', None),
+            ('get', '/api/v1/agents/me/collab-cards', None),
+            ('post', '/api/v1/collab-cards/input-card-api/responses', {'value': 'Proceed', 'response_type': 'choice'}),
+            ('patch', '/api/v1/collab-cards/telemetry-card-api/telemetry', {'progress': 70}),
+        ]
+        for method, url, payload in requests:
+            response = self.client.open(
+                url,
+                method=method.upper(),
+                json=payload,
+                headers=self._headers('key-agent-a'),
+            )
+            self.assertEqual(response.status_code, 503)
+            body = response.get_json() or {}
+            self.assertEqual(body.get('error'), 'Collaboration card manager unavailable')
+            self.assertEqual(body.get('code'), 'collab_card_manager_unavailable')
+
+
+class TestCollabCardApiEmptyDiscovery(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.db_file = Path(self.tempdir.name) / 'collab_cards_empty.db'
+        self.conn = sqlite3.connect(str(self.db_file))
+        self.conn.row_factory = sqlite3.Row
+        self.conn.executescript(
+            """
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT,
+                display_name TEXT
+            );
+            """
+        )
+        self.conn.execute(
+            "INSERT INTO users (id, username, display_name) VALUES (?, ?, ?)",
+            ('agent-a', 'agent_a', 'Agent A'),
+        )
+        self.conn.commit()
+
+        self.db_manager = _FakeDbManager(self.conn, self.db_file)
+        self.collab_card_manager = CollabCardManager(self.db_manager)
+        self.api_key_manager = _FakeApiKeyManager({'key-agent-a': 'agent-a'})
+        components = (
+            self.db_manager,
+            self.api_key_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            _FakeP2PManager(),
+        )
+        self.get_components_patcher = patch(
+            'canopy.api.routes.get_app_components',
+            return_value=components,
+        )
+        self.get_components_patcher.start()
+        self.addCleanup(self.get_components_patcher.stop)
+
+        app = Flask(__name__)
+        app.config['TESTING'] = True
+        app.secret_key = 'test-secret'
+        app.config['COLLAB_CARD_MANAGER'] = self.collab_card_manager
+        api_bp = create_api_blueprint()
+        app.register_blueprint(api_bp, url_prefix='/api/v1')
+        self.client = app.test_client()
+
+    def tearDown(self) -> None:
+        self.conn.close()
+
+    def test_agent_discovery_returns_empty_cards_array_with_fresh_db(self) -> None:
+        response = self.client.get(
+            '/api/v1/agents/me/collab-cards?role=all',
+            headers={'X-API-Key': 'key-agent-a', 'Content-Type': 'application/json'},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('count'), 0)
+        self.assertEqual(payload.get('cards'), [])

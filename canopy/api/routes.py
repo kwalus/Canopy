@@ -13721,14 +13721,30 @@ def create_api_blueprint() -> Blueprint:
         response_visibility = str((card.get('config') or {}).get('responses_visible') or '').strip().lower()
         return bool(card.get('can_update') or response_visibility in ('1', 'true', 'yes', 'all'))
 
+    def _require_collab_card_manager_api(route_name: str):
+        collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+        if collab_card_manager:
+            return collab_card_manager, None
+        logger.error(
+            "COLLAB_CARD_MANAGER missing while handling %s; collaboration-card API routes are unavailable",
+            route_name,
+        )
+        return None, (
+            jsonify({
+                'error': 'Collaboration card manager unavailable',
+                'code': 'collab_card_manager_unavailable',
+            }),
+            503,
+        )
+
     @api.route('/collab-cards', methods=['GET'])
     @require_auth(Permission.READ_FEED, allow_session=True)
     def list_collab_cards_api():
         try:
             db_manager, *_ = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_api('list_collab_cards_api')
+            if unavailable:
+                return unavailable
             card_type = request.args.get('type') or request.args.get('card_type') or None
             status = request.args.get('status') or None
             limit = int(request.args.get('limit', 50))
@@ -13763,9 +13779,9 @@ def create_api_blueprint() -> Blueprint:
         """List collaboration cards relevant to the authenticated agent/user."""
         try:
             db_manager, *_ = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_api('list_my_collab_cards_api')
+            if unavailable:
+                return unavailable
             viewer_id = _request_authenticated_user_id()
             admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
             card_type = request.args.get('type') or request.args.get('card_type') or None
@@ -13857,9 +13873,9 @@ def create_api_blueprint() -> Blueprint:
     def get_collab_card_api(card_id):
         try:
             db_manager, *_ = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_api('get_collab_card_api')
+            if unavailable:
+                return unavailable
             viewer_id = _request_authenticated_user_id()
             admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
             card = collab_card_manager.get_card(card_id, viewer_id=viewer_id, admin_user_id=admin_id, include_responses=True)
@@ -13876,9 +13892,9 @@ def create_api_blueprint() -> Blueprint:
         """Return visible responses for an input card, with collection gated by card edit rights."""
         try:
             db_manager, *_ = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_api('list_collab_card_responses_api')
+            if unavailable:
+                return unavailable
             viewer_id = _request_authenticated_user_id()
             admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
             card = collab_card_manager.get_card(
@@ -13912,9 +13928,9 @@ def create_api_blueprint() -> Blueprint:
     def create_collab_card_api():
         try:
             db_manager, _, _, _, _, _, _, _, _, _, p2p_manager = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_api('create_collab_card_api')
+            if unavailable:
+                return unavailable
             data = request.get_json() or {}
             card_type = str(data.get('card_type') or data.get('type') or '').strip().lower()
             if card_type not in ('input', 'telemetry'):
@@ -13971,9 +13987,9 @@ def create_api_blueprint() -> Blueprint:
     def respond_collab_card_api(card_id):
         try:
             db_manager, *_ = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_api('respond_collab_card_api')
+            if unavailable:
+                return unavailable
             data = request.get_json() or {}
             actor_id = _request_authenticated_user_id()
             if not actor_id:
@@ -14008,9 +14024,9 @@ def create_api_blueprint() -> Blueprint:
     def update_collab_card_telemetry_api(card_id):
         try:
             db_manager, *_ = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_api('update_collab_card_telemetry_api')
+            if unavailable:
+                return unavailable
             data = request.get_json() or {}
             actor_id = _request_authenticated_user_id()
             if not actor_id:
@@ -14044,9 +14060,9 @@ def create_api_blueprint() -> Blueprint:
     def update_collab_card_status_api(card_id):
         try:
             db_manager, *_ = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_api('update_collab_card_status_api')
+            if unavailable:
+                return unavailable
             data = request.get_json() or {}
             actor_id = _request_authenticated_user_id()
             status = str(data.get('status') or '').strip().lower()

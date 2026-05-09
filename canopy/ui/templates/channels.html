@@ -8501,6 +8501,10 @@ function reactionEscapeAttr(value) {
         .replace(/>/g, '&gt;');
 }
 
+function reactionInlineArg(value) {
+    return reactionEscapeAttr(JSON.stringify(String(value || '')));
+}
+
 function renderChannelReactionControl(message) {
     const messageId = String(message.id || '');
     const userReaction = normalizeOptionalChannelReactionKey(message.user_reaction || '');
@@ -8513,7 +8517,7 @@ function renderChannelReactionControl(message) {
         return `
             <button type="button"
                     class="reaction-choice${selected ? ' is-selected' : ''}"
-                    onclick="toggleLike('${reactionEscapeAttr(messageId)}', ${JSON.stringify(reaction.type)})"
+                    onclick="toggleLike(${reactionInlineArg(messageId)}, ${reactionInlineArg(reaction.type)})"
                     data-reaction-type="${reactionEscapeAttr(reaction.type)}"
                     role="menuitemcheckbox"
                     aria-label="${reactionEscapeAttr(reaction.label)}"
@@ -8530,7 +8534,7 @@ function renderChannelReactionControl(message) {
              data-reaction-counts="${reactionEscapeAttr(JSON.stringify(counts))}"
              data-user-reaction="${reactionEscapeAttr(userReaction)}">
             <button class="btn btn-sm btn-outline-secondary icon-action-btn like-btn${liked ? ' is-liked' : ''}"
-                    onclick="toggleLike('${reactionEscapeAttr(messageId)}')"
+                    onclick="toggleLike(${reactionInlineArg(messageId)})"
                     data-item-id="${reactionEscapeAttr(messageId)}"
                     data-liked="${liked ? 'true' : 'false'}"
                     data-user-reaction="${reactionEscapeAttr(userReaction)}"

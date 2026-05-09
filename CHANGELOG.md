@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.78] - 2026-05-08
+
+### Fixed
+- **Channel reaction picker selections now preserve the chosen emoji** - dynamically rendered channel reaction controls safely quote inline handler arguments, so selecting love/laugh/beer/custom options no longer falls back to thumbs-up.
+- **Collaboration card runtime hardening from Copilot review** - card APIs now return explicit manager-unavailable responses, the card manager backfills missing table columns on upgrades, and agent-facing card tooling documents permissions, response visibility, and examples.
+
 ## [0.6.77] - 2026-05-08
 
 ### Fixed

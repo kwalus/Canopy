@@ -5156,6 +5156,7 @@ def create_ui_blueprint() -> Blueprint:
                 {'type': 'check', 'emoji': '✅', 'label': 'Done'},
                 {'type': 'pray', 'emoji': '🙏', 'label': 'Thanks'},
                 {'type': 'dislike', 'emoji': '👎', 'label': 'Dislike'},
+                {'type': 'beer', 'emoji': '🍺', 'label': 'Beer'},
             ]
 
     def _get_dm_reaction_options() -> list[dict[str, Any]]:
@@ -13288,15 +13289,32 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as p2p_err:
             logger.warning(f"Failed to broadcast collaboration card update: {p2p_err}")
 
+    def _require_collab_card_manager_ui(route_name: str):
+        collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+        if collab_card_manager:
+            return collab_card_manager, None
+        logger.error(
+            "COLLAB_CARD_MANAGER missing while handling %s; collaboration-card UI routes are unavailable",
+            route_name,
+        )
+        return None, (
+            jsonify({
+                'success': False,
+                'error': 'Collaboration card manager unavailable',
+                'code': 'collab_card_manager_unavailable',
+            }),
+            503,
+        )
+
     @ui.route('/ajax/collab_cards/<card_id>/respond', methods=['POST'])
     @require_login
     def ajax_respond_collab_card(card_id):
         """Submit or replace the current user's response to an input card."""
         try:
             db_manager, *_ = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'success': False, 'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_ui('ajax_respond_collab_card')
+            if unavailable:
+                return unavailable
             data = request.get_json() or {}
             user_id = get_current_user()
             if 'value' not in data and 'comment' not in data:
@@ -13330,9 +13348,9 @@ def create_ui_blueprint() -> Blueprint:
         """Update a telemetry card from the web UI."""
         try:
             db_manager, *_ = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'success': False, 'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_ui('ajax_update_collab_card_telemetry')
+            if unavailable:
+                return unavailable
             data = request.get_json() or {}
             user_id = get_current_user()
             admin_id = db_manager.get_instance_owner_user_id() if db_manager else None
@@ -13365,9 +13383,9 @@ def create_ui_blueprint() -> Blueprint:
         """Close/resolve/cancel an input card."""
         try:
             db_manager, *_ = _get_app_components_any(current_app)
-            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
-            if not collab_card_manager:
-                return jsonify({'success': False, 'error': 'Collaboration card manager unavailable'}), 500
+            collab_card_manager, unavailable = _require_collab_card_manager_ui('ajax_update_collab_card_status')
+            if unavailable:
+                return unavailable
             data = request.get_json() or {}
             status = str(data.get('status') or '').strip().lower()
             if not status:

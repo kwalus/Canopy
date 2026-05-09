@@ -93,7 +93,7 @@ class _FakeP2PManager:
         return [
             {
                 'peer_id': 'peer-alpha',
-                'address': '192.168.1.11',
+                'address': '198.51.100.11',
                 'port': 7771,
                 'connected': True,
             }
@@ -453,6 +453,31 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         )
         self.assertEqual(messages_resp.status_code, 200)
         self.assertEqual((messages_resp.get_json() or {}).get('count'), 0)
+
+    def test_agent_instructions_collab_cards_contract_includes_workflow_metadata(self) -> None:
+        response = self.client.get('/api/v1/agent-instructions')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        collab = payload.get('collab_cards') or {}
+        endpoints = collab.get('endpoints') or {}
+
+        self.assertIn('fenced_block_warning', collab)
+        self.assertIn('role=mine|respond|update|responded|actionable|all|visible', (endpoints.get('my_cards') or {}).get('params') or [])
+        self.assertEqual((endpoints.get('my_cards') or {}).get('permission'), 'READ_FEED')
+        self.assertEqual((endpoints.get('list_responses') or {}).get('permission'), 'READ_FEED')
+        self.assertEqual((endpoints.get('respond') or {}).get('permission'), 'WRITE_FEED')
+        self.assertEqual((endpoints.get('update_telemetry') or {}).get('permission'), 'WRITE_FEED')
+        self.assertIn('scope=all', (endpoints.get('list_responses') or {}).get('params') or [])
+
+        response_visibility = collab.get('response_visibility') or {}
+        self.assertIn('my_response', response_visibility.get('default') or '')
+        self.assertIn('can_collect=true', response_visibility.get('collect_all') or '')
+
+        api_examples = collab.get('api_examples') or {}
+        self.assertEqual((api_examples.get('find_actionable') or {}).get('path'), '/api/v1/agents/me/collab-cards?role=actionable')
+        self.assertEqual((api_examples.get('collect_responses') or {}).get('path'), '/api/v1/collab-cards/<card_id>/responses?scope=all')
+        self.assertEqual((api_examples.get('update_telemetry') or {}).get('method'), 'PATCH')
+        self.assertIn('metrics', (api_examples.get('update_telemetry') or {}).get('body') or {})
 
     def test_agents_endpoint_exposes_stable_handles_and_workload_counts(self) -> None:
         self.mention_manager.record_mentions(

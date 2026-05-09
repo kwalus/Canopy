@@ -333,6 +333,86 @@ progress: 12%
         cards = self.manager.list_cards(viewer_id="bob")
         self.assertEqual(cards, [])
 
+    def test_collab_card_tables_are_created_on_fresh_database(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT, display_name TEXT)")
+        conn.execute("INSERT INTO users (id, username, display_name) VALUES ('owner', 'owner', 'Owner')")
+        conn.commit()
+
+        class _FreshDb:
+            def get_connection(self):
+                return conn
+
+            def get_user(self, user_id: str):
+                row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                return dict(row) if row else None
+
+        CollabCardManager(_FreshDb())
+        tables = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        }
+        self.assertIn("collab_cards", tables)
+        self.assertIn("collab_card_responses", tables)
+        conn.close()
+
+    def test_collab_card_manager_backfills_missing_columns_for_upgrades(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT, display_name TEXT)")
+        conn.execute("CREATE TABLE feed_posts (id TEXT PRIMARY KEY, author_id TEXT, visibility TEXT)")
+        conn.execute("CREATE TABLE post_permissions (post_id TEXT, user_id TEXT)")
+        conn.execute("CREATE TABLE channel_messages (id TEXT PRIMARY KEY, channel_id TEXT)")
+        conn.execute("CREATE TABLE channel_members (channel_id TEXT, user_id TEXT)")
+        conn.execute("INSERT INTO users (id, username, display_name) VALUES ('owner', 'owner', 'Owner')")
+        conn.execute(
+            "CREATE TABLE collab_cards (id TEXT PRIMARY KEY, card_type TEXT NOT NULL, title TEXT NOT NULL)"
+        )
+        conn.execute(
+            "CREATE TABLE collab_card_responses (id TEXT PRIMARY KEY, card_id TEXT NOT NULL, responder_id TEXT NOT NULL)"
+        )
+        conn.commit()
+
+        class _UpgradeDb:
+            def get_connection(self):
+                return conn
+
+            def get_user(self, user_id: str):
+                row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+                return dict(row) if row else None
+
+        manager = CollabCardManager(_UpgradeDb())
+
+        card_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(collab_cards)").fetchall()
+        }
+        self.assertIn("telemetry", card_columns)
+        self.assertIn("closed_at", card_columns)
+        self.assertIn("expires_at", card_columns)
+
+        response_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(collab_card_responses)").fetchall()
+        }
+        self.assertIn("response_type", response_columns)
+        self.assertIn("metadata", response_columns)
+        self.assertIn("updated_at", response_columns)
+
+        conn.execute("INSERT INTO feed_posts (id, author_id, visibility) VALUES (?, ?, ?)", ("post-upgrade", "owner", "network"))
+        conn.commit()
+        card = manager.upsert_telemetry_card(
+            card_id="telemetry-upgrade",
+            spec=TelemetryCardSpec(title="Upgrade check", status="running"),
+            created_by="owner",
+            owner_id="owner",
+            source_type="feed_post",
+            source_id="post-upgrade",
+        )
+        self.assertEqual(card["id"], "telemetry-upgrade")
+        conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()
