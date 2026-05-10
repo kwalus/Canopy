@@ -1136,6 +1136,28 @@ console.log(JSON.stringify({{
         # pollChannelSidebarEvents (all using getElementById) can find it.
         self.assertIn('id="channel-list"', channels_template)
 
+    def test_channel_sidebar_supports_personal_groups_collapse_and_pinned_order(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        routes_py = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+
+        self.assertIn('CHANNEL_ORG_STORAGE_KEY', channels_template)
+        self.assertIn('CHANNEL_GROUP_COLLAPSE_STORAGE_KEY', channels_template)
+        self.assertIn('channel-organize-header-btn', channels_template)
+        self.assertIn('channel-organize-btn', channels_template)
+        self.assertIn('function openChannelOrgModal(channelId)', channels_template)
+        self.assertIn('function createChannelGroupSection(group)', channels_template)
+        self.assertIn('function bindChannelGroupHandlers()', channels_template)
+        self.assertIn('function bindChannelDragHandlers()', channels_template)
+        self.assertIn('function getChannelGroupAttentionTotals(items)', channels_template)
+        self.assertIn('function refreshChannelGroupSummaries()', channels_template)
+        self.assertIn('refreshChannelGroupSummaries();', channels_template)
+        self.assertIn('channel-group-attention mentions', channels_template)
+        self.assertIn('pinnedChannelOrder', channels_template)
+        self.assertIn('getPinnedChannelOrderIndex', channels_template)
+        self.assertIn('channel-group-pinned', channels_template)
+        self.assertIn('data-channel-topic="{{ channel.topic or \'\' }}"', channels_template)
+        self.assertIn("'topic': getattr(ch, 'topic', '') or ''", routes_py)
+
     def test_channel_sidebar_separates_unread_state_from_mention_badges(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         routes_py = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')

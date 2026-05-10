@@ -3660,6 +3660,7 @@ def create_ui_blueprint() -> Blueprint:
                 'id': ch_id,
                 'name': ch.name,
                 'description': getattr(ch, 'description', '') or '',
+                'topic': getattr(ch, 'topic', '') or '',
                 'channel_type': str(ctype or 'public'),
                 'privacy_mode': getattr(ch, 'privacy_mode', 'open') or 'open',
                 'post_policy': getattr(ch, 'post_policy', 'open') or 'open',

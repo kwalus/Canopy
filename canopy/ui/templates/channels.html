@@ -2665,6 +2665,183 @@
         min-width: 1.45rem;
         font-weight: 800;
     }
+
+    .channel-organize-header-btn {
+        border-color: color-mix(in srgb, var(--canopy-primary) 36%, var(--canopy-border));
+        color: color-mix(in srgb, var(--canopy-primary) 74%, var(--canopy-text-primary));
+        background: color-mix(in srgb, var(--canopy-primary) 10%, transparent);
+    }
+
+    .channel-group {
+        --channel-group-color: #2dd4bf;
+        margin: 0.24rem 0.18rem 0.42rem;
+        border-radius: 0.85rem;
+        border: 1px solid color-mix(in srgb, var(--channel-group-color) 16%, var(--canopy-border));
+        background: linear-gradient(135deg,
+            color-mix(in srgb, var(--channel-group-color) 9%, transparent),
+            color-mix(in srgb, var(--canopy-bg-card) 88%, transparent));
+        overflow: hidden;
+    }
+
+    .channel-group.channel-group-pinned {
+        --channel-group-color: #fbbf24;
+        background: linear-gradient(135deg, rgba(251, 191, 36, 0.11), color-mix(in srgb, var(--canopy-bg-card) 90%, transparent));
+    }
+
+    .channel-group-header {
+        width: 100%;
+        border: 0;
+        background: transparent;
+        color: var(--canopy-text-secondary);
+        display: flex;
+        align-items: center;
+        gap: 0.42rem;
+        min-height: 2rem;
+        padding: 0.36rem 0.5rem;
+        text-align: left;
+        font-size: 0.72rem;
+        font-weight: 850;
+        letter-spacing: 0.075em;
+        text-transform: uppercase;
+    }
+
+    .channel-group-header:hover,
+    .channel-group-header:focus {
+        color: var(--canopy-text-primary);
+        background: color-mix(in srgb, var(--channel-group-color) 9%, transparent);
+    }
+
+    .channel-group-accent {
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 999px;
+        background: var(--channel-group-color);
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--channel-group-color) 15%, transparent);
+        flex: 0 0 auto;
+    }
+
+    .channel-group-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .channel-group-count {
+        margin-left: auto;
+        color: var(--canopy-text-muted);
+        font-weight: 800;
+        letter-spacing: 0.02em;
+    }
+
+    .channel-group-summary {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.28rem;
+        white-space: nowrap;
+    }
+
+    .channel-group-attention {
+        border-radius: 999px;
+        padding: 0.06rem 0.38rem;
+        font-size: 0.64rem;
+        font-weight: 900;
+        letter-spacing: 0.03em;
+        text-transform: none;
+    }
+
+    .channel-group-attention.unread {
+        color: var(--canopy-text-primary);
+        background: color-mix(in srgb, var(--channel-group-color) 22%, transparent);
+        border: 1px solid color-mix(in srgb, var(--channel-group-color) 34%, var(--canopy-border));
+    }
+
+    .channel-group-attention.mentions {
+        color: #1c0710;
+        background: linear-gradient(135deg, #f08ab4, #e0447a);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+    }
+
+    .channel-group-chevron {
+        transition: transform 140ms ease;
+    }
+
+    .channel-group.is-collapsed .channel-group-chevron {
+        transform: rotate(-90deg);
+    }
+
+    .channel-group-body {
+        padding: 0 0.26rem 0.28rem;
+    }
+
+    .channel-group.is-collapsed .channel-group-body {
+        display: none;
+    }
+
+    .channel-group .channel-item {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+
+    .channel-item[data-channel-group-color] {
+        border-left: 2px solid var(--channel-item-group-color, transparent);
+        padding-left: calc(0.5rem - 2px) !important;
+    }
+
+    .channel-drag-handle {
+        display: none;
+        color: var(--canopy-text-muted);
+        cursor: grab;
+        opacity: 0.62;
+        line-height: 1;
+        margin-right: -0.15rem;
+        flex: 0 0 auto;
+    }
+
+    .channel-item.channel-pinned .channel-drag-handle {
+        display: inline-flex;
+    }
+
+    .channel-item.channel-dragging {
+        opacity: 0.48;
+    }
+
+    .channel-item.channel-drop-before {
+        box-shadow: inset 0 2px 0 var(--canopy-primary);
+    }
+
+    .channel-item.channel-drop-after {
+        box-shadow: inset 0 -2px 0 var(--canopy-primary);
+    }
+
+    .channel-org-palette {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+    }
+
+    .channel-org-color-option {
+        width: 2.2rem;
+        height: 2.2rem;
+        border-radius: 999px;
+        border: 2px solid transparent;
+        background: var(--org-color);
+        box-shadow: 0 8px 18px color-mix(in srgb, var(--org-color) 22%, transparent);
+    }
+
+    .channel-org-color-option.active {
+        border-color: var(--canopy-text-primary);
+        outline: 3px solid color-mix(in srgb, var(--org-color) 32%, transparent);
+    }
+
+    .channel-org-preview {
+        border-radius: 1rem;
+        border: 1px solid color-mix(in srgb, var(--org-color, #2dd4bf) 28%, var(--canopy-border));
+        background: linear-gradient(135deg,
+            color-mix(in srgb, var(--org-color, #2dd4bf) 12%, transparent),
+            color-mix(in srgb, var(--canopy-bg-card) 88%, transparent));
+        padding: 0.8rem;
+    }
     .channel-row-actions {
         flex: 0 0 auto;
         min-width: fit-content;
@@ -3476,11 +3653,20 @@
         <!-- Channel Sidebar -->
         <div id="channel-sidebar" class="border-end p-0" style="background: var(--canopy-bg-secondary); border-color: var(--canopy-border) !important;">
             <div class="p-3 border-bottom" style="border-color: var(--canopy-border) !important;">
-                <div class="d-flex justify-content-between align-items-center">
+                <div class="d-flex justify-content-between align-items-center gap-2">
                     <h5 class="mb-0" style="color: var(--canopy-text-primary);">Channels</h5>
-                    <button class="btn btn-sm btn-primary" onclick="toggleCreateChannel()">
-                        <i class="bi bi-plus"></i>
-                    </button>
+                    <div class="d-flex align-items-center gap-1">
+                        <button class="btn btn-sm btn-outline-secondary channel-organize-header-btn"
+                                type="button"
+                                onclick="openChannelOrgModalForCurrent()"
+                                title="Organize channel groups"
+                                aria-label="Organize channel groups">
+                            <i class="bi bi-palette2"></i>
+                        </button>
+                        <button class="btn btn-sm btn-primary" onclick="toggleCreateChannel()">
+                            <i class="bi bi-plus"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -3584,6 +3770,7 @@
                      data-can-reply="{{ 'true' if channel.can_reply else 'false' }}"
                      data-allowed-poster-count="{{ channel.allowed_poster_count if channel.allowed_poster_count is not none else 0 }}"
                      data-channel-desc="{{ channel.description|e }}"
+                     data-channel-topic="{{ channel.topic or '' }}"
                      data-lifecycle-status="{{ lifecycle_status }}"
                      data-lifecycle-ttl-days="{{ channel.lifecycle_ttl_days if channel.lifecycle_ttl_days is not none else 180 }}"
                      data-lifecycle-preserved="{{ 'true' if channel.lifecycle_preserved else 'false' }}"
@@ -3646,6 +3833,14 @@
                                             data-channel-id="{{ channel.id }}"
                                             title="Channel removal vote">
                                         <i class="bi bi-person-workspace"></i>
+                                    </button>
+                                </li>
+                                <li>
+                                    <button type="button"
+                                            class="dropdown-item channel-organize-btn"
+                                            data-channel-id="{{ channel.id }}"
+                                            title="Organize channel">
+                                        <i class="bi bi-palette2"></i>
                                     </button>
                                 </li>
                                 <li>
@@ -6635,7 +6830,23 @@ let channelMentionBuilderFilter = 'all';
 const channelMentionBuilderSelection = new Map();
 const CHANNEL_MENTION_LISTS_STORAGE_KEY = 'canopy.channel_mention_lists.v1';
 const CHANNEL_PIN_STORAGE_KEY = `canopy.channel_pins.v1.${currentUserId || 'anon'}`;
+const CHANNEL_ORG_STORAGE_KEY = `canopy.channel_org.v1.${currentUserId || 'anon'}`;
+const CHANNEL_GROUP_COLLAPSE_STORAGE_KEY = `canopy.channel_group_collapsed.v1.${currentUserId || 'anon'}`;
+const CHANNEL_ORG_PALETTE = [
+    { color: '#2dd4bf', label: 'Canopy teal' },
+    { color: '#60a5fa', label: 'Signal blue' },
+    { color: '#a78bfa', label: 'Research violet' },
+    { color: '#fbbf24', label: 'Priority gold' },
+    { color: '#fb7185', label: 'Human pink' },
+    { color: '#34d399', label: 'Lab green' },
+    { color: '#f97316', label: 'Operations orange' },
+    { color: '#94a3b8', label: 'Quiet slate' }
+];
 const pinnedChannelIds = new Set();
+let pinnedChannelOrder = [];
+let channelOrgById = {};
+const collapsedChannelGroupIds = new Set();
+let channelDragSourceId = null;
 let channelSortIndexCounter = 0;
 const channelMessageRenderInFlight = new Set();
 const channelLikeInFlight = new Set();
@@ -6812,13 +7023,17 @@ function ensureChannelSortIndex(item) {
 
 function loadPinnedChannelIds() {
     pinnedChannelIds.clear();
+    pinnedChannelOrder = [];
     try {
         const raw = localStorage.getItem(CHANNEL_PIN_STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : [];
         if (Array.isArray(parsed)) {
             parsed.forEach(id => {
                 const normalized = String(id || '').trim();
-                if (normalized) pinnedChannelIds.add(normalized);
+                if (normalized && !pinnedChannelIds.has(normalized)) {
+                    pinnedChannelIds.add(normalized);
+                    pinnedChannelOrder.push(normalized);
+                }
             });
         }
     } catch (_) {}
@@ -6826,12 +7041,127 @@ function loadPinnedChannelIds() {
 
 function savePinnedChannelIds() {
     try {
-        localStorage.setItem(CHANNEL_PIN_STORAGE_KEY, JSON.stringify(Array.from(pinnedChannelIds)));
+        pinnedChannelOrder = pinnedChannelOrder.filter(id => pinnedChannelIds.has(id));
+        pinnedChannelIds.forEach(id => {
+            if (!pinnedChannelOrder.includes(id)) pinnedChannelOrder.push(id);
+        });
+        localStorage.setItem(CHANNEL_PIN_STORAGE_KEY, JSON.stringify(pinnedChannelOrder));
     } catch (_) {}
 }
 
 function isChannelPinned(channelId) {
     return pinnedChannelIds.has(String(channelId || '').trim());
+}
+
+function setChannelPinned(channelId, pinned) {
+    const normalized = String(channelId || '').trim();
+    if (!normalized) return;
+    if (pinned) {
+        pinnedChannelIds.add(normalized);
+        if (!pinnedChannelOrder.includes(normalized)) pinnedChannelOrder.push(normalized);
+    } else {
+        pinnedChannelIds.delete(normalized);
+        pinnedChannelOrder = pinnedChannelOrder.filter(id => id !== normalized);
+    }
+    savePinnedChannelIds();
+}
+
+function getPinnedChannelOrderIndex(channelId) {
+    const normalized = String(channelId || '').trim();
+    const idx = pinnedChannelOrder.indexOf(normalized);
+    return idx >= 0 ? idx : Number.MAX_SAFE_INTEGER;
+}
+
+function loadChannelOrgState() {
+    channelOrgById = {};
+    collapsedChannelGroupIds.clear();
+    try {
+        const raw = localStorage.getItem(CHANNEL_ORG_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            Object.entries(parsed).forEach(([channelId, config]) => {
+                const normalizedId = String(channelId || '').trim();
+                const normalized = normalizeChannelOrgConfig(config);
+                if (normalizedId && normalized) channelOrgById[normalizedId] = normalized;
+            });
+        }
+    } catch (_) {}
+    try {
+        const rawCollapsed = localStorage.getItem(CHANNEL_GROUP_COLLAPSE_STORAGE_KEY);
+        const parsedCollapsed = rawCollapsed ? JSON.parse(rawCollapsed) : [];
+        if (Array.isArray(parsedCollapsed)) {
+            parsedCollapsed.forEach(id => {
+                const normalized = String(id || '').trim();
+                if (normalized) collapsedChannelGroupIds.add(normalized);
+            });
+        }
+    } catch (_) {}
+}
+
+function saveChannelOrgState() {
+    try {
+        localStorage.setItem(CHANNEL_ORG_STORAGE_KEY, JSON.stringify(channelOrgById));
+        localStorage.setItem(CHANNEL_GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(collapsedChannelGroupIds)));
+    } catch (_) {}
+}
+
+function normalizeChannelOrgConfig(config) {
+    if (!config || typeof config !== 'object') return null;
+    const groupName = String(config.group || config.group_name || '').trim().slice(0, 48);
+    if (!groupName) return null;
+    let color = String(config.color || '').trim();
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+        color = CHANNEL_ORG_PALETTE[0].color;
+    }
+    return { group: groupName, color };
+}
+
+function slugifyChannelGroupName(name) {
+    const raw = String(name || '').trim().toLowerCase();
+    const slug = raw
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 42);
+    return slug || 'channels';
+}
+
+function getDefaultGroupColor(seed) {
+    const palette = CHANNEL_ORG_PALETTE;
+    const raw = String(seed || '');
+    let hash = 0;
+    for (let i = 0; i < raw.length; i += 1) {
+        hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+    }
+    return palette[Math.abs(hash) % palette.length].color;
+}
+
+function getChannelOrgForItem(item) {
+    const channelId = String(item?.dataset?.channelId || '').trim();
+    const stored = channelId ? channelOrgById[channelId] : null;
+    if (stored && stored.group) return stored;
+    const topic = String(item?.dataset?.channelTopic || '').trim();
+    if (topic) {
+        return { group: topic, color: getDefaultGroupColor(topic) };
+    }
+    return null;
+}
+
+function getChannelGroupInfoForItem(item) {
+    const org = getChannelOrgForItem(item);
+    if (!org) {
+        return {
+            id: 'ungrouped',
+            label: 'Channels',
+            color: '#64748b',
+            isDefault: true,
+        };
+    }
+    return {
+        id: `group-${slugifyChannelGroupName(org.group)}`,
+        label: org.group,
+        color: org.color || getDefaultGroupColor(org.group),
+        isDefault: false,
+    };
 }
 
 function canDeleteChannelFromItem(item) {
@@ -6933,6 +7263,7 @@ function getToolsPortal() {
     el.id = 'channel-tools-portal';
     el.innerHTML = '<button type="button" class="portal-tool-btn portal-copy-btn" title="Copy ID"><i class="bi bi-clipboard"></i></button>'
         + '<button type="button" class="portal-tool-btn portal-removal-btn" title="Channel removal vote"><i class="bi bi-person-workspace"></i></button>'
+        + '<button type="button" class="portal-tool-btn portal-organize-btn" title="Organize channel"><i class="bi bi-palette2"></i></button>'
         + '<button type="button" class="portal-tool-btn portal-delete-btn" title="Delete"><i class="bi bi-trash"></i></button>';
     document.body.appendChild(el);
 
@@ -6975,6 +7306,15 @@ function getToolsPortal() {
         }
         closeAllChannelToolsMenus();
         openChannelRemovalModal(_toolsPortalChannelId);
+    });
+
+    el.querySelector('.portal-organize-btn').addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!_toolsPortalChannelId) return;
+        const channelId = _toolsPortalChannelId;
+        closeAllChannelToolsMenus();
+        openChannelOrgModal(channelId);
     });
 
     el.addEventListener('click', function(e) { e.stopPropagation(); });
@@ -7049,6 +7389,13 @@ document.addEventListener('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
         openChannelRemovalModal(removalBtn.dataset.channelId);
+        return;
+    }
+    const organizeBtn = e.target.closest('.channel-organize-btn');
+    if (organizeBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        openChannelOrgModal(organizeBtn.dataset.channelId);
     }
 });
 document.addEventListener('scroll', function() { closeAllChannelToolsMenus(); }, true);
@@ -7070,8 +7417,27 @@ function applyChannelPinState(item) {
     ensureChannelSortIndex(item);
     const channelId = String(item.dataset.channelId || '').trim();
     const pinned = !!(channelId && pinnedChannelIds.has(channelId));
+    const org = getChannelOrgForItem(item);
+    const groupColor = org && org.color ? org.color : '';
     item.dataset.pinned = pinned ? 'true' : 'false';
+    if (groupColor) {
+        item.dataset.channelGroupColor = groupColor;
+        item.style.setProperty('--channel-item-group-color', groupColor);
+    } else {
+        item.removeAttribute('data-channel-group-color');
+        item.style.removeProperty('--channel-item-group-color');
+    }
     item.classList.toggle('channel-pinned', pinned);
+    item.draggable = pinned;
+    const head = item.querySelector('.channel-item-head');
+    if (head && !head.querySelector('.channel-drag-handle')) {
+        const handle = document.createElement('span');
+        handle.className = 'channel-drag-handle';
+        handle.title = 'Drag to reorder pinned channel';
+        handle.setAttribute('aria-hidden', 'true');
+        handle.innerHTML = '<i class="bi bi-grip-vertical"></i>';
+        head.prepend(handle);
+    }
     let btn = item.querySelector('.channel-pin-btn');
     if (!btn) {
         const host = item.querySelector('.channel-row-actions');
@@ -7098,9 +7464,7 @@ function bindChannelPinHandlers() {
             event.stopPropagation();
             const channelId = btn.dataset.channelId || btn.closest('.channel-item')?.dataset.channelId;
             if (!channelId) return;
-            if (pinnedChannelIds.has(String(channelId))) pinnedChannelIds.delete(String(channelId));
-            else pinnedChannelIds.add(String(channelId));
-            savePinnedChannelIds();
+            setChannelPinned(channelId, !pinnedChannelIds.has(String(channelId)));
             applyAllChannelPinStates();
             sortChannelListByPins();
         });
@@ -7112,23 +7476,375 @@ function applyAllChannelPinStates() {
     document.querySelectorAll('.channel-item').forEach(item => applyChannelPinState(item));
 }
 
+function createChannelGroupSection(group) {
+    const section = document.createElement('section');
+    section.className = `channel-group ${group.isPinned ? 'channel-group-pinned' : ''}`;
+    section.dataset.groupId = group.id;
+    section.style.setProperty('--channel-group-color', group.color || '#2dd4bf');
+    const collapsed = collapsedChannelGroupIds.has(group.id);
+    const unreadTotal = normalizeChannelAttentionCount(group.unreadTotal);
+    const mentionTotal = normalizeChannelAttentionCount(group.mentionTotal);
+    section.classList.toggle('is-collapsed', collapsed);
+    section.innerHTML = `
+        <button type="button" class="channel-group-header" aria-expanded="${collapsed ? 'false' : 'true'}">
+            <span class="channel-group-accent" aria-hidden="true"></span>
+            <span class="channel-group-label">${escapeHtml(group.label)}</span>
+            <span class="channel-group-summary">
+                ${unreadTotal > 0 ? `<span class="channel-group-attention unread">${formatChannelAttentionCount(unreadTotal)} new</span>` : ''}
+                ${mentionTotal > 0 ? `<span class="channel-group-attention mentions">${formatChannelAttentionCount(mentionTotal)}</span>` : ''}
+                <span class="channel-group-count">${group.count}</span>
+            </span>
+            <i class="bi bi-chevron-down channel-group-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="channel-group-body"></div>`;
+    return section;
+}
+
+function refreshChannelGroupSummaries() {
+    document.querySelectorAll('.channel-group').forEach(section => {
+        const body = section.querySelector('.channel-group-body');
+        const summary = section.querySelector('.channel-group-summary');
+        if (!body || !summary) return;
+        const items = Array.from(body.querySelectorAll('.channel-item'));
+        const totals = getChannelGroupAttentionTotals(items);
+        summary.innerHTML = `
+            ${totals.unreadTotal > 0 ? `<span class="channel-group-attention unread">${formatChannelAttentionCount(totals.unreadTotal)} new</span>` : ''}
+            ${totals.mentionTotal > 0 ? `<span class="channel-group-attention mentions">${formatChannelAttentionCount(totals.mentionTotal)}</span>` : ''}
+            <span class="channel-group-count">${items.length}</span>`;
+    });
+}
+
+function bindChannelGroupHandlers() {
+    document.querySelectorAll('.channel-group-header').forEach(header => {
+        if (header.dataset.boundGroupToggle === '1') return;
+        header.addEventListener('click', (event) => {
+            event.preventDefault();
+            const section = header.closest('.channel-group');
+            if (!section) return;
+            const groupId = section.dataset.groupId || '';
+            const collapsed = !section.classList.contains('is-collapsed');
+            section.classList.toggle('is-collapsed', collapsed);
+            header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            if (collapsed) collapsedChannelGroupIds.add(groupId);
+            else collapsedChannelGroupIds.delete(groupId);
+            saveChannelOrgState();
+            scheduleChannelNameOverflowSync();
+        });
+        header.dataset.boundGroupToggle = '1';
+    });
+}
+
+function compareChannelItemsBySidebarOrder(a, b) {
+    const aArchived = String(a.dataset.lifecycleStatus || '').toLowerCase() === 'archived' ? 1 : 0;
+    const bArchived = String(b.dataset.lifecycleStatus || '').toLowerCase() === 'archived' ? 1 : 0;
+    if (aArchived !== bArchived) return aArchived - bArchived;
+    const aIdx = parseInt(a.dataset.sortIndex || '0', 10) || 0;
+    const bIdx = parseInt(b.dataset.sortIndex || '0', 10) || 0;
+    return aIdx - bIdx;
+}
+
+function getChannelGroupAttentionTotals(items) {
+    return (items || []).reduce((acc, item) => {
+        acc.unreadTotal += normalizeChannelAttentionCount(item.dataset.unreadCount);
+        acc.mentionTotal += normalizeChannelAttentionCount(item.dataset.mentionCount);
+        return acc;
+    }, { unreadTotal: 0, mentionTotal: 0 });
+}
+
 function sortChannelListByPins() {
     const list = document.querySelector('.channel-list');
     if (!list) return;
     const items = Array.from(list.querySelectorAll('.channel-item'));
     items.forEach(item => ensureChannelSortIndex(item));
-    items.sort((a, b) => {
-        const aPinned = a.dataset.pinned === 'true' ? 0 : 1;
-        const bPinned = b.dataset.pinned === 'true' ? 0 : 1;
-        if (aPinned !== bPinned) return aPinned - bPinned;
-        const aArchived = String(a.dataset.lifecycleStatus || '').toLowerCase() === 'archived' ? 1 : 0;
-        const bArchived = String(b.dataset.lifecycleStatus || '').toLowerCase() === 'archived' ? 1 : 0;
-        if (aArchived !== bArchived) return aArchived - bArchived;
-        const aIdx = parseInt(a.dataset.sortIndex || '0', 10) || 0;
-        const bIdx = parseInt(b.dataset.sortIndex || '0', 10) || 0;
-        return aIdx - bIdx;
+    items.forEach(item => item.remove());
+    Array.from(list.children).forEach(child => child.remove());
+
+    const pinnedItems = items
+        .filter(item => item.dataset.pinned === 'true')
+        .sort((a, b) => {
+            const orderDiff = getPinnedChannelOrderIndex(a.dataset.channelId) - getPinnedChannelOrderIndex(b.dataset.channelId);
+            if (orderDiff !== 0) return orderDiff;
+            return compareChannelItemsBySidebarOrder(a, b);
+        });
+    if (pinnedItems.length) {
+        const attention = getChannelGroupAttentionTotals(pinnedItems);
+        const pinnedSection = createChannelGroupSection({
+            id: 'pinned',
+            label: 'Pinned',
+            color: '#fbbf24',
+            count: pinnedItems.length,
+            isPinned: true,
+            unreadTotal: attention.unreadTotal,
+            mentionTotal: attention.mentionTotal,
+        });
+        const body = pinnedSection.querySelector('.channel-group-body');
+        pinnedItems.forEach(item => body.appendChild(item));
+        list.appendChild(pinnedSection);
+    }
+
+    const groups = new Map();
+    items
+        .filter(item => item.dataset.pinned !== 'true')
+        .forEach(item => {
+            const info = getChannelGroupInfoForItem(item);
+            if (!groups.has(info.id)) {
+                groups.set(info.id, {
+                    id: info.id,
+                    label: info.label,
+                    color: info.color,
+                    isDefault: info.isDefault,
+                    items: [],
+                    firstSortIndex: ensureChannelSortIndex(item),
+                });
+            }
+            const group = groups.get(info.id);
+            group.items.push(item);
+            group.firstSortIndex = Math.min(group.firstSortIndex, ensureChannelSortIndex(item));
+        });
+
+    Array.from(groups.values())
+        .sort((a, b) => {
+            if (a.isDefault !== b.isDefault) return a.isDefault ? 1 : -1;
+            return a.firstSortIndex - b.firstSortIndex;
+        })
+        .forEach(group => {
+            group.items.sort(compareChannelItemsBySidebarOrder);
+            const attention = getChannelGroupAttentionTotals(group.items);
+            const section = createChannelGroupSection({
+                id: group.id,
+                label: group.label,
+                color: group.color,
+                count: group.items.length,
+                isPinned: false,
+                unreadTotal: attention.unreadTotal,
+                mentionTotal: attention.mentionTotal,
+            });
+            const body = section.querySelector('.channel-group-body');
+            group.items.forEach(item => body.appendChild(item));
+            list.appendChild(section);
+        });
+
+    bindChannelGroupHandlers();
+    bindChannelDragHandlers();
+    scheduleChannelNameOverflowSync();
+}
+
+function clearChannelDropMarkers() {
+    document.querySelectorAll('.channel-drop-before, .channel-drop-after').forEach(item => {
+        item.classList.remove('channel-drop-before', 'channel-drop-after');
     });
-    items.forEach(item => list.appendChild(item));
+}
+
+function bindChannelDragHandlers() {
+    document.querySelectorAll('.channel-item').forEach(item => {
+        item.draggable = item.dataset.pinned === 'true';
+        if (item.dataset.boundChannelDrag === '1') return;
+        item.addEventListener('dragstart', (event) => {
+            if (item.dataset.pinned !== 'true') {
+                event.preventDefault();
+                return;
+            }
+            channelDragSourceId = item.dataset.channelId || null;
+            item.classList.add('channel-dragging');
+            if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', channelDragSourceId || '');
+            }
+        });
+        item.addEventListener('dragover', (event) => {
+            if (!channelDragSourceId || item.dataset.pinned !== 'true') return;
+            event.preventDefault();
+            const rect = item.getBoundingClientRect();
+            const before = event.clientY < rect.top + rect.height / 2;
+            clearChannelDropMarkers();
+            item.classList.toggle('channel-drop-before', before);
+            item.classList.toggle('channel-drop-after', !before);
+        });
+        item.addEventListener('drop', (event) => {
+            if (!channelDragSourceId || item.dataset.pinned !== 'true') return;
+            event.preventDefault();
+            const targetId = item.dataset.channelId;
+            if (!targetId || targetId === channelDragSourceId) return;
+            const rect = item.getBoundingClientRect();
+            const before = event.clientY < rect.top + rect.height / 2;
+            pinnedChannelOrder = pinnedChannelOrder.filter(id => id !== channelDragSourceId);
+            const targetIdx = pinnedChannelOrder.indexOf(targetId);
+            const insertIdx = targetIdx < 0 ? pinnedChannelOrder.length : (before ? targetIdx : targetIdx + 1);
+            pinnedChannelOrder.splice(insertIdx, 0, channelDragSourceId);
+            savePinnedChannelIds();
+            clearChannelDropMarkers();
+            sortChannelListByPins();
+        });
+        item.addEventListener('dragend', () => {
+            item.classList.remove('channel-dragging');
+            channelDragSourceId = null;
+            clearChannelDropMarkers();
+        });
+        item.dataset.boundChannelDrag = '1';
+    });
+}
+
+function getChannelItemById(channelId) {
+    const cleanId = String(channelId || '').trim();
+    if (!cleanId) return null;
+    return document.querySelector(`.channel-item[data-channel-id="${CSS.escape(cleanId)}"]`);
+}
+
+function openChannelOrgModalForCurrent() {
+    const selectedId = currentChannelId || document.querySelector('.channel-item[data-channel-id]')?.dataset?.channelId || '';
+    if (!selectedId) {
+        showAlert('Create or join a channel before organizing the list.', 'warning');
+        return;
+    }
+    openChannelOrgModal(selectedId);
+}
+
+function ensureChannelOrgModal() {
+    let modal = document.getElementById('channelOrgModal');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.id = 'channelOrgModal';
+    modal.tabIndex = -1;
+    modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="background: var(--canopy-bg-card); color: var(--canopy-text-primary); border-color: var(--canopy-border);">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title mb-0">Organize channel</h5>
+                        <div class="small text-muted">Groups are personal to this browser and do not alter the mesh.</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="channel-org-preview mb-3" id="channel-org-preview">
+                        <div class="small text-muted text-uppercase fw-bold">Channel</div>
+                        <div class="fw-bold" id="channel-org-channel-name">Channel</div>
+                    </div>
+                    <input type="hidden" id="channel-org-channel-id">
+                    <div class="mb-3">
+                        <label class="form-label small text-muted text-uppercase fw-bold" for="channel-org-group-name">Topic group</label>
+                        <input type="text"
+                               class="form-control"
+                               id="channel-org-group-name"
+                               placeholder="e.g. Human discussion, Agent workbench, Lab operations"
+                               maxlength="48"
+                               list="channel-org-group-suggestions">
+                        <datalist id="channel-org-group-suggestions"></datalist>
+                        <div class="form-text">Leave blank and save to return this channel to the default Channels group.</div>
+                    </div>
+                    <div class="mb-2">
+                        <div class="small text-muted text-uppercase fw-bold mb-2">Group colour</div>
+                        <div class="channel-org-palette" id="channel-org-palette"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-danger me-auto" id="channel-org-clear-btn">Clear group</button>
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="channel-org-save-btn">Save group</button>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#channel-org-save-btn').addEventListener('click', saveChannelOrgModal);
+    modal.querySelector('#channel-org-clear-btn').addEventListener('click', clearChannelOrgModal);
+    modal.querySelector('#channel-org-group-name').addEventListener('input', updateChannelOrgPreview);
+    return modal;
+}
+
+function renderChannelOrgPalette(selectedColor) {
+    const palette = document.getElementById('channel-org-palette');
+    if (!palette) return;
+    const normalizedSelected = String(selectedColor || CHANNEL_ORG_PALETTE[0].color).toLowerCase();
+    palette.innerHTML = CHANNEL_ORG_PALETTE.map(option => {
+        const active = option.color.toLowerCase() === normalizedSelected;
+        return `<button type="button"
+                        class="channel-org-color-option ${active ? 'active' : ''}"
+                        style="--org-color: ${option.color};"
+                        data-color="${option.color}"
+                        title="${escapeHtml(option.label)}"
+                        aria-label="${escapeHtml(option.label)}"></button>`;
+    }).join('');
+    palette.querySelectorAll('.channel-org-color-option').forEach(button => {
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            palette.querySelectorAll('.channel-org-color-option').forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+            updateChannelOrgPreview();
+        });
+    });
+}
+
+function updateChannelOrgSuggestions() {
+    const datalist = document.getElementById('channel-org-group-suggestions');
+    if (!datalist) return;
+    const names = new Set(['Human discussion', 'Agent workbench', 'Lab operations', 'Research', 'Testing', 'Announcements']);
+    Object.values(channelOrgById || {}).forEach(config => {
+        if (config && config.group) names.add(config.group);
+    });
+    document.querySelectorAll('.channel-item[data-channel-topic]').forEach(item => {
+        const topic = String(item.dataset.channelTopic || '').trim();
+        if (topic) names.add(topic);
+    });
+    datalist.innerHTML = Array.from(names)
+        .sort((a, b) => a.localeCompare(b))
+        .map(name => `<option value="${escapeHtml(name)}"></option>`)
+        .join('');
+}
+
+function getSelectedChannelOrgColor() {
+    return document.querySelector('#channel-org-palette .channel-org-color-option.active')?.dataset?.color || CHANNEL_ORG_PALETTE[0].color;
+}
+
+function updateChannelOrgPreview() {
+    const preview = document.getElementById('channel-org-preview');
+    if (!preview) return;
+    const groupName = String(document.getElementById('channel-org-group-name')?.value || '').trim();
+    const color = getSelectedChannelOrgColor();
+    preview.style.setProperty('--org-color', groupName ? color : '#64748b');
+}
+
+function openChannelOrgModal(channelId) {
+    const item = getChannelItemById(channelId);
+    if (!item) {
+        showAlert('Could not find that channel in the list.', 'warning');
+        return;
+    }
+    const modalEl = ensureChannelOrgModal();
+    const cleanId = String(channelId || '').trim();
+    const channelName = item.querySelector('.channel-name')?.textContent?.trim() || cleanId;
+    const existing = getChannelOrgForItem(item);
+    modalEl.querySelector('#channel-org-channel-id').value = cleanId;
+    modalEl.querySelector('#channel-org-channel-name').textContent = channelName;
+    modalEl.querySelector('#channel-org-group-name').value = existing && existing.group ? existing.group : '';
+    updateChannelOrgSuggestions();
+    renderChannelOrgPalette(existing && existing.color ? existing.color : getDefaultGroupColor(channelName));
+    updateChannelOrgPreview();
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+}
+
+function saveChannelOrgModal() {
+    const channelId = String(document.getElementById('channel-org-channel-id')?.value || '').trim();
+    if (!channelId) return;
+    const groupName = String(document.getElementById('channel-org-group-name')?.value || '').trim().slice(0, 48);
+    if (groupName) {
+        channelOrgById[channelId] = {
+            group: groupName,
+            color: getSelectedChannelOrgColor(),
+        };
+    } else {
+        delete channelOrgById[channelId];
+    }
+    saveChannelOrgState();
+    applyAllChannelPinStates();
+    sortChannelListByPins();
+    bootstrap.Modal.getInstance(document.getElementById('channelOrgModal'))?.hide();
+}
+
+function clearChannelOrgModal() {
+    const input = document.getElementById('channel-org-group-name');
+    if (input) input.value = '';
+    updateChannelOrgPreview();
 }
 
 function getPeerDisplayLabel(peerId) {
@@ -11410,6 +12126,7 @@ function updateSidebarChannelAttention(item, unreadCount, mentionCount) {
     } else if (mentionBadge) {
         mentionBadge.remove();
     }
+    refreshChannelGroupSummaries();
 }
 
 function applySidebarChannelState(channels) {
@@ -11454,6 +12171,7 @@ function applySidebarChannelState(channels) {
             div.setAttribute('data-can-reply', ch.can_reply === false ? 'false' : 'true');
             div.setAttribute('data-allowed-poster-count', String(ch.allowed_poster_count || 0));
             div.setAttribute('data-channel-desc', ch.description || '');
+            div.setAttribute('data-channel-topic', ch.topic || '');
             div.setAttribute('data-lifecycle-status', lifecycle.status);
             div.setAttribute('data-lifecycle-ttl-days', String(lifecycle.ttlDays));
             div.setAttribute('data-lifecycle-preserved', lifecycle.preserved ? 'true' : 'false');
@@ -11509,6 +12227,14 @@ function applySidebarChannelState(channels) {
                                 </li>
                                 <li>
                                     <button type="button"
+                                            class="dropdown-item channel-organize-btn"
+                                            data-channel-id="${channelIdAttr}"
+                                            title="Organize channel">
+                                        <i class="bi bi-palette2"></i>
+                                    </button>
+                                </li>
+                                <li>
+                                    <button type="button"
                                             class="dropdown-item text-danger channel-delete-btn d-none"
                                             data-channel-id="${channelIdAttr}"
                                             onclick="return handleChannelDeleteClick(event, this)"
@@ -11559,6 +12285,9 @@ function applySidebarChannelState(channels) {
         });
         if (Object.prototype.hasOwnProperty.call(ch, 'description')) {
             item.setAttribute('data-channel-desc', ch.description || '');
+        }
+        if (Object.prototype.hasOwnProperty.call(ch, 'topic')) {
+            item.setAttribute('data-channel-topic', ch.topic || '');
         }
         if (ch.name) {
             item.setAttribute('data-channel-base-name', ch.name);
@@ -17553,6 +18282,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         updateCreateMemberPickerVisibility();
         loadPinnedChannelIds();
+        loadChannelOrgState();
         bindChannelItemHandlers();
         bindChannelQuickActionHandlers();
         applyAllChannelQuickActionStates();

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.82] - 2026-05-10
+
+### Added
+- **Channels sidebar now supports personal grouping, collapsed sections, and a pinned rail** - users can organize channels into local browser-only topic groups, collapse noisy groups while keeping aggregate unread/mention badges visible, and drag pinned channels into a persistent top rail without changing mesh channel records.
+
 ## [0.6.81] - 2026-05-10
 
 ### Fixed
