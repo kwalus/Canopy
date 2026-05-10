@@ -1652,6 +1652,13 @@
                                         <span class="action-label">Reply</span>
                                         <span class="comment-count action-count">{{ post.comments or 0 }}</span>
                                     </button>
+                                    <button type="button" class="btn btn-sm btn-outline-primary icon-action-btn source-advance-action-btn"
+                                            onclick="advanceFeedPost('{{ post.id }}')"
+                                            title="Bring this post forward for visibility"
+                                            aria-label="Bring this post forward">
+                                        <i class="bi bi-arrow-up-circle"></i>
+                                        <span class="action-label">Bring forward</span>
+                                    </button>
                                     <div class="reaction-control dropdown"
                                          data-reaction-surface="feed_post"
                                          data-item-id="{{ post.id }}"
@@ -1733,11 +1740,6 @@
                                             <li>
                                                 <a class="dropdown-item" href="#" onclick="toggleVariantComposer('{{ post.id }}'); return false;">
                                                     <i class="bi bi-bezier2 me-2"></i>Variant
-                                                </a>
-                                            </li>
-                                            <li>
-                                                <a class="dropdown-item" href="#" onclick="advanceFeedPost('{{ post.id }}'); return false;">
-                                                    <i class="bi bi-arrow-up-circle me-2"></i>Bring forward
                                                 </a>
                                             </li>
                                             <li>

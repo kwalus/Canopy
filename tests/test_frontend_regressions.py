@@ -1158,6 +1158,28 @@ console.log(JSON.stringify({{
         self.assertIn('data-channel-topic="{{ channel.topic or \'\' }}"', channels_template)
         self.assertIn("'topic': getattr(ch, 'topic', '') or ''", routes_py)
 
+    def test_channel_header_can_hide_agent_only_threads(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        routes_py = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+
+        self.assertIn('CHANNEL_HUMAN_THREAD_FILTER_STORAGE_KEY', channels_template)
+        self.assertIn('channel-human-filter-toggle', channels_template)
+        self.assertIn('channel-human-filter-banner', channels_template)
+        self.assertIn('function toggleChannelHumanThreadFilter(forceEnabled)', channels_template)
+        self.assertIn('function filterChannelThreadsForHumanParticipants', channels_template)
+        self.assertIn('function channelThreadHasHumanParticipant', channels_template)
+        self.assertIn('function isChannelMessageAuthorAgent', channels_template)
+        self.assertIn('function mergeChannelMessagesSnapshot(messages)', channels_template)
+        self.assertIn('mergeChannelMessagesSnapshot(allMessages);', channels_template)
+        self.assertIn('buildChannelThreadLayout(currentChannelMessagesSnapshot)', channels_template)
+        self.assertIn('!getRenderedMessageElement(messagesContainer, rootId)', channels_template)
+        self.assertIn('displayMessages(currentChannelMessagesSnapshot, { forceScroll: wasNearBottom });', channels_template)
+        self.assertIn("normalizeChannelAuthorAccountType(user && user.account_type) === 'agent'", channels_template)
+        self.assertIn('visibleRootMessages.forEach(message =>', channels_template)
+        self.assertIn('No human-involved threads in this loaded window.', channels_template)
+        self.assertIn('newRoots = newRoots.filter((message) => visibleRootIds.has', channels_template)
+        self.assertIn("'account_type': account_type", routes_py)
+
     def test_channel_sidebar_separates_unread_state_from_mention_badges(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         routes_py = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
@@ -2075,6 +2097,8 @@ console.log(JSON.stringify({{
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
 
         self.assertIn('Bring forward', channels_template)
+        self.assertIn('source-advance-action-btn', channels_template)
+        self.assertIn('aria-label="Bring this thread forward"', channels_template)
         self.assertIn('advanceChannelMessage', channels_template)
         self.assertIn("reason === 'source_advanced'", channels_template)
         self.assertIn('m.last_activity_at', channels_template)
@@ -2085,6 +2109,8 @@ console.log(JSON.stringify({{
         self.assertIn('if (forceScroll) {', channels_template)
         self.assertIn('pendingChannelMessages = data.messages;', channels_template)
         self.assertIn('Bring forward', feed_template)
+        self.assertIn('source-advance-action-btn', feed_template)
+        self.assertIn('aria-label="Bring this post forward"', feed_template)
         self.assertIn('advanceFeedPost', feed_template)
         self.assertIn('advanceCollabCardSource', main_js)
         self.assertIn('advance_source: true', main_js)

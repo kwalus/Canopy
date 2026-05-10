@@ -1802,6 +1802,26 @@
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 70%, var(--canopy-primary) 30%) !important;
         color: var(--canopy-text-primary) !important;
     }
+    .channel-human-filter-toggle {
+        position: relative;
+    }
+    .channel-human-filter-toggle.is-active {
+        border-color: rgba(52, 211, 153, 0.72) !important;
+        color: #bbf7d0 !important;
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.24), rgba(45, 212, 191, 0.12)) !important;
+        box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.16), 0 10px 24px rgba(16, 185, 129, 0.12) !important;
+    }
+    .channel-human-filter-toggle.is-active::after {
+        content: "";
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: #34d399;
+        box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.16);
+    }
     .channel-header-tool-btn .privacy-label,
     .channel-header-tool-btn .channel-lifecycle-label,
     .channel-header-tool-btn .channel-header-tool-label {
@@ -1809,6 +1829,34 @@
     }
     .channel-header-tool-btn.dropdown-toggle::after {
         display: none;
+    }
+    .channel-human-filter-banner {
+        border: 1px solid rgba(45, 212, 191, 0.28);
+        background:
+            radial-gradient(circle at top left, rgba(45, 212, 191, 0.18), transparent 38%),
+            linear-gradient(135deg, rgba(12, 74, 110, 0.38), rgba(15, 23, 42, 0.84));
+        color: var(--canopy-text-primary);
+        border-radius: 14px;
+        padding: 0.58rem 0.75rem;
+        box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);
+    }
+    .channel-human-filter-banner .filter-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border-radius: 999px;
+        padding: 0.18rem 0.52rem;
+        background: rgba(52, 211, 153, 0.14);
+        color: #bbf7d0;
+        border: 1px solid rgba(52, 211, 153, 0.26);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+    .channel-human-filter-banner .filter-detail {
+        color: var(--canopy-text-secondary);
+        font-size: 0.86rem;
     }
     .channel-header-overflow-menu .dropdown-item i {
         width: 1rem;
@@ -1933,6 +1981,27 @@
     [data-theme="light"] .channel-header {
         background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.96));
         box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+    }
+
+    [data-theme="light"] .channel-human-filter-toggle.is-active {
+        color: #065f46 !important;
+        background: linear-gradient(135deg, rgba(209, 250, 229, 0.96), rgba(236, 253, 245, 0.86)) !important;
+        border-color: rgba(16, 185, 129, 0.42) !important;
+        box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12) !important;
+    }
+
+    [data-theme="light"] .channel-human-filter-banner {
+        background:
+            radial-gradient(circle at top left, rgba(45, 212, 191, 0.14), transparent 38%),
+            linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(236, 253, 245, 0.92));
+        color: #0f172a;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+    }
+
+    [data-theme="light"] .channel-human-filter-banner .filter-pill {
+        color: #065f46;
+        background: rgba(16, 185, 129, 0.13);
+        border-color: rgba(16, 185, 129, 0.24);
     }
 
     [data-theme="light"] .channel-post-policy-summary,
@@ -4000,6 +4069,15 @@
                                     onclick="toggleChannelNotifications()" title="Mute notifications">
                                 <i class="bi bi-bell" id="channel-mute-icon"></i>
                             </button>
+                            <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-human-filter-toggle"
+                                    id="channel-human-filter-toggle"
+                                    onclick="toggleChannelHumanThreadFilter()"
+                                    title="Hide agent-only threads"
+                                    aria-label="Hide agent-only threads"
+                                    aria-pressed="false">
+                                <i class="bi bi-person-check" id="channel-human-filter-icon"></i>
+                                <span class="channel-header-tool-label" id="channel-human-filter-label">Humans</span>
+                            </button>
                         </div>
                         <div class="channel-header-search">
                             <div class="input-group input-group-sm" id="channel-search-bar">
@@ -4108,6 +4186,11 @@
                                         </button>
                                     </li>
                                     <li>
+                                        <button type="button" class="dropdown-item" id="channel-human-filter-menu-btn" onclick="toggleChannelHumanThreadFilter()">
+                                            <i class="bi bi-person-check me-2"></i><span id="channel-human-filter-menu-label">Hide agent-only threads</span>
+                                        </button>
+                                    </li>
+                                    <li>
                                         <button type="button" class="dropdown-item" id="channel-members-btn" onclick="openChannelMembersModal()">
                                             <i class="bi bi-people me-2"></i>Members
                                             <span class="text-muted ms-1 channel-members-count">({{ channels[0].member_count if channels else 0 }})</span>
@@ -4142,6 +4225,7 @@
                     New messages — click to load
                 </div>
                 <div id="channel-removal-banner" class="alert channel-removal-banner d-none mb-2" role="alert"></div>
+                <div id="channel-human-filter-banner" class="channel-human-filter-banner d-none mb-2" role="status" aria-live="polite"></div>
                 <div id="messages-list">
                     <!-- Messages will be loaded here -->
                     <div class="text-center text-muted p-4">
@@ -6832,6 +6916,7 @@ const CHANNEL_MENTION_LISTS_STORAGE_KEY = 'canopy.channel_mention_lists.v1';
 const CHANNEL_PIN_STORAGE_KEY = `canopy.channel_pins.v1.${currentUserId || 'anon'}`;
 const CHANNEL_ORG_STORAGE_KEY = `canopy.channel_org.v1.${currentUserId || 'anon'}`;
 const CHANNEL_GROUP_COLLAPSE_STORAGE_KEY = `canopy.channel_group_collapsed.v1.${currentUserId || 'anon'}`;
+const CHANNEL_HUMAN_THREAD_FILTER_STORAGE_KEY = `canopy.channel_human_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_ORG_PALETTE = [
     { color: '#2dd4bf', label: 'Canopy teal' },
     { color: '#60a5fa', label: 'Signal blue' },
@@ -6850,6 +6935,9 @@ let channelDragSourceId = null;
 let channelSortIndexCounter = 0;
 const channelMessageRenderInFlight = new Set();
 const channelLikeInFlight = new Set();
+let channelHumanThreadFilterById = {};
+let currentChannelMessagesSnapshot = [];
+let currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
 const CHANNEL_FILE_ALLOWED_MIME_PREFIXES = ['image/', 'video/', 'audio/'];
 const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
     'application/pdf',
@@ -7103,6 +7191,152 @@ function saveChannelOrgState() {
         localStorage.setItem(CHANNEL_ORG_STORAGE_KEY, JSON.stringify(channelOrgById));
         localStorage.setItem(CHANNEL_GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(collapsedChannelGroupIds)));
     } catch (_) {}
+}
+
+function loadChannelHumanThreadFilterState() {
+    channelHumanThreadFilterById = {};
+    try {
+        const raw = localStorage.getItem(CHANNEL_HUMAN_THREAD_FILTER_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+        Object.entries(parsed).forEach(([channelId, enabled]) => {
+            const normalized = String(channelId || '').trim();
+            if (normalized && enabled === true) channelHumanThreadFilterById[normalized] = true;
+        });
+    } catch (_) {
+        channelHumanThreadFilterById = {};
+    }
+}
+
+function saveChannelHumanThreadFilterState() {
+    try {
+        localStorage.setItem(CHANNEL_HUMAN_THREAD_FILTER_STORAGE_KEY, JSON.stringify(channelHumanThreadFilterById));
+    } catch (_) {}
+}
+
+function isChannelHumanThreadFilterEnabled(channelId = currentChannelId) {
+    const normalized = String(channelId || '').trim();
+    return !!(normalized && channelHumanThreadFilterById[normalized]);
+}
+
+function setChannelHumanThreadFilter(channelId, enabled) {
+    const normalized = String(channelId || '').trim();
+    if (!normalized) return;
+    if (enabled) {
+        channelHumanThreadFilterById[normalized] = true;
+    } else {
+        delete channelHumanThreadFilterById[normalized];
+    }
+    saveChannelHumanThreadFilterState();
+}
+
+function normalizeChannelAuthorAccountType(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'agent' ? 'agent' : 'human';
+}
+
+function isChannelMessageAuthorAgent(message, userInfo) {
+    const userId = String((message && message.user_id) || '').trim();
+    const user = userId && userInfo ? userInfo[userId] : null;
+    return normalizeChannelAuthorAccountType(user && user.account_type) === 'agent';
+}
+
+function channelThreadHasHumanParticipant(rootMessage, replies, userInfo) {
+    const participants = [rootMessage].concat(Array.isArray(replies) ? replies : []);
+    return participants.some((message) => message && !isChannelMessageAuthorAgent(message, userInfo));
+}
+
+function filterChannelThreadsForHumanParticipants(rootMessages, repliesByRoot, userInfo) {
+    if (!isChannelHumanThreadFilterEnabled()) {
+        currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
+        return {
+            roots: rootMessages || [],
+            hiddenThreads: 0,
+            hiddenMessages: 0,
+        };
+    }
+    let hiddenThreads = 0;
+    let hiddenMessages = 0;
+    const roots = (rootMessages || []).filter((root) => {
+        const replies = (repliesByRoot && repliesByRoot[root.id]) || [];
+        const keep = channelThreadHasHumanParticipant(root, replies, userInfo);
+        if (!keep) {
+            hiddenThreads += 1;
+            hiddenMessages += 1 + replies.length;
+        }
+        return keep;
+    });
+    currentChannelHumanFilterStats = { hiddenThreads, hiddenMessages };
+    return { roots, hiddenThreads, hiddenMessages };
+}
+
+function updateChannelHumanThreadFilterUI() {
+    const enabled = isChannelHumanThreadFilterEnabled();
+    const toggle = document.getElementById('channel-human-filter-toggle');
+    const icon = document.getElementById('channel-human-filter-icon');
+    const label = document.getElementById('channel-human-filter-label');
+    const menuLabel = document.getElementById('channel-human-filter-menu-label');
+    if (toggle) {
+        toggle.classList.toggle('is-active', enabled);
+        toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        toggle.title = enabled ? 'Show all channel threads' : 'Hide agent-only threads';
+        toggle.setAttribute('aria-label', enabled ? 'Show all channel threads' : 'Hide agent-only threads');
+    }
+    if (icon) {
+        icon.className = enabled ? 'bi bi-person-fill-check' : 'bi bi-person-check';
+    }
+    if (label) {
+        label.textContent = enabled ? 'Human view' : 'Humans';
+    }
+    if (menuLabel) {
+        menuLabel.textContent = enabled ? 'Show all threads' : 'Hide agent-only threads';
+    }
+}
+
+function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterStats) {
+    const banner = document.getElementById('channel-human-filter-banner');
+    if (!banner) return;
+    if (!isChannelHumanThreadFilterEnabled()) {
+        banner.classList.add('d-none');
+        banner.innerHTML = '';
+        return;
+    }
+    const hiddenThreads = Math.max(0, parseInt(stats && stats.hiddenThreads, 10) || 0);
+    const hiddenMessages = Math.max(0, parseInt(stats && stats.hiddenMessages, 10) || 0);
+    const threadLabel = hiddenThreads === 1 ? 'thread' : 'threads';
+    const messageLabel = hiddenMessages === 1 ? 'message' : 'messages';
+    const detail = hiddenThreads > 0
+        ? `${hiddenThreads} agent-only ${threadLabel} hidden (${hiddenMessages} ${messageLabel}).`
+        : 'No agent-only threads hidden in the loaded window.';
+    banner.innerHTML = `
+        <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+            <span class="filter-pill"><i class="bi bi-person-fill-check"></i> Human threads</span>
+            <span class="filter-detail">${escapeHtml(detail)}</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" onclick="toggleChannelHumanThreadFilter(false)">
+                Show all
+            </button>
+        </div>`;
+    banner.classList.remove('d-none');
+}
+
+function toggleChannelHumanThreadFilter(forceEnabled) {
+    if (!currentChannelId) {
+        showAlert('Select a channel before filtering agent chatter.', 'warning');
+        return;
+    }
+    const nextEnabled = typeof forceEnabled === 'boolean'
+        ? forceEnabled
+        : !isChannelHumanThreadFilterEnabled();
+    setChannelHumanThreadFilter(currentChannelId, nextEnabled);
+    updateChannelHumanThreadFilterUI();
+    if (Array.isArray(currentChannelMessagesSnapshot) && currentChannelMessagesSnapshot.length) {
+        displayMessages(currentChannelMessagesSnapshot, { forceScroll: false, ignoreSignature: true });
+    } else if (currentChannelId) {
+        loadChannelMessages(currentChannelId, { forceScroll: false });
+    } else {
+        updateChannelHumanThreadFilterBanner();
+    }
+    showAlert(nextEnabled ? 'Agent-only threads hidden in this channel.' : 'All channel threads visible.', 'success');
 }
 
 function normalizeChannelOrgConfig(config) {
@@ -7943,11 +8177,15 @@ function selectChannel(channelId, channelName, options = {}) {
     currentChannelRemovalStatus = null;
     currentChannelMemberIds = new Set();
     pendingChannelMessages = null;
+    currentChannelMessagesSnapshot = [];
+    currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
     oldestLoadedMessageId = null;
     loadingOlderMessages = false;
     noMoreOlderMessages = false;
     clearNewMessagesBanner();
     syncChannelRemovalBanner();
+    updateChannelHumanThreadFilterUI();
+    updateChannelHumanThreadFilterBanner();
     refreshChannelMentionBuilderForChannel(channelId);
     
     // Clear reply and search context when switching channels
@@ -8805,6 +9043,9 @@ function loadChannelMessages(channelId, options = {}) {
                     });
             }
             const hint = data.warning ? ` <small class="d-block mt-2 text-muted">${escapeHtml(String(data.warning).slice(0, 120))}</small>` : '';
+            currentChannelMessagesSnapshot = [];
+            currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
+            updateChannelHumanThreadFilterBanner();
             messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet' + hint + '</div>';
             if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
                 if (Number(data.acknowledged_mentions || 0) > 0) {
@@ -8911,8 +9152,11 @@ function displayMessages(messages, options = {}) {
     const scrollContainer = document.getElementById('messages-container');
     const wasNearBottom = isNearBottom(scrollContainer);
     const prevScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+    replaceChannelMessagesSnapshot(messages);
     
     if (messages.length === 0) {
+        currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
+        updateChannelHumanThreadFilterBanner();
         messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet</div>';
         return;
     }
@@ -8962,8 +9206,12 @@ function displayMessages(messages, options = {}) {
             });
             window.mentionDisplayMap = map;
             let html = '';
+            const filteredView = filterChannelThreadsForHumanParticipants(rootMessages, repliesByRoot, userInfo);
+            let hiddenThreads = filteredView.hiddenThreads || 0;
+            let hiddenMessages = filteredView.hiddenMessages || 0;
+            const visibleRootMessages = filteredView.roots || [];
 
-            rootMessages.forEach(message => {
+            visibleRootMessages.forEach(message => {
                 html += renderMessage(message, userInfo, replyMetaById[message.id] || false);
 
                 // Render all threaded replies (including reply-to-reply) under the root
@@ -8988,8 +9236,18 @@ function displayMessages(messages, options = {}) {
             // Render orphan replies whose thread root isn't in view (O(n) via Set)
             orphanRootIds.forEach(rid => {
                 const replies = repliesByRoot[rid] || [];
+                if (isChannelHumanThreadFilterEnabled()) {
+                    const keepOrphanThread = replies.some((message) => message && !isChannelMessageAuthorAgent(message, userInfo));
+                    if (!keepOrphanThread) {
+                        hiddenThreads += 1;
+                        hiddenMessages += replies.length;
+                        return;
+                    }
+                }
                 replies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
             });
+            currentChannelHumanFilterStats = { hiddenThreads, hiddenMessages };
+            updateChannelHumanThreadFilterBanner(currentChannelHumanFilterStats);
 
             // Prepend "Load older" banner if there may be more messages
             const olderBanner = noMoreOlderMessages ? '' :
@@ -8998,6 +9256,13 @@ function displayMessages(messages, options = {}) {
 		                    <i class="bi bi-arrow-up me-1"></i>Load older messages
 		                </button>
 		            </div>`;
+            if (!html && isChannelHumanThreadFilterEnabled()) {
+                html = `<div class="text-center text-muted p-4">
+                    <div class="mb-2"><i class="bi bi-person-fill-check fs-4"></i></div>
+                    <div class="fw-semibold">No human-involved threads in this loaded window.</div>
+                    <div class="small mt-1">Use <button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="toggleChannelHumanThreadFilter(false)">Show all</button> to restore agent-only chatter.</div>
+                </div>`;
+            }
             messagesContainer.innerHTML = olderBanner + html;
 
             formatTimestamps();
@@ -9516,6 +9781,12 @@ function renderMessage(message, userInfo, isReply) {
                                 aria-label="Reply in thread">
                             <i class="bi bi-reply"></i><span class="action-label">Reply</span>
                         </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary icon-action-btn source-advance-action-btn"
+                                onclick="advanceChannelMessage('${message.id}')"
+                                title="Bring this thread forward for visibility"
+                                aria-label="Bring this thread forward">
+                            <i class="bi bi-arrow-up-circle"></i><span class="action-label">Bring forward</span>
+                        </button>
                         ${renderChannelReactionControl(message)}
                         <button type="button" class="btn btn-sm btn-outline-info icon-action-btn repost-trigger-btn"
                                 id="channel-repost-trigger-${message.id}"
@@ -9555,11 +9826,6 @@ function renderMessage(message, userInfo, isReply) {
                                 <li>
                                     <a class="dropdown-item" href="#" onclick="toggleThreadInboxSubscription('${message.id}'); return false;">
                                         <i class="bi bi-bell-slash me-2"></i>Thread inbox
-                                    </a>
-                                </li>
-                                <li>
-                                    <a class="dropdown-item" href="#" onclick="advanceChannelMessage('${message.id}'); return false;">
-                                        <i class="bi bi-arrow-up-circle me-2"></i>Bring forward
                                     </a>
                                 </li>
                                 <li>
@@ -11568,6 +11834,23 @@ function compareChannelRootMessagesByActivity(a, b) {
     return compareChannelMessagesByChronology(a, b);
 }
 
+function replaceChannelMessagesSnapshot(messages) {
+    currentChannelMessagesSnapshot = Array.isArray(messages) ? messages.slice() : [];
+}
+
+function mergeChannelMessagesSnapshot(messages) {
+    const incoming = Array.isArray(messages) ? messages : [];
+    if (!incoming.length) return;
+    const byId = new Map();
+    (currentChannelMessagesSnapshot || []).forEach((message) => {
+        if (message && message.id) byId.set(String(message.id), message);
+    });
+    incoming.forEach((message) => {
+        if (message && message.id) byId.set(String(message.id), message);
+    });
+    currentChannelMessagesSnapshot = Array.from(byId.values()).sort(compareChannelMessagesByChronology);
+}
+
 function cssEscapeValue(value) {
     const raw = String(value || '');
     if (typeof window !== 'undefined' && window.CSS && typeof window.CSS.escape === 'function') {
@@ -11658,6 +11941,7 @@ function appendNewMessages(allMessages) {
     const messagesContainer = document.getElementById('messages-list');
     const scrollContainer = document.getElementById('messages-container');
     if (!messagesContainer || !allMessages || allMessages.length === 0) return false;
+    mergeChannelMessagesSnapshot(allMessages);
 
     // Update message cache
     allMessages.forEach(m => {
@@ -11670,12 +11954,12 @@ function appendNewMessages(allMessages) {
         existingIds.add(el.getAttribute('data-message-id'));
     });
 
-    const threadLayout = buildChannelThreadLayout(allMessages);
+    const threadLayout = buildChannelThreadLayout(currentChannelMessagesSnapshot);
     const replyMetaById = threadLayout.replyMetaById;
     const rootOrder = new Map((threadLayout.rootMessages || []).map((message, index) => [String(message.id || ''), index]));
 
     // Separate new root messages and new replies (grouped by thread root)
-    const newRoots = [];
+    let newRoots = [];
     const newReplies = {};
     const reservedIds = new Set();
     allMessages.forEach(m => {
@@ -11702,8 +11986,14 @@ function appendNewMessages(allMessages) {
 
     // Gather user IDs for the new messages
     const newUserIds = new Set();
-    newRoots.forEach(m => newUserIds.add(m.user_id));
-    Object.values(newReplies).flat().forEach(m => newUserIds.add(m.user_id));
+    if (isChannelHumanThreadFilterEnabled()) {
+        allMessages.forEach(m => {
+            if (m && m.user_id) newUserIds.add(m.user_id);
+        });
+    } else {
+        newRoots.forEach(m => newUserIds.add(m.user_id));
+        Object.values(newReplies).flat().forEach(m => newUserIds.add(m.user_id));
+    }
 
     Promise.all([
         fetchUserDisplayInfo([...newUserIds]),
@@ -11716,6 +12006,17 @@ function appendNewMessages(allMessages) {
             if (u.username && u.username !== u.user_id) map[u.username] = dn;
         });
         window.mentionDisplayMap = map;
+
+        let visibleRootIds = null;
+        if (isChannelHumanThreadFilterEnabled()) {
+            const filteredView = filterChannelThreadsForHumanParticipants(threadLayout.rootMessages, threadLayout.repliesByRoot, userInfo);
+            visibleRootIds = new Set((filteredView.roots || []).map((message) => String(message.id || '')));
+            updateChannelHumanThreadFilterBanner(currentChannelHumanFilterStats);
+            newRoots = newRoots.filter((message) => visibleRootIds.has(String(message.id || '')));
+        } else {
+            currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
+            updateChannelHumanThreadFilterBanner(currentChannelHumanFilterStats);
+        }
 
         // Insert new root messages in the same order as a full thread render.
         if (newRoots.length > 0) {
@@ -11745,6 +12046,13 @@ function appendNewMessages(allMessages) {
         }).forEach(rootId => {
             const replies = newReplies[rootId];
             const orderedReplies = threadLayout.repliesByRoot[rootId] || [];
+            if (visibleRootIds && !visibleRootIds.has(String(rootId || ''))) {
+                return;
+            }
+            if (visibleRootIds && visibleRootIds.has(String(rootId || '')) && !getRenderedMessageElement(messagesContainer, rootId)) {
+                needsFullReload = true;
+                return;
+            }
             const replyOrder = new Map(orderedReplies.map((message, index) => [String(message.id || ''), index]));
             replies.sort((a, b) => {
                 const ai = replyOrder.has(String(a.id || '')) ? replyOrder.get(String(a.id || '')) : Number.MAX_SAFE_INTEGER;
@@ -11770,7 +12078,7 @@ function appendNewMessages(allMessages) {
         });
 
         if (needsFullReload) {
-            displayMessages(allMessages, { forceScroll: wasNearBottom });
+            displayMessages(currentChannelMessagesSnapshot, { forceScroll: wasNearBottom });
             return;
         }
 
@@ -11954,6 +12262,7 @@ function loadOlderMessages() {
             }
 
             const messages = data.messages;
+            mergeChannelMessagesSnapshot(messages);
             // Update page boundary cursor from API order.
             oldestLoadedMessageId = messages[0].id;
 
@@ -12003,15 +12312,35 @@ function loadOlderMessages() {
                 window.mentionDisplayMap = map;
 
                 let html = '';
-                roots.forEach(m => {
+                const priorHumanFilterStats = {
+                    hiddenThreads: currentChannelHumanFilterStats.hiddenThreads || 0,
+                    hiddenMessages: currentChannelHumanFilterStats.hiddenMessages || 0,
+                };
+                const filteredOlderView = filterChannelThreadsForHumanParticipants(roots, replies, userInfo);
+                let hiddenThreads = priorHumanFilterStats.hiddenThreads + (filteredOlderView.hiddenThreads || 0);
+                let hiddenMessages = priorHumanFilterStats.hiddenMessages + (filteredOlderView.hiddenMessages || 0);
+                (filteredOlderView.roots || []).forEach(m => {
                     html += renderMessage(m, userInfo, replyMetaById[m.id] || false);
                     const reps = replies[m.id];
                     if (reps) reps.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
                 });
                 // Orphan replies whose root isn't in this batch
                 orphanRootIds.forEach(rid => {
-                    (replies[rid] || []).forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
+                    const orphanReplies = replies[rid] || [];
+                    if (isChannelHumanThreadFilterEnabled()) {
+                        const keepOrphanThread = orphanReplies.some((message) => message && !isChannelMessageAuthorAgent(message, userInfo));
+                        if (!keepOrphanThread) {
+                            hiddenThreads += 1;
+                            hiddenMessages += orphanReplies.length;
+                            return;
+                        }
+                    }
+                    orphanReplies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
                 });
+                if (isChannelHumanThreadFilterEnabled()) {
+                    currentChannelHumanFilterStats = { hiddenThreads, hiddenMessages };
+                    updateChannelHumanThreadFilterBanner(currentChannelHumanFilterStats);
+                }
 
                 const scrollContainer = document.getElementById('messages-container');
                 const prevHeight = scrollContainer ? scrollContainer.scrollHeight : 0;
@@ -18283,6 +18612,9 @@ document.addEventListener('DOMContentLoaded', function() {
         updateCreateMemberPickerVisibility();
         loadPinnedChannelIds();
         loadChannelOrgState();
+        loadChannelHumanThreadFilterState();
+        updateChannelHumanThreadFilterUI();
+        updateChannelHumanThreadFilterBanner();
         bindChannelItemHandlers();
         bindChannelQuickActionHandlers();
         applyAllChannelQuickActionStates();
