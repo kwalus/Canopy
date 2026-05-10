@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.84] - 2026-05-10
+
+### Added
+- **Channel grouping now has a dedicated organize mode** - the sidebar group button opens a local drag/drop workspace for reordering groups, moving channels between groups, recolouring custom groups, and finishing with a compact Done control while preserving the detailed per-channel organize modal.
+
+### Changed
+- **The channel human-thread filter now toggles silently** - the persistent in-channel banner remains the state indicator, while non-actionable success toasts were removed from filter on/off changes.
+
 ## [0.6.83] - 2026-05-10
 
 ### Added

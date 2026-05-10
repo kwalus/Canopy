@@ -2004,6 +2004,20 @@
         border-color: rgba(16, 185, 129, 0.24);
     }
 
+    [data-theme="light"] .channel-organize-header-btn.is-active {
+        color: #065f46;
+        background: linear-gradient(135deg, rgba(209, 250, 229, 0.96), rgba(236, 253, 245, 0.86));
+        border-color: rgba(16, 185, 129, 0.42);
+        box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12);
+    }
+
+    [data-theme="light"] .channel-group-edit-panel {
+        background:
+            radial-gradient(circle at top left, rgba(45, 212, 191, 0.14), transparent 44%),
+            linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(236, 253, 245, 0.92));
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+    }
+
     [data-theme="light"] .channel-post-policy-summary,
     [data-theme="light"] .channel-lifecycle-summary,
     [data-theme="light"] .create-channel-posture-card {
@@ -2741,6 +2755,41 @@
         background: color-mix(in srgb, var(--canopy-primary) 10%, transparent);
     }
 
+    .channel-organize-header-btn.is-active {
+        color: #bbf7d0;
+        border-color: rgba(45, 212, 191, 0.5);
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(45, 212, 191, 0.12));
+        box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.16), 0 10px 24px rgba(16, 185, 129, 0.12);
+    }
+
+    .channel-group-edit-panel {
+        margin: 0.65rem 0 0;
+        border: 1px solid rgba(45, 212, 191, 0.26);
+        border-radius: 0.9rem;
+        padding: 0.62rem 0.68rem;
+        background:
+            radial-gradient(circle at top left, rgba(45, 212, 191, 0.16), transparent 44%),
+            linear-gradient(135deg, rgba(15, 23, 42, 0.84), rgba(8, 47, 73, 0.56));
+        box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);
+    }
+
+    .channel-group-edit-panel-title {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        color: var(--canopy-text-primary);
+        font-size: 0.78rem;
+        font-weight: 900;
+        letter-spacing: 0.065em;
+        text-transform: uppercase;
+    }
+
+    .channel-group-edit-panel-copy {
+        color: var(--canopy-text-secondary);
+        font-size: 0.78rem;
+        line-height: 1.32;
+    }
+
     .channel-group {
         --channel-group-color: #2dd4bf;
         margin: 0.24rem 0.18rem 0.42rem;
@@ -2755,6 +2804,11 @@
     .channel-group.channel-group-pinned {
         --channel-group-color: #fbbf24;
         background: linear-gradient(135deg, rgba(251, 191, 36, 0.11), color-mix(in srgb, var(--canopy-bg-card) 90%, transparent));
+    }
+
+    .channel-list.channel-group-editing .channel-group {
+        border-color: color-mix(in srgb, var(--channel-group-color) 34%, var(--canopy-border));
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--channel-group-color) 12%, transparent);
     }
 
     .channel-group-header {
@@ -2772,6 +2826,42 @@
         font-weight: 850;
         letter-spacing: 0.075em;
         text-transform: uppercase;
+    }
+
+    .channel-group-drag-handle,
+    .channel-group-color-tray {
+        display: none;
+    }
+
+    .channel-list.channel-group-editing .channel-group:not(.channel-group-pinned) .channel-group-drag-handle,
+    .channel-list.channel-group-editing .channel-group:not(.channel-group-pinned) .channel-group-color-tray {
+        display: inline-flex;
+    }
+
+    .channel-group-drag-handle {
+        color: var(--canopy-text-muted);
+        cursor: grab;
+        opacity: 0.7;
+    }
+
+    .channel-group-color-tray {
+        gap: 0.2rem;
+        align-items: center;
+    }
+
+    .channel-group-color-swatch {
+        width: 0.82rem;
+        height: 0.82rem;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.34);
+        background: var(--swatch-color);
+        padding: 0;
+        box-shadow: 0 0 0 2px transparent;
+    }
+
+    .channel-group-color-swatch:hover,
+    .channel-group-color-swatch:focus-visible {
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--swatch-color) 36%, transparent);
     }
 
     .channel-group-header:hover,
@@ -2847,6 +2937,28 @@
         display: none;
     }
 
+    .channel-list.channel-group-editing .channel-group-body {
+        min-height: 2.35rem;
+        border-radius: 0.72rem;
+        outline: 1px dashed color-mix(in srgb, var(--channel-group-color) 20%, transparent);
+        outline-offset: -0.18rem;
+        transition: background 140ms ease, outline-color 140ms ease;
+    }
+
+    .channel-list.channel-group-editing .channel-group-body.is-channel-drop-target,
+    .channel-group.is-group-drop-before,
+    .channel-group.is-group-drop-after {
+        background: color-mix(in srgb, var(--channel-group-color) 16%, transparent);
+    }
+
+    .channel-group.is-group-drop-before {
+        box-shadow: 0 -3px 0 var(--channel-group-color);
+    }
+
+    .channel-group.is-group-drop-after {
+        box-shadow: 0 3px 0 var(--channel-group-color);
+    }
+
     .channel-group .channel-item {
         margin-left: 0 !important;
         margin-right: 0 !important;
@@ -2869,6 +2981,14 @@
 
     .channel-item.channel-pinned .channel-drag-handle {
         display: inline-flex;
+    }
+
+    .channel-list.channel-group-editing .channel-item .channel-drag-handle {
+        display: inline-flex;
+    }
+
+    .channel-list.channel-group-editing .channel-item {
+        cursor: grab;
     }
 
     .channel-item.channel-dragging {
@@ -3727,14 +3847,30 @@
                     <div class="d-flex align-items-center gap-1">
                         <button class="btn btn-sm btn-outline-secondary channel-organize-header-btn"
                                 type="button"
-                                onclick="openChannelOrgModalForCurrent()"
+                                id="channel-group-edit-toggle"
+                                onclick="toggleChannelGroupEditMode()"
                                 title="Organize channel groups"
+                                aria-pressed="false"
                                 aria-label="Organize channel groups">
                             <i class="bi bi-palette2"></i>
                         </button>
                         <button class="btn btn-sm btn-primary" onclick="toggleCreateChannel()">
                             <i class="bi bi-plus"></i>
                         </button>
+                    </div>
+                </div>
+                <div id="channel-group-edit-panel" class="channel-group-edit-panel d-none" role="status" aria-live="polite">
+                    <div class="d-flex align-items-start justify-content-between gap-2">
+                        <div>
+                            <div class="channel-group-edit-panel-title">
+                                <i class="bi bi-columns-gap"></i>
+                                Organize mode
+                            </div>
+                            <div class="channel-group-edit-panel-copy mt-1">
+                                Drag groups to reorder. Drag channels into a group to regroup. Tap a colour dot to recolour the group.
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelGroupEditMode(false)">Done</button>
                     </div>
                 </div>
             </div>
@@ -6916,6 +7052,7 @@ const CHANNEL_MENTION_LISTS_STORAGE_KEY = 'canopy.channel_mention_lists.v1';
 const CHANNEL_PIN_STORAGE_KEY = `canopy.channel_pins.v1.${currentUserId || 'anon'}`;
 const CHANNEL_ORG_STORAGE_KEY = `canopy.channel_org.v1.${currentUserId || 'anon'}`;
 const CHANNEL_GROUP_COLLAPSE_STORAGE_KEY = `canopy.channel_group_collapsed.v1.${currentUserId || 'anon'}`;
+const CHANNEL_GROUP_ORDER_STORAGE_KEY = `canopy.channel_group_order.v1.${currentUserId || 'anon'}`;
 const CHANNEL_HUMAN_THREAD_FILTER_STORAGE_KEY = `canopy.channel_human_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_ORG_PALETTE = [
     { color: '#2dd4bf', label: 'Canopy teal' },
@@ -6931,7 +7068,11 @@ const pinnedChannelIds = new Set();
 let pinnedChannelOrder = [];
 let channelOrgById = {};
 const collapsedChannelGroupIds = new Set();
+let channelGroupOrder = [];
+let channelGroupEditMode = false;
 let channelDragSourceId = null;
+let channelDragMode = '';
+let channelGroupDragSourceId = null;
 let channelSortIndexCounter = 0;
 const channelMessageRenderInFlight = new Set();
 const channelLikeInFlight = new Set();
@@ -7163,6 +7304,7 @@ function getPinnedChannelOrderIndex(channelId) {
 function loadChannelOrgState() {
     channelOrgById = {};
     collapsedChannelGroupIds.clear();
+    channelGroupOrder = [];
     try {
         const raw = localStorage.getItem(CHANNEL_ORG_STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : {};
@@ -7184,12 +7326,24 @@ function loadChannelOrgState() {
             });
         }
     } catch (_) {}
+    try {
+        const rawOrder = localStorage.getItem(CHANNEL_GROUP_ORDER_STORAGE_KEY);
+        const parsedOrder = rawOrder ? JSON.parse(rawOrder) : [];
+        if (Array.isArray(parsedOrder)) {
+            channelGroupOrder = parsedOrder
+                .map(id => String(id || '').trim())
+                .filter((id, index, arr) => id && arr.indexOf(id) === index);
+        }
+    } catch (_) {
+        channelGroupOrder = [];
+    }
 }
 
 function saveChannelOrgState() {
     try {
         localStorage.setItem(CHANNEL_ORG_STORAGE_KEY, JSON.stringify(channelOrgById));
         localStorage.setItem(CHANNEL_GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(collapsedChannelGroupIds)));
+        localStorage.setItem(CHANNEL_GROUP_ORDER_STORAGE_KEY, JSON.stringify(channelGroupOrder));
     } catch (_) {}
 }
 
@@ -7336,7 +7490,6 @@ function toggleChannelHumanThreadFilter(forceEnabled) {
     } else {
         updateChannelHumanThreadFilterBanner();
     }
-    showAlert(nextEnabled ? 'Agent-only threads hidden in this channel.' : 'All channel threads visible.', 'success');
 }
 
 function normalizeChannelOrgConfig(config) {
@@ -7396,6 +7549,152 @@ function getChannelGroupInfoForItem(item) {
         color: org.color || getDefaultGroupColor(org.group),
         isDefault: false,
     };
+}
+
+function getChannelGroupOrderIndex(groupId) {
+    const cleanId = String(groupId || '').trim();
+    const idx = cleanId ? channelGroupOrder.indexOf(cleanId) : -1;
+    return idx >= 0 ? idx : Number.MAX_SAFE_INTEGER;
+}
+
+function normalizeRenderedChannelGroupOrder(groupIds) {
+    const visible = (groupIds || []).map(id => String(id || '').trim()).filter(Boolean);
+    const visibleSet = new Set(visible);
+    const ordered = channelGroupOrder.filter(id => visibleSet.has(id));
+    visible.forEach(id => {
+        if (!ordered.includes(id)) ordered.push(id);
+    });
+    channelGroupOrder = ordered;
+    return ordered;
+}
+
+function getChannelGroupSection(groupId) {
+    const cleanId = String(groupId || '').trim();
+    if (!cleanId) return null;
+    return document.querySelector(`.channel-group[data-group-id="${CSS.escape(cleanId)}"]`);
+}
+
+function renderChannelGroupColorTray(group) {
+    if (!group || group.isPinned || group.isDefault) return '';
+    return `<span class="channel-group-color-tray" role="group" aria-label="Change group colour">
+        ${CHANNEL_ORG_PALETTE.map(option => `
+            <button type="button"
+                    class="channel-group-color-swatch"
+                    style="--swatch-color: ${option.color};"
+                    data-group-color="${option.color}"
+                    title="${escapeHtml(option.label)}"
+                    aria-label="${escapeHtml(option.label)}"></button>
+        `).join('')}
+    </span>`;
+}
+
+function updateChannelGroupEditModeUI() {
+    const list = document.querySelector('.channel-list');
+    const toggle = document.getElementById('channel-group-edit-toggle');
+    const panel = document.getElementById('channel-group-edit-panel');
+    document.body.classList.toggle('channel-group-edit-mode', channelGroupEditMode);
+    if (list) list.classList.toggle('channel-group-editing', channelGroupEditMode);
+    if (toggle) {
+        toggle.classList.toggle('is-active', channelGroupEditMode);
+        toggle.setAttribute('aria-pressed', channelGroupEditMode ? 'true' : 'false');
+        toggle.title = channelGroupEditMode ? 'Finish organizing channel groups' : 'Organize channel groups';
+        toggle.setAttribute('aria-label', channelGroupEditMode ? 'Finish organizing channel groups' : 'Organize channel groups');
+    }
+    if (panel) panel.classList.toggle('d-none', !channelGroupEditMode);
+    document.querySelectorAll('.channel-item').forEach(item => {
+        item.draggable = channelGroupEditMode || item.dataset.pinned === 'true';
+    });
+    document.querySelectorAll('.channel-group').forEach(section => {
+        const isPinned = section.classList.contains('channel-group-pinned');
+        section.draggable = channelGroupEditMode && !isPinned;
+    });
+    scheduleChannelNameOverflowSync();
+}
+
+function toggleChannelGroupEditMode(forceEnabled) {
+    channelGroupEditMode = typeof forceEnabled === 'boolean'
+        ? forceEnabled
+        : !channelGroupEditMode;
+    channelDragSourceId = null;
+    channelGroupDragSourceId = null;
+    channelDragMode = '';
+    closeAllChannelToolsMenus();
+    clearChannelDropMarkers();
+    clearChannelGroupDropMarkers();
+    updateChannelGroupEditModeUI();
+}
+
+function clearChannelGroupDropMarkers() {
+    document.querySelectorAll('.is-group-drop-before, .is-group-drop-after, .is-channel-drop-target').forEach(el => {
+        el.classList.remove('is-group-drop-before', 'is-group-drop-after', 'is-channel-drop-target');
+    });
+}
+
+function getRenderedEditableChannelGroupIds() {
+    return Array.from(document.querySelectorAll('.channel-group:not(.channel-group-pinned)'))
+        .map(section => String(section.dataset.groupId || '').trim())
+        .filter(Boolean);
+}
+
+function moveChannelGroupOrder(sourceGroupId, targetGroupId, beforeTarget) {
+    const sourceId = String(sourceGroupId || '').trim();
+    const targetId = String(targetGroupId || '').trim();
+    if (!sourceId || !targetId || sourceId === targetId) return false;
+    const rendered = getRenderedEditableChannelGroupIds();
+    const baseOrder = normalizeRenderedChannelGroupOrder(rendered);
+    const nextOrder = baseOrder.filter(id => id !== sourceId);
+    const targetIdx = nextOrder.indexOf(targetId);
+    const insertIdx = targetIdx < 0 ? nextOrder.length : (beforeTarget ? targetIdx : targetIdx + 1);
+    nextOrder.splice(insertIdx, 0, sourceId);
+    channelGroupOrder = nextOrder;
+    saveChannelOrgState();
+    sortChannelListByPins();
+    return true;
+}
+
+function assignChannelToGroup(channelId, groupId) {
+    const cleanChannelId = String(channelId || '').trim();
+    const cleanGroupId = String(groupId || '').trim();
+    if (!cleanChannelId || !cleanGroupId) return false;
+    const section = getChannelGroupSection(cleanGroupId);
+    const item = getChannelItemById(cleanChannelId);
+    if (!section || !item) return false;
+    if (section.classList.contains('channel-group-pinned')) return false;
+    if (item.dataset.pinned === 'true') {
+        setChannelPinned(cleanChannelId, false);
+    }
+    if (cleanGroupId === 'ungrouped') {
+        delete channelOrgById[cleanChannelId];
+    } else {
+        const label = String(section.dataset.groupLabel || section.querySelector('.channel-group-label')?.textContent || '').trim();
+        const color = String(section.dataset.groupColor || '').trim() || getDefaultGroupColor(label);
+        if (!label) return false;
+        channelOrgById[cleanChannelId] = { group: label, color };
+    }
+    savePinnedChannelIds();
+    saveChannelOrgState();
+    applyAllChannelPinStates();
+    sortChannelListByPins();
+    return true;
+}
+
+function setChannelGroupColor(groupId, color) {
+    const cleanGroupId = String(groupId || '').trim();
+    const cleanColor = String(color || '').trim();
+    if (!cleanGroupId || !/^#[0-9a-fA-F]{6}$/.test(cleanColor)) return false;
+    const section = getChannelGroupSection(cleanGroupId);
+    if (!section || section.dataset.groupDefault === 'true' || section.classList.contains('channel-group-pinned')) return false;
+    const label = String(section.dataset.groupLabel || '').trim();
+    if (!label) return false;
+    section.querySelectorAll('.channel-item[data-channel-id]').forEach(item => {
+        const channelId = String(item.dataset.channelId || '').trim();
+        if (!channelId) return;
+        channelOrgById[channelId] = { group: label, color: cleanColor };
+    });
+    saveChannelOrgState();
+    applyAllChannelPinStates();
+    sortChannelListByPins();
+    return true;
 }
 
 function canDeleteChannelFromItem(item) {
@@ -7662,12 +7961,12 @@ function applyChannelPinState(item) {
         item.style.removeProperty('--channel-item-group-color');
     }
     item.classList.toggle('channel-pinned', pinned);
-    item.draggable = pinned;
+    item.draggable = channelGroupEditMode || pinned;
     const head = item.querySelector('.channel-item-head');
     if (head && !head.querySelector('.channel-drag-handle')) {
         const handle = document.createElement('span');
         handle.className = 'channel-drag-handle';
-        handle.title = 'Drag to reorder pinned channel';
+        handle.title = 'Drag to reorder or regroup channel';
         handle.setAttribute('aria-hidden', 'true');
         handle.innerHTML = '<i class="bi bi-grip-vertical"></i>';
         head.prepend(handle);
@@ -7714,6 +8013,10 @@ function createChannelGroupSection(group) {
     const section = document.createElement('section');
     section.className = `channel-group ${group.isPinned ? 'channel-group-pinned' : ''}`;
     section.dataset.groupId = group.id;
+    section.dataset.groupLabel = group.label || '';
+    section.dataset.groupColor = group.color || '#2dd4bf';
+    section.dataset.groupDefault = group.isDefault ? 'true' : 'false';
+    section.draggable = channelGroupEditMode && !group.isPinned;
     section.style.setProperty('--channel-group-color', group.color || '#2dd4bf');
     const collapsed = collapsedChannelGroupIds.has(group.id);
     const unreadTotal = normalizeChannelAttentionCount(group.unreadTotal);
@@ -7721,6 +8024,7 @@ function createChannelGroupSection(group) {
     section.classList.toggle('is-collapsed', collapsed);
     section.innerHTML = `
         <button type="button" class="channel-group-header" aria-expanded="${collapsed ? 'false' : 'true'}">
+            <span class="channel-group-drag-handle" title="Drag to reorder group" aria-hidden="true"><i class="bi bi-grip-vertical"></i></span>
             <span class="channel-group-accent" aria-hidden="true"></span>
             <span class="channel-group-label">${escapeHtml(group.label)}</span>
             <span class="channel-group-summary">
@@ -7728,6 +8032,7 @@ function createChannelGroupSection(group) {
                 ${mentionTotal > 0 ? `<span class="channel-group-attention mentions">${formatChannelAttentionCount(mentionTotal)}</span>` : ''}
                 <span class="channel-group-count">${group.count}</span>
             </span>
+            ${renderChannelGroupColorTray(group)}
             <i class="bi bi-chevron-down channel-group-chevron" aria-hidden="true"></i>
         </button>
         <div class="channel-group-body"></div>`;
@@ -7753,6 +8058,9 @@ function bindChannelGroupHandlers() {
         if (header.dataset.boundGroupToggle === '1') return;
         header.addEventListener('click', (event) => {
             event.preventDefault();
+            if (event.target.closest('.channel-group-color-tray') || event.target.closest('.channel-group-drag-handle')) {
+                return;
+            }
             const section = header.closest('.channel-group');
             if (!section) return;
             const groupId = section.dataset.groupId || '';
@@ -7765,6 +8073,94 @@ function bindChannelGroupHandlers() {
             scheduleChannelNameOverflowSync();
         });
         header.dataset.boundGroupToggle = '1';
+    });
+
+    document.querySelectorAll('.channel-group-color-swatch').forEach(button => {
+        if (button.dataset.boundGroupColorClick === '1') return;
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!channelGroupEditMode) return;
+            const section = button.closest('.channel-group');
+            if (!section) return;
+            setChannelGroupColor(section.dataset.groupId, button.dataset.groupColor);
+        });
+        button.dataset.boundGroupColorClick = '1';
+    });
+
+    document.querySelectorAll('.channel-group').forEach(section => {
+        if (section.dataset.boundGroupEditDnd === '1') {
+            section.draggable = channelGroupEditMode && !section.classList.contains('channel-group-pinned');
+            return;
+        }
+        section.addEventListener('dragstart', (event) => {
+            if (event.target.closest('.channel-item')) {
+                return;
+            }
+            if (!channelGroupEditMode || section.classList.contains('channel-group-pinned')) {
+                event.preventDefault();
+                return;
+            }
+            if (!event.target.closest('.channel-group-header') || event.target.closest('.channel-group-color-tray')) {
+                event.preventDefault();
+                return;
+            }
+            channelGroupDragSourceId = section.dataset.groupId || '';
+            channelDragMode = 'group';
+            section.classList.add('channel-dragging');
+            if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', channelGroupDragSourceId);
+            }
+        });
+        section.addEventListener('dragover', (event) => {
+            if (!channelGroupEditMode) return;
+            if (channelGroupDragSourceId && channelDragMode === 'group' && !section.classList.contains('channel-group-pinned')) {
+                event.preventDefault();
+                const rect = section.getBoundingClientRect();
+                const before = event.clientY < rect.top + rect.height / 2;
+                clearChannelGroupDropMarkers();
+                section.classList.toggle('is-group-drop-before', before);
+                section.classList.toggle('is-group-drop-after', !before);
+                return;
+            }
+            if (channelDragSourceId && channelDragMode === 'channel' && !section.classList.contains('channel-group-pinned')) {
+                event.preventDefault();
+                const body = section.querySelector('.channel-group-body');
+                if (body) {
+                    clearChannelGroupDropMarkers();
+                    body.classList.add('is-channel-drop-target');
+                }
+            }
+        });
+        section.addEventListener('drop', (event) => {
+            if (!channelGroupEditMode) return;
+            if (channelGroupDragSourceId && channelDragMode === 'group' && !section.classList.contains('channel-group-pinned')) {
+                event.preventDefault();
+                const rect = section.getBoundingClientRect();
+                const before = event.clientY < rect.top + rect.height / 2;
+                moveChannelGroupOrder(channelGroupDragSourceId, section.dataset.groupId, before);
+                channelGroupDragSourceId = null;
+                channelDragMode = '';
+                clearChannelGroupDropMarkers();
+                return;
+            }
+            if (channelDragSourceId && channelDragMode === 'channel' && !section.classList.contains('channel-group-pinned')) {
+                event.preventDefault();
+                assignChannelToGroup(channelDragSourceId, section.dataset.groupId);
+                channelDragSourceId = null;
+                channelDragMode = '';
+                clearChannelGroupDropMarkers();
+            }
+        });
+        section.addEventListener('dragend', () => {
+            section.classList.remove('channel-dragging');
+            channelGroupDragSourceId = null;
+            if (channelDragMode === 'group') channelDragMode = '';
+            clearChannelGroupDropMarkers();
+        });
+        section.dataset.boundGroupEditDnd = '1';
+        section.draggable = channelGroupEditMode && !section.classList.contains('channel-group-pinned');
     });
 }
 
@@ -7836,11 +8232,16 @@ function sortChannelListByPins() {
             group.firstSortIndex = Math.min(group.firstSortIndex, ensureChannelSortIndex(item));
         });
 
-    Array.from(groups.values())
+    const orderedGroups = Array.from(groups.values())
         .sort((a, b) => {
+            const aOrder = getChannelGroupOrderIndex(a.id);
+            const bOrder = getChannelGroupOrderIndex(b.id);
+            if (aOrder !== bOrder) return aOrder - bOrder;
             if (a.isDefault !== b.isDefault) return a.isDefault ? 1 : -1;
             return a.firstSortIndex - b.firstSortIndex;
-        })
+        });
+    normalizeRenderedChannelGroupOrder(orderedGroups.map(group => group.id));
+    orderedGroups
         .forEach(group => {
             group.items.sort(compareChannelItemsBySidebarOrder);
             const attention = getChannelGroupAttentionTotals(group.items);
@@ -7860,6 +8261,7 @@ function sortChannelListByPins() {
 
     bindChannelGroupHandlers();
     bindChannelDragHandlers();
+    updateChannelGroupEditModeUI();
     scheduleChannelNameOverflowSync();
 }
 
@@ -7871,14 +8273,15 @@ function clearChannelDropMarkers() {
 
 function bindChannelDragHandlers() {
     document.querySelectorAll('.channel-item').forEach(item => {
-        item.draggable = item.dataset.pinned === 'true';
+        item.draggable = channelGroupEditMode || item.dataset.pinned === 'true';
         if (item.dataset.boundChannelDrag === '1') return;
         item.addEventListener('dragstart', (event) => {
-            if (item.dataset.pinned !== 'true') {
+            if (!channelGroupEditMode && item.dataset.pinned !== 'true') {
                 event.preventDefault();
                 return;
             }
             channelDragSourceId = item.dataset.channelId || null;
+            channelDragMode = channelGroupEditMode ? 'channel' : 'pinned';
             item.classList.add('channel-dragging');
             if (event.dataTransfer) {
                 event.dataTransfer.effectAllowed = 'move';
@@ -7886,7 +8289,7 @@ function bindChannelDragHandlers() {
             }
         });
         item.addEventListener('dragover', (event) => {
-            if (!channelDragSourceId || item.dataset.pinned !== 'true') return;
+            if (!channelDragSourceId || channelDragMode !== 'pinned' || item.dataset.pinned !== 'true') return;
             event.preventDefault();
             const rect = item.getBoundingClientRect();
             const before = event.clientY < rect.top + rect.height / 2;
@@ -7895,7 +8298,7 @@ function bindChannelDragHandlers() {
             item.classList.toggle('channel-drop-after', !before);
         });
         item.addEventListener('drop', (event) => {
-            if (!channelDragSourceId || item.dataset.pinned !== 'true') return;
+            if (!channelDragSourceId || channelDragMode !== 'pinned' || item.dataset.pinned !== 'true') return;
             event.preventDefault();
             const targetId = item.dataset.channelId;
             if (!targetId || targetId === channelDragSourceId) return;
@@ -7912,7 +8315,9 @@ function bindChannelDragHandlers() {
         item.addEventListener('dragend', () => {
             item.classList.remove('channel-dragging');
             channelDragSourceId = null;
+            if (channelDragMode === 'channel' || channelDragMode === 'pinned') channelDragMode = '';
             clearChannelDropMarkers();
+            clearChannelGroupDropMarkers();
         });
         item.dataset.boundChannelDrag = '1';
     });
