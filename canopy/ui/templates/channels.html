@@ -2829,12 +2829,12 @@
     }
 
     .channel-group-drag-handle,
-    .channel-group-color-tray {
+    .channel-group-color-controls {
         display: none;
     }
 
     .channel-list.channel-group-editing .channel-group:not(.channel-group-pinned) .channel-group-drag-handle,
-    .channel-list.channel-group-editing .channel-group:not(.channel-group-pinned) .channel-group-color-tray {
+    .channel-list.channel-group-editing .channel-group:not(.channel-group-pinned):not([data-group-default="true"]) .channel-group-color-controls {
         display: inline-flex;
     }
 
@@ -2844,9 +2844,49 @@
         opacity: 0.7;
     }
 
+    .channel-group-drag-handle[draggable="true"] {
+        cursor: grab;
+    }
+
+    .channel-group-drag-handle[draggable="true"]:active {
+        cursor: grabbing;
+    }
+
+    .channel-group-color-controls {
+        align-items: center;
+        gap: 0.25rem;
+        flex: 0 0 auto;
+    }
+
+    .channel-group-color-toggle {
+        width: 1.45rem;
+        height: 1.45rem;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--channel-group-color) 34%, var(--canopy-border));
+        background: color-mix(in srgb, var(--channel-group-color) 14%, transparent);
+        color: var(--canopy-text-secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+    }
+
+    .channel-group-color-toggle:hover,
+    .channel-group-color-toggle:focus-visible,
+    .channel-group.is-color-open .channel-group-color-toggle {
+        color: var(--canopy-text-primary);
+        border-color: color-mix(in srgb, var(--channel-group-color) 52%, var(--canopy-border));
+        background: color-mix(in srgb, var(--channel-group-color) 22%, transparent);
+    }
+
     .channel-group-color-tray {
+        display: none;
         gap: 0.2rem;
         align-items: center;
+    }
+
+    .channel-group.is-color-open .channel-group-color-tray {
+        display: inline-flex;
     }
 
     .channel-group-color-swatch {
@@ -6474,8 +6514,7 @@
 }
 
 .collab-card-head,
-.collab-card-meta,
-.collab-telemetry-meta {
+.collab-card-meta {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -6654,43 +6693,99 @@
 }
 
 .collab-telemetry-meta {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 0.35rem 0.65rem;
     margin-top: 0.45rem;
     color: var(--canopy-text-muted);
     font-size: 0.78rem;
-}
-
-.collab-telemetry-meta strong {
-    color: var(--canopy-text-primary);
-}
-
-.collab-metric-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 0.5rem;
-    margin-top: 0.7rem;
     position: relative;
     z-index: 1;
 }
 
-.collab-metric {
-    padding: 0.55rem 0.65rem;
-    border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    background: rgba(15, 23, 42, 0.36);
+.collab-telemetry-meta strong {
+    color: var(--canopy-text-primary);
+    font-size: 0.92rem;
+    line-height: 1.2;
 }
 
-.collab-metric span {
+.collab-telemetry-stage {
+    min-width: 0;
+    line-height: 1.25;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.collab-telemetry-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: 0.42rem;
+    margin-top: 0.62rem;
+    position: relative;
+    z-index: 1;
+}
+
+.collab-telemetry-metrics:empty {
+    display: none;
+}
+
+.collab-telemetry-metrics--extra {
+    margin-top: 0.42rem;
+}
+
+.collab-telemetry-metric {
+    min-width: 0;
+    padding: 0.48rem 0.58rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(15, 23, 42, 0.34);
+}
+
+.collab-telemetry-metric-label {
     display: block;
+    min-width: 0;
     font-size: 0.66rem;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--canopy-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.collab-metric strong {
-    display: block;
-    margin-top: 0.18rem;
+.collab-telemetry-metric-value {
+    display: -webkit-box;
+    margin-top: 0.16rem;
     color: var(--canopy-text-primary);
+    font-size: 0.84rem;
+    line-height: 1.25;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.collab-telemetry-more {
+    grid-column: 1 / -1;
+}
+
+.collab-telemetry-more summary {
+    cursor: pointer;
+    color: #7dd3fc;
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    list-style-position: inside;
+    padding: 0.24rem 0.1rem;
+}
+
+.collab-telemetry-more summary:hover,
+.collab-telemetry-more summary:focus {
+    color: #a5f3fc;
 }
 
 [data-theme="light"] .collab-card {
@@ -6707,7 +6802,7 @@
 }
 
 [data-theme="light"] .collab-card-prompt,
-[data-theme="light"] .collab-metric {
+[data-theme="light"] .collab-telemetry-metric {
     background: rgba(255, 255, 255, 0.72);
 }
 
@@ -7053,6 +7148,7 @@ const CHANNEL_PIN_STORAGE_KEY = `canopy.channel_pins.v1.${currentUserId || 'anon
 const CHANNEL_ORG_STORAGE_KEY = `canopy.channel_org.v1.${currentUserId || 'anon'}`;
 const CHANNEL_GROUP_COLLAPSE_STORAGE_KEY = `canopy.channel_group_collapsed.v1.${currentUserId || 'anon'}`;
 const CHANNEL_GROUP_ORDER_STORAGE_KEY = `canopy.channel_group_order.v1.${currentUserId || 'anon'}`;
+const CHANNEL_GROUP_CHANNEL_ORDER_STORAGE_KEY = `canopy.channel_group_channel_order.v1.${currentUserId || 'anon'}`;
 const CHANNEL_HUMAN_THREAD_FILTER_STORAGE_KEY = `canopy.channel_human_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_ORG_PALETTE = [
     { color: '#2dd4bf', label: 'Canopy teal' },
@@ -7069,6 +7165,7 @@ let pinnedChannelOrder = [];
 let channelOrgById = {};
 const collapsedChannelGroupIds = new Set();
 let channelGroupOrder = [];
+let channelGroupChannelOrderById = {};
 let channelGroupEditMode = false;
 let channelDragSourceId = null;
 let channelDragMode = '';
@@ -7305,6 +7402,7 @@ function loadChannelOrgState() {
     channelOrgById = {};
     collapsedChannelGroupIds.clear();
     channelGroupOrder = [];
+    channelGroupChannelOrderById = {};
     try {
         const raw = localStorage.getItem(CHANNEL_ORG_STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : {};
@@ -7337,6 +7435,22 @@ function loadChannelOrgState() {
     } catch (_) {
         channelGroupOrder = [];
     }
+    try {
+        const rawChannelOrder = localStorage.getItem(CHANNEL_GROUP_CHANNEL_ORDER_STORAGE_KEY);
+        const parsedChannelOrder = rawChannelOrder ? JSON.parse(rawChannelOrder) : {};
+        if (parsedChannelOrder && typeof parsedChannelOrder === 'object' && !Array.isArray(parsedChannelOrder)) {
+            Object.entries(parsedChannelOrder).forEach(([groupId, ids]) => {
+                const cleanGroupId = String(groupId || '').trim();
+                if (!cleanGroupId || !Array.isArray(ids)) return;
+                const uniqueIds = ids
+                    .map(id => String(id || '').trim())
+                    .filter((id, index, arr) => id && arr.indexOf(id) === index);
+                if (uniqueIds.length) channelGroupChannelOrderById[cleanGroupId] = uniqueIds;
+            });
+        }
+    } catch (_) {
+        channelGroupChannelOrderById = {};
+    }
 }
 
 function saveChannelOrgState() {
@@ -7344,6 +7458,7 @@ function saveChannelOrgState() {
         localStorage.setItem(CHANNEL_ORG_STORAGE_KEY, JSON.stringify(channelOrgById));
         localStorage.setItem(CHANNEL_GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(collapsedChannelGroupIds)));
         localStorage.setItem(CHANNEL_GROUP_ORDER_STORAGE_KEY, JSON.stringify(channelGroupOrder));
+        localStorage.setItem(CHANNEL_GROUP_CHANNEL_ORDER_STORAGE_KEY, JSON.stringify(channelGroupChannelOrderById));
     } catch (_) {}
 }
 
@@ -7557,6 +7672,53 @@ function getChannelGroupOrderIndex(groupId) {
     return idx >= 0 ? idx : Number.MAX_SAFE_INTEGER;
 }
 
+function getChannelGroupChannelOrderIndex(groupId, channelId) {
+    const cleanGroupId = String(groupId || '').trim();
+    const cleanChannelId = String(channelId || '').trim();
+    const order = cleanGroupId ? channelGroupChannelOrderById[cleanGroupId] : null;
+    const idx = Array.isArray(order) ? order.indexOf(cleanChannelId) : -1;
+    return idx >= 0 ? idx : Number.MAX_SAFE_INTEGER;
+}
+
+function removeChannelFromGroupOrders(channelId, exceptGroupId = '') {
+    const cleanChannelId = String(channelId || '').trim();
+    const cleanExcept = String(exceptGroupId || '').trim();
+    if (!cleanChannelId) return;
+    Object.keys(channelGroupChannelOrderById).forEach(groupId => {
+        if (cleanExcept && groupId === cleanExcept) return;
+        const current = Array.isArray(channelGroupChannelOrderById[groupId])
+            ? channelGroupChannelOrderById[groupId]
+            : [];
+        const next = current.filter(id => id !== cleanChannelId);
+        if (next.length) channelGroupChannelOrderById[groupId] = next;
+        else delete channelGroupChannelOrderById[groupId];
+    });
+}
+
+function normalizeChannelGroupChannelOrder(groupId, itemIds) {
+    const cleanGroupId = String(groupId || '').trim();
+    const visibleIds = (itemIds || []).map(id => String(id || '').trim()).filter(Boolean);
+    if (!cleanGroupId) return visibleIds;
+    const visibleSet = new Set(visibleIds);
+    const existing = Array.isArray(channelGroupChannelOrderById[cleanGroupId])
+        ? channelGroupChannelOrderById[cleanGroupId]
+        : [];
+    const ordered = existing.filter(id => visibleSet.has(id));
+    visibleIds.forEach(id => {
+        if (!ordered.includes(id)) ordered.push(id);
+    });
+    if (ordered.length) channelGroupChannelOrderById[cleanGroupId] = ordered;
+    else delete channelGroupChannelOrderById[cleanGroupId];
+    return ordered;
+}
+
+function compareChannelItemsForGroup(groupId, a, b) {
+    const aOrder = getChannelGroupChannelOrderIndex(groupId, a?.dataset?.channelId);
+    const bOrder = getChannelGroupChannelOrderIndex(groupId, b?.dataset?.channelId);
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return compareChannelItemsBySidebarOrder(a, b);
+}
+
 function normalizeRenderedChannelGroupOrder(groupIds) {
     const visible = (groupIds || []).map(id => String(id || '').trim()).filter(Boolean);
     const visibleSet = new Set(visible);
@@ -7576,15 +7738,24 @@ function getChannelGroupSection(groupId) {
 
 function renderChannelGroupColorTray(group) {
     if (!group || group.isPinned || group.isDefault) return '';
-    return `<span class="channel-group-color-tray" role="group" aria-label="Change group colour">
-        ${CHANNEL_ORG_PALETTE.map(option => `
-            <button type="button"
-                    class="channel-group-color-swatch"
-                    style="--swatch-color: ${option.color};"
-                    data-group-color="${option.color}"
-                    title="${escapeHtml(option.label)}"
-                    aria-label="${escapeHtml(option.label)}"></button>
-        `).join('')}
+    return `<span class="channel-group-color-controls">
+        <button type="button"
+                class="channel-group-color-toggle"
+                title="Change group colour"
+                aria-label="Change group colour"
+                aria-expanded="false">
+            <i class="bi bi-palette2"></i>
+        </button>
+        <span class="channel-group-color-tray" role="group" aria-label="Change group colour">
+            ${CHANNEL_ORG_PALETTE.map(option => `
+                <button type="button"
+                        class="channel-group-color-swatch"
+                        style="--swatch-color: ${option.color};"
+                        data-group-color="${option.color}"
+                        title="${escapeHtml(option.label)}"
+                        aria-label="${escapeHtml(option.label)}"></button>
+            `).join('')}
+        </span>
     </span>`;
 }
 
@@ -7607,6 +7778,13 @@ function updateChannelGroupEditModeUI() {
     document.querySelectorAll('.channel-group').forEach(section => {
         const isPinned = section.classList.contains('channel-group-pinned');
         section.draggable = channelGroupEditMode && !isPinned;
+        section.classList.remove('is-color-open');
+        section.querySelectorAll('.channel-group-drag-handle').forEach(handle => {
+            handle.draggable = channelGroupEditMode && !isPinned;
+        });
+        section.querySelectorAll('.channel-group-color-toggle').forEach(button => {
+            button.setAttribute('aria-expanded', 'false');
+        });
     });
     scheduleChannelNameOverflowSync();
 }
@@ -7652,6 +7830,22 @@ function moveChannelGroupOrder(sourceGroupId, targetGroupId, beforeTarget) {
     return true;
 }
 
+function assignChannelToSectionGroup(channelId, section) {
+    const cleanChannelId = String(channelId || '').trim();
+    if (!cleanChannelId || !section) return false;
+    const cleanGroupId = String(section.dataset.groupId || '').trim();
+    if (!cleanGroupId || section.classList.contains('channel-group-pinned')) return false;
+    if (cleanGroupId === 'ungrouped') {
+        delete channelOrgById[cleanChannelId];
+        return true;
+    }
+    const label = String(section.dataset.groupLabel || section.querySelector('.channel-group-label')?.textContent || '').trim();
+    const color = String(section.dataset.groupColor || '').trim() || getDefaultGroupColor(label);
+    if (!label) return false;
+    channelOrgById[cleanChannelId] = { group: label, color };
+    return true;
+}
+
 function assignChannelToGroup(channelId, groupId) {
     const cleanChannelId = String(channelId || '').trim();
     const cleanGroupId = String(groupId || '').trim();
@@ -7660,17 +7854,52 @@ function assignChannelToGroup(channelId, groupId) {
     const item = getChannelItemById(cleanChannelId);
     if (!section || !item) return false;
     if (section.classList.contains('channel-group-pinned')) return false;
+    const previousGroupId = getChannelGroupInfoForItem(item).id;
     if (item.dataset.pinned === 'true') {
         setChannelPinned(cleanChannelId, false);
     }
-    if (cleanGroupId === 'ungrouped') {
-        delete channelOrgById[cleanChannelId];
-    } else {
-        const label = String(section.dataset.groupLabel || section.querySelector('.channel-group-label')?.textContent || '').trim();
-        const color = String(section.dataset.groupColor || '').trim() || getDefaultGroupColor(label);
-        if (!label) return false;
-        channelOrgById[cleanChannelId] = { group: label, color };
+    if (!assignChannelToSectionGroup(cleanChannelId, section)) return false;
+    if (previousGroupId !== cleanGroupId) removeChannelFromGroupOrders(cleanChannelId, cleanGroupId);
+    const existingOrder = Array.isArray(channelGroupChannelOrderById[cleanGroupId])
+        ? channelGroupChannelOrderById[cleanGroupId].filter(id => id !== cleanChannelId)
+        : [];
+    const currentBodyOrder = Array.from(section.querySelectorAll('.channel-group-body .channel-item[data-channel-id]'))
+        .map(existingItem => String(existingItem.dataset.channelId || '').trim())
+        .filter(id => id && id !== cleanChannelId);
+    const targetOrder = existingOrder.length ? existingOrder : currentBodyOrder;
+    targetOrder.push(cleanChannelId);
+    channelGroupChannelOrderById[cleanGroupId] = targetOrder;
+    savePinnedChannelIds();
+    saveChannelOrgState();
+    applyAllChannelPinStates();
+    sortChannelListByPins();
+    return true;
+}
+
+function moveChannelToGroupPosition(sourceChannelId, targetChannelId, beforeTarget) {
+    const cleanSourceId = String(sourceChannelId || '').trim();
+    const cleanTargetId = String(targetChannelId || '').trim();
+    if (!cleanSourceId || !cleanTargetId || cleanSourceId === cleanTargetId) return false;
+    const sourceItem = getChannelItemById(cleanSourceId);
+    const targetItem = getChannelItemById(cleanTargetId);
+    const targetSection = targetItem?.closest('.channel-group');
+    if (!sourceItem || !targetItem || !targetSection || targetSection.classList.contains('channel-group-pinned')) return false;
+    const targetGroupId = String(targetSection.dataset.groupId || '').trim();
+    if (!targetGroupId) return false;
+    const previousGroupId = getChannelGroupInfoForItem(sourceItem).id;
+    if (sourceItem.dataset.pinned === 'true') {
+        setChannelPinned(cleanSourceId, false);
     }
+    if (!assignChannelToSectionGroup(cleanSourceId, targetSection)) return false;
+    if (previousGroupId !== targetGroupId) removeChannelFromGroupOrders(cleanSourceId, targetGroupId);
+    const targetBody = targetSection.querySelector('.channel-group-body');
+    const visibleIds = Array.from(targetBody?.querySelectorAll('.channel-item[data-channel-id]') || [])
+        .map(item => String(item.dataset.channelId || '').trim())
+        .filter(id => id && id !== cleanSourceId);
+    const targetIdx = visibleIds.indexOf(cleanTargetId);
+    const insertIdx = targetIdx < 0 ? visibleIds.length : (beforeTarget ? targetIdx : targetIdx + 1);
+    visibleIds.splice(insertIdx, 0, cleanSourceId);
+    channelGroupChannelOrderById[targetGroupId] = visibleIds;
     savePinnedChannelIds();
     saveChannelOrgState();
     applyAllChannelPinStates();
@@ -8023,7 +8252,7 @@ function createChannelGroupSection(group) {
     const mentionTotal = normalizeChannelAttentionCount(group.mentionTotal);
     section.classList.toggle('is-collapsed', collapsed);
     section.innerHTML = `
-        <button type="button" class="channel-group-header" aria-expanded="${collapsed ? 'false' : 'true'}">
+        <div class="channel-group-header" role="button" tabindex="0" aria-expanded="${collapsed ? 'false' : 'true'}">
             <span class="channel-group-drag-handle" title="Drag to reorder group" aria-hidden="true"><i class="bi bi-grip-vertical"></i></span>
             <span class="channel-group-accent" aria-hidden="true"></span>
             <span class="channel-group-label">${escapeHtml(group.label)}</span>
@@ -8034,7 +8263,7 @@ function createChannelGroupSection(group) {
             </span>
             ${renderChannelGroupColorTray(group)}
             <i class="bi bi-chevron-down channel-group-chevron" aria-hidden="true"></i>
-        </button>
+        </div>
         <div class="channel-group-body"></div>`;
     return section;
 }
@@ -8054,25 +8283,58 @@ function refreshChannelGroupSummaries() {
 }
 
 function bindChannelGroupHandlers() {
+    function toggleGroupCollapsed(header) {
+        const section = header?.closest('.channel-group');
+        if (!section) return;
+        const groupId = section.dataset.groupId || '';
+        const collapsed = !section.classList.contains('is-collapsed');
+        section.classList.toggle('is-collapsed', collapsed);
+        header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        if (collapsed) collapsedChannelGroupIds.add(groupId);
+        else collapsedChannelGroupIds.delete(groupId);
+        saveChannelOrgState();
+        scheduleChannelNameOverflowSync();
+    }
+
     document.querySelectorAll('.channel-group-header').forEach(header => {
         if (header.dataset.boundGroupToggle === '1') return;
         header.addEventListener('click', (event) => {
             event.preventDefault();
-            if (event.target.closest('.channel-group-color-tray') || event.target.closest('.channel-group-drag-handle')) {
+            if (event.target.closest('.channel-group-color-controls') || event.target.closest('.channel-group-drag-handle')) {
                 return;
             }
-            const section = header.closest('.channel-group');
-            if (!section) return;
-            const groupId = section.dataset.groupId || '';
-            const collapsed = !section.classList.contains('is-collapsed');
-            section.classList.toggle('is-collapsed', collapsed);
-            header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-            if (collapsed) collapsedChannelGroupIds.add(groupId);
-            else collapsedChannelGroupIds.delete(groupId);
-            saveChannelOrgState();
-            scheduleChannelNameOverflowSync();
+            toggleGroupCollapsed(header);
+        });
+        header.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            if (event.target.closest('.channel-group-color-controls') || event.target.closest('.channel-group-drag-handle')) {
+                return;
+            }
+            event.preventDefault();
+            toggleGroupCollapsed(header);
         });
         header.dataset.boundGroupToggle = '1';
+    });
+
+    document.querySelectorAll('.channel-group-color-toggle').forEach(button => {
+        if (button.dataset.boundGroupColorToggle === '1') return;
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!channelGroupEditMode) return;
+            const section = button.closest('.channel-group');
+            if (!section) return;
+            const nextOpen = !section.classList.contains('is-color-open');
+            document.querySelectorAll('.channel-group.is-color-open').forEach(openSection => {
+                if (openSection !== section) {
+                    openSection.classList.remove('is-color-open');
+                    openSection.querySelector('.channel-group-color-toggle')?.setAttribute('aria-expanded', 'false');
+                }
+            });
+            section.classList.toggle('is-color-open', nextOpen);
+            button.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+        });
+        button.dataset.boundGroupColorToggle = '1';
     });
 
     document.querySelectorAll('.channel-group-color-swatch').forEach(button => {
@@ -8084,6 +8346,8 @@ function bindChannelGroupHandlers() {
             const section = button.closest('.channel-group');
             if (!section) return;
             setChannelGroupColor(section.dataset.groupId, button.dataset.groupColor);
+            section.classList.remove('is-color-open');
+            section.querySelector('.channel-group-color-toggle')?.setAttribute('aria-expanded', 'false');
         });
         button.dataset.boundGroupColorClick = '1';
     });
@@ -8101,7 +8365,7 @@ function bindChannelGroupHandlers() {
                 event.preventDefault();
                 return;
             }
-            if (!event.target.closest('.channel-group-header') || event.target.closest('.channel-group-color-tray')) {
+            if (!event.target.closest('.channel-group-drag-handle')) {
                 event.preventDefault();
                 return;
             }
@@ -8161,6 +8425,9 @@ function bindChannelGroupHandlers() {
         });
         section.dataset.boundGroupEditDnd = '1';
         section.draggable = channelGroupEditMode && !section.classList.contains('channel-group-pinned');
+        section.querySelectorAll('.channel-group-drag-handle').forEach(handle => {
+            handle.draggable = channelGroupEditMode && !section.classList.contains('channel-group-pinned');
+        });
     });
 }
 
@@ -8244,12 +8511,15 @@ function sortChannelListByPins() {
     orderedGroups
         .forEach(group => {
             group.items.sort(compareChannelItemsBySidebarOrder);
+            normalizeChannelGroupChannelOrder(group.id, group.items.map(item => item.dataset.channelId));
+            group.items.sort((a, b) => compareChannelItemsForGroup(group.id, a, b));
             const attention = getChannelGroupAttentionTotals(group.items);
             const section = createChannelGroupSection({
                 id: group.id,
                 label: group.label,
                 color: group.color,
                 count: group.items.length,
+                isDefault: group.isDefault,
                 isPinned: false,
                 unreadTotal: attention.unreadTotal,
                 mentionTotal: attention.mentionTotal,
@@ -8289,6 +8559,19 @@ function bindChannelDragHandlers() {
             }
         });
         item.addEventListener('dragover', (event) => {
+            if (channelGroupEditMode && channelDragSourceId && channelDragMode === 'channel') {
+                const targetSection = item.closest('.channel-group');
+                if (!targetSection || targetSection.classList.contains('channel-group-pinned')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const rect = item.getBoundingClientRect();
+                const before = event.clientY < rect.top + rect.height / 2;
+                clearChannelDropMarkers();
+                clearChannelGroupDropMarkers();
+                item.classList.toggle('channel-drop-before', before);
+                item.classList.toggle('channel-drop-after', !before);
+                return;
+            }
             if (!channelDragSourceId || channelDragMode !== 'pinned' || item.dataset.pinned !== 'true') return;
             event.preventDefault();
             const rect = item.getBoundingClientRect();
@@ -8298,6 +8581,22 @@ function bindChannelDragHandlers() {
             item.classList.toggle('channel-drop-after', !before);
         });
         item.addEventListener('drop', (event) => {
+            if (channelGroupEditMode && channelDragSourceId && channelDragMode === 'channel') {
+                const targetSection = item.closest('.channel-group');
+                if (!targetSection || targetSection.classList.contains('channel-group-pinned')) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const targetId = item.dataset.channelId;
+                if (!targetId || targetId === channelDragSourceId) return;
+                const rect = item.getBoundingClientRect();
+                const before = event.clientY < rect.top + rect.height / 2;
+                moveChannelToGroupPosition(channelDragSourceId, targetId, before);
+                channelDragSourceId = null;
+                channelDragMode = '';
+                clearChannelDropMarkers();
+                clearChannelGroupDropMarkers();
+                return;
+            }
             if (!channelDragSourceId || channelDragMode !== 'pinned' || item.dataset.pinned !== 'true') return;
             event.preventDefault();
             const targetId = item.dataset.channelId;
@@ -11095,6 +11394,49 @@ function renderCollabInputState(card, cardId) {
     return '<div class="collab-card-lock"><i class="bi bi-lock"></i> Allocated responders only.</div>';
 }
 
+function escapeAttr(text) {
+    return escapeHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function collabTelemetryMetricText(value) {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    try {
+        return JSON.stringify(value);
+    } catch (err) {
+        return String(value || '');
+    }
+}
+
+function renderCollabTelemetryMetric(metric) {
+    const safeMetric = (metric && typeof metric === 'object') ? metric : {};
+    const label = String(safeMetric.label || safeMetric.key || 'Metric');
+    const value = collabTelemetryMetricText(safeMetric.value);
+    const unit = safeMetric.unit ? ` ${String(safeMetric.unit)}` : '';
+    const displayValue = `${value}${unit}`.trim() || 'reported';
+    const title = `${label}: ${displayValue}`;
+    return `
+        <div class="collab-telemetry-metric" title="${escapeAttr(title)}">
+            <span class="collab-telemetry-metric-label">${escapeHtml(label)}</span>
+            <strong class="collab-telemetry-metric-value">${escapeHtml(displayValue)}</strong>
+        </div>`;
+}
+
+function renderCollabTelemetryMetrics(metrics, cardId) {
+    const metricList = Array.isArray(metrics) ? metrics.filter(metric => metric && typeof metric === 'object') : [];
+    const visibleMetrics = metricList.slice(0, 4);
+    const extraMetrics = metricList.slice(4);
+    const visibleHtml = visibleMetrics.map(renderCollabTelemetryMetric).join('');
+    const extraHtml = extraMetrics.length ? `
+        <details class="collab-telemetry-more">
+            <summary>${extraMetrics.length} more metric${extraMetrics.length === 1 ? '' : 's'}</summary>
+            <div class="collab-telemetry-metrics collab-telemetry-metrics--extra">
+                ${extraMetrics.map(renderCollabTelemetryMetric).join('')}
+            </div>
+        </details>` : '';
+    return `<div class="collab-telemetry-metrics" data-collab-telemetry-metrics="${escapeAttr(cardId || '')}">${visibleHtml}${extraHtml}</div>`;
+}
+
 function renderCollabCards(message) {
     const cards = message.collab_cards || [];
     if (!cards.length) return '';
@@ -11125,15 +11467,8 @@ function renderCollabCards(message) {
 
                 if (type === 'telemetry') {
                     const metrics = Array.isArray(telemetry.metrics) ? telemetry.metrics : [];
-                    const metricsHtml = metrics.length ? `
-                        <div class="collab-metric-grid">
-                            ${metrics.map(metric => `
-                                <div class="collab-metric">
-                                    <span>${escapeHtml(metric.label || '')}</span>
-                                    <strong>${escapeHtml(String(metric.value ?? ''))}${metric.unit ? ` ${escapeHtml(metric.unit)}` : ''}</strong>
-                                </div>
-                            `).join('')}
-                        </div>` : '';
+                    const stage = telemetry.stage ? String(telemetry.stage) : 'No stage reported';
+                    const metricsHtml = renderCollabTelemetryMetrics(metrics, card.id || '');
                     const updateHtml = card.can_update ? `
                         <div class="collab-card-response collab-telemetry-update">
                             <div class="input-group input-group-sm">
@@ -11156,7 +11491,7 @@ function renderCollabCards(message) {
                             <div class="collab-telemetry-bar" aria-label="Progress ${progress} percent"><span style="width: ${progress}%"></span></div>
                             <div class="collab-telemetry-meta">
                                 <strong>${progress}%</strong>
-                                ${telemetry.stage ? `<span>${escapeHtml(telemetry.stage)}</span>` : ''}
+                                <span class="collab-telemetry-stage" title="${escapeAttr(stage)}">${escapeHtml(stage)}</span>
                             </div>
                             ${metricsHtml}
                             ${updateHtml}

@@ -5417,6 +5417,10 @@
             }
         }
 
+        function _escapeAttr(text) {
+            return _escapeHtml(text).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
         function _collabOptionButtonHtml(cardId, option) {
             const optionText = String(option ?? '');
             const encodedOption = encodeURIComponent(optionText).replace(/'/g, '%27');
@@ -5468,6 +5472,45 @@
                 return _renderCollabInputControls(card);
             }
             return '<div class="collab-card-lock"><i class="bi bi-lock"></i> Allocated responders only.</div>';
+        }
+
+        function _collabTelemetryMetricText(value) {
+            if (value === null || value === undefined) return '';
+            if (typeof value === 'string') return value;
+            try {
+                return JSON.stringify(value);
+            } catch (err) {
+                return String(value || '');
+            }
+        }
+
+        function _renderCollabTelemetryMetric(metric) {
+            const safeMetric = (metric && typeof metric === 'object') ? metric : {};
+            const label = String(safeMetric.label || safeMetric.key || 'Metric');
+            const value = _collabTelemetryMetricText(safeMetric.value);
+            const unit = safeMetric.unit ? ` ${String(safeMetric.unit)}` : '';
+            const displayValue = `${value}${unit}`.trim() || 'reported';
+            const title = `${label}: ${displayValue}`;
+            return `
+                <div class="collab-telemetry-metric" title="${_escapeAttr(title)}">
+                    <span class="collab-telemetry-metric-label">${_escapeHtml(label)}</span>
+                    <strong class="collab-telemetry-metric-value">${_escapeHtml(displayValue)}</strong>
+                </div>`;
+        }
+
+        function _renderCollabTelemetryMetrics(metrics, cardId) {
+            const metricList = Array.isArray(metrics) ? metrics.filter(metric => metric && typeof metric === 'object') : [];
+            const visibleMetrics = metricList.slice(0, 4);
+            const extraMetrics = metricList.slice(4);
+            const visibleHtml = visibleMetrics.map(_renderCollabTelemetryMetric).join('');
+            const extraHtml = extraMetrics.length ? `
+                <details class="collab-telemetry-more">
+                    <summary>${extraMetrics.length} more metric${extraMetrics.length === 1 ? '' : 's'}</summary>
+                    <div class="collab-telemetry-metrics collab-telemetry-metrics--extra">
+                        ${extraMetrics.map(_renderCollabTelemetryMetric).join('')}
+                    </div>
+                </details>` : '';
+            return `<div class="collab-telemetry-metrics" data-collab-telemetry-metrics="${_escapeAttr(cardId || '')}">${visibleHtml}${extraHtml}</div>`;
         }
 
         function submitCollabInputResponse(cardId, value, responseType) {
@@ -5610,9 +5653,15 @@
                 if (progressLabel) {
                     progressLabel.textContent = `${progress}%`;
                 }
-                const stageEl = el.querySelector('.collab-telemetry-meta span');
-                if (stageEl && telemetry.stage) {
-                    stageEl.textContent = telemetry.stage;
+                const stageEl = el.querySelector('.collab-telemetry-stage');
+                if (stageEl) {
+                    const stage = telemetry.stage ? String(telemetry.stage) : 'No stage reported';
+                    stageEl.textContent = stage;
+                    stageEl.title = stage;
+                }
+                const metricsEl = el.querySelector('[data-collab-telemetry-metrics]');
+                if (metricsEl) {
+                    metricsEl.outerHTML = _renderCollabTelemetryMetrics(telemetry.metrics, card.id);
                 }
             });
         }

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.85] - 2026-05-10
+
+### Added
+- **Telemetry collaboration cards now render compact metric summaries** - feed and channel cards keep progress and stage visible, show the first four metrics as compact chips, collapse additional metrics behind a disclosure, and refresh compact metrics during live card updates.
+
+### Fixed
+- **Channel organize mode now preserves group/channel ordering more reliably** - group drag starts from the grip, per-group channel order is persisted locally, default groups avoid colour controls, and group headers no longer use nested button markup.
+
 ## [0.6.84] - 2026-05-10
 
 ### Added
