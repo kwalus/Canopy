@@ -9081,7 +9081,7 @@ function advanceChannelMessage(messageId) {
             refreshSidebarChannelState();
         }
         if (typeof requestChannelThreadRefresh === 'function') {
-            requestChannelThreadRefresh({ forceScroll: false });
+            requestChannelThreadRefresh({ forceScroll: true });
         }
     })
     .catch((err) => {
@@ -10797,7 +10797,7 @@ function getMessagesSignature(messages) {
         } catch (err) {
             layoutToken = '';
         }
-        const token = `${m.id || ''}|${m.parent_message_id || ''}|${m.created_at || ''}|${m.edited_at || ''}|${layoutToken}`;
+        const token = `${m.id || ''}|${m.parent_message_id || ''}|${m.created_at || ''}|${m.last_activity_at || ''}|${m.edited_at || ''}|${layoutToken}`;
         for (let i = 0; i < token.length; i += 1) {
             hash ^= token.charCodeAt(i);
             hash = Math.imul(hash, 16777619);
@@ -10821,8 +10821,8 @@ function isChannelMediaPlaying() {
     return false;
 }
 
-function getChannelMessageSortTime(message) {
-    const raw = String((message && message.created_at) || '').trim();
+function parseChannelMessageTimestamp(rawValue) {
+    const raw = String(rawValue || '').trim();
     if (!raw) return 0;
     let normalized = raw.replace(' ', 'T');
     if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(normalized)) {
@@ -10832,10 +10832,24 @@ function getChannelMessageSortTime(message) {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getChannelMessageSortTime(message) {
+    return parseChannelMessageTimestamp(message && message.created_at);
+}
+
+function getChannelMessageActivitySortTime(message) {
+    return parseChannelMessageTimestamp(message && (message.last_activity_at || message.created_at));
+}
+
 function compareChannelMessagesByChronology(a, b) {
     const timeDiff = getChannelMessageSortTime(a) - getChannelMessageSortTime(b);
     if (timeDiff !== 0) return timeDiff;
     return String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
+}
+
+function compareChannelRootMessagesByActivity(a, b) {
+    const timeDiff = getChannelMessageActivitySortTime(a) - getChannelMessageActivitySortTime(b);
+    if (timeDiff !== 0) return timeDiff;
+    return compareChannelMessagesByChronology(a, b);
 }
 
 function cssEscapeValue(value) {
@@ -11159,7 +11173,7 @@ function buildChannelThreadLayout(messages) {
         }
     });
 
-    rootMessages.sort(compareChannelMessagesByChronology);
+    rootMessages.sort(compareChannelRootMessagesByActivity);
     Object.values(childrenByParent).forEach((items) => {
         items.sort(compareChannelMessagesByChronology);
     });
@@ -12006,7 +12020,17 @@ function refreshChannelMessagesSnapshot(options = {}) {
                 if (isChannelMediaPlaying()) {
                     // Incrementally append new messages without destroying
                     // existing DOM elements (preserves audio/video playback)
-                    appendNewMessages(data.messages);
+                    const appended = appendNewMessages(data.messages);
+                    if (!appended) {
+                        if (forceScroll) {
+                            displayMessages(data.messages, { forceScroll: true });
+                            clearNewMessagesBanner();
+                        } else {
+                            pendingChannelMessages = data.messages;
+                            channelMessageSignature[requestedChannelId] = newSig;
+                            showNewMessagesBanner();
+                        }
+                    }
                 } else {
                     const appended = appendNewMessages(data.messages);
                     if (!appended) {

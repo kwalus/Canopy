@@ -773,7 +773,7 @@ class TestFrontendRegressions(unittest.TestCase):
         if not shutil.which('node'):
             self.skipTest('node is required to execute channel thread layout regression')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        start = channels_template.index('function getChannelMessageSortTime(message)')
+        start = channels_template.index('function parseChannelMessageTimestamp(rawValue)')
         end = channels_template.index('\n/**\n * Load older messages', start)
         script = channels_template[start:end]
         node_code = f"""
@@ -2055,6 +2055,13 @@ console.log(JSON.stringify({{
         self.assertIn('Bring forward', channels_template)
         self.assertIn('advanceChannelMessage', channels_template)
         self.assertIn("reason === 'source_advanced'", channels_template)
+        self.assertIn('m.last_activity_at', channels_template)
+        self.assertIn('function compareChannelRootMessagesByActivity', channels_template)
+        self.assertIn('rootMessages.sort(compareChannelRootMessagesByActivity)', channels_template)
+        self.assertIn('requestChannelThreadRefresh({ forceScroll: true })', channels_template)
+        self.assertIn('if (isChannelMediaPlaying())', channels_template)
+        self.assertIn('if (forceScroll) {', channels_template)
+        self.assertIn('pendingChannelMessages = data.messages;', channels_template)
         self.assertIn('Bring forward', feed_template)
         self.assertIn('advanceFeedPost', feed_template)
         self.assertIn('advanceCollabCardSource', main_js)

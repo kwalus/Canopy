@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.81] - 2026-05-10
+
+### Fixed
+- **Channel source advancement now visibly resurfaces brought-forward threads** - channel snapshots include activity timestamps, root thread rendering sorts by effective activity, and manual Bring forward refreshes force a visible re-render even when no new message rows were appended.
+
 ## [0.6.80] - 2026-05-09
 
 ### Added
