@@ -9085,6 +9085,25 @@
             color: inherit;
         }
 
+        .file-preview-container.document-preview {
+            padding: 12px 14px;
+            background:
+                radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-accent, #06b6d4) 10%, transparent), transparent 36%),
+                var(--canopy-bg-tertiary);
+            border: 1px solid color-mix(in srgb, var(--canopy-border, #334155) 86%, var(--canopy-accent, #06b6d4) 14%);
+            color: var(--canopy-text-primary);
+        }
+
+        .file-preview-container.document-preview pre {
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: inherit;
+            font-size: 0.9em;
+            line-height: 1.55;
+            font-family: var(--canopy-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+        }
+
         .file-preview-container.spreadsheet-preview,
         .canopy-inline-sheet {
             padding: 12px 14px;
@@ -9350,6 +9369,7 @@
 
         [data-theme="dark"] .file-preview-container.md-preview,
         [data-theme="dark"] .file-preview-container.code-preview,
+        [data-theme="dark"] .file-preview-container.document-preview,
         [data-theme="dark"] .file-preview-container.spreadsheet-preview,
         [data-theme="dark"] .canopy-inline-sheet {
             background: color-mix(in srgb, var(--canopy-bg-card, #1e293b) 94%, var(--canopy-bg-tertiary, #1e1e32));
@@ -9391,6 +9411,7 @@
         }
 
         [data-theme="light"] .file-preview-container.code-preview,
+        [data-theme="light"] .file-preview-container.document-preview,
         [data-theme="light"] .file-preview-container.spreadsheet-preview {
             background: #ffffff;
             border-color: var(--canopy-border);

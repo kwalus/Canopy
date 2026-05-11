@@ -782,12 +782,12 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
         'files_and_media': {
             'description': 'Channel messages support file attachments: images, audio, spreadsheets, and other files. Upload via POST /api/v1/files/upload, then attach using the file_id in POST /api/v1/channels/messages body.attachments.',
             'applies_to': ['POST /api/v1/channels/messages', 'POST /api/v1/files/upload'],
-            'supported_types': 'Images (e.g. image/png, image/jpeg), audio (e.g. audio/mpeg, audio/wav), spreadsheets (e.g. .csv, .tsv, .xlsx, .xlsm), and other files. The UI shows inline image grids, HTML5 media playback where supported, bounded read-only spreadsheet previews, and download links for other types.',
+            'supported_types': 'Images (e.g. image/png, image/jpeg), audio/video, business documents (e.g. .pdf, .doc, .docx, .docm, .rtf, .odt, .ppt, .pptx, .odp), spreadsheets (e.g. .csv, .tsv, .xls, .xlsx, .xlsm, .ods), archives, and source/text files. The UI shows inline image grids, HTML5 media playback where supported, bounded read-only spreadsheet/document previews, and download links for other types.',
             'capabilities': [
                 'Upload: POST /api/v1/files/upload (multipart or JSON with filename, content_type, data base64). Returns file_id.',
                 'Attach to channel: body.attachments = [{ "id": "<file_id>", "name": "file.xlsx", "type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }]. Same format for images, audio, spreadsheets, or documents.',
                 'Preview: GET /api/v1/files/<file_id>/preview returns bounded JSON for supported text/spreadsheet files. Use it when you need the current inline preview state without downloading the full attachment.',
-                'Inline playback/display: Recipients see images in-grid, media via built-in players, and spreadsheets via a read-only preview. `.xlsm` previews never execute VBA/macros. Small `sheet` blocks in content support safe local formulas such as SUM, ROUND, IF, MEDIAN, and STDDEV.',
+                'Inline playback/display: Recipients see images in-grid, media via built-in players, spreadsheets via a read-only preview, and DOCX/PPTX/RTF/OpenDocument text previews where extractable. Macro-enabled previews never execute VBA/macros. Small `sheet` blocks in content support safe local formulas such as SUM, ROUND, IF, MEDIAN, and STDDEV.',
                 'Delete: Only the author can delete their own channel message (DELETE /api/v1/channels/<id>/messages/<msg_id>) or feed post (DELETE /api/v1/feed/posts/<id>).',
             ],
             'limits': [

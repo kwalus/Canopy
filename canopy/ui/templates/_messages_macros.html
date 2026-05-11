@@ -82,7 +82,8 @@
     {% set lower_name = (attachment.name or '')|lower %}
     {% set is_module = (attachment.type or '') == 'text/html' and (lower_name.endswith('.canopy-module.html') or lower_name.endswith('.canopy-module.htm')) %}
     {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
-    {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
+    {% set document_preview = lower_name.endswith('.docx') or lower_name.endswith('.docm') or lower_name.endswith('.dotx') or lower_name.endswith('.pptx') or lower_name.endswith('.pptm') or lower_name.endswith('.ppsx') or lower_name.endswith('.potx') or lower_name.endswith('.rtf') or lower_name.endswith('.odt') or lower_name.endswith('.odp') %}
+    {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or document_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
     {% set preview_id = 'dm-attachment-preview-' ~ message_id ~ '-' ~ idx %}
     {% set module_title = (attachment.name or 'Canopy Module')|replace('.canopy-module.html', '')|replace('.canopy-module.htm', '')|replace('-', ' ')|replace('_', ' ')|title %}
     {% set module_manifest = {
@@ -241,10 +242,15 @@
                 <div>
                     <strong>{{ attachment.name }}</strong>
                     <small>{{ attachment.type or '' }}{% if attachment.type %} • {% endif %}{{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
-                    {% if spreadsheet_preview %}
+                    {% if spreadsheet_preview or document_preview %}
                         <div class="dm-attachment-badges">
-                            <span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>
-                            {% if lower_name.endswith('.xlsm') %}
+                            {% if document_preview %}
+                                <span class="badge rounded-pill text-bg-secondary">Document</span>
+                            {% endif %}
+                            {% if spreadsheet_preview %}
+                                <span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>
+                            {% endif %}
+                            {% if lower_name.endswith('.xlsm') or lower_name.endswith('.docm') or lower_name.endswith('.pptm') %}
                                 <span class="badge rounded-pill text-bg-warning">Macros disabled</span>
                             {% endif %}
                         </div>
@@ -255,11 +261,11 @@
                         <button type="button"
                                 class="btn btn-sm btn-outline-secondary"
                                 data-preview-toggle="{{ preview_id }}"
-                                data-preview-label="{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}"
-                                data-preview-expanded-label="{{ 'Hide sheet' if spreadsheet_preview else 'Collapse' }}"
+                                data-preview-label="{{ 'Open sheet' if spreadsheet_preview else ('Preview text' if document_preview else 'Preview') }}"
+                                data-preview-expanded-label="{{ 'Hide sheet' if spreadsheet_preview else ('Hide text' if document_preview else 'Collapse') }}"
                                 onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ attachment_file_id }}/preview')">
                             <i class="bi bi-eye"></i>
-                            <span class="preview-label">{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}</span>
+                            <span class="preview-label">{{ 'Open sheet' if spreadsheet_preview else ('Preview text' if document_preview else 'Preview') }}</span>
                         </button>
                     {% endif %}
                     {% if attachment.url %}

@@ -81,8 +81,31 @@ class FileManager:
         '.json': 'application/json',
         '.csv': 'text/csv',
         '.tsv': 'text/csv',
+        '.doc': 'application/msword',
+        '.dot': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.docm': 'application/vnd.ms-word.document.macroenabled.12',
+        '.dotx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+        '.rtf': 'application/rtf',
+        '.odt': 'application/vnd.oasis.opendocument.text',
         '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         '.xlsm': 'application/vnd.ms-excel.sheet.macroenabled.12',
+        '.xls': 'application/vnd.ms-excel',
+        '.xlsb': 'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+        '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.pot': 'application/vnd.ms-powerpoint',
+        '.pps': 'application/vnd.ms-powerpoint',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        '.pptm': 'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+        '.ppsx': 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+        '.potx': 'application/vnd.openxmlformats-officedocument.presentationml.template',
+        '.odp': 'application/vnd.oasis.opendocument.presentation',
+        '.eml': 'message/rfc822',
+        '.msg': 'application/vnd.ms-outlook',
+        '.pages': 'application/vnd.apple.pages',
+        '.numbers': 'application/vnd.apple.numbers',
+        '.key': 'application/vnd.apple.keynote',
         '.tex': 'text/x-tex',
         '.latex': 'application/x-latex',
         '.py': 'text/x-python',
@@ -110,6 +133,12 @@ class FileManager:
         '.zip': 'application/zip',
         '.gz': 'application/gzip',
         '.gzip': 'application/gzip',
+        '.tgz': 'application/gzip',
+        '.bz2': 'application/x-bzip2',
+        '.tbz2': 'application/x-bzip2',
+        '.xz': 'application/x-xz',
+        '.7z': 'application/x-7z-compressed',
+        '.rar': 'application/vnd.rar',
     }
     _MIME_TO_EXT = {
         'application/pdf': '.pdf',
@@ -117,8 +146,29 @@ class FileManager:
         'text/plain': '.txt',
         'application/json': '.json',
         'text/csv': '.csv',
+        'application/msword': '.doc',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+        'application/vnd.ms-word.document.macroenabled.12': '.docm',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.template': '.dotx',
+        'application/rtf': '.rtf',
+        'text/rtf': '.rtf',
+        'application/vnd.oasis.opendocument.text': '.odt',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
         'application/vnd.ms-excel.sheet.macroenabled.12': '.xlsm',
+        'application/vnd.ms-excel': '.xls',
+        'application/vnd.ms-excel.sheet.binary.macroenabled.12': '.xlsb',
+        'application/vnd.oasis.opendocument.spreadsheet': '.ods',
+        'application/vnd.ms-powerpoint': '.ppt',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+        'application/vnd.ms-powerpoint.presentation.macroenabled.12': '.pptm',
+        'application/vnd.openxmlformats-officedocument.presentationml.slideshow': '.ppsx',
+        'application/vnd.openxmlformats-officedocument.presentationml.template': '.potx',
+        'application/vnd.oasis.opendocument.presentation': '.odp',
+        'message/rfc822': '.eml',
+        'application/vnd.ms-outlook': '.msg',
+        'application/vnd.apple.pages': '.pages',
+        'application/vnd.apple.numbers': '.numbers',
+        'application/vnd.apple.keynote': '.key',
         'text/x-tex': '.tex',
         'application/x-latex': '.tex',
         'text/x-python': '.py',
@@ -139,6 +189,11 @@ class FileManager:
         'text/html': '.html',
         'application/zip': '.zip',
         'application/gzip': '.gz',
+        'application/x-bzip2': '.bz2',
+        'application/x-xz': '.xz',
+        'application/x-7z-compressed': '.7z',
+        'application/vnd.rar': '.rar',
+        'application/x-rar-compressed': '.rar',
     }
     
     def __init__(self, db: DatabaseManager, storage_path: str = "./data/files"):
@@ -429,6 +484,14 @@ class FileManager:
             return 'application/zip'
         if data.startswith(b'\x1f\x8b'):
             return 'application/gzip'
+        if data.startswith(b'BZh'):
+            return 'application/x-bzip2'
+        if data.startswith(b'\xfd7zXZ\x00'):
+            return 'application/x-xz'
+        if data.startswith(b"7z\xbc\xaf'\x1c"):
+            return 'application/x-7z-compressed'
+        if data.startswith((b'Rar!\x1a\x07\x00', b'Rar!\x1a\x07\x01\x00')):
+            return 'application/vnd.rar'
 
         sample = data[:8192]
         if self._looks_like_text(sample):
@@ -494,8 +557,24 @@ class FileManager:
             return 'audio'
         elif content_type in ['application/pdf', 'application/msword', 
                               'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                              'application/vnd.ms-word.document.macroenabled.12',
+                              'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+                              'application/rtf', 'text/rtf',
+                              'application/vnd.oasis.opendocument.text',
                               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                               'application/vnd.ms-excel.sheet.macroenabled.12',
+                              'application/vnd.ms-excel',
+                              'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+                              'application/vnd.oasis.opendocument.spreadsheet',
+                              'application/vnd.ms-powerpoint',
+                              'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                              'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+                              'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+                              'application/vnd.openxmlformats-officedocument.presentationml.template',
+                              'application/vnd.oasis.opendocument.presentation',
+                              'message/rfc822', 'application/vnd.ms-outlook',
+                              'application/vnd.apple.pages', 'application/vnd.apple.numbers',
+                              'application/vnd.apple.keynote',
                               'text/plain', 'text/csv', 'text/markdown',
                               'text/x-tex', 'application/x-latex', 'text/x-python',
                               'text/html', 'application/xml', 'text/xml',
@@ -1274,8 +1353,28 @@ class FileManager:
                                 'application/pdf',
                                 'text/plain',
                                 'application/msword',
+                                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                                'application/vnd.ms-word.document.macroenabled.12',
+                                'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+                                'application/rtf',
+                                'text/rtf',
+                                'application/vnd.oasis.opendocument.text',
                                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                                'application/vnd.ms-excel.sheet.macroenabled.12'
+                                'application/vnd.ms-excel.sheet.macroenabled.12',
+                                'application/vnd.ms-excel',
+                                'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+                                'application/vnd.oasis.opendocument.spreadsheet',
+                                'application/vnd.ms-powerpoint',
+                                'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                                'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+                                'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+                                'application/vnd.openxmlformats-officedocument.presentationml.template',
+                                'application/vnd.oasis.opendocument.presentation',
+                                'message/rfc822',
+                                'application/vnd.ms-outlook',
+                                'application/vnd.apple.pages',
+                                'application/vnd.apple.numbers',
+                                'application/vnd.apple.keynote'
                             ) THEN 'documents'
                             ELSE 'other'
                         END as category,

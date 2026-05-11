@@ -51,6 +51,42 @@ def _build_workbook_bytes() -> bytes:
     return out.getvalue()
 
 
+def _build_docx_bytes(text: str = 'Quarterly planning memo') -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w') as archive:
+        archive.writestr('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        archive.writestr('word/document.xml', f'''<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:body>
+</w:document>''')
+    return out.getvalue()
+
+
+def _build_pptx_bytes() -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w') as archive:
+        archive.writestr('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        archive.writestr('ppt/presentation.xml', '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>')
+        archive.writestr('ppt/slides/slide1.xml', '''<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Demo agenda</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
+</p:sld>''')
+    return out.getvalue()
+
+
+def _build_odt_bytes(text: str = 'OpenDocument briefing note') -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w') as archive:
+        archive.writestr('mimetype', 'application/vnd.oasis.opendocument.text')
+        archive.writestr('content.xml', f'''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+  <office:body><office:text><text:p>{text}</text:p></office:text></office:body>
+</office:document-content>''')
+    return out.getvalue()
+
+
 class _FakeApiKeyManager:
     def validate_key(self, raw_key, required_permission=None):
         perms = {
@@ -332,6 +368,75 @@ img.src = blobUrl;
         self.assertFalse(preview['previewable'])
         self.assertEqual(preview['kind'], 'module')
         self.assertIn('deck', preview['error'].lower())
+
+    def test_validate_file_upload_accepts_docx_with_generic_metadata(self):
+        docx_bytes = _build_docx_bytes()
+        is_valid, error, validated_type = validate_file_upload(
+            docx_bytes,
+            'application/octet-stream',
+            'planning-memo.docx',
+        )
+        self.assertTrue(is_valid, error)
+        self.assertEqual(
+            validated_type,
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+
+    def test_validate_file_upload_rejects_zip_masquerading_as_docx(self):
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, 'w') as archive:
+            archive.writestr('notes.txt', 'not a word document')
+        is_valid, error, _ = validate_file_upload(
+            out.getvalue(),
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'fake.docx',
+        )
+        self.assertFalse(is_valid)
+        self.assertIn('word document', str(error).lower())
+
+    def test_build_file_preview_returns_docx_text(self):
+        docx_bytes = _build_docx_bytes('Review milestone and owner list')
+        preview = build_file_preview(
+            docx_bytes,
+            'planning-memo.docx',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'document')
+        self.assertIn('Review milestone', preview['text'])
+
+    def test_build_file_preview_returns_pptx_slide_text(self):
+        pptx_bytes = _build_pptx_bytes()
+        preview = build_file_preview(
+            pptx_bytes,
+            'demo-brief.pptx',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        )
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'document')
+        self.assertIn('Slide 1', preview['text'])
+        self.assertIn('Demo agenda', preview['text'])
+
+    def test_build_file_preview_returns_rtf_text(self):
+        preview = build_file_preview(
+            b'{\\rtf1\\ansi Business handoff note\\par Next step}',
+            'handoff.rtf',
+            'application/rtf',
+        )
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'document')
+        self.assertIn('Business handoff note', preview['text'])
+
+    def test_build_file_preview_returns_odt_text(self):
+        odt_bytes = _build_odt_bytes()
+        preview = build_file_preview(
+            odt_bytes,
+            'briefing.odt',
+            'application/vnd.oasis.opendocument.text',
+        )
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'document')
+        self.assertIn('OpenDocument briefing note', preview['text'])
 
     def test_validate_file_upload_accepts_real_xlsx(self):
         workbook_bytes = _build_workbook_bytes()

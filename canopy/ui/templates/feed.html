@@ -271,7 +271,7 @@
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 composer-action-row">
                 <div class="d-flex gap-2 flex-wrap composer-action-tools">
                     <input type="file" id="post-file-input" style="display: none;" multiple
-                       accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml">
+                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('post-file-input').click()">
                     <i class="bi bi-paperclip"></i> Attach Files
                 </button>
@@ -650,7 +650,8 @@
                                             {% set lower_name = (attachment.name or '')|lower %}
                                             {% set is_module = (attachment.type or '') == 'text/html' and (lower_name.endswith('.canopy-module.html') or lower_name.endswith('.canopy-module.htm')) %}
                                             {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
-                                            {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
+                                            {% set document_preview = lower_name.endswith('.docx') or lower_name.endswith('.docm') or lower_name.endswith('.dotx') or lower_name.endswith('.pptx') or lower_name.endswith('.pptm') or lower_name.endswith('.ppsx') or lower_name.endswith('.potx') or lower_name.endswith('.rtf') or lower_name.endswith('.odt') or lower_name.endswith('.odp') %}
+                                            {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or document_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
                                             {% set preview_id = 'feed-attachment-preview-' ~ post.id ~ '-' ~ loop.index0 %}
                                             {% set module_title = (attachment.name or 'Canopy Module')|replace('.canopy-module.html', '')|replace('.canopy-module.htm', '')|replace('-', ' ')|replace('_', ' ')|title %}
                                             {% set module_manifest = {
@@ -732,14 +733,19 @@
                                             {% else %}
                                             <div class="attachment-item mb-2 p-2 border rounded"{% if attachment_file_id %} data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
                                                 <div class="d-flex align-items-center">
-                                                    <i class="bi bi-{% if attachment.type.startswith('video/') %}camera-video{% elif 'pdf' in (attachment.type or '') %}file-pdf{% elif lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}file-earmark-spreadsheet{% else %}file-earmark{% endif %} me-2"></i>
+                                                    <i class="bi bi-{% if attachment.type.startswith('video/') %}camera-video{% elif 'pdf' in (attachment.type or '') %}file-pdf{% elif lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xls') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') or lower_name.endswith('.xlsb') or lower_name.endswith('.ods') %}file-earmark-spreadsheet{% elif lower_name.endswith('.pptx') or lower_name.endswith('.pptm') or lower_name.endswith('.ppsx') or lower_name.endswith('.potx') or lower_name.endswith('.odp') %}file-earmark-slides{% elif document_preview %}file-earmark-word{% else %}file-earmark{% endif %} me-2"></i>
                                                     <div class="flex-grow-1">
                                                         <strong>{{ attachment.name }}</strong>
                                                         <small class="text-muted d-block">{{ attachment.type or '' }} • {% if attachment.size is defined and attachment.size is not none %}{{ (attachment.size / 1024) | round(1) }} KB{% else %}—{% endif %}</small>
-                                                        {% if spreadsheet_preview %}
+                                                        {% if spreadsheet_preview or document_preview %}
                                                         <div class="attachment-meta-badges">
+                                                            {% if document_preview %}
+                                                            <span class="badge rounded-pill text-bg-secondary">Document</span>
+                                                            {% endif %}
+                                                            {% if spreadsheet_preview %}
                                                             <span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>
-                                                            {% if lower_name.endswith('.xlsm') %}
+                                                            {% endif %}
+                                                            {% if lower_name.endswith('.xlsm') or lower_name.endswith('.docm') or lower_name.endswith('.pptm') %}
                                                             <span class="badge rounded-pill text-bg-warning">Macros disabled</span>
                                                             {% endif %}
                                                         </div>
@@ -751,11 +757,11 @@
                                                         <button type="button"
                                                                 class="btn btn-sm btn-outline-secondary"
                                                                 data-preview-toggle="{{ preview_id }}"
-                                                                data-preview-label="{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}"
-                                                                data-preview-expanded-label="{{ 'Hide sheet' if spreadsheet_preview else 'Collapse' }}"
+                                                                data-preview-label="{{ 'Open sheet' if spreadsheet_preview else ('Preview text' if document_preview else 'Preview') }}"
+                                                                data-preview-expanded-label="{{ 'Hide sheet' if spreadsheet_preview else ('Hide text' if document_preview else 'Collapse') }}"
                                                                 onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ attachment_file_id }}/preview')">
                                                             <i class="bi bi-eye"></i>
-                                                            <span class="preview-label">{{ 'Open sheet' if spreadsheet_preview else 'Preview' }}</span>
+                                                            <span class="preview-label">{{ 'Open sheet' if spreadsheet_preview else ('Preview text' if document_preview else 'Preview') }}</span>
                                                         </button>
                                                         {% endif %}
                                                         <button class="btn btn-sm btn-outline-primary" onclick="downloadFile('{{ attachment.url }}', '{{ attachment.name }}')">
@@ -1881,7 +1887,7 @@
                                         
                                         <!-- Hidden file input -->
                                         <input type="file" id="comment-file-input-{{ post.id }}" style="display: none;" multiple 
-                                               accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml" onchange="handleCommentFileSelect('{{ post.id }}', this)">
+                                               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm" onchange="handleCommentFileSelect('{{ post.id }}', this)">
                                     </div>
                                     
                                     <!-- Comments List -->
@@ -7035,15 +7041,37 @@
         if (file.size > maxSize) return false;
         const allowedMimeTypes = [
             'image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-word.document.macroenabled.12',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+            'application/rtf', 'text/rtf', 'application/vnd.oasis.opendocument.text',
             'application/json', 'application/xml', 'application/x-yaml',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'application/vnd.ms-excel.sheet.macroenabled.12',
+            'application/vnd.ms-excel',
+            'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+            'application/vnd.oasis.opendocument.spreadsheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+            'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+            'application/vnd.openxmlformats-officedocument.presentationml.template',
+            'application/vnd.oasis.opendocument.presentation',
+            'message/rfc822', 'application/vnd.ms-outlook',
+            'application/vnd.apple.pages', 'application/vnd.apple.numbers', 'application/vnd.apple.keynote',
             'application/javascript', 'application/typescript', 'application/octet-stream',
+            'application/zip', 'application/x-zip-compressed', 'application/x-tar',
+            'application/gzip', 'application/x-gzip', 'application/x-bzip2',
+            'application/x-xz', 'application/x-7z-compressed',
+            'application/vnd.rar', 'application/x-rar-compressed',
         ];
         const allowedExtensions = [
-            '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-            '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-            '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx',
+            '.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.ts', '.log',
+            '.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+            '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
+            '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.pot', '.potx', '.odp',
+            '.eml', '.msg', '.pages', '.numbers', '.key',
+            '.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar',
         ];
         const fileType = String(file.type || '').toLowerCase();
         const name = String(file.name || '').toLowerCase();
@@ -7170,7 +7198,7 @@
                            data-inline-post-file-input
                            style="display:none;"
                            multiple
-                           accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml">
+                           accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-post-add-files>
                         <i class="bi bi-paperclip"></i> Add Files
                     </button>
@@ -7741,7 +7769,7 @@
                         
                         <!-- Hidden file input -->
                         <input type="file" id="comment-file-input-${postId}" style="display: none;" multiple 
-                               accept="image/*,video/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml" onchange="handleCommentFileSelect('${postId}', this)">
+                               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm" onchange="handleCommentFileSelect('${postId}', this)">
                     </div>
                 </div>
             `;
@@ -7845,13 +7873,35 @@
         
         const maxSize = 100 * 1024 * 1024; // 100MB for comments
         const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
+                                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                                  'application/vnd.ms-word.document.macroenabled.12',
+                                  'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+                                  'application/rtf', 'text/rtf', 'application/vnd.oasis.opendocument.text',
                                   'application/json', 'application/xml', 'application/x-yaml',
                                   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                   'application/vnd.ms-excel.sheet.macroenabled.12',
-                                  'application/javascript', 'application/typescript', 'application/octet-stream'];
-        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-                                   '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-                                   '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
+                                  'application/vnd.ms-excel',
+                                  'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+                                  'application/vnd.oasis.opendocument.spreadsheet',
+                                  'application/vnd.ms-powerpoint',
+                                  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                                  'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+                                  'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+                                  'application/vnd.openxmlformats-officedocument.presentationml.template',
+                                  'application/vnd.oasis.opendocument.presentation',
+                                  'message/rfc822', 'application/vnd.ms-outlook',
+                                  'application/vnd.apple.pages', 'application/vnd.apple.numbers', 'application/vnd.apple.keynote',
+                                  'application/javascript', 'application/typescript', 'application/octet-stream',
+                                  'application/zip', 'application/x-zip-compressed', 'application/x-tar',
+                                  'application/gzip', 'application/x-gzip', 'application/x-bzip2',
+                                  'application/x-xz', 'application/x-7z-compressed',
+                                  'application/vnd.rar', 'application/x-rar-compressed'];
+        const allowedExtensions = ['.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.ts', '.log',
+                                   '.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+                                   '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
+                                   '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.pot', '.potx', '.odp',
+                                   '.eml', '.msg', '.pages', '.numbers', '.key',
+                                   '.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar'];
         
         files.forEach(file => {
             if (file.size > maxSize) {
@@ -7859,8 +7909,11 @@
                 return;
             }
             
-            const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-            if (!allowedMimeTypes.some(type => file.type.startsWith(type)) && !allowedExtensions.includes(ext)) {
+            const lowerName = String(file.name || '').toLowerCase();
+            const dotIndex = lowerName.lastIndexOf('.');
+            const ext = dotIndex >= 0 ? lowerName.slice(dotIndex) : '';
+            const fileType = String(file.type || '').toLowerCase();
+            if (!allowedMimeTypes.some(type => fileType.startsWith(type)) && !allowedExtensions.includes(ext)) {
                 showAlert(`File type ${file.type || 'unknown'} is not supported.`, 'warning');
                 return;
             }
@@ -8356,13 +8409,35 @@
     function addPostFiles(files) {
         const maxSize = 100 * 1024 * 1024; // 100MB
         const allowedMimeTypes = ['image/', 'video/', 'audio/', 'application/pdf', 'text/', 'application/msword',
+                                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                                  'application/vnd.ms-word.document.macroenabled.12',
+                                  'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+                                  'application/rtf', 'text/rtf', 'application/vnd.oasis.opendocument.text',
                                   'application/json', 'application/xml', 'application/x-yaml',
                                   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                                   'application/vnd.ms-excel.sheet.macroenabled.12',
-                                  'application/javascript', 'application/typescript', 'application/octet-stream'];
-        const allowedExtensions = ['.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-                                   '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-                                   '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx'];
+                                  'application/vnd.ms-excel',
+                                  'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+                                  'application/vnd.oasis.opendocument.spreadsheet',
+                                  'application/vnd.ms-powerpoint',
+                                  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                                  'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+                                  'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+                                  'application/vnd.openxmlformats-officedocument.presentationml.template',
+                                  'application/vnd.oasis.opendocument.presentation',
+                                  'message/rfc822', 'application/vnd.ms-outlook',
+                                  'application/vnd.apple.pages', 'application/vnd.apple.numbers', 'application/vnd.apple.keynote',
+                                  'application/javascript', 'application/typescript', 'application/octet-stream',
+                                  'application/zip', 'application/x-zip-compressed', 'application/x-tar',
+                                  'application/gzip', 'application/x-gzip', 'application/x-bzip2',
+                                  'application/x-xz', 'application/x-7z-compressed',
+                                  'application/vnd.rar', 'application/x-rar-compressed'];
+        const allowedExtensions = ['.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.ts', '.log',
+                                   '.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+                                   '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
+                                   '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.pot', '.potx', '.odp',
+                                   '.eml', '.msg', '.pages', '.numbers', '.key',
+                                   '.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar'];
         
         files.forEach(file => {
             if (file.size > maxSize) {
@@ -8370,8 +8445,11 @@
                 return;
             }
             
-            const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-            if (!allowedMimeTypes.some(type => file.type.startsWith(type)) && !allowedExtensions.includes(ext)) {
+            const lowerName = String(file.name || '').toLowerCase();
+            const dotIndex = lowerName.lastIndexOf('.');
+            const ext = dotIndex >= 0 ? lowerName.slice(dotIndex) : '';
+            const fileType = String(file.type || '').toLowerCase();
+            if (!allowedMimeTypes.some(type => fileType.startsWith(type)) && !allowedExtensions.includes(ext)) {
                 alert(`File type ${file.type || 'unknown'} is not supported.`);
                 return;
             }
@@ -8430,7 +8508,9 @@
         if (lowerType.startsWith('video/')) return 'camera-video';
         if (lowerType.startsWith('audio/')) return 'music-note';
         if (lowerType.includes('pdf')) return 'file-pdf';
-        if (lowerType.includes('spreadsheet') || lowerType.includes('excel') || /\.(csv|tsv|xlsx|xlsm)$/.test(lowerName)) return 'file-earmark-spreadsheet';
+        if (lowerType.includes('spreadsheet') || lowerType.includes('excel') || /\.(csv|tsv|xls|xlsx|xlsm|xlsb|ods|numbers)$/.test(lowerName)) return 'file-earmark-spreadsheet';
+        if (lowerType.includes('presentation') || lowerType.includes('powerpoint') || /\.(ppt|pptx|pptm|pps|ppsx|pot|potx|odp|key)$/.test(lowerName)) return 'file-earmark-slides';
+        if (lowerType.includes('wordprocessingml') || lowerType.includes('msword') || lowerType.includes('rtf') || /\.(doc|docx|docm|dot|dotx|rtf|odt|pages)$/.test(lowerName)) return 'file-earmark-word';
         return 'file-earmark';
     }
     

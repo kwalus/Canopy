@@ -3567,6 +3567,22 @@
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 'application/vnd.ms-excel.sheet.macroenabled.12'
             ]);
+            const CANOPY_DOCUMENT_PREVIEW_EXTENSIONS = [
+                '.docx', '.docm', '.dotx', '.pptx', '.pptm', '.ppsx', '.potx', '.rtf', '.odt', '.odp'
+            ];
+            const CANOPY_DOCUMENT_PREVIEW_MIME_TYPES = new Set([
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-word.document.macroenabled.12',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+                'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+                'application/vnd.openxmlformats-officedocument.presentationml.template',
+                'application/rtf',
+                'text/rtf',
+                'application/vnd.oasis.opendocument.text',
+                'application/vnd.oasis.opendocument.presentation'
+            ]);
             const CANOPY_TEXT_PREVIEW_EXTENSIONS = [
                 '.md', '.markdown', '.txt', '.log', '.json', '.py', '.js', '.ts',
                 '.csv', '.tsv', '.yaml', '.yml', '.xml', '.tex', '.html', '.css',
@@ -3597,9 +3613,16 @@
                 return CANOPY_SPREADSHEET_PREVIEW_EXTENSIONS.includes(ext) || CANOPY_SPREADSHEET_PREVIEW_MIME_TYPES.has(type);
             }
 
+            function canopyIsDocumentPreviewable(filename, contentType) {
+                const ext = canopyFileExtension(filename);
+                const type = String(contentType || '').toLowerCase();
+                return CANOPY_DOCUMENT_PREVIEW_EXTENSIONS.includes(ext) || CANOPY_DOCUMENT_PREVIEW_MIME_TYPES.has(type);
+            }
+
             function canopyIsTextPreviewable(filename, contentType) {
                 if (canopyIsModuleBundle(filename, contentType)) return false;
                 if (canopyIsSpreadsheetPreviewable(filename, contentType)) return false;
+                if (canopyIsDocumentPreviewable(filename, contentType)) return false;
                 const ext = canopyFileExtension(filename);
                 const type = String(contentType || '').toLowerCase();
                 if (CANOPY_TEXT_PREVIEW_EXTENSIONS.includes(ext)) return true;
@@ -3709,6 +3732,25 @@
                 if (payload.kind === 'spreadsheet') {
                     return renderSpreadsheetPreviewHtml(previewId, payload);
                 }
+                if (payload.kind === 'document') {
+                    const badges = [];
+                    const format = payload.document_format ? String(payload.document_format).toUpperCase() : 'DOC';
+                    badges.push(`<span class="badge text-bg-secondary">${_escapeHtml(format)}</span>`);
+                    if (payload.macro_enabled) badges.push('<span class="badge text-bg-warning">Macros disabled</span>');
+                    if (payload.truncated) badges.push('<span class="badge text-bg-secondary">Preview clipped</span>');
+                    const warning = payload.warning ? `<div class="small text-warning mt-2"><i class="bi bi-shield-exclamation me-1"></i>${_escapeHtml(payload.warning)}</div>` : '';
+                    const escaped = _escapeHtml(String(payload.text || ''));
+                    return `
+                        <div class="file-preview-container document-preview">
+                            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+                                <div class="small fw-semibold"><i class="bi bi-file-earmark-text me-1"></i>Document preview</div>
+                                <div class="d-flex flex-wrap gap-1">${badges.join('')}</div>
+                            </div>
+                            <pre><code>${escaped}</code></pre>
+                            ${warning}
+                        </div>
+                    `;
+                }
                 if (payload.kind === 'markdown' && typeof marked !== 'undefined') {
                     return `<div class="file-preview-container md-preview">${marked.parse(String(payload.text || ''))}</div>`;
                 }
@@ -3729,6 +3771,9 @@
             function canopyAttachmentPreviewLabels(filename, contentType) {
                 if (canopyIsSpreadsheetPreviewable(filename, contentType)) {
                     return { collapsed: 'Open sheet', expanded: 'Hide sheet' };
+                }
+                if (canopyIsDocumentPreviewable(filename, contentType)) {
+                    return { collapsed: 'Preview text', expanded: 'Hide text' };
                 }
                 return { collapsed: 'Preview', expanded: 'Collapse' };
             }
@@ -3776,6 +3821,7 @@
                 window.toggleAttachmentPreview = toggleAttachmentPreview;
                 window.switchSpreadsheetPreviewSheet = switchSpreadsheetPreviewSheet;
                 window.canopyIsSpreadsheetPreviewable = canopyIsSpreadsheetPreviewable;
+                window.canopyIsDocumentPreviewable = canopyIsDocumentPreviewable;
                 window.canopyIsTextPreviewable = canopyIsTextPreviewable;
                 window.canopyIsMarkdownPreviewable = canopyIsMarkdownPreviewable;
                 window.canopyAttachmentPreviewLabels = canopyAttachmentPreviewLabels;

@@ -10229,7 +10229,15 @@ def create_ui_blueprint() -> Blueprint:
             user_id = get_current_user()
             
             data = request.get_json(silent=True) or {}
-            logger.info(f"Send message request: user_id={user_id}, data={data}")
+            logger.info(
+                "Send message request: user_id=%s, content_len=%s, attachments_count=%s, "
+                "recipient_id=%s, recipient_ids_count=%s",
+                user_id,
+                len(str(data.get('content') or '')),
+                len(data.get('attachments') or []),
+                data.get('recipient_id'),
+                len(data.get('recipient_ids') or []) if isinstance(data.get('recipient_ids'), list) else 0,
+            )
             
             content = data.get('content', '').strip()
             recipient_id = data.get('recipient_id')  # None for broadcast
@@ -10255,6 +10263,7 @@ def create_ui_blueprint() -> Blueprint:
             
             # Process file attachments if any
             processed_attachments = []
+            failed_attachments = []
             for attachment in file_attachments:
                 try:
                     # Attachment should contain file data as base64
@@ -10274,9 +10283,23 @@ def create_ui_blueprint() -> Blueprint:
                             'size': file_info.size,
                             'url': file_info.url
                         })
+                    else:
+                        failed_attachments.append(str(attachment.get('name') or 'attachment'))
                 except Exception as e:
                     logger.error(f"Failed to process attachment {attachment.get('name', 'unknown')}: {e}")
+                    failed_attachments.append(str(attachment.get('name') or 'attachment'))
                     continue
+
+            if failed_attachments:
+                failed_names = ', '.join(failed_attachments[:3])
+                if len(failed_attachments) > 3:
+                    failed_names += f' and {len(failed_attachments) - 3} more'
+                return jsonify({
+                    'error': (
+                        f"Attachment upload failed for {failed_names}. "
+                        "The message was not sent so files are not silently dropped."
+                    )
+                }), 400
             
             # Determine message type based on attachments
             from ..core.messaging import MessageType
@@ -10545,7 +10568,7 @@ def create_ui_blueprint() -> Blueprint:
             _, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
             
-            data = request.get_json()
+            data = request.get_json() or {}
             key_id = data.get('key_id')
             
             if not key_id:
@@ -18162,7 +18185,13 @@ def create_ui_blueprint() -> Blueprint:
             user_id = get_current_user()
             
             data = request.get_json()
-            logger.info(f"Send channel message request: user_id={user_id}, data={data}")
+            logger.info(
+                "Send channel message request: user_id=%s, channel_id=%s, content_len=%s, attachments_count=%s",
+                user_id,
+                data.get('channel_id') if isinstance(data, dict) else None,
+                len(str((data or {}).get('content') or '')) if isinstance(data, dict) else 0,
+                len((data or {}).get('attachments') or []) if isinstance(data, dict) else 0,
+            )
             
             content = data.get('content', '').strip()
             channel_id = data.get('channel_id')
@@ -18236,6 +18265,7 @@ def create_ui_blueprint() -> Blueprint:
             
             # Process file attachments if any
             processed_attachments = []
+            failed_attachments = []
             for attachment in file_attachments:
                 try:
                     # Attachment should contain file data as base64
@@ -18255,9 +18285,23 @@ def create_ui_blueprint() -> Blueprint:
                             'size': file_info.size,
                             'url': file_info.url
                         })
+                    else:
+                        failed_attachments.append(str(attachment.get('name') or 'attachment'))
                 except Exception as e:
                     logger.error(f"Failed to process attachment {attachment.get('name', 'unknown')}: {e}")
+                    failed_attachments.append(str(attachment.get('name') or 'attachment'))
                     continue
+
+            if failed_attachments:
+                failed_names = ', '.join(failed_attachments[:3])
+                if len(failed_attachments) > 3:
+                    failed_names += f' and {len(failed_attachments) - 3} more'
+                return jsonify({
+                    'error': (
+                        f"Attachment upload failed for {failed_names}. "
+                        "The message was not sent so files are not silently dropped."
+                    )
+                }), 400
             
             from ..core.channels import MessageType
             from ..core.tasks import parse_task_blocks, derive_task_id

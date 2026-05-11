@@ -2568,7 +2568,9 @@
         if (lowerType.startsWith('audio/')) return 'music-note';
         if (lowerType.includes('pdf')) return 'file-pdf';
         if (lowerType.includes('json')) return 'filetype-json';
-        if (lowerType.includes('spreadsheet') || lowerType.includes('excel') || String(name || '').toLowerCase().match(/\.(csv|tsv|xlsx|xlsm)$/)) return 'file-earmark-spreadsheet';
+        if (lowerType.includes('spreadsheet') || lowerType.includes('excel') || String(name || '').toLowerCase().match(/\.(csv|tsv|xls|xlsx|xlsm|xlsb|ods|numbers)$/)) return 'file-earmark-spreadsheet';
+        if (lowerType.includes('presentation') || lowerType.includes('powerpoint') || String(name || '').toLowerCase().match(/\.(ppt|pptx|pptm|pps|ppsx|pot|potx|odp|key)$/)) return 'file-earmark-slides';
+        if (lowerType.includes('wordprocessingml') || lowerType.includes('msword') || lowerType.includes('rtf') || String(name || '').toLowerCase().match(/\.(doc|docx|docm|dot|dotx|rtf|odt|pages)$/)) return 'file-earmark-word';
         if (lowerType.includes('zip') || lowerType.includes('tar') || lowerType.includes('compressed') || lowerType.includes('archive')) return 'file-zip';
         if (lowerType.startsWith('text/')) return 'file-text';
         if (name) {
@@ -2581,7 +2583,9 @@
             if (lower.endsWith('.ts')) return 'filetype-tsx';
             if (lower.endsWith('.xml') || lower.endsWith('.html')) return 'filetype-xml';
             if (lower.endsWith('.csv')) return 'filetype-csv';
-            if (lower.endsWith('.tsv') || lower.endsWith('.xlsx') || lower.endsWith('.xlsm')) return 'file-earmark-spreadsheet';
+            if (lower.match(/\.(tsv|xls|xlsx|xlsm|xlsb|ods|numbers)$/)) return 'file-earmark-spreadsheet';
+            if (lower.match(/\.(ppt|pptx|pptm|pps|ppsx|pot|potx|odp|key)$/)) return 'file-earmark-slides';
+            if (lower.match(/\.(doc|docx|docm|dot|dotx|rtf|odt|pages)$/)) return 'file-earmark-word';
             if (lower.endsWith('.txt') || lower.endsWith('.log') || lower.endsWith('.tex')) return 'file-text';
             if (lower.endsWith('.yaml') || lower.endsWith('.yml') || lower.endsWith('.toml') || lower.endsWith('.ini') || lower.endsWith('.cfg') || lower.endsWith('.css') || lower.endsWith('.sh') || lower.endsWith('.bat')) return 'file-code';
             if (lower.match(/\.(zip|tar|gz|tgz|bz2|tbz2|xz|7z|rar)$/)) return 'file-zip';
@@ -2598,26 +2602,54 @@
             'application/pdf',
             'text/',
             'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-word.document.macroenabled.12',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+            'application/rtf',
+            'text/rtf',
+            'application/vnd.oasis.opendocument.text',
             'application/json',
             'application/xml',
             'application/x-yaml',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'application/vnd.ms-excel.sheet.macroenabled.12',
+            'application/vnd.ms-excel',
+            'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+            'application/vnd.oasis.opendocument.spreadsheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+            'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+            'application/vnd.openxmlformats-officedocument.presentationml.template',
+            'application/vnd.oasis.opendocument.presentation',
+            'message/rfc822',
+            'application/vnd.ms-outlook',
+            'application/vnd.apple.pages',
+            'application/vnd.apple.numbers',
+            'application/vnd.apple.keynote',
             'application/javascript',
             'application/typescript',
             'application/octet-stream',
             'application/zip',
+            'application/x-zip-compressed',
             'application/x-tar',
+            'application/gzip',
+            'application/x-gzip',
+            'application/x-bzip2',
+            'application/x-xz',
             'application/x-7z-compressed',
+            'application/vnd.rar',
             'application/x-rar-compressed'
         ];
         const allowedExtensions = [
-            '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-            '.csv', '.tsv', '.xlsx', '.xlsm',
+            '.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.ts', '.log',
+            '.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods',
             '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat', '.cfg', '.ini', '.toml',
-            '.pdf', '.doc', '.docx',
+            '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
+            '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.pot', '.potx', '.odp',
+            '.eml', '.msg', '.pages', '.numbers', '.key',
             '.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar',
-            '.mp3', '.mp4', '.avi', '.mkv', '.mov', '.webm'
+            '.mp3', '.mp4', '.m4v', '.avi', '.mkv', '.mov', '.webm'
         ];
 
         files.forEach(file => {
@@ -2626,7 +2658,9 @@
                 return;
             }
 
-            const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+            const lowerName = String(file.name || '').toLowerCase();
+            const dotIndex = lowerName.lastIndexOf('.');
+            const ext = dotIndex >= 0 ? lowerName.slice(dotIndex) : '';
             if (!allowedMimeTypes.some(type => String(file.type || '').startsWith(type)) && !allowedExtensions.includes(ext)) {
                 showAlert(`File type ${file.type || 'unknown'} is not supported.`, 'danger');
                 return;

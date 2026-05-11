@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.86] - 2026-05-11
+
+### Added
+- **Business attachments are accepted and previewed consistently across messaging surfaces** - DM, channel, feed, comment, and edit upload paths now align on common Office, OpenDocument, iWork, email, archive, spreadsheet, source, media, and document formats, with bounded inline text previews for supported document containers.
+
+### Fixed
+- **Attachment failures no longer silently drop DM or channel files** - failed attachment processing now rejects the send with a clear error so file-only messages do not vanish and text messages are not posted without their intended attachment.
+
 ## [0.6.85] - 2026-05-10
 
 ### Added

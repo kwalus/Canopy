@@ -59,8 +59,31 @@ _EXT_TO_MIME = {
     '.markdown': 'text/markdown',
     '.csv': 'text/csv',
     '.tsv': 'text/csv',
+    '.doc': 'application/msword',
+    '.dot': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.docm': 'application/vnd.ms-word.document.macroenabled.12',
+    '.dotx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+    '.rtf': 'application/rtf',
+    '.odt': 'application/vnd.oasis.opendocument.text',
     '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     '.xlsm': 'application/vnd.ms-excel.sheet.macroenabled.12',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsb': 'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+    '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+    '.ppt': 'application/vnd.ms-powerpoint',
+    '.pot': 'application/vnd.ms-powerpoint',
+    '.pps': 'application/vnd.ms-powerpoint',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.pptm': 'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+    '.ppsx': 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+    '.potx': 'application/vnd.openxmlformats-officedocument.presentationml.template',
+    '.odp': 'application/vnd.oasis.opendocument.presentation',
+    '.eml': 'message/rfc822',
+    '.msg': 'application/vnd.ms-outlook',
+    '.pages': 'application/vnd.apple.pages',
+    '.numbers': 'application/vnd.apple.numbers',
+    '.key': 'application/vnd.apple.keynote',
     '.txt': 'text/plain',
     '.log': 'text/plain',
     '.cfg': 'text/plain',
@@ -77,6 +100,12 @@ _EXT_TO_MIME = {
     '.tar': 'application/x-tar',
     '.gz': 'application/gzip',
     '.gzip': 'application/gzip',
+    '.tgz': 'application/gzip',
+    '.bz2': 'application/x-bzip2',
+    '.tbz2': 'application/x-bzip2',
+    '.xz': 'application/x-xz',
+    '.7z': 'application/x-7z-compressed',
+    '.rar': 'application/vnd.rar',
 }
 
 
@@ -280,6 +309,18 @@ ALLOWED_TYPES = {
     'application/pdf': [
         b'%PDF-',  # PDF
     ],
+    'application/msword': [
+        b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1',  # OLE compound document
+    ],
+    'application/vnd.ms-excel': [
+        b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1',
+    ],
+    'application/vnd.ms-powerpoint': [
+        b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1',
+    ],
+    'application/vnd.ms-outlook': [
+        b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1',
+    ],
     'text/plain': [
         # Text files don't have magic bytes, validated by content
     ],
@@ -298,12 +339,88 @@ ALLOWED_TYPES = {
     'text/csv': [
         # CSV files — no magic bytes
     ],
+    'application/rtf': [
+        b'{\\rtf',
+    ],
+    'text/rtf': [
+        b'{\\rtf',
+    ],
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.ms-word.document.macroenabled.12': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.template': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [
         b'PK\x03\x04',
         b'PK\x05\x06',
         b'PK\x07\x08',
     ],
     'application/vnd.ms-excel.sheet.macroenabled.12': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.ms-excel.sheet.binary.macroenabled.12': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.ms-powerpoint.presentation.macroenabled.12': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.openxmlformats-officedocument.presentationml.slideshow': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.openxmlformats-officedocument.presentationml.template': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.oasis.opendocument.text': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.oasis.opendocument.spreadsheet': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.oasis.opendocument.presentation': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.apple.pages': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.apple.numbers': [
+        b'PK\x03\x04',
+        b'PK\x05\x06',
+        b'PK\x07\x08',
+    ],
+    'application/vnd.apple.keynote': [
         b'PK\x03\x04',
         b'PK\x05\x06',
         b'PK\x07\x08',
@@ -323,6 +440,9 @@ ALLOWED_TYPES = {
         b'{',  # JSON object
         b'[',  # JSON array
     ],
+    'message/rfc822': [
+        # Email messages are text containers with varied encodings.
+    ],
     
     # Archives (be careful with these - can contain malicious content)
     'application/zip': [
@@ -335,6 +455,23 @@ ALLOWED_TYPES = {
     ],
     'application/gzip': [
         b'\x1f\x8b',  # GZIP
+    ],
+    'application/x-bzip2': [
+        b'BZh',  # BZIP2
+    ],
+    'application/x-xz': [
+        b'\xfd7zXZ\x00',  # XZ
+    ],
+    'application/x-7z-compressed': [
+        b"7z\xbc\xaf'\x1c",  # 7-Zip
+    ],
+    'application/vnd.rar': [
+        b'Rar!\x1a\x07\x00',
+        b'Rar!\x1a\x07\x01\x00',
+    ],
+    'application/x-rar-compressed': [
+        b'Rar!\x1a\x07\x00',
+        b'Rar!\x1a\x07\x01\x00',
     ],
 }
 
@@ -358,21 +495,47 @@ MAX_SIZES = {
     'video/webm': 100 * 1024 * 1024,
     'video/quicktime': 100 * 1024 * 1024,
     'application/pdf': 10 * 1024 * 1024,
+    'application/msword': 25 * 1024 * 1024,
+    'application/vnd.ms-excel': 25 * 1024 * 1024,
+    'application/vnd.ms-powerpoint': 25 * 1024 * 1024,
+    'application/vnd.ms-outlook': 25 * 1024 * 1024,
     'text/plain': 1 * 1024 * 1024,
     'text/markdown': 1 * 1024 * 1024,
     'text/x-tex': 2 * 1024 * 1024,       # 2MB for TeX/LaTeX
     'application/x-latex': 2 * 1024 * 1024,
     'text/x-python': 2 * 1024 * 1024,    # 2MB for Python source shared as text
     'text/csv': 5 * 1024 * 1024,          # 5MB for CSV
+    'application/rtf': 5 * 1024 * 1024,
+    'text/rtf': 5 * 1024 * 1024,
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 25 * 1024 * 1024,
+    'application/vnd.ms-word.document.macroenabled.12': 25 * 1024 * 1024,
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.template': 25 * 1024 * 1024,
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 25 * 1024 * 1024,
     'application/vnd.ms-excel.sheet.macroenabled.12': 25 * 1024 * 1024,
+    'application/vnd.ms-excel.sheet.binary.macroenabled.12': 25 * 1024 * 1024,
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 25 * 1024 * 1024,
+    'application/vnd.ms-powerpoint.presentation.macroenabled.12': 25 * 1024 * 1024,
+    'application/vnd.openxmlformats-officedocument.presentationml.slideshow': 25 * 1024 * 1024,
+    'application/vnd.openxmlformats-officedocument.presentationml.template': 25 * 1024 * 1024,
+    'application/vnd.oasis.opendocument.text': 25 * 1024 * 1024,
+    'application/vnd.oasis.opendocument.spreadsheet': 25 * 1024 * 1024,
+    'application/vnd.oasis.opendocument.presentation': 25 * 1024 * 1024,
+    'application/vnd.apple.pages': 25 * 1024 * 1024,
+    'application/vnd.apple.numbers': 25 * 1024 * 1024,
+    'application/vnd.apple.keynote': 25 * 1024 * 1024,
     'text/html': 2 * 1024 * 1024,
     'application/xml': 2 * 1024 * 1024,
     'text/xml': 2 * 1024 * 1024,
     'application/json': 1 * 1024 * 1024,
+    'message/rfc822': 5 * 1024 * 1024,
     'application/zip': 100 * 1024 * 1024,
     'application/x-tar': 100 * 1024 * 1024,
     'application/gzip': 100 * 1024 * 1024,
+    'application/x-bzip2': 100 * 1024 * 1024,
+    'application/x-xz': 100 * 1024 * 1024,
+    'application/x-7z-compressed': 100 * 1024 * 1024,
+    'application/vnd.rar': 100 * 1024 * 1024,
+    'application/x-rar-compressed': 100 * 1024 * 1024,
 }
 
 
@@ -390,6 +553,74 @@ def _has_openxml_workbook_structure(file_data: bytes) -> bool:
         return False
 
 
+def _has_openxml_document_structure(file_data: bytes) -> bool:
+    """Return True when a ZIP container looks like an OOXML Word document."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_data)) as archive:
+            names = set(archive.namelist())
+            return '[Content_Types].xml' in names and 'word/document.xml' in names
+    except Exception:
+        return False
+
+
+def _has_openxml_presentation_structure(file_data: bytes) -> bool:
+    """Return True when a ZIP container looks like an OOXML PowerPoint deck."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_data)) as archive:
+            names = set(archive.namelist())
+            return (
+                '[Content_Types].xml' in names
+                and 'ppt/presentation.xml' in names
+                and any(name.startswith('ppt/slides/slide') for name in names)
+            )
+    except Exception:
+        return False
+
+
+def _has_openxml_binary_workbook_structure(file_data: bytes) -> bool:
+    """Return True when a ZIP container looks like a binary OOXML workbook."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_data)) as archive:
+            names = set(archive.namelist())
+            return (
+                '[Content_Types].xml' in names
+                and ('xl/workbook.bin' in names or 'xl/workbook.xml' in names)
+            )
+    except Exception:
+        return False
+
+
+def _has_opendocument_structure(file_data: bytes, expected_mimetype: str) -> bool:
+    """Return True when a ZIP container looks like the expected OpenDocument file."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_data)) as archive:
+            names = set(archive.namelist())
+            if 'content.xml' not in names:
+                return False
+            try:
+                mimetype = archive.read('mimetype').decode('utf-8', errors='ignore').strip()
+            except Exception:
+                mimetype = ''
+            return not mimetype or mimetype == expected_mimetype
+    except Exception:
+        return False
+
+
+def _has_iwork_zip_structure(file_data: bytes) -> bool:
+    """Best-effort guard for modern Apple iWork ZIP bundles."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_data)) as archive:
+            names = set(archive.namelist())
+            return bool(
+                any(name.startswith('Index/') for name in names)
+                or any(name.startswith('Metadata/') for name in names)
+                or 'preview.jpg' in names
+                or 'preview.png' in names
+            )
+    except Exception:
+        return False
+
+
 def _validate_utf8_source_payload(file_data: bytes, label: str) -> Tuple[bool, Optional[str]]:
     """Ensure source-code attachments remain text, not binary files in disguise."""
     if b'\x00' in file_data:
@@ -398,6 +629,23 @@ def _validate_utf8_source_payload(file_data: bytes, label: str) -> Tuple[bool, O
         file_data.decode('utf-8', errors='strict')
     except UnicodeDecodeError:
         return False, f"{label} source file must be valid UTF-8 text"
+    return True, None
+
+
+def _validate_mostly_text_payload(file_data: bytes, label: str) -> Tuple[bool, Optional[str]]:
+    """Reject obvious binary blobs for text-container business formats."""
+    if b'\x00' in file_data:
+        return False, f"{label} file contains binary data"
+    sample = file_data[:8192]
+    try:
+        text = sample.decode('utf-8', errors='ignore')
+    except Exception:
+        text = ''
+    if not text:
+        return False, f"{label} file is not readable text"
+    printable = sum(1 for ch in text if ch.isprintable() or ch in '\r\n\t')
+    if (printable / max(len(text), 1)) < 0.85:
+        return False, f"{label} file contains too much non-text data"
     return True, None
 
 
@@ -441,6 +689,18 @@ def validate_file_upload(
         'text/x-python-script': 'text/x-python',
         'application/vnd.ms-excel.sheet.macroenabled.12': 'application/vnd.ms-excel.sheet.macroenabled.12',
         'application/vnd.ms-excel.sheet.macroenabled.12; charset=binary': 'application/vnd.ms-excel.sheet.macroenabled.12',
+        'application/x-rtf': 'application/rtf',
+        'text/richtext': 'application/rtf',
+        'application/vnd.msword': 'application/msword',
+        'application/mspowerpoint': 'application/vnd.ms-powerpoint',
+        'application/powerpoint': 'application/vnd.ms-powerpoint',
+        'application/x-mspowerpoint': 'application/vnd.ms-powerpoint',
+        'application/x-msoutlook': 'application/vnd.ms-outlook',
+        'application/octet-stream; charset=binary': 'application/octet-stream',
+        'application/x-zip-compressed': 'application/zip',
+        'application/x-gzip': 'application/gzip',
+        'application/gzip-compressed': 'application/gzip',
+        'application/x-rar': 'application/vnd.rar',
     }
     claimed_content_type = (claimed_content_type or '').strip().lower()
     if ';' in claimed_content_type:
@@ -530,13 +790,58 @@ def validate_file_upload(
                 if pattern in file_str:
                     return False, "HTML file contains potentially dangerous content", None
 
-    # 4c. Validate that OOXML spreadsheet uploads are actually workbook containers.
+    # 4c. Validate that OOXML/OpenDocument business uploads are actually the
+    # expected container shape. These formats are stored/downloaded only; no
+    # macros, embedded scripts, or active content are executed by Canopy.
     if claimed_content_type in (
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'application/vnd.ms-excel.sheet.macroenabled.12',
     ):
         if not _has_openxml_workbook_structure(file_data):
             return False, "Spreadsheet file is invalid or malformed", None
+
+    if claimed_content_type == 'application/vnd.ms-excel.sheet.binary.macroenabled.12':
+        if not _has_openxml_binary_workbook_structure(file_data):
+            return False, "Spreadsheet file is invalid or malformed", None
+
+    if claimed_content_type in (
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-word.document.macroenabled.12',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+    ):
+        if not _has_openxml_document_structure(file_data):
+            return False, "Word document is invalid or malformed", None
+
+    if claimed_content_type in (
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+        'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+        'application/vnd.openxmlformats-officedocument.presentationml.template',
+    ):
+        if not _has_openxml_presentation_structure(file_data):
+            return False, "Presentation file is invalid or malformed", None
+
+    opendocument_mimetypes = {
+        'application/vnd.oasis.opendocument.text': 'application/vnd.oasis.opendocument.text',
+        'application/vnd.oasis.opendocument.spreadsheet': 'application/vnd.oasis.opendocument.spreadsheet',
+        'application/vnd.oasis.opendocument.presentation': 'application/vnd.oasis.opendocument.presentation',
+    }
+    if claimed_content_type in opendocument_mimetypes:
+        if not _has_opendocument_structure(file_data, opendocument_mimetypes[claimed_content_type]):
+            return False, "OpenDocument file is invalid or malformed", None
+
+    if claimed_content_type in (
+        'application/vnd.apple.pages',
+        'application/vnd.apple.numbers',
+        'application/vnd.apple.keynote',
+    ):
+        if not _has_iwork_zip_structure(file_data):
+            return False, "Apple iWork file is invalid or malformed", None
+
+    if claimed_content_type == 'message/rfc822':
+        is_text, text_error = _validate_mostly_text_payload(file_data, 'Email')
+        if not is_text:
+            return False, text_error, None
 
     # 4d. Python source is allowed for agent collaboration, but only as text.
     if claimed_content_type == 'text/x-python':
@@ -563,21 +868,47 @@ def validate_file_upload(
         'video/webm': ['.webm'],
         'video/quicktime': ['.mov', '.qt'],
         'application/pdf': ['.pdf'],
+        'application/msword': ['.doc', '.dot'],
+        'application/vnd.ms-excel': ['.xls'],
+        'application/vnd.ms-powerpoint': ['.ppt', '.pot', '.pps'],
+        'application/vnd.ms-outlook': ['.msg'],
         'text/plain': ['.txt', '.log', '.cfg', '.ini', '.yml', '.yaml', '.toml'],
         'text/markdown': ['.md', '.markdown'],
         'text/x-tex': ['.tex', '.sty', '.cls', '.bib', '.bst'],
         'application/x-latex': ['.tex', '.latex', '.ltx'],
         'text/x-python': ['.py', '.pyi', '.pyw'],
         'text/csv': ['.csv', '.tsv'],
+        'application/rtf': ['.rtf'],
+        'text/rtf': ['.rtf'],
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+        'application/vnd.ms-word.document.macroenabled.12': ['.docm'],
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.template': ['.dotx'],
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
         'application/vnd.ms-excel.sheet.macroenabled.12': ['.xlsm'],
+        'application/vnd.ms-excel.sheet.binary.macroenabled.12': ['.xlsb'],
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'],
+        'application/vnd.ms-powerpoint.presentation.macroenabled.12': ['.pptm'],
+        'application/vnd.openxmlformats-officedocument.presentationml.slideshow': ['.ppsx'],
+        'application/vnd.openxmlformats-officedocument.presentationml.template': ['.potx'],
+        'application/vnd.oasis.opendocument.text': ['.odt'],
+        'application/vnd.oasis.opendocument.spreadsheet': ['.ods'],
+        'application/vnd.oasis.opendocument.presentation': ['.odp'],
+        'application/vnd.apple.pages': ['.pages'],
+        'application/vnd.apple.numbers': ['.numbers'],
+        'application/vnd.apple.keynote': ['.key'],
         'text/html': ['.html', '.htm'],
         'application/xml': ['.xml', '.xsl', '.xslt'],
         'text/xml': ['.xml'],
         'application/json': ['.json'],
+        'message/rfc822': ['.eml'],
         'application/zip': ['.zip'],
         'application/x-tar': ['.tar'],
-        'application/gzip': ['.gz', '.gzip'],
+        'application/gzip': ['.gz', '.gzip', '.tgz'],
+        'application/x-bzip2': ['.bz2', '.tbz2'],
+        'application/x-xz': ['.xz'],
+        'application/x-7z-compressed': ['.7z'],
+        'application/vnd.rar': ['.rar'],
+        'application/x-rar-compressed': ['.rar'],
     }
     
     expected_extensions = extension_map.get(claimed_content_type, [])
@@ -601,12 +932,27 @@ def detect_zip_bomb(file_data: bytes, content_type: str) -> Tuple[bool, Optional
     Returns:
         (is_safe, error_message)
     """
-    if content_type not in [
+    zip_container_types = [
         'application/zip',
         'application/gzip',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-word.document.macroenabled.12',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'application/vnd.ms-excel.sheet.macroenabled.12',
-    ]:
+        'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+        'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+        'application/vnd.openxmlformats-officedocument.presentationml.template',
+        'application/vnd.oasis.opendocument.text',
+        'application/vnd.oasis.opendocument.spreadsheet',
+        'application/vnd.oasis.opendocument.presentation',
+        'application/vnd.apple.pages',
+        'application/vnd.apple.numbers',
+        'application/vnd.apple.keynote',
+    ]
+    if content_type not in zip_container_types:
         return True, None
     
     # Check compression ratio - if suspiciously high, might be a zip bomb
@@ -614,8 +960,22 @@ def detect_zip_bomb(file_data: bytes, content_type: str) -> Tuple[bool, Optional
     
     if content_type in [
         'application/zip',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-word.document.macroenabled.12',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'application/vnd.ms-excel.sheet.macroenabled.12',
+        'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+        'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+        'application/vnd.openxmlformats-officedocument.presentationml.template',
+        'application/vnd.oasis.opendocument.text',
+        'application/vnd.oasis.opendocument.spreadsheet',
+        'application/vnd.oasis.opendocument.presentation',
+        'application/vnd.apple.pages',
+        'application/vnd.apple.numbers',
+        'application/vnd.apple.keynote',
     ]:
         try:
             zip_file = zipfile.ZipFile(io.BytesIO(file_data))

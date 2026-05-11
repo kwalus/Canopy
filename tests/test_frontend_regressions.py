@@ -555,6 +555,22 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('[data-theme="light"] .file-preview-container.code-preview,', base_template)
         self.assertIn('[data-theme="light"] .file-preview-container.spreadsheet-preview', base_template)
 
+    def test_business_document_attachments_are_allowed_and_previewable(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        messages_composer = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_composer.html').read_text(encoding='utf-8')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        self.assertIn('.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx', messages_composer)
+        self.assertIn("'application/vnd.openxmlformats-officedocument.wordprocessingml.document'", messages_template)
+        self.assertIn("'.pptx'", channels_template)
+        self.assertIn("'application/x-7z-compressed'", feed_template)
+        self.assertIn("'.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar'", feed_template)
+        self.assertIn('function canopyIsDocumentPreviewable', main_js)
+        self.assertIn("payload.kind === 'document'", main_js)
+        self.assertIn('.file-preview-container.document-preview', base_template)
+
     def test_sidebar_toggle_aria_label_is_updated_per_state(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn("toggleBtn.setAttribute('aria-label', isMobile ? 'Close navigation' : 'Collapse to Icons');", main_js)

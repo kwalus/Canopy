@@ -4545,7 +4545,7 @@
                         <!-- Message Controls -->
                         <div class="input-group-append d-flex">
                             <input type="file" id="file-input" style="display: none;" multiple 
-                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.avi,.mkv,.mov,.webm">
+                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('file-input').click()">
                                 <i class="bi bi-paperclip"></i>
                             </button>
@@ -7181,8 +7181,27 @@ const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
     'application/pdf',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-word.document.macroenabled.12',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+    'application/rtf',
+    'text/rtf',
+    'application/vnd.oasis.opendocument.text',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'application/vnd.ms-excel.sheet.macroenabled.12',
+    'application/vnd.ms-excel',
+    'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+    'application/vnd.oasis.opendocument.spreadsheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+    'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+    'application/vnd.openxmlformats-officedocument.presentationml.template',
+    'application/vnd.oasis.opendocument.presentation',
+    'message/rfc822',
+    'application/vnd.ms-outlook',
+    'application/vnd.apple.pages',
+    'application/vnd.apple.numbers',
+    'application/vnd.apple.keynote',
     'application/json',
     'application/xml',
     'application/x-yaml',
@@ -7204,9 +7223,11 @@ const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
 ]);
 const CHANNEL_FILE_ALLOWED_EXTENSIONS = [
     '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg',
-    '.md', '.txt', '.tex', '.json', '.py', '.js', '.ts', '.log',
-    '.csv', '.tsv', '.xlsx', '.xlsm', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
-    '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx',
+    '.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.ts', '.log',
+    '.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
+    '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
+    '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.pot', '.potx', '.odp',
+    '.eml', '.msg', '.pages', '.numbers', '.key',
     '.zip', '.tar', '.gz', '.tgz', '.bz2', '.tbz2', '.xz', '.7z', '.rar'
 ];
 const CHANNEL_FILE_EXT_TO_MIME = {
@@ -7218,10 +7239,33 @@ const CHANNEL_FILE_EXT_TO_MIME = {
     '.bmp': 'image/bmp',
     '.svg': 'image/svg+xml',
     '.md': 'text/markdown',
+    '.markdown': 'text/markdown',
     '.txt': 'text/plain',
     '.py': 'text/x-python',
     '.json': 'application/json',
-    '.pdf': 'application/pdf'
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.docm': 'application/vnd.ms-word.document.macroenabled.12',
+    '.dotx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+    '.rtf': 'application/rtf',
+    '.odt': 'application/vnd.oasis.opendocument.text',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.xlsm': 'application/vnd.ms-excel.sheet.macroenabled.12',
+    '.xlsb': 'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+    '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+    '.ppt': 'application/vnd.ms-powerpoint',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.pptm': 'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+    '.ppsx': 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+    '.potx': 'application/vnd.openxmlformats-officedocument.presentationml.template',
+    '.odp': 'application/vnd.oasis.opendocument.presentation',
+    '.eml': 'message/rfc822',
+    '.msg': 'application/vnd.ms-outlook',
+    '.pages': 'application/vnd.apple.pages',
+    '.numbers': 'application/vnd.apple.numbers',
+    '.key': 'application/vnd.apple.keynote'
 };
 const CHANNEL_FILE_MIME_TO_EXT = Object.entries(CHANNEL_FILE_EXT_TO_MIME).reduce((acc, pair) => {
     const [ext, mime] = pair;
@@ -14034,6 +14078,12 @@ function isSpreadsheetPreviewable(filename, contentType) {
         : false;
 }
 
+function isDocumentPreviewable(filename, contentType) {
+    return typeof canopyIsDocumentPreviewable === 'function'
+        ? canopyIsDocumentPreviewable(filename, contentType)
+        : false;
+}
+
 function isMarkdownFile(filename, contentType) {
     return typeof canopyIsMarkdownPreviewable === 'function'
         ? canopyIsMarkdownPreviewable(filename, contentType)
@@ -14804,13 +14854,15 @@ function displayAttachments(attachments, sourceLayout) {
         const escapedUrl = hasUrl ? String(att.url).replace(/"/g, '&quot;').replace(/'/g, "\\'") : '';
         const attachmentFileId = String(att.id || att.file_id || '').trim() || ((hasUrl && /^\/files\/([^/?#]+)/.test(att.url)) ? String(att.url).match(/^\/files\/([^/?#]+)/)[1] : '');
         const spreadsheetPreview = isSpreadsheetPreviewable(att.name, att.type);
-        const previewable = attachmentFileId && (isTextPreviewable(att.name, att.type) || spreadsheetPreview);
+        const documentPreview = isDocumentPreviewable(att.name, att.type);
+        const previewable = attachmentFileId && (isTextPreviewable(att.name, att.type) || spreadsheetPreview || documentPreview);
         const previewLabels = typeof canopyAttachmentPreviewLabels === 'function'
             ? canopyAttachmentPreviewLabels(att.name, att.type)
             : { collapsed: 'Preview', expanded: 'Collapse' };
         const infoBadges = [];
         if (spreadsheetPreview) infoBadges.push('<span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>');
-        if (String(att.name || '').toLowerCase().endsWith('.xlsm')) infoBadges.push('<span class="badge rounded-pill text-bg-warning">Macros disabled</span>');
+        if (documentPreview) infoBadges.push('<span class="badge rounded-pill text-bg-secondary">Document</span>');
+        if (String(att.name || '').toLowerCase().match(/\.(xlsm|docm|pptm)$/)) infoBadges.push('<span class="badge rounded-pill text-bg-warning">Macros disabled</span>');
         if (previewable) {
             const previewId = 'file-preview-' + (++_previewIdCounter);
             const previewBtn = hasUrl ? `<button type="button" class="btn btn-sm btn-outline-secondary me-1" data-preview-toggle="${previewId}" data-preview-label="${previewLabels.collapsed}" data-preview-expanded-label="${previewLabels.expanded}" onclick="toggleAttachmentPreview('${previewId}', '/ajax/files/${encodeURIComponent(attachmentFileId)}/preview')"><i class="bi bi-eye me-1"></i><span class="preview-label">${previewLabels.collapsed}</span></button>` : '';
@@ -15860,6 +15912,8 @@ function getFileIcon(type, name) {
     if (lowerType.includes('pdf')) return 'file-pdf';
     if (lowerType.includes('json')) return 'filetype-json';
     if (lowerType.includes('spreadsheet') || lowerType.includes('excel')) return 'file-earmark-spreadsheet';
+    if (lowerType.includes('presentation') || lowerType.includes('powerpoint')) return 'file-earmark-slides';
+    if (lowerType.includes('wordprocessingml') || lowerType.includes('msword') || lowerType.includes('rtf')) return 'file-earmark-word';
     if (lowerType.startsWith('text/')) return 'file-text';
     if (name) {
         const lower = name.toLowerCase();
@@ -15871,7 +15925,9 @@ function getFileIcon(type, name) {
         if (lower.endsWith('.ts')) return 'filetype-tsx';
         if (lower.endsWith('.xml') || lower.endsWith('.html')) return 'filetype-xml';
         if (lower.endsWith('.csv')) return 'filetype-csv';
-        if (lower.endsWith('.tsv') || lower.endsWith('.xlsx') || lower.endsWith('.xlsm')) return 'file-earmark-spreadsheet';
+        if (lower.match(/\.(tsv|xls|xlsx|xlsm|xlsb|ods|numbers)$/)) return 'file-earmark-spreadsheet';
+        if (lower.match(/\.(ppt|pptx|pptm|pps|ppsx|pot|potx|odp|key)$/)) return 'file-earmark-slides';
+        if (lower.match(/\.(doc|docx|docm|dot|dotx|rtf|odt|pages)$/)) return 'file-earmark-word';
         if (lower.endsWith('.txt') || lower.endsWith('.log') || lower.endsWith('.tex')) return 'file-text';
         if (lower.endsWith('.yaml') || lower.endsWith('.yml') || lower.endsWith('.toml') || lower.endsWith('.ini') || lower.endsWith('.cfg')) return 'file-code';
     }
@@ -17314,7 +17370,7 @@ function updateFilePreview() {
     preview.style.display = 'block';
     preview.innerHTML = selectedFiles.map((file, index) => `
         <div class="file-preview-item">
-            <i class="bi bi-${getFileIcon(file.type)}"></i>
+            <i class="bi bi-${getFileIcon(file.type, file.name)}"></i>
             <span>${file.name}</span>
             <button type="button" class="btn-close" onclick="removeFile(${index})"></button>
         </div>
@@ -17407,7 +17463,7 @@ function beginInlineChannelMessageEdit(message) {
                        data-inline-file-input
                        style="display:none;"
                        multiple
-                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.tex,.md,.json,.py,.js,.ts,.log,.csv,.tsv,.xlsx,.xlsm,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mkv,.mov,.webm">
+                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-add-files>
                     <i class="bi bi-paperclip"></i> Add Files
                 </button>
@@ -17482,7 +17538,7 @@ function renderInlineChannelEditAttachments(messageId) {
                 <div class="mb-2"><strong>Current Files:</strong></div>
                 ${state.existingAttachments.map((attachment, index) => `
                     <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded" style="background: var(--canopy-bg-secondary); border: 1px solid var(--canopy-border);">
-                        <i class="bi bi-${getFileIcon((attachment && attachment.type) || '')}"></i>
+                        <i class="bi bi-${getFileIcon((attachment && attachment.type) || '', (attachment && attachment.name) || '')}"></i>
                         <span class="small">${escapeHtml((attachment && attachment.name) || 'file')}</span>
                         <button type="button" class="btn-close btn-sm" onclick="removeInlineChannelExistingAttachment('${messageId}', ${index})" style="font-size: 0.7rem;"></button>
                     </div>
@@ -17500,7 +17556,7 @@ function renderInlineChannelEditAttachments(messageId) {
             newWrap.style.display = 'block';
             newWrap.innerHTML = state.newAttachments.map((file, index) => `
                 <div class="file-preview-item">
-                    <i class="bi bi-${getFileIcon(file.type)}"></i>
+                    <i class="bi bi-${getFileIcon(file.type, file.name)}"></i>
                     <span>${escapeHtml(file.name)}</span>
                     <button type="button" class="btn-close" onclick="removeInlineChannelEditFile('${messageId}', ${index})"></button>
                 </div>
