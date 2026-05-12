@@ -33,6 +33,8 @@ class InteractionType(Enum):
     ROCKET = "rocket"
     EYES = "eyes"
     CHECK = "check"
+    HUNDRED = "hundred"
+    IDK = "idk"
     PRAY = "pray"
     DISLIKE = "dislike"
     BEER = "beer"
@@ -52,6 +54,8 @@ REACTION_OPTIONS: List[Dict[str, str]] = [
     {"type": InteractionType.ROCKET.value, "emoji": "🚀", "label": "Ship it"},
     {"type": InteractionType.EYES.value, "emoji": "👀", "label": "Watching"},
     {"type": InteractionType.CHECK.value, "emoji": "✅", "label": "Done"},
+    {"type": InteractionType.HUNDRED.value, "emoji": "💯", "label": "100%"},
+    {"type": InteractionType.IDK.value, "emoji": "🤷", "label": "IDK"},
     {"type": InteractionType.PRAY.value, "emoji": "🙏", "label": "Thanks"},
     {"type": InteractionType.DISLIKE.value, "emoji": "👎", "label": "Dislike"},
     {"type": InteractionType.BEER.value, "emoji": "🍺", "label": "Beer"},

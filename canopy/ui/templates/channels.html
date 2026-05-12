@@ -169,6 +169,52 @@
         pointer-events: none;
     }
 
+    .reaction-summary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.18rem;
+        flex-wrap: wrap;
+        margin-left: 0.12rem;
+        max-width: min(19rem, 56vw);
+    }
+
+    .reaction-summary:empty {
+        display: none;
+    }
+
+    .reaction-summary-pill {
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 70%, var(--canopy-primary) 30%);
+        background: color-mix(in srgb, var(--canopy-bg-card) 86%, var(--canopy-primary) 14%);
+        color: var(--canopy-text-primary);
+        border-radius: 999px;
+        padding: 0.08rem 0.34rem;
+        min-height: 1.62rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.22rem;
+        font-size: 0.78rem;
+        line-height: 1;
+    }
+
+    .reaction-summary-pill:hover,
+    .reaction-summary-pill:focus-visible,
+    .reaction-summary-pill.is-selected {
+        border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border) 42%);
+        background: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-bg-card) 76%);
+        outline: none;
+    }
+
+    .reaction-summary-count {
+        font-size: 0.72rem;
+        font-weight: 800;
+        color: var(--canopy-text-secondary);
+    }
+
+    .reaction-summary-pill .reaction-custom-emoji-img {
+        width: 0.98rem;
+        height: 0.98rem;
+    }
+
     .post-repost-shell,
     .post-variant-shell {
         display: grid;
@@ -4727,8 +4773,8 @@
                     <div class="emoji-tabs" id="emoji-tabs"></div>
                     <div id="emoji-custom-upload" class="emoji-custom-row" style="display:none;">
                         <input type="text" id="custom-emoji-name" placeholder="Custom emoji name">
-                        <button type="button" class="btn btn-sm btn-primary" onclick="triggerCustomEmojiUpload()">Upload</button>
-                        <input type="file" id="custom-emoji-file" accept="image/*" style="display:none;">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="triggerCustomEmojiUpload()" title="Upload PNG, GIF, WebP, JPG, or SVG custom emoji up to 2MB">Upload</button>
+                        <input type="file" id="custom-emoji-file" accept="image/png,image/gif,image/webp,image/jpeg,image/svg+xml,.png,.gif,.webp,.jpg,.jpeg,.svg" style="display:none;">
                     </div>
                     <div class="emoji-grid" id="emoji-grid"></div>
                     <div class="emoji-empty-state" id="emoji-empty-state" style="display:none;">
@@ -10302,6 +10348,37 @@ function renderChannelReactionVisual(reaction) {
     return escapeHtml((reaction && reaction.emoji) || '👍');
 }
 
+function buildChannelReactionSummaryHtml(messageId, counts, userReaction) {
+    const normalizedCounts = normalizeChannelReactionCounts(counts);
+    const selected = normalizeOptionalChannelReactionKey(userReaction || '');
+    return Object.entries(normalizedCounts)
+        .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+        .map(([type, count]) => {
+            if (!count) return '';
+            const reaction = getChannelReactionOption(type);
+            const isSelected = selected === type;
+            return `
+                <button type="button"
+                        class="reaction-summary-pill${isSelected ? ' is-selected' : ''}"
+                        onclick="toggleLike(${reactionInlineArg(messageId)}, ${reactionInlineArg(type)})"
+                        title="${reactionEscapeAttr(reaction.label)}"
+                        aria-label="${reactionEscapeAttr(`${reaction.label} reaction, ${count}`)}"
+                        aria-pressed="${isSelected ? 'true' : 'false'}">
+                    <span class="reaction-visual">${renderChannelReactionVisual(reaction)}</span>
+                    <span class="reaction-summary-count">${count}</span>
+                </button>
+            `;
+        })
+        .join('');
+}
+
+function updateChannelReactionSummary(control, counts, userReaction) {
+    if (!control) return;
+    const summary = control.querySelector('[data-reaction-summary]');
+    if (!summary) return;
+    summary.innerHTML = buildChannelReactionSummaryHtml(control.dataset.itemId || '', counts, userReaction);
+}
+
 function reactionEscapeAttr(value) {
     return String(value || '')
         .replace(/&/g, '&amp;')
@@ -10368,6 +10445,7 @@ function renderChannelReactionControl(message) {
                  aria-label="Choose reaction">
                 ${choices}
             </div>
+            <div class="reaction-summary" data-reaction-summary aria-label="Reaction summary"></div>
         </div>
     `;
 }
@@ -18658,7 +18736,8 @@ const EMOJI_LIBRARY = [
         items: [
             { char: '👍', name: 'thumbs_up' }, { char: '👎', name: 'thumbs_down' }, { char: '👏', name: 'clap' },
             { char: '🙏', name: 'pray' }, { char: '🤝', name: 'handshake' }, { char: '💪', name: 'strong' },
-            { char: '🙌', name: 'raised_hands' }, { char: '🤘', name: 'rock_on' }, { char: '✌️', name: 'victory' }
+            { char: '🙌', name: 'raised_hands' }, { char: '🤷', name: 'idk' }, { char: '🤘', name: 'rock_on' },
+            { char: '✌️', name: 'victory' }
         ]
     },
     {
@@ -18685,7 +18764,7 @@ const EMOJI_LIBRARY = [
         items: [
             { char: '✅', name: 'check' }, { char: '❗', name: 'exclamation' }, { char: '⚠️', name: 'warning' },
             { char: '🔒', name: 'lock' }, { char: '♻️', name: 'recycle' }, { char: '💬', name: 'speech' },
-            { char: '🧬', name: 'dna' }, { char: '✨', name: 'sparkles' }
+            { char: '💯', name: '100_percent' }, { char: '🧬', name: 'dna' }, { char: '✨', name: 'sparkles' }
         ]
     }
 ];
@@ -19159,6 +19238,7 @@ function updateLikeButton(messageId, liked, interactions, userReaction) {
             choice.classList.toggle('is-selected', selected);
             choice.setAttribute('aria-pressed', selected ? 'true' : 'false');
         });
+        updateChannelReactionSummary(control, counts, liked ? reactionKey : '');
     }
 
     if (liked) {

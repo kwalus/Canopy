@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.87] - 2026-05-12
+
+### Added
+- **Reactions now expose richer standard and custom emoji tooling** - `hundred` and `idk` join the standard reaction set, feed/channel surfaces render per-emoji reaction summary pills, and agents can list/upload/delete local custom emoji assets through REST endpoints.
+- **Feed and DM composers now share the inline emoji picker** - humans can insert standard emoji, the Canopy logo token, and local custom emoji assets outside the channel composer.
+
+### Fixed
+- **Custom emoji uploads are safer and less duplicative** - SVG emoji assets reject active content, custom emoji file serving uses strict directory containment checks, and same-slug UI uploads replace the previous local asset.
+
 ## [0.6.86] - 2026-05-11
 
 ### Added

@@ -1522,9 +1522,15 @@ def create_ui_blueprint() -> Blueprint:
         canopy_config = current_app.config.get('CANOPY_CONFIG')
         base_dir = Path(
             str(getattr(getattr(canopy_config, 'storage', None), 'data_dir', '') or Path('./data'))
-        ) / 'custom_emojis'
+        ).resolve() / 'custom_emojis'
         os.makedirs(base_dir, exist_ok=True)
         return str(base_dir)
+
+    def _custom_emoji_path_in_dir(path: str, base_dir: str) -> bool:
+        try:
+            return os.path.commonpath([os.path.abspath(base_dir), os.path.abspath(path)]) == os.path.abspath(base_dir)
+        except ValueError:
+            return False
 
     def _custom_emoji_index_path() -> str:
         return os.path.join(_custom_emoji_dir(), 'index.json')
@@ -1549,7 +1555,7 @@ def create_ui_blueprint() -> Blueprint:
                 continue
             file_path = os.path.abspath(os.path.join(base_dir, filename))
             # Reject entries that escape the emoji directory
-            if not file_path.startswith(base_dir):
+            if not _custom_emoji_path_in_dir(file_path, base_dir):
                 continue
             if not os.path.isfile(file_path):
                 continue
@@ -1566,6 +1572,27 @@ def create_ui_blueprint() -> Blueprint:
         value = re.sub(r'[^a-z0-9_-]+', '-', value)
         value = re.sub(r'-{2,}', '-', value).strip('-')
         return value or 'emoji'
+
+    def _svg_custom_emoji_is_safe(raw: bytes) -> tuple[bool, str]:
+        try:
+            svg_text = raw.decode('utf-8', errors='strict').lower()
+        except UnicodeDecodeError:
+            return False, 'SVG file contains invalid UTF-8 encoding'
+        if '<svg' not in svg_text[:4096]:
+            return False, 'File does not appear to be a valid SVG image'
+        dangerous_patterns = (
+            '<script',
+            'javascript:',
+            'onerror=',
+            'onload=',
+            '<iframe',
+            '<object',
+            '<embed',
+            '<foreignobject',
+        )
+        if any(pattern in svg_text for pattern in dangerous_patterns):
+            return False, 'SVG file contains potentially dangerous content'
+        return True, ''
 
     def _compute_group_id(member_ids: list) -> str:
         """Create a stable group ID from a set of member IDs."""
@@ -5300,6 +5327,8 @@ def create_ui_blueprint() -> Blueprint:
                 {'type': 'rocket', 'emoji': '🚀', 'label': 'Ship it'},
                 {'type': 'eyes', 'emoji': '👀', 'label': 'Watching'},
                 {'type': 'check', 'emoji': '✅', 'label': 'Done'},
+                {'type': 'hundred', 'emoji': '💯', 'label': '100%'},
+                {'type': 'idk', 'emoji': '🤷', 'label': 'IDK'},
                 {'type': 'pray', 'emoji': '🙏', 'label': 'Thanks'},
                 {'type': 'dislike', 'emoji': '👎', 'label': 'Dislike'},
                 {'type': 'beer', 'emoji': '🍺', 'label': 'Beer'},
@@ -22386,22 +22415,34 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'error': f'Unsupported file type. Allowed: {", ".join(sorted(_ALLOWED_EMOJI_EXTS))}'}), 400
 
         raw = emoji_file.read()
-        if len(raw) > 512 * 1024:
-            return jsonify({'error': 'File too large (max 512KB)'}), 400
+        max_emoji_bytes = 2 * 1024 * 1024
+        if len(raw) > max_emoji_bytes:
+            return jsonify({'error': 'File too large (max 2MB)'}), 400
 
         # Magic-byte validation — verify file header matches an image format
-        _IMAGE_MAGIC = {
-            b'\x89PNG': '.png',
-            b'GIF8': '.gif',
-            b'RIFF': '.webp',  # WebP starts with RIFF....WEBP
-            b'\xff\xd8\xff': '.jpg',
-        }
-        header = raw[:8]
-        is_valid_image = any(header.startswith(sig) for sig in _IMAGE_MAGIC)
-        # SVG is XML-based, check for opening tag
-        if not is_valid_image and raw_ext == '.svg':
-            is_valid_image = b'<svg' in raw[:1024].lower()
-        if not is_valid_image:
+        header = raw[:16]
+        detected_ext = None
+        if header.startswith(b'\x89PNG'):
+            detected_ext = '.png'
+        elif header.startswith(b'GIF8'):
+            detected_ext = '.gif'
+        elif header.startswith(b'RIFF') and len(raw) >= 12 and raw[8:12] == b'WEBP':
+            detected_ext = '.webp'
+        elif header.startswith(b'\xff\xd8\xff'):
+            detected_ext = '.jpg'
+
+        if raw_ext == '.svg':
+            is_safe_svg, svg_error = _svg_custom_emoji_is_safe(raw)
+            if not is_safe_svg:
+                return jsonify({'error': svg_error}), 400
+        else:
+            allowed_detected_exts = {raw_ext}
+            if raw_ext in {'.jpg', '.jpeg'}:
+                allowed_detected_exts = {'.jpg'}
+            if detected_ext not in allowed_detected_exts:
+                return jsonify({'error': 'File does not appear to be a valid image'}), 400
+
+        if raw_ext != '.svg' and not detected_ext:
             return jsonify({'error': 'File does not appear to be a valid image'}), 400
 
         display_name = request.form.get('name', '').strip()
@@ -22427,8 +22468,20 @@ def create_ui_blueprint() -> Blueprint:
 
         with _CUSTOM_EMOJI_LOCK:
             entries = _load_custom_emojis()
-            entries.append(entry)
-            _save_custom_emojis(entries)
+            replaced = []
+            for existing in entries:
+                if str(existing.get('name') or '').strip() != safe_name:
+                    replaced.append(existing)
+                    continue
+                old_filename = str(existing.get('filename') or '').strip()
+                old_path = os.path.abspath(os.path.join(base_dir, old_filename))
+                if old_filename and _custom_emoji_path_in_dir(old_path, base_dir) and os.path.isfile(old_path):
+                    try:
+                        os.remove(old_path)
+                    except OSError:
+                        pass
+            replaced.append(entry)
+            _save_custom_emojis(replaced)
 
         return jsonify({'success': True, 'emoji': entry})
 
@@ -22438,7 +22491,7 @@ def create_ui_blueprint() -> Blueprint:
         """Serve custom emoji images stored locally."""
         base_dir = _custom_emoji_dir()
         safe_path = os.path.abspath(os.path.join(base_dir, filename))
-        if not safe_path.startswith(base_dir):
+        if not _custom_emoji_path_in_dir(safe_path, base_dir):
             return jsonify({'error': 'Not found'}), 404
         if not os.path.isfile(safe_path):
             return jsonify({'error': 'Not found'}), 404

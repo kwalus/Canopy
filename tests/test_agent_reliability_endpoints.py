@@ -1,6 +1,7 @@
 """Regression tests for agent reliability endpoints (claims, discovery, heartbeat cursors)."""
 
 import os
+import base64
 import sqlite3
 import sys
 import tempfile
@@ -282,6 +283,9 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         app.config['TESTING'] = True
         app.secret_key = 'test-secret'
         app.config['MENTION_MANAGER'] = self.mention_manager
+        app.config['CANOPY_CONFIG'] = types.SimpleNamespace(
+            storage=types.SimpleNamespace(data_dir=str(Path(self.tempdir.name) / 'data'))
+        )
         api_bp = create_api_blueprint()
         app.register_blueprint(api_bp, url_prefix='/api/v1')
         app.register_blueprint(api_bp, url_prefix='/api', name='api_legacy')
@@ -532,7 +536,10 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         reactions = payload.get('reactions') or {}
         self.assertEqual((reactions.get('discover') or {}).get('path'), '/api/v1/reaction-options')
         self.assertIn('beer', reactions.get('standard_reaction_keys') or [])
+        self.assertIn('hundred', reactions.get('standard_reaction_keys') or [])
+        self.assertIn('idk', reactions.get('standard_reaction_keys') or [])
         self.assertEqual((reactions.get('endpoints') or {}).get('direct_message', {}).get('path'), '/api/v1/messages/<message_id>/like')
+        self.assertEqual((reactions.get('endpoints') or {}).get('list_custom_emojis', {}).get('path'), '/api/v1/custom-emojis')
         self.assertIn('custom:<slug>', reactions.get('custom_reactions') or '')
 
         collab = payload.get('collab_cards') or {}
@@ -601,9 +608,63 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         reaction_keys = {str(item.get('type')) for item in payload.get('reactions') or []}
         self.assertIn('like', reaction_keys)
         self.assertIn('rocket', reaction_keys)
+        self.assertIn('hundred', reaction_keys)
+        self.assertIn('idk', reaction_keys)
         self.assertIn('beer', reaction_keys)
         self.assertEqual((payload.get('usage') or {}).get('field'), 'reaction_type')
         self.assertIn('custom:<slug>', (payload.get('usage') or {}).get('custom_format') or '')
+
+    def test_custom_emoji_upload_api_exposes_reaction_key_for_agents(self) -> None:
+        payload = {
+            'name': 'Team Logo',
+            'filename': 'team-logo.gif',
+            'content_type': 'image/gif',
+            'data': base64.b64encode(b'GIF89a-canopy-emoji').decode('ascii'),
+        }
+        upload = self.client.post(
+            '/api/v1/custom-emojis',
+            json=payload,
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(upload.status_code, 201)
+        uploaded = upload.get_json() or {}
+        emoji = uploaded.get('emoji') or {}
+        self.assertEqual(emoji.get('name'), 'team-logo')
+        self.assertEqual(emoji.get('reaction_type'), 'custom:team-logo')
+        self.assertTrue(str(emoji.get('url') or '').endswith('.gif'))
+
+        listed = self.client.get(
+            '/api/v1/custom-emojis',
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(listed.status_code, 200)
+        names = {str(item.get('name')) for item in (listed.get_json() or {}).get('emojis') or []}
+        self.assertIn('team-logo', names)
+
+        options = self.client.get(
+            '/api/v1/reaction-options',
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(options.status_code, 200)
+        reaction_keys = {str(item.get('type')) for item in (options.get_json() or {}).get('reactions') or []}
+        self.assertIn('custom:team-logo', reaction_keys)
+
+    def test_custom_emoji_upload_api_rejects_active_svg(self) -> None:
+        payload = {
+            'name': 'Unsafe SVG',
+            'filename': 'unsafe.svg',
+            'content_type': 'image/svg+xml',
+            'data': base64.b64encode(
+                b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>'
+            ).decode('ascii'),
+        }
+        response = self.client.post(
+            '/api/v1/custom-emojis',
+            json=payload,
+            headers=self._headers('key-agent-a'),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('potentially dangerous', (response.get_json() or {}).get('error', '').lower())
 
     def test_channel_removal_vote_api_exposes_mesh_cleanup_to_agents(self) -> None:
         self.conn.execute(

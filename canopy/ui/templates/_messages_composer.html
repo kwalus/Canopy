@@ -106,6 +106,14 @@
 
     <div class="dm-composer-actions">
         <div class="dm-composer-actions-left">
+            <button type="button"
+                    class="btn btn-outline-secondary btn-sm canopy-inline-emoji-trigger"
+                    data-canopy-emoji-target="#{{ textarea_id }}"
+                    onclick="CanopyEmojiPicker.open({ target: '#{{ textarea_id }}', anchor: this })"
+                    aria-label="Insert emoji or custom team emoji"
+                    title="Insert emoji or custom team emoji">
+                <i class="bi bi-emoji-smile"></i> Emoji
+            </button>
             {% if dm_is_deck %}
                 <span class="text-muted small">Quick text reply here; use Messages for attachments and deep history.</span>
             {% else %}

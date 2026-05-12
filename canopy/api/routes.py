@@ -868,6 +868,11 @@ def create_api_blueprint() -> Blueprint:
         data_dir = str(getattr(storage, 'data_dir', '') or './data')
         return os.path.join(data_dir, 'custom_emojis')
 
+    _api_custom_emoji_lock = threading.RLock()
+
+    def _api_custom_emoji_index_path() -> str:
+        return os.path.join(_api_custom_emoji_dir(), 'index.json')
+
     def _api_load_custom_emojis() -> list[dict[str, Any]]:
         """Load local custom emoji metadata for API reaction discovery."""
         base_dir = os.path.abspath(_api_custom_emoji_dir())
@@ -898,8 +903,109 @@ def create_api_blueprint() -> Blueprint:
                 'name': name,
                 'filename': filename,
                 'url': entry.get('url') or f"/custom_emojis/{filename}",
+                'created_at': entry.get('created_at'),
             })
         return valid
+
+    def _api_save_custom_emojis(entries: list[dict[str, Any]]) -> None:
+        base_dir = os.path.abspath(_api_custom_emoji_dir())
+        os.makedirs(base_dir, exist_ok=True)
+        with open(_api_custom_emoji_index_path(), 'w', encoding='utf-8') as f:
+            json.dump(entries, f, indent=2)
+
+    def _api_slugify_custom_emoji(value: Any) -> str:
+        slug = re.sub(r'[^a-z0-9_-]+', '-', str(value or '').strip().lower())
+        slug = re.sub(r'-{2,}', '-', slug).strip('-_')
+        return (slug or 'emoji')[:48].strip('-_') or 'emoji'
+
+    def _api_decode_custom_emoji_payload(payload: dict[str, Any]) -> tuple[bytes, str, str]:
+        data_field = str(payload.get('data') or '').strip()
+        if not data_field:
+            raise ValueError('Missing data field')
+        content_type = str(payload.get('content_type') or payload.get('mime_type') or '').strip().lower()
+        if data_field.startswith('data:'):
+            header, _, encoded = data_field.partition(',')
+            if not encoded:
+                raise ValueError('Invalid data URL')
+            if ';' in header:
+                content_type = header[5:].split(';', 1)[0].strip().lower() or content_type
+            data_field = encoded
+        try:
+            raw = base64.b64decode(data_field, validate=True)
+        except Exception as exc:
+            raise ValueError('Invalid base64 in data field') from exc
+
+        filename = str(payload.get('filename') or '').strip()
+        name = str(payload.get('name') or '').strip()
+        if not filename:
+            extension_by_type = {
+                'image/png': '.png',
+                'image/gif': '.gif',
+                'image/webp': '.webp',
+                'image/jpeg': '.jpg',
+                'image/svg+xml': '.svg',
+            }
+            ext = extension_by_type.get(content_type, '.png')
+            filename = f"{_api_slugify_custom_emoji(name or 'emoji')}{ext}"
+        return raw, filename, content_type
+
+    def _api_validate_custom_emoji_image(raw: bytes, filename: str, content_type: str) -> tuple[str, str]:
+        from werkzeug.utils import secure_filename
+
+        if not raw:
+            raise ValueError('Empty emoji file')
+        max_emoji_bytes = 2 * 1024 * 1024
+        if len(raw) > max_emoji_bytes:
+            raise ValueError('File too large (max 2MB)')
+
+        safe_filename = secure_filename(filename or 'emoji.png')
+        raw_ext = os.path.splitext(safe_filename)[1].lower()
+        allowed_exts = {'.png', '.gif', '.webp', '.jpg', '.jpeg', '.svg'}
+        if raw_ext not in allowed_exts:
+            raise ValueError(f'Unsupported file type. Allowed: {", ".join(sorted(allowed_exts))}')
+
+        normalized_type = (content_type or '').strip().lower()
+        if normalized_type and not normalized_type.startswith('image/'):
+            raise ValueError('Only image files are allowed')
+
+        header = raw[:16]
+        detected_ext: str | None = None
+        if header.startswith(b'\x89PNG'):
+            detected_ext = '.png'
+        elif header.startswith(b'GIF8'):
+            detected_ext = '.gif'
+        elif header.startswith(b'RIFF') and len(raw) >= 12 and raw[8:12] == b'WEBP':
+            detected_ext = '.webp'
+        elif header.startswith(b'\xff\xd8\xff'):
+            detected_ext = '.jpg'
+
+        if raw_ext == '.svg':
+            try:
+                svg_text = raw.decode('utf-8', errors='strict').lower()
+            except UnicodeDecodeError as exc:
+                raise ValueError('SVG file contains invalid UTF-8 encoding') from exc
+            dangerous_svg_patterns = (
+                '<script',
+                'javascript:',
+                'onerror=',
+                'onload=',
+                '<iframe',
+                '<object',
+                '<embed',
+                '<foreignobject',
+            )
+            if '<svg' not in svg_text[:4096]:
+                raise ValueError('File does not appear to be a valid SVG image')
+            if any(pattern in svg_text for pattern in dangerous_svg_patterns):
+                raise ValueError('SVG file contains potentially dangerous content')
+            return safe_filename, raw_ext
+
+        allowed_detected_exts = {raw_ext}
+        if raw_ext in {'.jpg', '.jpeg'}:
+            allowed_detected_exts = {'.jpg'}
+        if detected_ext not in allowed_detected_exts:
+            raise ValueError('File does not appear to be a valid image')
+        return safe_filename, raw_ext
 
     def _api_channel_removal_mesh_context(trust_manager: Any, p2p_manager: Any) -> tuple[Optional[str], list[str], list[str]]:
         local_peer_id = None
@@ -8936,12 +9042,139 @@ def create_api_blueprint() -> Blueprint:
                 'count': len(reactions),
                 'usage': {
                     'field': 'reaction_type',
-                    'standard_examples': ['like', 'love', 'laugh', 'rocket', 'check', 'beer'],
+                    'standard_examples': ['like', 'love', 'laugh', 'rocket', 'check', 'hundred', 'idk', 'beer'],
                     'custom_format': 'custom:<slug> or :<slug>:',
                 },
             })
         except Exception as e:
             logger.error(f"get_reaction_options_api failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/custom-emojis', methods=['GET'])
+    @api.route('/emojis/custom', methods=['GET'])
+    @require_auth(Permission.READ_MESSAGES)
+    def list_custom_emojis_api():
+        """List local custom emoji assets and their reaction keys."""
+        try:
+            from ..core.interactions import normalize_reaction_key
+            emojis = []
+            with _api_custom_emoji_lock:
+                entries = _api_load_custom_emojis()
+            for entry in entries:
+                name = str(entry.get('name') or '').strip()
+                if not name:
+                    continue
+                item = dict(entry)
+                item['reaction_type'] = normalize_reaction_key(f"custom:{name}")
+                item['custom'] = True
+                emojis.append(item)
+            return jsonify({'emojis': emojis, 'count': len(emojis)})
+        except Exception as e:
+            logger.error(f"list_custom_emojis_api failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/custom-emojis', methods=['POST'])
+    @api.route('/emojis/custom', methods=['POST'])
+    @require_auth(Permission.WRITE_MESSAGES)
+    def upload_custom_emoji_api():
+        """Upload or replace a local custom emoji for reactions and inline markdown.
+
+        Accepts multipart/form-data with an ``emoji`` file, or JSON:
+        {"name": "team-logo", "filename": "logo.gif", "content_type": "image/gif", "data": "<base64>"}.
+        GIFs are preserved so animated custom emoji continue to animate in the UI.
+        """
+        try:
+            if 'emoji' in request.files:
+                upload = request.files['emoji']
+                raw = upload.read() if upload else b''
+                filename = upload.filename or 'emoji.png'
+                content_type = upload.content_type or ''
+                requested_name = str(request.form.get('name') or '').strip()
+            else:
+                data = request.get_json(silent=True) or {}
+                raw, filename, content_type = _api_decode_custom_emoji_payload(data)
+                requested_name = str(data.get('name') or '').strip()
+
+            safe_filename, raw_ext = _api_validate_custom_emoji_image(raw, filename, content_type)
+            base_name = requested_name or os.path.splitext(safe_filename)[0]
+            safe_name = _api_slugify_custom_emoji(base_name)
+            token = secrets.token_hex(4)
+            stored_name = f"{safe_name}_{token}{raw_ext or '.png'}"
+            base_dir = os.path.abspath(_api_custom_emoji_dir())
+            os.makedirs(base_dir, exist_ok=True)
+            file_path = os.path.abspath(os.path.join(base_dir, stored_name))
+            if not file_path.startswith(base_dir + os.sep):
+                return jsonify({'error': 'Invalid emoji filename'}), 400
+            with open(file_path, 'wb') as f:
+                f.write(raw)
+
+            entry = {
+                'name': safe_name,
+                'filename': stored_name,
+                'url': f"/custom_emojis/{stored_name}",
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'created_by': g.api_key_info.user_id,
+            }
+
+            with _api_custom_emoji_lock:
+                entries = _api_load_custom_emojis()
+                replaced: list[dict[str, Any]] = []
+                for existing in entries:
+                    if str(existing.get('name') or '').strip() != safe_name:
+                        replaced.append(existing)
+                        continue
+                    old_filename = str(existing.get('filename') or '').strip()
+                    old_path = os.path.abspath(os.path.join(base_dir, old_filename))
+                    if old_filename and old_path.startswith(base_dir + os.sep) and os.path.isfile(old_path):
+                        try:
+                            os.remove(old_path)
+                        except OSError:
+                            pass
+                replaced.append(entry)
+                _api_save_custom_emojis(replaced)
+
+            from ..core.interactions import normalize_reaction_key
+            response_entry = dict(entry)
+            response_entry['reaction_type'] = normalize_reaction_key(f"custom:{safe_name}")
+            response_entry['custom'] = True
+            return jsonify({'success': True, 'emoji': response_entry}), 201
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        except Exception as e:
+            logger.error(f"upload_custom_emoji_api failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/custom-emojis/<name>', methods=['DELETE'])
+    @api.route('/emojis/custom/<name>', methods=['DELETE'])
+    @require_auth(Permission.DELETE_DATA)
+    def delete_custom_emoji_api(name: str):
+        """Delete a local custom emoji asset. Requires DELETE_DATA."""
+        try:
+            safe_name = _api_slugify_custom_emoji(name)
+            base_dir = os.path.abspath(_api_custom_emoji_dir())
+            removed = None
+            with _api_custom_emoji_lock:
+                entries = _api_load_custom_emojis()
+                kept = []
+                for entry in entries:
+                    if str(entry.get('name') or '').strip() == safe_name:
+                        removed = entry
+                        continue
+                    kept.append(entry)
+                if not removed:
+                    return jsonify({'error': 'Custom emoji not found'}), 404
+                _api_save_custom_emojis(kept)
+
+            old_filename = str((removed or {}).get('filename') or '').strip()
+            old_path = os.path.abspath(os.path.join(base_dir, old_filename))
+            if old_filename and old_path.startswith(base_dir + os.sep) and os.path.isfile(old_path):
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    pass
+            return jsonify({'success': True, 'name': safe_name})
+        except Exception as e:
+            logger.error(f"delete_custom_emoji_api failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/feed/posts/<post_id>/like', methods=['POST'])

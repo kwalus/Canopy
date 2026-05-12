@@ -42,6 +42,15 @@
                     <div class="d-flex align-items-center gap-2">
                         <small class="text-muted" id="charCounter">0 / 5000</small>
                         <button type="button"
+                                class="btn btn-sm btn-outline-secondary canopy-inline-emoji-trigger"
+                                data-canopy-emoji-target="#postContent"
+                                onclick="CanopyEmojiPicker.open({ target: '#postContent', anchor: this })"
+                                aria-label="Insert emoji or custom team emoji"
+                                title="Insert emoji or custom team emoji">
+                            <i class="bi bi-emoji-smile"></i>
+                            <span class="d-none d-sm-inline">Emoji</span>
+                        </button>
+                        <button type="button"
                                 class="btn btn-sm btn-outline-secondary composer-expand-toggle"
                                 id="feed-composer-expand-toggle"
                                 onclick="toggleFeedDraftExpanded()"
@@ -1734,6 +1743,7 @@
                                                 </button>
                                             {% endfor %}
                                         </div>
+                                        <div class="reaction-summary" data-reaction-summary aria-label="Reaction summary"></div>
                                     </div>
                                     <button class="btn btn-sm icon-action-btn bookmark-action-btn{% if post.is_bookmarked %} is-saved{% endif %}"
                                             data-bookmark-button="1"
@@ -2171,6 +2181,52 @@
 .reaction-control.is-busy {
     opacity: 0.72;
     pointer-events: none;
+}
+
+.reaction-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.18rem;
+    flex-wrap: wrap;
+    margin-left: 0.12rem;
+    max-width: min(19rem, 56vw);
+}
+
+.reaction-summary:empty {
+    display: none;
+}
+
+.reaction-summary-pill {
+    border: 1px solid color-mix(in srgb, var(--canopy-border) 70%, var(--canopy-primary) 30%);
+    background: color-mix(in srgb, var(--canopy-bg-card) 86%, var(--canopy-primary) 14%);
+    color: var(--canopy-text-primary);
+    border-radius: 999px;
+    padding: 0.08rem 0.34rem;
+    min-height: 1.62rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.22rem;
+    font-size: 0.78rem;
+    line-height: 1;
+}
+
+.reaction-summary-pill:hover,
+.reaction-summary-pill:focus-visible,
+.reaction-summary-pill.is-selected {
+    border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border) 42%);
+    background: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-bg-card) 76%);
+    outline: none;
+}
+
+.reaction-summary-count {
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: var(--canopy-text-secondary);
+}
+
+.reaction-summary-pill .reaction-custom-emoji-img {
+    width: 0.98rem;
+    height: 0.98rem;
 }
 
 .post-repost-shell,
@@ -7526,11 +7582,46 @@
             .replace(/>/g, '&gt;');
     }
 
+    function reactionInlineArg(value) {
+        return reactionEscapeAttr(JSON.stringify(String(value || '')));
+    }
+
     function renderReactionVisual(reaction) {
         if (reaction && reaction.image_url) {
             return `<img class="reaction-custom-emoji-img" src="${reactionEscapeAttr(reaction.image_url)}" alt="" loading="lazy">`;
         }
         return escapeHtml((reaction && reaction.emoji) || '👍');
+    }
+
+    function buildReactionSummaryHtml(itemId, counts, userReaction) {
+        const normalizedCounts = normalizeReactionCounts(counts);
+        const selected = normalizeOptionalReactionKey(userReaction || '');
+        return Object.entries(normalizedCounts)
+            .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+            .map(([type, count]) => {
+                if (!count) return '';
+                const reaction = getReactionOption(type);
+                const isSelected = selected === type;
+                return `
+                    <button type="button"
+                            class="reaction-summary-pill${isSelected ? ' is-selected' : ''}"
+                            onclick="toggleLike(${reactionInlineArg(itemId)}, ${reactionInlineArg(type)})"
+                            title="${reactionEscapeAttr(reaction.label)}"
+                            aria-label="${reactionEscapeAttr(`${reaction.label} reaction, ${count}`)}"
+                            aria-pressed="${isSelected ? 'true' : 'false'}">
+                        <span class="reaction-visual">${renderReactionVisual(reaction)}</span>
+                        <span class="reaction-summary-count">${count}</span>
+                    </button>
+                `;
+            })
+            .join('');
+    }
+
+    function updateReactionSummary(control, counts, userReaction) {
+        if (!control) return;
+        const summary = control.querySelector('[data-reaction-summary]');
+        if (!summary) return;
+        summary.innerHTML = buildReactionSummaryHtml(control.dataset.itemId || '', counts, userReaction);
     }
 
     function getReactionControl(itemId) {
@@ -7677,6 +7768,7 @@
                 choice.classList.toggle('is-selected', selected);
                 choice.setAttribute('aria-pressed', selected ? 'true' : 'false');
             });
+            updateReactionSummary(control, counts, liked ? reactionKey : '');
         }
         
         if (liked) {

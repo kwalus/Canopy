@@ -9804,6 +9804,115 @@
             height: 100%;
         }
 
+        .canopy-inline-emoji-trigger {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.28rem;
+        }
+
+        .canopy-global-emoji-picker {
+            position: fixed;
+            width: min(360px, calc(100vw - 1.4rem));
+            max-height: min(430px, calc(100vh - 1.4rem));
+            overflow: hidden;
+            display: none;
+            z-index: 2075;
+            border-radius: 20px;
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, var(--canopy-primary) 28%);
+            background: linear-gradient(155deg,
+                color-mix(in srgb, var(--canopy-bg-card) 94%, #020617 6%),
+                color-mix(in srgb, var(--canopy-bg-secondary) 88%, var(--canopy-primary) 12%)
+            );
+            box-shadow: 0 24px 58px rgba(2, 8, 23, 0.42);
+            backdrop-filter: blur(18px);
+            padding: 0.74rem;
+        }
+
+        .canopy-global-emoji-picker.is-open {
+            display: grid;
+            gap: 0.6rem;
+        }
+
+        .canopy-global-emoji-picker-head,
+        .canopy-global-emoji-upload-row {
+            display: flex;
+            align-items: center;
+            gap: 0.48rem;
+        }
+
+        .canopy-global-emoji-title {
+            font-size: 0.78rem;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--canopy-text-secondary);
+            white-space: nowrap;
+        }
+
+        .canopy-global-emoji-search,
+        .canopy-global-emoji-name {
+            min-width: 0;
+            flex: 1;
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 78%, transparent);
+            border-radius: 12px;
+            background: color-mix(in srgb, var(--canopy-bg-tertiary) 86%, transparent);
+            color: var(--canopy-text-primary);
+            padding: 0.44rem 0.58rem;
+            font-size: 0.84rem;
+        }
+
+        .canopy-global-emoji-grid {
+            display: grid;
+            grid-template-columns: repeat(8, minmax(0, 1fr));
+            gap: 0.32rem;
+            max-height: 236px;
+            overflow-y: auto;
+            padding-right: 0.12rem;
+        }
+
+        .canopy-global-emoji-btn {
+            border: 1px solid transparent;
+            background: color-mix(in srgb, var(--canopy-bg-tertiary) 52%, transparent);
+            color: var(--canopy-text-primary);
+            border-radius: 12px;
+            min-height: 2.1rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.18rem;
+            line-height: 1;
+            cursor: pointer;
+            transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+        }
+
+        .canopy-global-emoji-btn:hover,
+        .canopy-global-emoji-btn:focus-visible {
+            transform: translateY(-1px);
+            border-color: color-mix(in srgb, var(--canopy-primary) 56%, var(--canopy-border) 44%);
+            background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-card) 82%);
+            outline: none;
+        }
+
+        .canopy-global-emoji-btn img {
+            width: 1.35rem;
+            height: 1.35rem;
+            object-fit: contain;
+            border-radius: 7px;
+        }
+
+        .canopy-global-emoji-upload-row {
+            padding-top: 0.54rem;
+            border-top: 1px solid color-mix(in srgb, var(--canopy-border) 70%, transparent);
+        }
+
+        .canopy-global-emoji-empty {
+            grid-column: 1 / -1;
+            padding: 1rem 0.4rem;
+            text-align: center;
+            color: var(--canopy-text-secondary);
+            font-size: 0.84rem;
+        }
+
         @media (max-width: 1024px) {
             .canopy-source-layout-top {
                 grid-template-columns: minmax(0, 1fr);
@@ -11129,6 +11238,238 @@
             </div>
         </div>
     </div>
+
+    <script>
+        (function () {
+            const STANDARD_EMOJIS = [
+                { char: '👍', name: 'thumbs_up' }, { char: '❤️', name: 'love' },
+                { char: '😂', name: 'laugh' }, { char: '😮', name: 'wow' },
+                { char: '🎉', name: 'celebrate' }, { char: '🚀', name: 'rocket' },
+                { char: '💯', name: '100_percent' }, { char: '🤷', name: 'idk' },
+                { char: '✅', name: 'check' }, { char: '👀', name: 'watching' },
+                { char: '🙏', name: 'thanks' }, { char: '🍺', name: 'beer' },
+                { char: '🧠', name: 'brain' }, { char: '💡', name: 'idea' },
+                { char: '📌', name: 'pin' }, { char: '🧬', name: 'dna' },
+                { char: '⚡', name: 'zap' }, { char: '🔥', name: 'fire' },
+                { char: '✨', name: 'sparkles' }, { char: '🤝', name: 'handshake' },
+                { image: '/static/emojis/canopy_notxt.png', name: 'canopy' },
+            ];
+
+            let picker = null;
+            let activeTextarea = null;
+            let customEmojiCache = [];
+            let customEmojiLoaded = false;
+
+            function escapeAttr(value) {
+                return String(value || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+            }
+
+            function notify(message, level) {
+                if (typeof window.showAlert === 'function') {
+                    window.showAlert(message, level || 'info');
+                }
+            }
+
+            function createPicker() {
+                if (picker) return picker;
+                picker = document.createElement('div');
+                picker.className = 'canopy-global-emoji-picker';
+                picker.setAttribute('role', 'dialog');
+                picker.setAttribute('aria-label', 'Insert emoji');
+                picker.innerHTML = `
+                    <div class="canopy-global-emoji-picker-head">
+                        <span class="canopy-global-emoji-title">Emoji</span>
+                        <input type="search" class="canopy-global-emoji-search" placeholder="Search emoji or custom…" aria-label="Search emoji">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-emoji-close aria-label="Close emoji picker">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
+                    <div class="canopy-global-emoji-grid" data-emoji-grid></div>
+                    <div class="canopy-global-emoji-upload-row">
+                        <input type="text" class="canopy-global-emoji-name" data-emoji-name placeholder="Custom name">
+                        <button type="button" class="btn btn-sm btn-primary" data-emoji-upload title="Upload PNG, GIF, WebP, JPG, or SVG custom emoji up to 2MB">Upload</button>
+                        <input type="file" data-emoji-file accept="image/png,image/gif,image/webp,image/jpeg,image/svg+xml,.png,.gif,.webp,.jpg,.jpeg,.svg" hidden>
+                    </div>
+                `;
+                document.body.appendChild(picker);
+                picker.querySelector('[data-emoji-close]')?.addEventListener('click', closePicker);
+                picker.querySelector('.canopy-global-emoji-search')?.addEventListener('input', renderPicker);
+                picker.querySelector('[data-emoji-upload]')?.addEventListener('click', () => {
+                    picker.querySelector('[data-emoji-file]')?.click();
+                });
+                picker.querySelector('[data-emoji-file]')?.addEventListener('change', (event) => {
+                    const file = event.target && event.target.files ? event.target.files[0] : null;
+                    if (file) uploadCustomEmoji(file);
+                    event.target.value = '';
+                });
+                document.addEventListener('click', (event) => {
+                    if (!picker || !picker.classList.contains('is-open')) return;
+                    const trigger = event.target && event.target.closest
+                        ? event.target.closest('[data-canopy-emoji-target], .canopy-inline-emoji-trigger')
+                        : null;
+                    if (picker.contains(event.target) || trigger) return;
+                    closePicker();
+                });
+                document.addEventListener('keydown', (event) => {
+                    if (event.key === 'Escape') closePicker();
+                });
+                return picker;
+            }
+
+            function loadCustomEmojis() {
+                if (customEmojiLoaded) return Promise.resolve(customEmojiCache);
+                return fetch('/ajax/custom_emojis', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then((resp) => resp.ok ? resp.json() : { emojis: [] })
+                    .then((data) => {
+                        customEmojiCache = Array.isArray(data.emojis) ? data.emojis : [];
+                        customEmojiLoaded = true;
+                        return customEmojiCache;
+                    })
+                    .catch(() => {
+                        customEmojiCache = [];
+                        customEmojiLoaded = true;
+                        return customEmojiCache;
+                    });
+            }
+
+            function allEmojiItems() {
+                const custom = customEmojiCache.map((item) => ({
+                    name: item.name,
+                    image: item.url,
+                    custom: true,
+                }));
+                return [...STANDARD_EMOJIS, ...custom];
+            }
+
+            function renderPicker() {
+                const host = createPicker();
+                const grid = host.querySelector('[data-emoji-grid]');
+                if (!grid) return;
+                const term = String(host.querySelector('.canopy-global-emoji-search')?.value || '').trim().toLowerCase();
+                const items = allEmojiItems().filter((item) => {
+                    if (!term) return true;
+                    return String(item.name || '').toLowerCase().includes(term);
+                });
+                if (!items.length) {
+                    grid.innerHTML = '<div class="canopy-global-emoji-empty">No emoji match that search.</div>';
+                    return;
+                }
+                grid.innerHTML = items.map((item) => {
+                    const token = item.image ? `![${item.name}](${item.image})` : item.char;
+                    const visual = item.image
+                        ? `<img src="${escapeAttr(item.image)}" alt="${escapeAttr(item.name)}" loading="lazy">`
+                        : escapeAttr(item.char);
+                    return `
+                        <button type="button"
+                                class="canopy-global-emoji-btn"
+                                data-emoji-token="${escapeAttr(token)}"
+                                title="${escapeAttr(item.image ? `:${item.name}:` : item.name)}"
+                                aria-label="${escapeAttr(item.image ? `Insert ${item.name} custom emoji` : `Insert ${item.name}`)}">
+                            ${visual}
+                        </button>
+                    `;
+                }).join('');
+                grid.querySelectorAll('[data-emoji-token]').forEach((button) => {
+                    button.addEventListener('click', () => insertIntoActiveTextarea(button.dataset.emojiToken || ''));
+                });
+            }
+
+            function insertIntoActiveTextarea(text) {
+                const textarea = activeTextarea && document.contains(activeTextarea) ? activeTextarea : null;
+                if (!textarea || !text) return;
+                const start = textarea.selectionStart || 0;
+                const end = textarea.selectionEnd || 0;
+                const value = textarea.value || '';
+                const prefix = (start > 0 && !/\s$/.test(value.slice(0, start))) ? ' ' : '';
+                const suffix = (end < value.length && !/^\s/.test(value.slice(end))) ? ' ' : '';
+                const insertValue = `${prefix}${text}${suffix}`;
+                textarea.value = value.slice(0, start) + insertValue + value.slice(end);
+                const cursor = start + insertValue.length;
+                textarea.focus();
+                textarea.setSelectionRange(cursor, cursor);
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                closePicker();
+            }
+
+            function positionPicker(anchor) {
+                const host = createPicker();
+                const rect = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null;
+                const width = Math.min(360, window.innerWidth - 22);
+                const height = Math.min(430, window.innerHeight - 22);
+                let left = rect ? rect.right - width : 12;
+                let top = rect ? rect.top - height - 8 : 12;
+                if (top < 10 && rect) top = rect.bottom + 8;
+                left = Math.max(10, Math.min(left, window.innerWidth - width - 10));
+                top = Math.max(10, Math.min(top, window.innerHeight - height - 10));
+                host.style.left = `${left}px`;
+                host.style.top = `${top}px`;
+            }
+
+            function openPicker(options) {
+                const opts = options || {};
+                const target = typeof opts.target === 'string'
+                    ? document.querySelector(opts.target)
+                    : opts.target;
+                if (!target) return;
+                activeTextarea = target;
+                const host = createPicker();
+                positionPicker(opts.anchor || target);
+                host.classList.add('is-open');
+                loadCustomEmojis().then(() => {
+                    renderPicker();
+                    host.querySelector('.canopy-global-emoji-search')?.focus();
+                });
+            }
+
+            function closePicker() {
+                if (picker) picker.classList.remove('is-open');
+            }
+
+            function uploadCustomEmoji(file) {
+                const host = createPicker();
+                const nameInput = host.querySelector('[data-emoji-name]');
+                const formData = new FormData();
+                formData.append('emoji', file);
+                const requestedName = String(nameInput?.value || '').trim();
+                if (requestedName) formData.append('name', requestedName);
+                fetch('/ajax/custom_emojis', {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                })
+                    .then((resp) => resp.json())
+                    .then((data) => {
+                        if (!data || !data.emoji) {
+                            throw new Error((data && data.error) || 'Upload failed');
+                        }
+                        customEmojiCache = [
+                            ...customEmojiCache.filter((item) => item.name !== data.emoji.name),
+                            data.emoji,
+                        ];
+                        customEmojiLoaded = true;
+                        if (nameInput) nameInput.value = '';
+                        renderPicker();
+                        notify('Custom emoji uploaded', 'success');
+                    })
+                    .catch((error) => {
+                        notify((error && error.message) || 'Failed to upload custom emoji', 'danger');
+                    });
+            }
+
+            window.CanopyEmojiPicker = {
+                open: openPicker,
+                close: closePicker,
+                refresh: function () {
+                    customEmojiLoaded = false;
+                    return loadCustomEmojis().then(renderPicker);
+                },
+            };
+        })();
+    </script>
 
     <script>
         (function () {

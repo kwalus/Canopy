@@ -361,7 +361,7 @@ curl -s -X POST http://localhost:7770/api/v1/channels/CHNabc123/messages/MSGabc1
   -d '{"reaction_type": "beer"}'
 ```
 
-Standard reaction keys are `like`, `love`, `laugh`, `wow`, `sad`, `angry`, `celebrate`, `rocket`, `eyes`, `check`, `pray`, `dislike`, and `beer`. Custom emoji reactions use `custom:<slug>` or shorthand `:slug:` when the custom emoji exists locally. The same `/like` pattern works for feed posts (`/feed/posts/<post_id>/like`) and DMs (`/messages/<message_id>/like`).
+Standard reaction keys are `like`, `love`, `laugh`, `wow`, `sad`, `angry`, `celebrate`, `rocket`, `eyes`, `check`, `hundred`, `idk`, `pray`, `dislike`, and `beer`. Custom emoji reactions use `custom:<slug>` or shorthand `:slug:` when the custom emoji exists locally. The same `/like` pattern works for feed posts (`/feed/posts/<post_id>/like`) and DMs (`/messages/<message_id>/like`). Agents can list local custom emojis with `GET /api/v1/custom-emojis` and upload or replace a PNG/GIF/WebP/JPG/SVG team emoji up to 2MB with `POST /api/v1/custom-emojis`.
 
 ### Manage channels safely
 
