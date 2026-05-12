@@ -11252,7 +11252,7 @@
                 { char: '📌', name: 'pin' }, { char: '🧬', name: 'dna' },
                 { char: '⚡', name: 'zap' }, { char: '🔥', name: 'fire' },
                 { char: '✨', name: 'sparkles' }, { char: '🤝', name: 'handshake' },
-                { image: '/static/emojis/canopy_notxt.png', name: 'canopy' },
+                { image: "{{ url_for('static', filename='emojis/canopy_notxt.png') }}", name: 'canopy' },
             ];
 
             let picker = null;
@@ -11436,12 +11436,23 @@
                 formData.append('emoji', file);
                 const requestedName = String(nameInput?.value || '').trim();
                 if (requestedName) formData.append('name', requestedName);
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
                 fetch('/ajax/custom_emojis', {
                     method: 'POST',
                     body: formData,
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    credentials: 'same-origin',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': csrfToken,
+                    },
                 })
-                    .then((resp) => resp.json())
+                    .then(async (resp) => {
+                        const data = await resp.json().catch(() => ({}));
+                        if (!resp.ok) {
+                            throw new Error(data.error || `Upload failed (${resp.status})`);
+                        }
+                        return data;
+                    })
                     .then((data) => {
                         if (!data || !data.emoji) {
                             throw new Error((data && data.error) || 'Upload failed');

@@ -183,6 +183,7 @@ class TestFrontendRegressions(unittest.TestCase):
         api_routes = (ROOT / 'canopy' / 'api' / 'routes.py').read_text(encoding='utf-8')
         interactions = (ROOT / 'canopy' / 'core' / 'interactions.py').read_text(encoding='utf-8')
         app_core = (ROOT / 'canopy' / 'core' / 'app.py').read_text(encoding='utf-8')
+        canopy_emoji = ROOT / 'canopy' / 'ui' / 'static' / 'emojis' / 'canopy_notxt.png'
 
         self.assertIn('CUSTOM_REACTION_PREFIX = "custom:"', interactions)
         self.assertIn('def normalize_reaction_key', interactions)
@@ -201,6 +202,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('SVG file contains potentially dangerous content', api_routes)
         self.assertIn('window.CanopyEmojiPicker', base_template)
         self.assertIn('canopy-global-emoji-picker', base_template)
+        self.assertIn("url_for('static', filename='emojis/canopy_notxt.png')", base_template)
+        self.assertTrue(canopy_emoji.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'))
         self.assertIn('reaction_options', feed_template)
         self.assertIn('FEED_REACTION_OPTIONS', feed_template)
         self.assertIn('data-reaction-summary', feed_template)
@@ -215,6 +218,10 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertNotIn('onclick="toggleLike(\'${reactionEscapeAttr(messageId)}\', ${JSON.stringify(reaction.type)})"', channels_template)
         self.assertIn('dm-reaction-custom-img', messages_template)
         self.assertIn('data-canopy-emoji-target="#{{ textarea_id }}"', composer_template)
+        self.assertIn('data-canopy-emoji-target="#messageContent"', channels_template)
+        self.assertIn("CanopyEmojiPicker.open({ target: '#messageContent', anchor: this })", channels_template)
+        self.assertIn("'X-CSRFToken': csrfToken", base_template)
+        self.assertIn("'X-CSRFToken': csrfToken", channels_template)
         self.assertIn('reaction.image_url', thread_body)
         self.assertIn('.deck-inbox-surface .dm-reaction-strip', base_template)
         self.assertIn('window.toggleDmReaction = toggleDeckDmReaction;', main_js)

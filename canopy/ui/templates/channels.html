@@ -4595,7 +4595,13 @@
                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('file-input').click()">
                                 <i class="bi bi-paperclip"></i>
                             </button>
-                            <button type="button" class="btn btn-outline-secondary" id="emoji-toggle-btn" onclick="insertEmoji()">
+                            <button type="button"
+                                    class="btn btn-outline-secondary canopy-inline-emoji-trigger"
+                                    id="emoji-toggle-btn"
+                                    data-canopy-emoji-target="#messageContent"
+                                    onclick="CanopyEmojiPicker.open({ target: '#messageContent', anchor: this })"
+                                    aria-label="Insert emoji or custom team emoji"
+                                    title="Insert emoji or custom team emoji">
                                 <i class="bi bi-emoji-smile"></i>
                             </button>
                             <button type="button"
@@ -18717,7 +18723,7 @@ const EMOJI_LIBRARY = [
         key: 'Brand',
         icon: 'bi-leaf',
         items: [
-            { image: '/static/emojis/canopy_notxt.png', name: 'canopy' }
+            { image: "{{ url_for('static', filename='emojis/canopy_notxt.png') }}", name: 'canopy' }
         ]
     },
     {
@@ -18902,11 +18908,23 @@ function uploadCustomEmoji(file) {
     const formData = new FormData();
     formData.append('emoji', file);
     if (name) formData.append('name', name);
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     fetch('/ajax/custom_emojis', {
         method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': csrfToken,
+        },
         body: formData
     })
-    .then(resp => resp.json())
+    .then(async resp => {
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            throw new Error(data.error || `Upload failed (${resp.status})`);
+        }
+        return data;
+    })
     .then(data => {
         if (data && data.emoji) {
             customEmojis.push(data.emoji);
@@ -18918,7 +18936,7 @@ function uploadCustomEmoji(file) {
     })
     .catch(err => {
         console.error('Custom emoji upload failed:', err);
-        showAlert('Failed to upload custom emoji', 'danger');
+        showAlert(err && err.message ? err.message : 'Failed to upload custom emoji', 'danger');
     });
 }
 

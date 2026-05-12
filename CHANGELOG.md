@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.88] - 2026-05-12
+
+### Fixed
+- **Custom emoji uploads now work from the browser picker** - upload requests include the session CSRF token and surface server-side validation errors instead of failing as generic forbidden responses.
+- **The built-in Canopy emoji now renders as a real image** - the bundled logo emoji asset was replaced with a valid PNG and template references now use Flask static URL generation.
+- **Channel, feed, and DM composers now use the same inline emoji picker** - the channel composer opens the shared picker so custom naming/upload behavior is consistent across messaging surfaces.
+
 ## [0.6.87] - 2026-05-12
 
 ### Added
