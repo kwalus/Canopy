@@ -2808,15 +2808,43 @@
         box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.16), 0 10px 24px rgba(16, 185, 129, 0.12);
     }
 
+    .channel-sidebar-titlebar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+
+    .channel-sidebar-titlebar h5 {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .channel-sidebar-header-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex: 0 0 auto;
+    }
+
     .channel-group-edit-panel {
         margin: 0.65rem 0 0;
         border: 1px solid rgba(45, 212, 191, 0.26);
         border-radius: 0.9rem;
-        padding: 0.62rem 0.68rem;
+        padding: 0.58rem;
         background:
             radial-gradient(circle at top left, rgba(45, 212, 191, 0.16), transparent 44%),
             linear-gradient(135deg, rgba(15, 23, 42, 0.84), rgba(8, 47, 73, 0.56));
         box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);
+    }
+
+    .channel-group-edit-panel-inner {
+        display: grid;
+        gap: 0.54rem;
+        min-width: 0;
     }
 
     .channel-group-edit-panel-title {
@@ -2832,17 +2860,27 @@
 
     .channel-group-edit-panel-copy {
         color: var(--canopy-text-secondary);
-        font-size: 0.78rem;
-        line-height: 1.32;
+        font-size: 0.74rem;
+        line-height: 1.28;
     }
 
     .channel-group-edit-panel-actions {
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        gap: 0.36rem;
-        flex: 0 0 auto;
-        flex-wrap: wrap;
-        justify-content: flex-end;
+        gap: 0.38rem;
+        min-width: 0;
+    }
+
+    .channel-group-edit-panel-actions .btn {
+        flex: 1 1 0;
+        min-width: 0;
+        padding-left: 0.42rem;
+        padding-right: 0.42rem;
+        white-space: nowrap;
+    }
+
+    .channel-group-edit-panel-actions .btn i {
+        margin-right: 0.16rem !important;
     }
 
     .channel-group {
@@ -2881,6 +2919,12 @@
         font-weight: 850;
         letter-spacing: 0.075em;
         text-transform: uppercase;
+    }
+
+    .channel-list.channel-group-editing .channel-group-header {
+        gap: 0.3rem;
+        padding-left: 0.38rem;
+        padding-right: 0.38rem;
     }
 
     .channel-group-drag-handle,
@@ -2965,6 +3009,8 @@
         display: none;
         gap: 0.2rem;
         align-items: center;
+        flex-wrap: wrap;
+        max-width: 4.6rem;
     }
 
     .channel-group.is-color-open .channel-group-color-tray {
@@ -3002,6 +3048,8 @@
     }
 
     .channel-group-label {
+        min-width: 0;
+        flex: 1 1 auto;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -3020,6 +3068,7 @@
         align-items: center;
         gap: 0.28rem;
         white-space: nowrap;
+        flex: 0 0 auto;
     }
 
     .channel-group-attention {
@@ -3081,6 +3130,7 @@
         gap: 0.35rem;
         max-height: min(260px, 32vh);
         overflow-y: auto;
+        overflow-x: hidden;
         padding-right: 0.18rem;
     }
 
@@ -3088,6 +3138,7 @@
         display: flex;
         align-items: center;
         gap: 0.55rem;
+        min-width: 0;
         padding: 0.52rem 0.58rem;
         border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, transparent);
         border-radius: 0.82rem;
@@ -3115,6 +3166,9 @@
     .channel-group-create-channel-current {
         color: var(--canopy-text-muted);
         font-size: 0.72rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .channel-list.channel-group-editing .channel-group-body.is-channel-drop-target,
@@ -4014,9 +4068,9 @@
         <!-- Channel Sidebar -->
         <div id="channel-sidebar" class="border-end p-0" style="background: var(--canopy-bg-secondary); border-color: var(--canopy-border) !important;">
             <div class="p-3 border-bottom" style="border-color: var(--canopy-border) !important;">
-                <div class="d-flex justify-content-between align-items-center gap-2">
+                <div class="channel-sidebar-titlebar">
                     <h5 class="mb-0" style="color: var(--canopy-text-primary);">Channels</h5>
-                    <div class="d-flex align-items-center gap-1">
+                    <div class="channel-sidebar-header-actions">
                         <button class="btn btn-sm btn-outline-secondary channel-organize-header-btn"
                                 type="button"
                                 id="channel-group-edit-toggle"
@@ -4032,14 +4086,14 @@
                     </div>
                 </div>
                 <div id="channel-group-edit-panel" class="channel-group-edit-panel d-none" role="status" aria-live="polite">
-                    <div class="d-flex align-items-start justify-content-between gap-2">
+                    <div class="channel-group-edit-panel-inner">
                         <div>
                             <div class="channel-group-edit-panel-title">
                                 <i class="bi bi-columns-gap"></i>
                                 Organize mode
                             </div>
                             <div class="channel-group-edit-panel-copy mt-1">
-                                Drag groups to reorder. Drag channels into a group to regroup. Create focused groups for noisy agent work or slower human discussion.
+                                Drag groups or channels. Create focused lanes for agent work, human discussion, or projects.
                             </div>
                         </div>
                         <div class="channel-group-edit-panel-actions">

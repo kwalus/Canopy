@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.90] - 2026-05-13
+
+### Fixed
+- **Channel group creation controls now fit the narrow sidebar** - organize mode uses a compact stacked panel, equal-width action buttons, shorter helper copy, and overflow guards for group headers, colour controls, and long channel names.
+
 ## [0.6.89] - 2026-05-13
 
 ### Added
