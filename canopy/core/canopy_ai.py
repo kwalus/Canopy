@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_CANOPY_LLM_MODEL = os.getenv('CANOPY_LLM_DEFAULT_MODEL', 'gpt-5-mini').strip() or 'gpt-5-mini'
+INSTANCE_LLM_SETTINGS_ID = 'default'
 CANOPY_LLM_MODEL_OPTIONS = [
     {
         'id': 'gpt-5.4-mini',
@@ -134,8 +135,9 @@ class CanopyLLMManager:
     def get_settings(self, user_id: str) -> dict[str, Any]:
         user_id = str(user_id or '').strip()
         defaults = self._default_settings()
+        instance_settings = self.get_instance_settings()
         if not user_id:
-            return defaults
+            return self._with_instance_summary(defaults, instance_settings)
         self._ensure_schema()
         with self.db_manager.get_connection() as conn:
             row = conn.execute(
@@ -147,6 +149,40 @@ class CanopyLLMManager:
                 (user_id,),
             ).fetchone()
         if not row:
+            return self._with_instance_summary(defaults, instance_settings)
+        provider = str(self._row_value(row, 'provider', 0, 'openai') or 'openai').strip() or 'openai'
+        model = str(self._row_value(row, 'model', 1, DEFAULT_CANOPY_LLM_MODEL) or DEFAULT_CANOPY_LLM_MODEL).strip() or DEFAULT_CANOPY_LLM_MODEL
+        ciphertext = self._row_value(row, 'api_key_ciphertext', 2, '')
+        enabled = self._row_value(row, 'enabled', 3, 0)
+        system_prompt = str(self._row_value(row, 'system_prompt', 4, '') or '').strip() or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT
+        updated_at = self._row_value(row, 'updated_at', 5, None)
+        web_search_enabled = self._row_value(row, 'web_search_enabled', 6, 1)
+        return self._with_instance_summary({
+            'provider': provider if provider == 'openai' else 'openai',
+            'model': model[:120],
+            'enabled': bool(enabled),
+            'api_key_configured': bool(str(ciphertext or '').strip()),
+            'web_search_enabled': self._normalize_bool(web_search_enabled, default=True),
+            'system_prompt': system_prompt[:MAX_SYSTEM_PROMPT_CHARS],
+            'updated_at': updated_at,
+            'model_options': CANOPY_LLM_MODEL_OPTIONS,
+        }, instance_settings)
+
+    def get_instance_settings(self) -> dict[str, Any]:
+        """Return admin-managed node-local fallback settings without exposing the key."""
+        defaults = self._default_instance_settings()
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT provider, model, api_key_ciphertext, enabled, system_prompt,
+                       updated_at, web_search_enabled, updated_by
+                FROM instance_llm_settings
+                WHERE id = ?
+                """,
+                (INSTANCE_LLM_SETTINGS_ID,),
+            ).fetchone()
+        if not row:
             return defaults
         provider = str(self._row_value(row, 'provider', 0, 'openai') or 'openai').strip() or 'openai'
         model = str(self._row_value(row, 'model', 1, DEFAULT_CANOPY_LLM_MODEL) or DEFAULT_CANOPY_LLM_MODEL).strip() or DEFAULT_CANOPY_LLM_MODEL
@@ -155,6 +191,7 @@ class CanopyLLMManager:
         system_prompt = str(self._row_value(row, 'system_prompt', 4, '') or '').strip() or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT
         updated_at = self._row_value(row, 'updated_at', 5, None)
         web_search_enabled = self._row_value(row, 'web_search_enabled', 6, 1)
+        updated_by = self._row_value(row, 'updated_by', 7, None)
         return {
             'provider': provider if provider == 'openai' else 'openai',
             'model': model[:120],
@@ -163,6 +200,7 @@ class CanopyLLMManager:
             'web_search_enabled': self._normalize_bool(web_search_enabled, default=True),
             'system_prompt': system_prompt[:MAX_SYSTEM_PROMPT_CHARS],
             'updated_at': updated_at,
+            'updated_by': updated_by,
             'model_options': CANOPY_LLM_MODEL_OPTIONS,
         }
 
@@ -233,6 +271,75 @@ class CanopyLLMManager:
             conn.commit()
         return self.get_settings(user_id)
 
+    def save_instance_settings(
+        self,
+        admin_user_id: str,
+        *,
+        provider: Any = 'openai',
+        model: Any = None,
+        enabled: Any = False,
+        api_key: Optional[str] = None,
+        clear_api_key: bool = False,
+        system_prompt: Any = None,
+        web_search_enabled: Any = True,
+    ) -> dict[str, Any]:
+        """Save admin-managed node-local fallback settings for users without personal keys."""
+        admin_user_id = str(admin_user_id or '').strip()
+        provider_clean = self._normalize_provider(provider)
+        model_clean = self._normalize_model(model)
+        prompt_clean = self._normalize_system_prompt(system_prompt)
+        enabled_clean = 1 if bool(enabled) else 0
+        web_search_enabled_clean = 1 if self._normalize_bool(web_search_enabled, default=True) else 0
+
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            existing = conn.execute(
+                "SELECT api_key_ciphertext FROM instance_llm_settings WHERE id = ?",
+                (INSTANCE_LLM_SETTINGS_ID,),
+            ).fetchone()
+            existing_ciphertext = ''
+            if existing:
+                existing_ciphertext = str(self._row_value(existing, 'api_key_ciphertext', 0, '') or '').strip()
+
+            api_key_clean = str(api_key or '').strip() if api_key is not None else ''
+            if clear_api_key:
+                ciphertext = None
+            elif api_key_clean:
+                ciphertext = self._encrypt(api_key_clean)
+            else:
+                ciphertext = existing_ciphertext or None
+
+            conn.execute(
+                """
+                INSERT INTO instance_llm_settings (
+                    id, provider, model, api_key_ciphertext, enabled, system_prompt,
+                    web_search_enabled, updated_by, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    provider = excluded.provider,
+                    model = excluded.model,
+                    api_key_ciphertext = excluded.api_key_ciphertext,
+                    enabled = excluded.enabled,
+                    system_prompt = excluded.system_prompt,
+                    web_search_enabled = excluded.web_search_enabled,
+                    updated_by = excluded.updated_by,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    INSTANCE_LLM_SETTINGS_ID,
+                    provider_clean,
+                    model_clean,
+                    ciphertext,
+                    enabled_clean,
+                    prompt_clean,
+                    web_search_enabled_clean,
+                    admin_user_id or None,
+                ),
+            )
+            conn.commit()
+        return self.get_instance_settings()
+
     def expand_prompt(
         self,
         user_id: str,
@@ -255,6 +362,7 @@ class CanopyLLMManager:
             'content': output.strip(),
             'provider': context['provider'],
             'model': context['model'],
+            'credential_source': context.get('credential_source') or 'user',
         }
 
     def stream_expand_prompt(
@@ -282,6 +390,7 @@ class CanopyLLMManager:
                     'content': final_content,
                     'provider': context['provider'],
                     'model': context['model'],
+                    'credential_source': context.get('credential_source') or 'user',
                 }
             else:
                 yield event
@@ -303,25 +412,11 @@ class CanopyLLMManager:
         if not self.has_canopy_trigger(raw_content):
             raise CanopyLLMError('Add @Canopy to the draft to use AI compose.', status_code=400, reason='missing_trigger')
 
-        settings = self.get_settings(user_id)
-        if not settings.get('enabled'):
-            raise CanopyLLMError(
-                'Canopy AI Compose is disabled. Enable it from Profile > Canopy AI Compose.',
-                status_code=400,
-                reason='llm_disabled',
-            )
-
+        settings = self._resolve_effective_settings(user_id)
         provider = str(settings.get('provider') or 'openai')
         if provider != 'openai':
             raise CanopyLLMError('Only OpenAI is supported for Canopy AI Compose right now.', status_code=400, reason='unsupported_provider')
-
-        api_key = self._get_api_key(user_id)
-        if not api_key:
-            raise CanopyLLMError(
-                'Add an OpenAI API key in Profile > Canopy AI Compose before using @Canopy.',
-                status_code=400,
-                reason='missing_api_key',
-            )
+        api_key = str(settings.get('api_key') or '').strip()
 
         prompt = self.strip_canopy_trigger(raw_content)
         if not prompt:
@@ -355,7 +450,63 @@ class CanopyLLMManager:
             'system_prompt': self._compose_system_prompt(str(settings.get('system_prompt') or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)),
             'prompt': composed_prompt,
             'web_search_enabled': effective_web_search,
+            'credential_source': settings.get('credential_source') or 'user',
         }
+
+    def _resolve_effective_settings(self, user_id: str) -> dict[str, Any]:
+        """Resolve personal settings first, then admin fallback credentials."""
+        personal = self.get_settings(user_id)
+        personal_enabled = bool(personal.get('enabled'))
+        personal_key = self._get_api_key(user_id) if personal_enabled and personal.get('api_key_configured') else ''
+        if personal_enabled and personal_key:
+            resolved = dict(personal)
+            resolved.update({
+                'api_key': personal_key,
+                'credential_source': 'user',
+            })
+            return resolved
+
+        instance_settings = self.get_instance_settings()
+        instance_key = (
+            self._get_instance_api_key()
+            if instance_settings.get('enabled') and instance_settings.get('api_key_configured')
+            else ''
+        )
+        if instance_settings.get('enabled') and instance_key:
+            use_personal_preferences = personal_enabled
+            return {
+                'provider': instance_settings.get('provider') or 'openai',
+                'model': (
+                    personal.get('model')
+                    if use_personal_preferences and personal.get('model')
+                    else instance_settings.get('model')
+                ) or DEFAULT_CANOPY_LLM_MODEL,
+                'enabled': True,
+                'api_key': instance_key,
+                'web_search_enabled': (
+                    personal.get('web_search_enabled')
+                    if use_personal_preferences
+                    else instance_settings.get('web_search_enabled')
+                ),
+                'system_prompt': (
+                    personal.get('system_prompt')
+                    if use_personal_preferences and personal.get('system_prompt')
+                    else instance_settings.get('system_prompt')
+                ) or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
+                'credential_source': 'instance',
+            }
+
+        if personal_enabled:
+            raise CanopyLLMError(
+                'Add an OpenAI API key in Profile > Canopy AI Compose, or ask an admin to configure the instance fallback key.',
+                status_code=400,
+                reason='missing_api_key',
+            )
+        raise CanopyLLMError(
+            'Canopy AI Compose is not configured. Add your own key in Profile, or ask an admin to enable the instance fallback key.',
+            status_code=400,
+            reason='llm_disabled',
+        )
 
     @staticmethod
     def _should_enable_web_search_for_prompt(prompt: Any) -> bool:
@@ -383,6 +534,21 @@ class CanopyLLMManager:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS instance_llm_settings (
+                    id TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL DEFAULT 'openai',
+                    model TEXT NOT NULL DEFAULT 'gpt-5-mini',
+                    api_key_ciphertext TEXT,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    web_search_enabled INTEGER NOT NULL DEFAULT 1,
+                    system_prompt TEXT,
+                    updated_by TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
             columns = {
                 str(row['name'] if hasattr(row, 'keys') else row[1])
                 for row in conn.execute("PRAGMA table_info(user_llm_settings)").fetchall()
@@ -391,6 +557,20 @@ class CanopyLLMManager:
                 conn.execute(
                     "ALTER TABLE user_llm_settings "
                     "ADD COLUMN web_search_enabled INTEGER NOT NULL DEFAULT 1"
+                )
+            instance_columns = {
+                str(row['name'] if hasattr(row, 'keys') else row[1])
+                for row in conn.execute("PRAGMA table_info(instance_llm_settings)").fetchall()
+            }
+            if 'web_search_enabled' not in instance_columns:
+                conn.execute(
+                    "ALTER TABLE instance_llm_settings "
+                    "ADD COLUMN web_search_enabled INTEGER NOT NULL DEFAULT 1"
+                )
+            if 'updated_by' not in instance_columns:
+                conn.execute(
+                    "ALTER TABLE instance_llm_settings "
+                    "ADD COLUMN updated_by TEXT"
                 )
             conn.commit()
         self._schema_ready = True
@@ -406,6 +586,34 @@ class CanopyLLMManager:
             'updated_at': None,
             'model_options': CANOPY_LLM_MODEL_OPTIONS,
         }
+
+    def _default_instance_settings(self) -> dict[str, Any]:
+        return {
+            'provider': 'openai',
+            'model': DEFAULT_CANOPY_LLM_MODEL,
+            'enabled': False,
+            'api_key_configured': False,
+            'web_search_enabled': True,
+            'system_prompt': DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
+            'updated_at': None,
+            'updated_by': None,
+            'model_options': CANOPY_LLM_MODEL_OPTIONS,
+        }
+
+    @staticmethod
+    def _with_instance_summary(settings: dict[str, Any], instance_settings: dict[str, Any]) -> dict[str, Any]:
+        instance_available = bool(instance_settings.get('enabled') and instance_settings.get('api_key_configured'))
+        personal_available = bool(settings.get('enabled') and settings.get('api_key_configured'))
+        merged = dict(settings)
+        merged.update({
+            'instance_fallback_enabled': bool(instance_settings.get('enabled')),
+            'instance_fallback_key_configured': bool(instance_settings.get('api_key_configured')),
+            'instance_fallback_available': instance_available,
+            'instance_fallback_model': instance_settings.get('model') or DEFAULT_CANOPY_LLM_MODEL,
+            'effective_enabled': bool(personal_available or instance_available),
+            'using_instance_fallback': bool(instance_available and not personal_available),
+        })
+        return merged
 
     @staticmethod
     def _compose_system_prompt(system_prompt: Any) -> str:
@@ -460,6 +668,28 @@ class CanopyLLMManager:
         if row:
             ciphertext = str(self._row_value(row, 'api_key_ciphertext', 0, '') or '').strip()
         return self._decrypt(ciphertext) if ciphertext else ''
+
+    def _get_instance_api_key(self) -> str:
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            row = conn.execute(
+                "SELECT api_key_ciphertext FROM instance_llm_settings WHERE id = ?",
+                (INSTANCE_LLM_SETTINGS_ID,),
+            ).fetchone()
+        ciphertext = ''
+        if row:
+            ciphertext = str(self._row_value(row, 'api_key_ciphertext', 0, '') or '').strip()
+        try:
+            return self._decrypt(ciphertext) if ciphertext else ''
+        except CanopyLLMError as exc:
+            if exc.reason == 'api_key_decrypt_failed':
+                raise CanopyLLMError(
+                    'Saved instance fallback API key could not be decrypted on this node. '
+                    'Re-enter the key in Admin > Instance AI Compose Fallback.',
+                    status_code=400,
+                    reason='api_key_decrypt_failed',
+                ) from exc
+            raise
 
     @staticmethod
     def _row_value(row: Any, key: str, index: int, default: Any = None) -> Any:

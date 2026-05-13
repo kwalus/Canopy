@@ -69,6 +69,7 @@ class _FakeLLMManager:
     def __init__(self) -> None:
         self.expand_calls: list[dict[str, Any]] = []
         self.saved_payloads: list[dict[str, Any]] = []
+        self.saved_instance_payloads: list[dict[str, Any]] = []
 
     @staticmethod
     def has_canopy_trigger(content: Any) -> bool:
@@ -88,6 +89,22 @@ class _FakeLLMManager:
     def save_settings(self, user_id: str, **kwargs: Any) -> dict[str, Any]:
         self.saved_payloads.append({'user_id': user_id, **kwargs})
         return self.get_settings(user_id)
+
+    def get_instance_settings(self) -> dict[str, Any]:
+        return {
+            'provider': 'openai',
+            'model': 'gpt-5-mini',
+            'enabled': True,
+            'api_key_configured': True,
+            'web_search_enabled': True,
+            'system_prompt': 'Compose clean Canopy posts.',
+            'updated_at': None,
+            'updated_by': 'user-1',
+        }
+
+    def save_instance_settings(self, admin_user_id: str, **kwargs: Any) -> dict[str, Any]:
+        self.saved_instance_payloads.append({'admin_user_id': admin_user_id, **kwargs})
+        return self.get_instance_settings()
 
     def expand_prompt(
         self,
@@ -168,6 +185,107 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertNotIn('sk-test-secret', row['api_key_ciphertext'])
         self.assertEqual(manager._get_api_key('user-1'), 'sk-test-secret')
+
+    def test_instance_fallback_key_is_encrypted_and_used_without_personal_key(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+
+        settings = manager.save_instance_settings(
+            'admin-1',
+            provider='openai',
+            model='gpt-5.4-mini',
+            enabled=True,
+            api_key='sk-instance-secret',
+            web_search_enabled=False,
+            system_prompt='Use the shared lab compose policy.',
+        )
+
+        self.assertTrue(settings['enabled'])
+        self.assertTrue(settings['api_key_configured'])
+        self.assertNotIn('api_key', settings)
+        row = self.conn.execute(
+            "SELECT api_key_ciphertext FROM instance_llm_settings WHERE id = ?",
+            ('default',),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertNotIn('sk-instance-secret', row['api_key_ciphertext'])
+
+        user_settings = manager.get_settings('user-without-key')
+        self.assertTrue(user_settings['instance_fallback_available'])
+        self.assertTrue(user_settings['effective_enabled'])
+        self.assertTrue(user_settings['using_instance_fallback'])
+
+        context = manager._prepare_expand_context('user-without-key', '@Canopy draft a useful post')
+        self.assertEqual(context['api_key'], 'sk-instance-secret')
+        self.assertEqual(context['model'], 'gpt-5.4-mini')
+        self.assertEqual(context['credential_source'], 'instance')
+        self.assertIn('Use the shared lab compose policy.', context['system_prompt'])
+
+    def test_instance_fallback_decrypt_failure_points_to_admin_settings(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        manager.save_instance_settings(
+            'admin-1',
+            provider='openai',
+            model='gpt-5.4-mini',
+            enabled=True,
+            api_key='sk-instance-secret',
+            system_prompt='Shared policy.',
+        )
+
+        manager_with_rotated_secret = CanopyLLMManager(self.db, 'different-secret')
+        with self.assertRaises(Exception) as ctx:
+            manager_with_rotated_secret._prepare_expand_context('user-without-key', '@Canopy draft a useful post')
+
+        self.assertEqual(getattr(ctx.exception, 'reason', ''), 'api_key_decrypt_failed')
+        self.assertIn('Admin > Instance AI Compose Fallback', str(ctx.exception))
+
+    def test_personal_key_overrides_instance_fallback(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        manager.save_instance_settings(
+            'admin-1',
+            provider='openai',
+            model='gpt-5.4-mini',
+            enabled=True,
+            api_key='sk-instance-secret',
+            system_prompt='Shared policy.',
+        )
+        manager.save_settings(
+            'user-1',
+            provider='openai',
+            model='gpt-5.5',
+            enabled=True,
+            api_key='sk-personal-secret',
+            system_prompt='Personal policy.',
+        )
+
+        context = manager._prepare_expand_context('user-1', '@Canopy draft a useful post')
+        self.assertEqual(context['api_key'], 'sk-personal-secret')
+        self.assertEqual(context['model'], 'gpt-5.5')
+        self.assertEqual(context['credential_source'], 'user')
+        self.assertIn('Personal policy.', context['system_prompt'])
+
+    def test_personal_model_can_use_instance_fallback_key(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        manager.save_instance_settings(
+            'admin-1',
+            provider='openai',
+            model='gpt-5.4-mini',
+            enabled=True,
+            api_key='sk-instance-secret',
+            system_prompt='Shared policy.',
+        )
+        manager.save_settings(
+            'user-1',
+            provider='openai',
+            model='gpt-5.5',
+            enabled=True,
+            system_prompt='Personal policy.',
+        )
+
+        context = manager._prepare_expand_context('user-1', '@Canopy draft a useful post')
+        self.assertEqual(context['api_key'], 'sk-instance-secret')
+        self.assertEqual(context['model'], 'gpt-5.5')
+        self.assertEqual(context['credential_source'], 'instance')
+        self.assertIn('Personal policy.', context['system_prompt'])
 
     def test_canopy_trigger_detection_and_strip(self) -> None:
         self.assertTrue(CanopyLLMManager.has_canopy_trigger('@Canopy draft this'))
@@ -596,3 +714,26 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
         self.assertTrue(payload.get('success'))
         self.assertEqual(self.llm_manager.saved_payloads[0]['api_key'], 'sk-test')
         self.assertFalse(self.llm_manager.saved_payloads[0]['web_search_enabled'])
+
+    def test_admin_instance_settings_endpoint_saves_fallback_settings(self) -> None:
+        csrf = self._login()
+
+        response = self.client.post(
+            '/ajax/admin/canopy_llm/settings',
+            json={
+                'provider': 'openai',
+                'model': 'gpt-5.4-mini',
+                'enabled': True,
+                'web_search_enabled': False,
+                'api_key': 'sk-instance',
+                'system_prompt': 'Shared fallback.',
+            },
+            headers={'X-CSRFToken': csrf},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(self.llm_manager.saved_instance_payloads[0]['admin_user_id'], 'user-1')
+        self.assertEqual(self.llm_manager.saved_instance_payloads[0]['api_key'], 'sk-instance')
+        self.assertFalse(self.llm_manager.saved_instance_payloads[0]['web_search_enabled'])

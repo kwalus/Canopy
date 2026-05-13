@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.93] - 2026-05-13
+
+### Added
+- **Canopy AI Compose now supports an admin-managed instance fallback key** - admins can configure a node-local encrypted OpenAI key, default model, hosted web-search preference, and compose instruction so users can try `@Canopy` without first adding a personal key.
+
+### Changed
+- **Personal AI Compose settings now layer cleanly over the instance fallback** - personal keys still take precedence, while enabled personal model, prompt, and web-search preferences can ride on the instance key when no personal key is saved.
+
+### Fixed
+- **Fallback key decrypt failures now point admins to the right repair path** - instance fallback credential errors ask for the key to be re-entered in Admin > Instance AI Compose Fallback instead of the user profile settings.
+
 ## [0.6.92] - 2026-05-13
 
 ### Added

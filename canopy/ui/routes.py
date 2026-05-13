@@ -9405,6 +9405,20 @@ def create_ui_blueprint() -> Blueprint:
             current_meshspace = _current_meshspace_record()
             default_permissions = _current_meshspace_default_agent_permissions()
             transport_security_admin = _transport_security_admin_status(config, p2p_manager)
+            try:
+                instance_llm_settings = _get_canopy_llm_manager().get_instance_settings()
+            except Exception as llm_settings_err:
+                logger.warning("Failed to load instance Canopy AI fallback settings: %s", llm_settings_err)
+                instance_llm_settings = {
+                    'provider': 'openai',
+                    'model': 'gpt-5-mini',
+                    'enabled': False,
+                    'api_key_configured': False,
+                    'web_search_enabled': True,
+                    'system_prompt': '',
+                    'updated_at': None,
+                    'updated_by': None,
+                }
 
             return render_template('admin.html',
                                  users=users,
@@ -9426,6 +9440,7 @@ def create_ui_blueprint() -> Blueprint:
                                  remote_shadow_duplicate_groups=remote_shadow_duplicate_groups,
                                  cross_peer_same_name_groups=cross_peer_same_name_groups,
                                  transport_security_admin=transport_security_admin,
+                                 instance_llm_settings=instance_llm_settings,
                                  directive_presets=_agent_directive_presets_payload(),
                                  directive_max_length=MAX_AGENT_DIRECTIVES_LENGTH,
                                  user_id=get_current_user())
@@ -22022,6 +22037,42 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Canopy LLM settings error: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/admin/canopy_llm/settings', methods=['GET', 'POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_canopy_llm_settings():
+        """Get or update admin-managed node-local AI compose fallback settings."""
+        try:
+            from ..core.canopy_ai import CanopyLLMError
+
+            manager = _get_canopy_llm_manager()
+            if request.method == 'GET':
+                return jsonify({
+                    'success': True,
+                    'settings': manager.get_instance_settings(),
+                })
+
+            data = request.get_json(silent=True) or {}
+            settings = manager.save_instance_settings(
+                get_current_user(),
+                provider=data.get('provider') or 'openai',
+                model=data.get('model'),
+                enabled=bool(data.get('enabled')),
+                web_search_enabled=data.get('web_search_enabled', True),
+                api_key=data.get('api_key') if 'api_key' in data else None,
+                clear_api_key=bool(data.get('clear_api_key')),
+                system_prompt=data.get('system_prompt'),
+            )
+            return jsonify({
+                'success': True,
+                'settings': settings,
+            })
+        except CanopyLLMError as e:
+            return jsonify({'error': str(e), 'reason': e.reason}), e.status_code
+        except Exception as e:
+            logger.error("Admin Canopy LLM fallback settings error: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/canopy_llm/expand', methods=['POST'])
     @require_login
     def ajax_canopy_llm_expand():
@@ -22054,6 +22105,7 @@ def create_ui_blueprint() -> Blueprint:
                 'content': result.get('content') or '',
                 'provider': result.get('provider') or 'openai',
                 'model': result.get('model') or '',
+                'credential_source': result.get('credential_source') or 'user',
             })
         except CanopyLLMError as e:
             return jsonify({'error': str(e), 'reason': e.reason}), e.status_code
@@ -22160,6 +22212,11 @@ def create_ui_blueprint() -> Blueprint:
                     'web_search_enabled': True,
                     'system_prompt': '',
                     'updated_at': None,
+                    'instance_fallback_enabled': False,
+                    'instance_fallback_key_configured': False,
+                    'instance_fallback_available': False,
+                    'effective_enabled': False,
+                    'using_instance_fallback': False,
                 }
 
             # Build activity stats from actual data (avoid placeholder values).

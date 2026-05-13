@@ -764,14 +764,15 @@
 .admin-section-pending { order: 1; }
 .admin-section-users-primary { order: 2; }
 .admin-section-agent-template { order: 3; }
-.admin-section-agent-ops { order: 4; }
-.admin-section-instance { order: 5; }
-.admin-section-transport { order: 6; }
-.admin-section-users-secondary { order: 7; }
-.admin-section-relay { order: 8; }
-.admin-section-attachments { order: 9; }
-.admin-section-data { order: 10; }
-.admin-section-environment { order: 11; }
+.admin-section-instance-ai { order: 4; }
+.admin-section-agent-ops { order: 5; }
+.admin-section-instance { order: 6; }
+.admin-section-transport { order: 7; }
+.admin-section-users-secondary { order: 8; }
+.admin-section-relay { order: 9; }
+.admin-section-attachments { order: 10; }
+.admin-section-data { order: 11; }
+.admin-section-environment { order: 12; }
 
 .admin-summary-row {
     --bs-gutter-y: 0.75rem;
@@ -2431,6 +2432,112 @@
             </div>
         </div>
         <div class="small text-muted mt-2" id="meshspace-agent-template-status-line"></div>
+    </div>
+</div>
+
+{% set instance_ai = instance_llm_settings|default({}) %}
+<div class="card mb-4 admin-section-instance-ai" id="instance-ai-compose-card">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <h5 class="mb-0"><i class="bi bi-stars"></i> Instance AI Compose Fallback</h5>
+            <div class="small text-muted">Provide a node-local default key so users can try <code>@Canopy</code> without first adding their own OpenAI key.</div>
+        </div>
+        <span class="badge bg-{{ 'success' if instance_ai.get('enabled') and instance_ai.get('api_key_configured') else 'secondary' }}" id="instance-llm-state-badge">
+            {{ 'Available' if instance_ai.get('enabled') and instance_ai.get('api_key_configured') else 'Not available' }}
+        </span>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-info py-2 small mb-3">
+            Personal user keys still take precedence. If a user has no enabled personal key, Canopy falls back to this instance key and default compose policy. The key is encrypted locally and is never returned to the browser after save.
+        </div>
+
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label" for="instance-llm-provider">Provider</label>
+                <select class="form-select form-select-sm" id="instance-llm-provider">
+                    <option value="openai" selected>OpenAI</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="instance-llm-model">Default model</label>
+                <input type="text"
+                       class="form-control form-control-sm"
+                       id="instance-llm-model"
+                       list="instance-llm-model-options"
+                       value="{{ instance_ai.get('model') or 'gpt-5-mini' }}"
+                       maxlength="120"
+                       placeholder="gpt-5.4-mini">
+                <datalist id="instance-llm-model-options">
+                    <option value="gpt-5.4-mini">Recommended lower-latency Responses model with web search</option>
+                    <option value="gpt-5.4">Stronger Responses model with web search</option>
+                    <option value="gpt-5.5">Flagship Responses model with web search</option>
+                    <option value="gpt-5-mini">Existing economical default with web search</option>
+                    <option value="gpt-5">Previous-generation Responses model with web search</option>
+                </datalist>
+            </div>
+            <div class="col-md-5">
+                <label class="form-label" for="instance-llm-api-key">OpenAI API key</label>
+                <input type="password"
+                       class="form-control form-control-sm"
+                       id="instance-llm-api-key"
+                       autocomplete="off"
+                       placeholder="{% if instance_ai.get('api_key_configured') %}Saved fallback key configured - leave blank to keep{% else %}Paste instance fallback key{% endif %}">
+                <div class="form-text text-muted">Blank keeps the saved fallback key. Use clear to remove it.</div>
+            </div>
+        </div>
+
+        <div class="row g-3 mt-1 align-items-center">
+            <div class="col-md-4">
+                <div class="form-check form-switch">
+                    <input class="form-check-input"
+                           type="checkbox"
+                           role="switch"
+                           id="instance-llm-enabled"
+                           {% if instance_ai.get('enabled') %}checked{% endif %}>
+                    <label class="form-check-label" for="instance-llm-enabled">Enable instance fallback</label>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-check form-switch">
+                    <input class="form-check-input"
+                           type="checkbox"
+                           role="switch"
+                           id="instance-llm-web-search-enabled"
+                           {% if instance_ai.get('web_search_enabled', True) %}checked{% endif %}>
+                    <label class="form-check-label" for="instance-llm-web-search-enabled">Allow hosted web search</label>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="instance-llm-clear-key">
+                    <label class="form-check-label" for="instance-llm-clear-key">Clear saved fallback key</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-3">
+            <label class="form-label" for="instance-llm-system-prompt">Default compose instruction</label>
+            <textarea class="form-control"
+                      id="instance-llm-system-prompt"
+                      rows="4"
+                      maxlength="4000">{{ instance_ai.get('system_prompt') or '' }}</textarea>
+            <div class="form-text text-muted">
+                This is the fallback style and safety policy for users who have not enabled personal settings. Canopy still appends non-optional structured block and current-information rules.
+            </div>
+        </div>
+
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+            <div class="small text-muted" id="instance-llm-status" aria-live="polite">
+                {% if instance_ai.get('api_key_configured') %}
+                Fallback key saved locally{% if instance_ai.get('updated_at') %} · updated {{ instance_ai.get('updated_at') }}{% endif %}.
+                {% else %}
+                No fallback key saved yet.
+                {% endif %}
+            </div>
+            <button type="button" class="btn btn-success btn-sm" id="instance-llm-save-btn">
+                <i class="bi bi-shield-lock me-1"></i>Save Instance Fallback
+            </button>
+        </div>
     </div>
 </div>
 
@@ -4254,6 +4361,16 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     const meshspaceAgentTemplateFilesBtn = document.getElementById('meshspace-agent-template-files-btn');
     const meshspaceAgentTemplateResetBtn = document.getElementById('meshspace-agent-template-reset-btn');
     const meshspaceAgentTemplateCheckboxes = Array.from(document.querySelectorAll('.meshspace-agent-perm-cb'));
+    const instanceLlmProvider = document.getElementById('instance-llm-provider');
+    const instanceLlmModel = document.getElementById('instance-llm-model');
+    const instanceLlmApiKey = document.getElementById('instance-llm-api-key');
+    const instanceLlmEnabled = document.getElementById('instance-llm-enabled');
+    const instanceLlmWebSearch = document.getElementById('instance-llm-web-search-enabled');
+    const instanceLlmClearKey = document.getElementById('instance-llm-clear-key');
+    const instanceLlmSystemPrompt = document.getElementById('instance-llm-system-prompt');
+    const instanceLlmSaveBtn = document.getElementById('instance-llm-save-btn');
+    const instanceLlmStatus = document.getElementById('instance-llm-status');
+    const instanceLlmStateBadge = document.getElementById('instance-llm-state-badge');
 
     function readMeshspaceTemplateSelection() {
         return meshspaceAgentTemplateCheckboxes
@@ -4280,6 +4397,73 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         const preview = selected.slice(0, 4).map(humanizePermission).join(' • ');
         const extra = selected.length > 4 ? ` +${selected.length - 4} more` : '';
         meshspaceAgentTemplateSummary.textContent = `${selected.length} default permission${selected.length === 1 ? '' : 's'} · ${preview}${extra}`;
+    }
+
+    function setInstanceLlmStatus(text, isError = false) {
+        if (!instanceLlmStatus) return;
+        instanceLlmStatus.textContent = text || '';
+        instanceLlmStatus.classList.toggle('text-danger', !!isError);
+        instanceLlmStatus.classList.toggle('text-success', !isError && !!text);
+        instanceLlmStatus.classList.toggle('text-muted', !text);
+    }
+
+    function updateInstanceLlmBadge(settings) {
+        if (!instanceLlmStateBadge) return;
+        const available = !!(settings && settings.enabled && settings.api_key_configured);
+        instanceLlmStateBadge.textContent = available ? 'Available' : 'Not available';
+        instanceLlmStateBadge.classList.toggle('bg-success', available);
+        instanceLlmStateBadge.classList.toggle('bg-secondary', !available);
+    }
+
+    function applyInstanceLlmSettings(settings) {
+        const safeSettings = settings || {};
+        if (instanceLlmProvider && safeSettings.provider) instanceLlmProvider.value = safeSettings.provider;
+        if (instanceLlmModel && safeSettings.model) instanceLlmModel.value = safeSettings.model;
+        if (instanceLlmEnabled) instanceLlmEnabled.checked = !!safeSettings.enabled;
+        if (instanceLlmWebSearch) instanceLlmWebSearch.checked = safeSettings.web_search_enabled !== false;
+        if (instanceLlmApiKey) {
+            instanceLlmApiKey.value = '';
+            instanceLlmApiKey.placeholder = safeSettings.api_key_configured
+                ? 'Saved fallback key configured - leave blank to keep'
+                : 'Paste instance fallback key';
+        }
+        if (instanceLlmClearKey) instanceLlmClearKey.checked = false;
+        updateInstanceLlmBadge(safeSettings);
+    }
+
+    async function saveInstanceLlmSettings() {
+        if (!instanceLlmSaveBtn) return;
+        if (!instanceLlmSaveBtn.dataset.defaultLabel) {
+            instanceLlmSaveBtn.dataset.defaultLabel = instanceLlmSaveBtn.innerHTML || 'Save Instance Fallback';
+        }
+        instanceLlmSaveBtn.disabled = true;
+        instanceLlmSaveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Saving...';
+        setInstanceLlmStatus('Saving instance AI compose fallback...');
+        const payload = {
+            provider: instanceLlmProvider ? instanceLlmProvider.value : 'openai',
+            model: instanceLlmModel ? instanceLlmModel.value.trim() : '',
+            enabled: !!(instanceLlmEnabled && instanceLlmEnabled.checked),
+            web_search_enabled: !!(instanceLlmWebSearch && instanceLlmWebSearch.checked),
+            clear_api_key: !!(instanceLlmClearKey && instanceLlmClearKey.checked),
+            system_prompt: instanceLlmSystemPrompt ? instanceLlmSystemPrompt.value.trim() : ''
+        };
+        const apiKey = instanceLlmApiKey ? instanceLlmApiKey.value.trim() : '';
+        if (apiKey) payload.api_key = apiKey;
+        const { ok, data } = await api('POST', '/ajax/admin/canopy_llm/settings', payload);
+        instanceLlmSaveBtn.disabled = false;
+        instanceLlmSaveBtn.innerHTML = instanceLlmSaveBtn.dataset.defaultLabel;
+        if (!ok) {
+            setInstanceLlmStatus(data.error || 'Failed to save instance fallback', true);
+            return;
+        }
+        applyInstanceLlmSettings(data.settings || {});
+        const settings = data.settings || {};
+        const available = !!(settings.enabled && settings.api_key_configured);
+        setInstanceLlmStatus(
+            available
+                ? 'Saved. Users without personal keys can now use @Canopy through the instance fallback.'
+                : 'Saved. Add a key and enable fallback before users can rely on the instance default.'
+        );
     }
 
     function readOnlyPermissionPreset() {
@@ -4623,6 +4807,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     if (keysPresetFullBtn) keysPresetFullBtn.addEventListener('click', () => setKeyPermissionSelection(allKeyPermissions));
     if (keysPresetClearBtn) keysPresetClearBtn.addEventListener('click', () => setKeyPermissionSelection([]));
     updateKeyPermissionSummary();
+    if (instanceLlmSaveBtn) instanceLlmSaveBtn.addEventListener('click', saveInstanceLlmSettings);
     meshspaceAgentTemplateCheckboxes.forEach(cb => cb.addEventListener('change', updateMeshspaceTemplateSummary));
     updateMeshspaceTemplateSummary();
 

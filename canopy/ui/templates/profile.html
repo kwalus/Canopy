@@ -428,8 +428,19 @@
                             Canopy AI Compose
                         </div>
                         <p class="text-muted small mb-3">
-                            When a channel draft contains <code>@Canopy</code>, Canopy can expand or refine that draft through your own provider key and put the result back into the composer for review before you send. The key is stored only on this node and is not shared over the mesh.
+                            When a channel draft contains <code>@Canopy</code>, Canopy can expand or refine that draft and put the result back into the composer for review before you send. Your own provider key takes priority; if you do not configure one, this node can use the admin-managed instance fallback when available.
                         </p>
+                        {% if canopy_ai.get('instance_fallback_available') %}
+                        <div class="alert alert-success py-2 small mb-3">
+                            <i class="bi bi-check-circle me-1"></i>
+                            Instance fallback is available. You can use <code>@Canopy</code> without adding a personal key, or add your own key/model below to override the shared default.
+                        </div>
+                        {% elif canopy_ai.get('instance_fallback_enabled') and not canopy_ai.get('instance_fallback_key_configured') %}
+                        <div class="alert alert-warning py-2 small mb-3">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            Admin fallback is enabled but no instance key is saved yet. Add your own key below or ask the admin to finish setup.
+                        </div>
+                        {% endif %}
 
                         <div class="row g-3 align-items-end">
                             <div class="col-md-4">
@@ -466,13 +477,15 @@
                                            role="switch"
                                            id="canopy-llm-enabled"
                                            {% if canopy_ai.get('enabled') %}checked{% endif %}>
-                                    <label class="form-check-label" for="canopy-llm-enabled">Enable @Canopy compose trigger</label>
+                                    <label class="form-check-label" for="canopy-llm-enabled">Enable personal @Canopy settings</label>
                                 </div>
                                 <div class="form-text text-muted">
                                     {% if canopy_ai.get('api_key_configured') %}
-                                    API key saved locally.
+                                    Personal API key saved locally and will override the instance fallback.
+                                    {% elif canopy_ai.get('instance_fallback_available') %}
+                                    Leave off to use the instance defaults, or turn on to use your model/instruction preferences with the fallback key.
                                     {% else %}
-                                    Add an API key before enabling in real use.
+                                    Add a personal key or ask an admin to configure the instance fallback.
                                     {% endif %}
                                 </div>
                             </div>
@@ -504,7 +517,9 @@
                                        id="canopy-llm-api-key"
                                        autocomplete="off"
                                        placeholder="{% if canopy_ai.get('api_key_configured') %}Saved key configured - leave blank to keep{% else %}Paste API key{% endif %}">
-                                <div class="form-text text-muted">Leaving this blank keeps the existing saved key.</div>
+                                <div class="form-text text-muted">
+                                    Leaving this blank keeps the existing saved key. If you leave it blank without a saved key, Canopy uses the instance fallback when the admin has enabled one.
+                                </div>
                             </div>
                             <div class="col-md-4 d-flex align-items-end">
                                 <div class="form-check mb-2">
@@ -910,9 +925,13 @@ function setupCanopyLLMSettings() {
             if (statusEl) {
                 statusEl.className = 'small text-success';
                 const searchText = settings.web_search_enabled ? ' Web search is allowed for current facts.' : ' Web search is off.';
-                statusEl.textContent = (settings.api_key_configured
-                    ? 'Saved. API key is configured locally.'
-                    : 'Saved. Add an API key before using @Canopy.') + searchText;
+                let keyText = 'Saved. Add an API key before using @Canopy.';
+                if (settings.api_key_configured) {
+                    keyText = 'Saved. Personal API key is configured locally.';
+                } else if (settings.instance_fallback_available) {
+                    keyText = 'Saved. No personal key configured; instance fallback is available.';
+                }
+                statusEl.textContent = keyText + searchText;
             }
         })
         .catch((error) => {

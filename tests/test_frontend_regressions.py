@@ -43,6 +43,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('gpt-5.4-mini', profile_template)
         self.assertIn('Allow hosted web search for current facts', profile_template)
         self.assertIn('/ajax/canopy_llm/settings', profile_template)
+        self.assertIn('instance_fallback_available', profile_template)
+        self.assertIn('admin-managed instance fallback', profile_template)
         self.assertIn('put the result back into the composer for review before you send', profile_template)
         self.assertIn('data-dm-role="canopy-llm-status"', messages_composer)
         self.assertIn('data-dm-action="generate-canopy-draft"', messages_composer)
@@ -52,6 +54,23 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('global.CanopyLLMCompose = {', main_js)
         self.assertIn('async function generateDeckInboxCanopyLLMDraft', main_js)
         self.assertIn('if (deckInboxShouldGenerateCanopyLLMDraft(content))', main_js)
+
+    def test_admin_exposes_instance_ai_compose_fallback_settings(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+
+        self.assertIn('admin-section-instance-ai', admin_template)
+        self.assertIn('Instance AI Compose Fallback', admin_template)
+        self.assertIn('instance-llm-api-key', admin_template)
+        self.assertIn('instance-llm-enabled', admin_template)
+        self.assertIn('instance-llm-web-search-enabled', admin_template)
+        self.assertIn('instance-llm-system-prompt', admin_template)
+        self.assertIn('/ajax/admin/canopy_llm/settings', admin_template)
+        self.assertIn('Personal user keys still take precedence.', admin_template)
+        self.assertIn('function saveInstanceLlmSettings()', admin_template)
+        self.assertIn("manager.get_instance_settings()", ui_routes)
+        self.assertIn("manager.save_instance_settings(", ui_routes)
+        self.assertIn("@ui.route('/ajax/admin/canopy_llm/settings'", ui_routes)
 
     def test_universal_collaboration_cards_render_in_feed_and_channels(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
