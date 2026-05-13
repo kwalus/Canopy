@@ -2836,6 +2836,15 @@
         line-height: 1.32;
     }
 
+    .channel-group-edit-panel-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.36rem;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
     .channel-group {
         --channel-group-color: #2dd4bf;
         margin: 0.24rem 0.18rem 0.42rem;
@@ -2875,12 +2884,14 @@
     }
 
     .channel-group-drag-handle,
-    .channel-group-color-controls {
+    .channel-group-color-controls,
+    .channel-group-action-controls {
         display: none;
     }
 
     .channel-list.channel-group-editing .channel-group:not(.channel-group-pinned) .channel-group-drag-handle,
-    .channel-list.channel-group-editing .channel-group:not(.channel-group-pinned):not([data-group-default="true"]) .channel-group-color-controls {
+    .channel-list.channel-group-editing .channel-group:not(.channel-group-pinned):not([data-group-default="true"]) .channel-group-color-controls,
+    .channel-list.channel-group-editing .channel-group:not(.channel-group-pinned):not([data-group-default="true"]) .channel-group-action-controls {
         display: inline-flex;
     }
 
@@ -2904,6 +2915,11 @@
         flex: 0 0 auto;
     }
 
+    .channel-group-action-controls {
+        align-items: center;
+        flex: 0 0 auto;
+    }
+
     .channel-group-color-toggle {
         width: 1.45rem;
         height: 1.45rem;
@@ -2915,6 +2931,26 @@
         align-items: center;
         justify-content: center;
         padding: 0;
+    }
+
+    .channel-group-delete-btn {
+        width: 1.45rem;
+        height: 1.45rem;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, #fb7185 34%, var(--canopy-border));
+        background: color-mix(in srgb, #fb7185 10%, transparent);
+        color: color-mix(in srgb, #fb7185 78%, var(--canopy-text-secondary));
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+    }
+
+    .channel-group-delete-btn:hover,
+    .channel-group-delete-btn:focus-visible {
+        color: #fecdd3;
+        border-color: rgba(251, 113, 133, 0.58);
+        background: rgba(251, 113, 133, 0.18);
     }
 
     .channel-group-color-toggle:hover,
@@ -3029,6 +3065,56 @@
         outline: 1px dashed color-mix(in srgb, var(--channel-group-color) 20%, transparent);
         outline-offset: -0.18rem;
         transition: background 140ms ease, outline-color 140ms ease;
+    }
+
+    .channel-group-empty {
+        padding: 0.58rem 0.6rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.75rem;
+        border-radius: 0.62rem;
+        text-transform: none;
+        letter-spacing: 0;
+    }
+
+    .channel-group-create-channel-list {
+        display: grid;
+        gap: 0.35rem;
+        max-height: min(260px, 32vh);
+        overflow-y: auto;
+        padding-right: 0.18rem;
+    }
+
+    .channel-group-create-channel-row {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.52rem 0.58rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, transparent);
+        border-radius: 0.82rem;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 70%, transparent);
+    }
+
+    .channel-group-create-channel-row input {
+        flex: 0 0 auto;
+    }
+
+    .channel-group-create-channel-meta {
+        min-width: 0;
+        display: grid;
+        gap: 0.05rem;
+    }
+
+    .channel-group-create-channel-name {
+        color: var(--canopy-text-primary);
+        font-weight: 800;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .channel-group-create-channel-current {
+        color: var(--canopy-text-muted);
+        font-size: 0.72rem;
     }
 
     .channel-list.channel-group-editing .channel-group-body.is-channel-drop-target,
@@ -3953,10 +4039,15 @@
                                 Organize mode
                             </div>
                             <div class="channel-group-edit-panel-copy mt-1">
-                                Drag groups to reorder. Drag channels into a group to regroup. Tap a colour dot to recolour the group.
+                                Drag groups to reorder. Drag channels into a group to regroup. Create focused groups for noisy agent work or slower human discussion.
                             </div>
                         </div>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelGroupEditMode(false)">Done</button>
+                        <div class="channel-group-edit-panel-actions">
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openNewChannelGroupModal()">
+                                <i class="bi bi-plus-lg me-1"></i>New group
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelGroupEditMode(false)">Done</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -7201,6 +7292,7 @@ const CHANNEL_ORG_STORAGE_KEY = `canopy.channel_org.v1.${currentUserId || 'anon'
 const CHANNEL_GROUP_COLLAPSE_STORAGE_KEY = `canopy.channel_group_collapsed.v1.${currentUserId || 'anon'}`;
 const CHANNEL_GROUP_ORDER_STORAGE_KEY = `canopy.channel_group_order.v1.${currentUserId || 'anon'}`;
 const CHANNEL_GROUP_CHANNEL_ORDER_STORAGE_KEY = `canopy.channel_group_channel_order.v1.${currentUserId || 'anon'}`;
+const CHANNEL_GROUP_DEFS_STORAGE_KEY = `canopy.channel_group_defs.v1.${currentUserId || 'anon'}`;
 const CHANNEL_HUMAN_THREAD_FILTER_STORAGE_KEY = `canopy.channel_human_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_ORG_PALETTE = [
     { color: '#2dd4bf', label: 'Canopy teal' },
@@ -7218,6 +7310,7 @@ let channelOrgById = {};
 const collapsedChannelGroupIds = new Set();
 let channelGroupOrder = [];
 let channelGroupChannelOrderById = {};
+let channelGroupDefsById = {};
 let channelGroupEditMode = false;
 let channelDragSourceId = null;
 let channelDragMode = '';
@@ -7499,6 +7592,7 @@ function loadChannelOrgState() {
     collapsedChannelGroupIds.clear();
     channelGroupOrder = [];
     channelGroupChannelOrderById = {};
+    channelGroupDefsById = {};
     try {
         const raw = localStorage.getItem(CHANNEL_ORG_STORAGE_KEY);
         const parsed = raw ? JSON.parse(raw) : {};
@@ -7547,6 +7641,19 @@ function loadChannelOrgState() {
     } catch (_) {
         channelGroupChannelOrderById = {};
     }
+    try {
+        const rawDefs = localStorage.getItem(CHANNEL_GROUP_DEFS_STORAGE_KEY);
+        const parsedDefs = rawDefs ? JSON.parse(rawDefs) : {};
+        if (parsedDefs && typeof parsedDefs === 'object' && !Array.isArray(parsedDefs)) {
+            Object.entries(parsedDefs).forEach(([groupId, config]) => {
+                const cleanId = String(groupId || '').trim();
+                const normalized = normalizeChannelGroupDefinition(config, cleanId);
+                if (normalized) channelGroupDefsById[normalized.id] = normalized;
+            });
+        }
+    } catch (_) {
+        channelGroupDefsById = {};
+    }
 }
 
 function saveChannelOrgState() {
@@ -7555,6 +7662,7 @@ function saveChannelOrgState() {
         localStorage.setItem(CHANNEL_GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(collapsedChannelGroupIds)));
         localStorage.setItem(CHANNEL_GROUP_ORDER_STORAGE_KEY, JSON.stringify(channelGroupOrder));
         localStorage.setItem(CHANNEL_GROUP_CHANNEL_ORDER_STORAGE_KEY, JSON.stringify(channelGroupChannelOrderById));
+        localStorage.setItem(CHANNEL_GROUP_DEFS_STORAGE_KEY, JSON.stringify(channelGroupDefsById));
     } catch (_) {}
 }
 
@@ -7714,6 +7822,24 @@ function normalizeChannelOrgConfig(config) {
     return { group: groupName, color };
 }
 
+function normalizeChannelGroupDefinition(config, fallbackId = '') {
+    if (!config || typeof config !== 'object') return null;
+    const label = String(config.label || config.group || config.group_name || '').trim().slice(0, 48);
+    if (!label) return null;
+    const id = String(config.id || fallbackId || `group-${slugifyChannelGroupName(label)}`).trim();
+    if (!id || id === 'pinned' || id === 'ungrouped') return null;
+    let color = String(config.color || '').trim();
+    if (!/^#[0-9a-fA-F]{6}$/.test(color)) {
+        color = getDefaultGroupColor(label);
+    }
+    return {
+        id,
+        label,
+        color,
+        createdAt: String(config.createdAt || config.created_at || new Date().toISOString()),
+    };
+}
+
 function slugifyChannelGroupName(name) {
     const raw = String(name || '').trim().toLowerCase();
     const slug = raw
@@ -7731,6 +7857,27 @@ function getDefaultGroupColor(seed) {
         hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
     }
     return palette[Math.abs(hash) % palette.length].color;
+}
+
+function ensureChannelGroupDefinition(label, color) {
+    const cleanLabel = String(label || '').trim().slice(0, 48);
+    if (!cleanLabel) return null;
+    const groupId = `group-${slugifyChannelGroupName(cleanLabel)}`;
+    const existing = channelGroupDefsById[groupId] || {};
+    const normalized = normalizeChannelGroupDefinition({
+        id: groupId,
+        label: cleanLabel,
+        color: color || existing.color || getDefaultGroupColor(cleanLabel),
+        createdAt: existing.createdAt || new Date().toISOString(),
+    }, groupId);
+    if (!normalized) return null;
+    channelGroupDefsById[groupId] = normalized;
+    if (!channelGroupOrder.includes(groupId)) {
+        const ungroupedIdx = channelGroupOrder.indexOf('ungrouped');
+        if (ungroupedIdx >= 0) channelGroupOrder.splice(ungroupedIdx, 0, groupId);
+        else channelGroupOrder.push(groupId);
+    }
+    return normalized;
 }
 
 function getChannelOrgForItem(item) {
@@ -7754,11 +7901,14 @@ function getChannelGroupInfoForItem(item) {
             isDefault: true,
         };
     }
+    const groupId = `group-${slugifyChannelGroupName(org.group)}`;
+    const definition = channelGroupDefsById[groupId];
     return {
-        id: `group-${slugifyChannelGroupName(org.group)}`,
-        label: org.group,
-        color: org.color || getDefaultGroupColor(org.group),
+        id: groupId,
+        label: definition?.label || org.group,
+        color: definition?.color || org.color || getDefaultGroupColor(org.group),
         isDefault: false,
+        isUserDefined: !!definition,
     };
 }
 
@@ -7818,11 +7968,12 @@ function compareChannelItemsForGroup(groupId, a, b) {
 function normalizeRenderedChannelGroupOrder(groupIds) {
     const visible = (groupIds || []).map(id => String(id || '').trim()).filter(Boolean);
     const visibleSet = new Set(visible);
+    const hiddenDefined = channelGroupOrder.filter(id => channelGroupDefsById[id] && !visibleSet.has(id));
     const ordered = channelGroupOrder.filter(id => visibleSet.has(id));
     visible.forEach(id => {
         if (!ordered.includes(id)) ordered.push(id);
     });
-    channelGroupOrder = ordered;
+    channelGroupOrder = ordered.concat(hiddenDefined.filter(id => !ordered.includes(id)));
     return ordered;
 }
 
@@ -7855,6 +8006,18 @@ function renderChannelGroupColorTray(group) {
     </span>`;
 }
 
+function renderChannelGroupActionTray(group) {
+    if (!group || group.isPinned || group.isDefault) return '';
+    return `<span class="channel-group-action-controls">
+        <button type="button"
+                class="channel-group-delete-btn"
+                title="Remove group"
+                aria-label="Remove group">
+            <i class="bi bi-trash"></i>
+        </button>
+    </span>`;
+}
+
 function updateChannelGroupEditModeUI() {
     const list = document.querySelector('.channel-list');
     const toggle = document.getElementById('channel-group-edit-toggle');
@@ -7881,6 +8044,9 @@ function updateChannelGroupEditModeUI() {
         section.querySelectorAll('.channel-group-color-toggle').forEach(button => {
             button.setAttribute('aria-expanded', 'false');
         });
+        section.querySelectorAll('.channel-group-delete-btn').forEach(button => {
+            button.disabled = !channelGroupEditMode || isPinned;
+        });
     });
     scheduleChannelNameOverflowSync();
 }
@@ -7896,6 +8062,7 @@ function toggleChannelGroupEditMode(forceEnabled) {
     clearChannelDropMarkers();
     clearChannelGroupDropMarkers();
     updateChannelGroupEditModeUI();
+    sortChannelListByPins();
 }
 
 function clearChannelGroupDropMarkers() {
@@ -7920,7 +8087,8 @@ function moveChannelGroupOrder(sourceGroupId, targetGroupId, beforeTarget) {
     const targetIdx = nextOrder.indexOf(targetId);
     const insertIdx = targetIdx < 0 ? nextOrder.length : (beforeTarget ? targetIdx : targetIdx + 1);
     nextOrder.splice(insertIdx, 0, sourceId);
-    channelGroupOrder = nextOrder;
+    const hiddenDefined = channelGroupOrder.filter(id => channelGroupDefsById[id] && !nextOrder.includes(id));
+    channelGroupOrder = nextOrder.concat(hiddenDefined);
     saveChannelOrgState();
     sortChannelListByPins();
     return true;
@@ -7938,6 +8106,7 @@ function assignChannelToSectionGroup(channelId, section) {
     const label = String(section.dataset.groupLabel || section.querySelector('.channel-group-label')?.textContent || '').trim();
     const color = String(section.dataset.groupColor || '').trim() || getDefaultGroupColor(label);
     if (!label) return false;
+    ensureChannelGroupDefinition(label, color);
     channelOrgById[cleanChannelId] = { group: label, color };
     return true;
 }
@@ -8011,11 +8180,39 @@ function setChannelGroupColor(groupId, color) {
     if (!section || section.dataset.groupDefault === 'true' || section.classList.contains('channel-group-pinned')) return false;
     const label = String(section.dataset.groupLabel || '').trim();
     if (!label) return false;
+    ensureChannelGroupDefinition(label, cleanColor);
     section.querySelectorAll('.channel-item[data-channel-id]').forEach(item => {
         const channelId = String(item.dataset.channelId || '').trim();
         if (!channelId) return;
         channelOrgById[channelId] = { group: label, color: cleanColor };
     });
+    saveChannelOrgState();
+    applyAllChannelPinStates();
+    sortChannelListByPins();
+    return true;
+}
+
+function removeChannelGroup(groupId) {
+    const cleanGroupId = String(groupId || '').trim();
+    if (!cleanGroupId || cleanGroupId === 'pinned' || cleanGroupId === 'ungrouped') return false;
+    const section = getChannelGroupSection(cleanGroupId);
+    if (!section || section.dataset.groupDefault === 'true' || section.classList.contains('channel-group-pinned')) return false;
+    const label = String(section.dataset.groupLabel || channelGroupDefsById[cleanGroupId]?.label || 'this group').trim();
+    const itemIds = Array.from(section.querySelectorAll('.channel-item[data-channel-id]'))
+        .map(item => String(item.dataset.channelId || '').trim())
+        .filter(Boolean);
+    const message = itemIds.length
+        ? `Remove "${label}" and move ${itemIds.length} channel${itemIds.length === 1 ? '' : 's'} back to Channels?`
+        : `Remove empty group "${label}"?`;
+    if (!confirm(message)) return false;
+    itemIds.forEach(channelId => {
+        delete channelOrgById[channelId];
+        removeChannelFromGroupOrders(channelId);
+    });
+    delete channelGroupDefsById[cleanGroupId];
+    delete channelGroupChannelOrderById[cleanGroupId];
+    collapsedChannelGroupIds.delete(cleanGroupId);
+    channelGroupOrder = channelGroupOrder.filter(id => id !== cleanGroupId);
     saveChannelOrgState();
     applyAllChannelPinStates();
     sortChannelListByPins();
@@ -8358,9 +8555,13 @@ function createChannelGroupSection(group) {
                 <span class="channel-group-count">${group.count}</span>
             </span>
             ${renderChannelGroupColorTray(group)}
+            ${renderChannelGroupActionTray(group)}
             <i class="bi bi-chevron-down channel-group-chevron" aria-hidden="true"></i>
         </div>
         <div class="channel-group-body"></div>`;
+    if (!group.count && !group.isPinned && !group.isDefault) {
+        section.querySelector('.channel-group-body').innerHTML = '<div class="channel-group-empty">Drop channels here while organizing.</div>';
+    }
     return section;
 }
 
@@ -8396,14 +8597,14 @@ function bindChannelGroupHandlers() {
         if (header.dataset.boundGroupToggle === '1') return;
         header.addEventListener('click', (event) => {
             event.preventDefault();
-            if (event.target.closest('.channel-group-color-controls') || event.target.closest('.channel-group-drag-handle')) {
+            if (event.target.closest('.channel-group-color-controls') || event.target.closest('.channel-group-action-controls') || event.target.closest('.channel-group-drag-handle')) {
                 return;
             }
             toggleGroupCollapsed(header);
         });
         header.addEventListener('keydown', (event) => {
             if (event.key !== 'Enter' && event.key !== ' ') return;
-            if (event.target.closest('.channel-group-color-controls') || event.target.closest('.channel-group-drag-handle')) {
+            if (event.target.closest('.channel-group-color-controls') || event.target.closest('.channel-group-action-controls') || event.target.closest('.channel-group-drag-handle')) {
                 return;
             }
             event.preventDefault();
@@ -8446,6 +8647,19 @@ function bindChannelGroupHandlers() {
             section.querySelector('.channel-group-color-toggle')?.setAttribute('aria-expanded', 'false');
         });
         button.dataset.boundGroupColorClick = '1';
+    });
+
+    document.querySelectorAll('.channel-group-delete-btn').forEach(button => {
+        if (button.dataset.boundGroupDeleteClick === '1') return;
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!channelGroupEditMode) return;
+            const section = button.closest('.channel-group');
+            if (!section) return;
+            removeChannelGroup(section.dataset.groupId);
+        });
+        button.dataset.boundGroupDeleteClick = '1';
     });
 
     document.querySelectorAll('.channel-group').forEach(section => {
@@ -8595,6 +8809,29 @@ function sortChannelListByPins() {
             group.firstSortIndex = Math.min(group.firstSortIndex, ensureChannelSortIndex(item));
         });
 
+    Object.values(channelGroupDefsById || {}).forEach(definition => {
+        const normalized = normalizeChannelGroupDefinition(definition, definition && definition.id);
+        if (!normalized) return;
+        if (groups.has(normalized.id)) {
+            const existing = groups.get(normalized.id);
+            existing.label = normalized.label;
+            existing.color = normalized.color;
+            existing.isDefault = false;
+            existing.isUserDefined = true;
+            return;
+        }
+        if (!channelGroupEditMode) return;
+        groups.set(normalized.id, {
+            id: normalized.id,
+            label: normalized.label,
+            color: normalized.color,
+            isDefault: false,
+            isUserDefined: true,
+            items: [],
+            firstSortIndex: Number.MAX_SAFE_INTEGER,
+        });
+    });
+
     const orderedGroups = Array.from(groups.values())
         .sort((a, b) => {
             const aOrder = getChannelGroupOrderIndex(a.id);
@@ -8616,6 +8853,7 @@ function sortChannelListByPins() {
                 color: group.color,
                 count: group.items.length,
                 isDefault: group.isDefault,
+                isUserDefined: group.isUserDefined,
                 isPinned: false,
                 unreadTotal: attention.unreadTotal,
                 mentionTotal: attention.mentionTotal,
@@ -8733,6 +8971,175 @@ function openChannelOrgModalForCurrent() {
     openChannelOrgModal(selectedId);
 }
 
+function ensureNewChannelGroupModal() {
+    let modal = document.getElementById('channelGroupCreateModal');
+    if (modal) return modal;
+    modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.id = 'channelGroupCreateModal';
+    modal.tabIndex = -1;
+    modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content" style="background: var(--canopy-bg-card); color: var(--canopy-text-primary); border-color: var(--canopy-border);">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title mb-0">Create channel group</h5>
+                        <div class="small text-muted">Groups are personal to this browser. They help you separate agent work, human discussion, and project lanes.</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="channel-org-preview mb-3" id="channel-group-create-preview">
+                        <div class="small text-muted text-uppercase fw-bold">New group</div>
+                        <div class="fw-bold" id="channel-group-create-preview-name">Untitled group</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small text-muted text-uppercase fw-bold" for="channel-group-create-name">Group name</label>
+                        <input type="text"
+                               class="form-control"
+                               id="channel-group-create-name"
+                               placeholder="e.g. Human discussion, Agent workbench, Lab operations"
+                               maxlength="48"
+                               list="channel-group-create-suggestions">
+                        <datalist id="channel-group-create-suggestions"></datalist>
+                        <div class="form-text">You can create an empty group and drag channels into it in organize mode.</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="small text-muted text-uppercase fw-bold mb-2">Group colour</div>
+                        <div class="channel-org-palette" id="channel-group-create-palette"></div>
+                    </div>
+                    <div>
+                        <div class="small text-muted text-uppercase fw-bold mb-2">Move channels now <span class="text-muted fw-normal text-lowercase">(optional)</span></div>
+                        <div class="channel-group-create-channel-list" id="channel-group-create-channel-list"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="channel-group-create-save-btn">
+                        <i class="bi bi-plus-lg me-1"></i>Create group
+                    </button>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#channel-group-create-save-btn').addEventListener('click', saveNewChannelGroupModal);
+    modal.querySelector('#channel-group-create-name').addEventListener('input', updateNewChannelGroupPreview);
+    return modal;
+}
+
+function renderNewChannelGroupPalette(selectedColor) {
+    const palette = document.getElementById('channel-group-create-palette');
+    if (!palette) return;
+    const normalizedSelected = String(selectedColor || CHANNEL_ORG_PALETTE[0].color).toLowerCase();
+    palette.innerHTML = CHANNEL_ORG_PALETTE.map(option => {
+        const active = option.color.toLowerCase() === normalizedSelected;
+        return `<button type="button"
+                        class="channel-org-color-option ${active ? 'active' : ''}"
+                        style="--org-color: ${option.color};"
+                        data-color="${option.color}"
+                        title="${escapeHtml(option.label)}"
+                        aria-label="${escapeHtml(option.label)}"></button>`;
+    }).join('');
+    palette.querySelectorAll('.channel-org-color-option').forEach(button => {
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            palette.querySelectorAll('.channel-org-color-option').forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+            updateNewChannelGroupPreview();
+        });
+    });
+}
+
+function getSelectedNewChannelGroupColor() {
+    return document.querySelector('#channel-group-create-palette .channel-org-color-option.active')?.dataset?.color || CHANNEL_ORG_PALETTE[0].color;
+}
+
+function updateNewChannelGroupPreview() {
+    const input = document.getElementById('channel-group-create-name');
+    const preview = document.getElementById('channel-group-create-preview');
+    const label = document.getElementById('channel-group-create-preview-name');
+    const groupName = String(input?.value || '').trim();
+    const color = getSelectedNewChannelGroupColor();
+    if (preview) preview.style.setProperty('--org-color', groupName ? color : '#64748b');
+    if (label) label.textContent = groupName || 'Untitled group';
+}
+
+function renderNewChannelGroupChannelPicker() {
+    const list = document.getElementById('channel-group-create-channel-list');
+    if (!list) return;
+    const channels = Array.from(document.querySelectorAll('.channel-item[data-channel-id]'))
+        .filter(item => item.dataset.pinned !== 'true')
+        .sort(compareChannelItemsBySidebarOrder);
+    if (!channels.length) {
+        list.innerHTML = '<div class="channel-group-empty">No movable channels available yet.</div>';
+        return;
+    }
+    list.innerHTML = channels.map(item => {
+        const channelId = String(item.dataset.channelId || '').trim();
+        const channelName = String(item.querySelector('.channel-name')?.textContent || channelId).trim();
+        const groupInfo = getChannelGroupInfoForItem(item);
+        const currentGroup = groupInfo && !groupInfo.isDefault ? groupInfo.label : 'Channels';
+        return `
+            <label class="channel-group-create-channel-row">
+                <input type="checkbox" value="${escapeHtml(channelId)}">
+                <span class="channel-group-create-channel-meta">
+                    <span class="channel-group-create-channel-name"># ${escapeHtml(channelName)}</span>
+                    <span class="channel-group-create-channel-current">Currently in ${escapeHtml(currentGroup)}</span>
+                </span>
+            </label>`;
+    }).join('');
+}
+
+function openNewChannelGroupModal() {
+    if (!channelGroupEditMode) toggleChannelGroupEditMode(true);
+    const modalEl = ensureNewChannelGroupModal();
+    const input = modalEl.querySelector('#channel-group-create-name');
+    if (input) input.value = '';
+    updateNewChannelGroupSuggestions();
+    renderNewChannelGroupPalette(CHANNEL_ORG_PALETTE[0].color);
+    renderNewChannelGroupChannelPicker();
+    updateNewChannelGroupPreview();
+    bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    setTimeout(() => input?.focus(), 180);
+}
+
+function saveNewChannelGroupModal() {
+    const modalEl = document.getElementById('channelGroupCreateModal');
+    const input = document.getElementById('channel-group-create-name');
+    const groupName = String(input?.value || '').trim().slice(0, 48);
+    if (!groupName) {
+        showAlert('Name the group first.', 'warning');
+        input?.focus();
+        return;
+    }
+    const definition = ensureChannelGroupDefinition(groupName, getSelectedNewChannelGroupColor());
+    if (!definition) {
+        showAlert('Could not create that group.', 'danger');
+        return;
+    }
+    const selectedIds = Array.from(document.querySelectorAll('#channel-group-create-channel-list input[type="checkbox"]:checked'))
+        .map(inputEl => String(inputEl.value || '').trim())
+        .filter(Boolean);
+    selectedIds.forEach(channelId => {
+        channelOrgById[channelId] = { group: definition.label, color: definition.color };
+        removeChannelFromGroupOrders(channelId, definition.id);
+    });
+    if (selectedIds.length) {
+        channelGroupChannelOrderById[definition.id] = selectedIds;
+    }
+    saveChannelOrgState();
+    applyAllChannelPinStates();
+    sortChannelListByPins();
+    toggleChannelGroupEditMode(true);
+    bootstrap.Modal.getInstance(modalEl)?.hide();
+    const section = getChannelGroupSection(definition.id);
+    if (section) {
+        section.scrollIntoView({ block: 'nearest' });
+        section.classList.add('is-channel-drop-target');
+        setTimeout(() => section.classList.remove('is-channel-drop-target'), 700);
+    }
+}
+
 function ensureChannelOrgModal() {
     let modal = document.getElementById('channelOrgModal');
     if (modal) return modal;
@@ -8809,21 +9216,35 @@ function renderChannelOrgPalette(selectedColor) {
     });
 }
 
-function updateChannelOrgSuggestions() {
-    const datalist = document.getElementById('channel-org-group-suggestions');
-    if (!datalist) return;
+function getChannelGroupSuggestionNames() {
     const names = new Set(['Human discussion', 'Agent workbench', 'Lab operations', 'Research', 'Testing', 'Announcements']);
     Object.values(channelOrgById || {}).forEach(config => {
         if (config && config.group) names.add(config.group);
+    });
+    Object.values(channelGroupDefsById || {}).forEach(config => {
+        if (config && config.label) names.add(config.label);
     });
     document.querySelectorAll('.channel-item[data-channel-topic]').forEach(item => {
         const topic = String(item.dataset.channelTopic || '').trim();
         if (topic) names.add(topic);
     });
-    datalist.innerHTML = Array.from(names)
-        .sort((a, b) => a.localeCompare(b))
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+}
+
+function renderChannelGroupSuggestions(datalistId) {
+    const datalist = document.getElementById(datalistId);
+    if (!datalist) return;
+    datalist.innerHTML = getChannelGroupSuggestionNames()
         .map(name => `<option value="${escapeHtml(name)}"></option>`)
         .join('');
+}
+
+function updateChannelOrgSuggestions() {
+    renderChannelGroupSuggestions('channel-org-group-suggestions');
+}
+
+function updateNewChannelGroupSuggestions() {
+    renderChannelGroupSuggestions('channel-group-create-suggestions');
 }
 
 function getSelectedChannelOrgColor() {
@@ -8862,9 +9283,10 @@ function saveChannelOrgModal() {
     if (!channelId) return;
     const groupName = String(document.getElementById('channel-org-group-name')?.value || '').trim().slice(0, 48);
     if (groupName) {
+        const definition = ensureChannelGroupDefinition(groupName, getSelectedChannelOrgColor());
         channelOrgById[channelId] = {
-            group: groupName,
-            color: getSelectedChannelOrgColor(),
+            group: definition?.label || groupName,
+            color: definition?.color || getSelectedChannelOrgColor(),
         };
     } else {
         delete channelOrgById[channelId];

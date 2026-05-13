@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.89] - 2026-05-13
+
+### Added
+- **Channel organize mode can now create groups directly** - the sidebar organize panel exposes a New group workflow with name, colour, optional initial channel assignment, and empty group placeholders while organizing.
+
+### Fixed
+- **User-created channel groups preserve local order more reliably** - empty group definitions remain browser-local and survive visible group reordering, while delete actions can intentionally return grouped channels to the default Channels section.
+
 ## [0.6.88] - 2026-05-12
 
 ### Fixed
