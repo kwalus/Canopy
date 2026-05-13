@@ -93,6 +93,289 @@
             return div.innerHTML;
         }
 
+        (function initCanopyDraftStore(global) {
+            const PREFIX = 'canopy.composer_draft.v1';
+            const MAX_DRAFT_LENGTH = 20000;
+            const DRAFT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+            function storageAvailable() {
+                try {
+                    return !!global.localStorage;
+                } catch (_) {
+                    return false;
+                }
+            }
+
+            function normalizePart(value) {
+                return encodeURIComponent(String(value == null || value === '' ? 'none' : value));
+            }
+
+            function key(parts) {
+                const cleanParts = Array.isArray(parts) ? parts : [parts];
+                return `${PREFIX}.${cleanParts.map(normalizePart).join('.')}`;
+            }
+
+            function readByKey(storageKey) {
+                if (!storageAvailable() || !storageKey) return '';
+                try {
+                    const raw = global.localStorage.getItem(storageKey);
+                    if (!raw) return '';
+                    const payload = JSON.parse(raw);
+                    const updatedAt = Number(payload && payload.updatedAt || 0);
+                    if (updatedAt && Date.now() - updatedAt > DRAFT_TTL_MS) {
+                        global.localStorage.removeItem(storageKey);
+                        return '';
+                    }
+                    return String((payload && payload.value) || '');
+                } catch (_) {
+                    return '';
+                }
+            }
+
+            function writeByKey(storageKey, value) {
+                if (!storageAvailable() || !storageKey) return false;
+                const text = String(value || '').slice(0, MAX_DRAFT_LENGTH);
+                try {
+                    if (!text.trim()) {
+                        global.localStorage.removeItem(storageKey);
+                    } else {
+                        global.localStorage.setItem(storageKey, JSON.stringify({
+                            value: text,
+                            updatedAt: Date.now()
+                        }));
+                    }
+                    return true;
+                } catch (_) {
+                    return false;
+                }
+            }
+
+            function clearByKey(storageKey) {
+                if (!storageAvailable() || !storageKey) return false;
+                try {
+                    global.localStorage.removeItem(storageKey);
+                    return true;
+                } catch (_) {
+                    return false;
+                }
+            }
+
+            function bindTextarea(textarea, keyParts, options = {}) {
+                if (!textarea) return null;
+                const storageKey = typeof keyParts === 'function'
+                    ? () => key(keyParts())
+                    : () => key(keyParts);
+                const delay = Number(options.delayMs || 180);
+                let timer = null;
+
+                function currentKey() {
+                    try {
+                        return storageKey();
+                    } catch (_) {
+                        return '';
+                    }
+                }
+
+                function save() {
+                    const activeKey = currentKey();
+                    if (!activeKey) return false;
+                    return writeByKey(activeKey, textarea.value || '');
+                }
+
+                function clear() {
+                    const activeKey = currentKey();
+                    if (!activeKey) return false;
+                    return clearByKey(activeKey);
+                }
+
+                function restore({ replace = false } = {}) {
+                    const activeKey = currentKey();
+                    const draft = readByKey(activeKey);
+                    if (!draft || (!replace && String(textarea.value || '').trim())) {
+                        return false;
+                    }
+                    textarea.value = draft;
+                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                    if (typeof options.onRestore === 'function') {
+                        options.onRestore(textarea, draft);
+                    }
+                    return true;
+                }
+
+                textarea.addEventListener('input', () => {
+                    const activeKey = currentKey();
+                    const draftValue = textarea.value || '';
+                    clearTimeout(timer);
+                    timer = global.setTimeout(() => {
+                        if (!activeKey) return false;
+                        return writeByKey(activeKey, draftValue);
+                    }, delay);
+                });
+                global.addEventListener('pagehide', save);
+
+                if (options.restore !== false) {
+                    restore({ replace: !!options.replace });
+                }
+
+                return { save, clear, restore, key: currentKey };
+            }
+
+            global.CanopyDraftStore = {
+                key,
+                read: (parts) => readByKey(key(parts)),
+                write: (parts, value) => writeByKey(key(parts), value),
+                clear: (parts) => clearByKey(key(parts)),
+                readKey: readByKey,
+                writeKey: writeByKey,
+                clearKey: clearByKey,
+                bindTextarea,
+            };
+        })(window);
+
+        (function initCanopyDmRecipientDisclosure(global) {
+            function parseRecipients(raw) {
+                if (!raw) return [];
+                try {
+                    const parsed = JSON.parse(String(raw));
+                    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+                } catch (error) {
+                    console.warn('Could not parse DM recipient list:', error);
+                    return [];
+                }
+            }
+
+            function recipientLabel(rec) {
+                return String(
+                    (rec && (rec.display_name || rec.username || rec.user_id || rec.id)) ||
+                    'Unknown recipient'
+                ).trim();
+            }
+
+            function recipientUserId(rec) {
+                return String((rec && (rec.user_id || rec.id || rec.username)) || '').trim();
+            }
+
+            function recipientInitials(label) {
+                const parts = String(label || '')
+                    .trim()
+                    .split(/\s+/)
+                    .filter(Boolean);
+                if (parts.length >= 2) {
+                    return (parts[0][0] + parts[1][0]).toUpperCase();
+                }
+                return String(label || 'U').slice(0, 2).toUpperCase();
+            }
+
+            function ensureModal() {
+                let modal = document.getElementById('canopy-dm-recipient-modal');
+                if (modal) return modal;
+                modal = document.createElement('div');
+                modal.className = 'modal fade canopy-dm-recipient-modal';
+                modal.id = 'canopy-dm-recipient-modal';
+                modal.tabIndex = -1;
+                modal.setAttribute('aria-labelledby', 'canopy-dm-recipient-modal-title');
+                modal.setAttribute('aria-hidden', 'true');
+                modal.innerHTML = `
+                    <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <div>
+                                    <h5 class="modal-title" id="canopy-dm-recipient-modal-title">Group recipients</h5>
+                                    <div class="text-muted small" data-dm-recipient-modal-subtitle></div>
+                                </div>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="dm-recipient-list" data-dm-recipient-list></div>
+                            </div>
+                        </div>
+                    </div>`;
+                modal.addEventListener('click', (event) => {
+                    const item = event.target && event.target.closest
+                        ? event.target.closest('[data-dm-recipient-user-id]')
+                        : null;
+                    if (!item || !modal.contains(item)) return;
+                    const userId = item.getAttribute('data-dm-recipient-user-id') || '';
+                    const label = item.getAttribute('data-dm-recipient-label') || userId || 'recipient';
+                    if (userId && typeof global.copyUserId === 'function') {
+                        global.copyUserId(userId, label, item);
+                    }
+                });
+                document.body.appendChild(modal);
+                return modal;
+            }
+
+            function renderRecipient(rec) {
+                const label = recipientLabel(rec);
+                const userId = recipientUserId(rec);
+                const username = String((rec && rec.username) || '').trim();
+                const accountType = String((rec && rec.account_type) || '').trim();
+                const idLine = username && username !== userId
+                    ? `${username} · ${userId || 'no user id'}`
+                    : (userId || 'No user id available');
+                const meta = accountType ? `${idLine} · ${accountType}` : idLine;
+                const avatarUrl = String((rec && rec.avatar_url) || '').trim();
+                const avatar = avatarUrl
+                    ? `<div class="dm-avatar"><img src="${canopyEscapeHtml(avatarUrl)}" alt="${canopyEscapeHtml(label)}"></div>`
+                    : `<div class="dm-avatar"><span>${canopyEscapeHtml(recipientInitials(label))}</span></div>`;
+                return `
+                    <button type="button"
+                            class="dm-recipient-list-item"
+                            data-dm-recipient-user-id="${canopyEscapeHtml(userId)}"
+                            data-dm-recipient-label="${canopyEscapeHtml(label)}">
+                        ${avatar}
+                        <span class="dm-recipient-list-copy">
+                            <span class="dm-recipient-list-name">${canopyEscapeHtml(label)}</span>
+                            <span class="dm-recipient-list-id">${canopyEscapeHtml(meta)}</span>
+                        </span>
+                    </button>`;
+            }
+
+            function showRecipients(recipients, options = {}) {
+                const cleanRecipients = Array.isArray(recipients) ? recipients.filter(Boolean) : [];
+                if (!cleanRecipients.length) {
+                    if (typeof global.showAlert === 'function') {
+                        global.showAlert('No recipient list is available for this group DM yet.', 'info');
+                    }
+                    return;
+                }
+                const modal = ensureModal();
+                const title = modal.querySelector('#canopy-dm-recipient-modal-title');
+                const subtitle = modal.querySelector('[data-dm-recipient-modal-subtitle]');
+                const list = modal.querySelector('[data-dm-recipient-list]');
+                if (title) title.textContent = options.title || 'Group recipients';
+                if (subtitle) {
+                    subtitle.textContent = `${cleanRecipients.length} recipient${cleanRecipients.length === 1 ? '' : 's'} in this conversation`;
+                }
+                if (list) {
+                    list.innerHTML = cleanRecipients.map(renderRecipient).join('');
+                }
+                if (global.bootstrap && global.bootstrap.Modal) {
+                    global.bootstrap.Modal.getOrCreateInstance(modal).show();
+                } else {
+                    modal.classList.add('show');
+                    modal.style.display = 'block';
+                    modal.removeAttribute('aria-hidden');
+                }
+            }
+
+            function handleRecipientDisclosureClick(event) {
+                const actionEl = event.target && event.target.closest
+                    ? event.target.closest('[data-dm-action="show-recipients"]')
+                    : null;
+                if (!actionEl) return;
+                event.preventDefault();
+                event.stopPropagation();
+                showRecipients(parseRecipients(actionEl.getAttribute('data-dm-recipients') || '[]'));
+            }
+
+            document.addEventListener('click', handleRecipientDisclosureClick, true);
+            global.CanopyDmRecipients = {
+                show: showRecipients,
+                parse: parseRecipients,
+            };
+        })(window);
+
         (function initCanopyLLMCompose(global) {
             function hasTrigger(value) {
                 return /(^|\s)@canopy\b/i.test(String(value || ''));

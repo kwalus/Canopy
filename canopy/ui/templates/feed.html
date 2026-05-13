@@ -5342,6 +5342,46 @@
         const feedLikeInFlight = new Set();
         const FEED_REACTION_OPTIONS = {{ (reaction_options if reaction_options is defined else [])|tojson }};
 
+        function feedDraftKeyParts() {
+            return ['feed', feedCurrentUserId || 'anon', 'post'];
+        }
+
+        function saveFeedComposerDraft() {
+            const textarea = document.getElementById('postContent');
+            if (!textarea || !window.CanopyDraftStore) return false;
+            return window.CanopyDraftStore.write(feedDraftKeyParts(), textarea.value || '');
+        }
+
+        function clearFeedComposerDraft() {
+            if (!window.CanopyDraftStore) return false;
+            return window.CanopyDraftStore.clear(feedDraftKeyParts());
+        }
+
+        function restoreFeedComposerDraft() {
+            const textarea = document.getElementById('postContent');
+            if (!textarea || !window.CanopyDraftStore) return false;
+            const draft = window.CanopyDraftStore.read(feedDraftKeyParts());
+            if (!draft || String(textarea.value || '').trim()) return false;
+            textarea.value = draft;
+            const shouldExpand = draft.length > 360 || (draft.match(/\n/g) || []).length >= 4;
+            if (shouldExpand) {
+                setFeedDraftExpanded(true);
+            }
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            syncFeedComposerLayout({ forceExpand: shouldExpand });
+            return true;
+        }
+
+        function bindFeedComposerDraftPersistence() {
+            const textarea = document.getElementById('postContent');
+            if (!textarea || !window.CanopyDraftStore || textarea.dataset.canopyDraftBound === '1') return;
+            textarea.dataset.canopyDraftBound = '1';
+            window.CanopyDraftStore.bindTextarea(textarea, () => feedDraftKeyParts(), {
+                restore: false
+            });
+            restoreFeedComposerDraft();
+        }
+
 	    function openComposer() {
 	        const composer = document.getElementById('post-composer');
 	        if (!composer) return;
@@ -6427,6 +6467,7 @@
 
 	    function resetComposer() {
 	        const form = document.getElementById('createPostForm');
+            clearFeedComposerDraft();
 	        if (form) form.reset();
 	        customPermissions = [];
 	        selectedPostFiles = [];
@@ -8791,6 +8832,7 @@
                         hideFeedChannelSuggestions();
                     }, 150);
                 });
+                bindFeedComposerDraftPersistence();
             }
             updatePostTaskToggle();
             updateFeedStructuredValidation();

@@ -560,6 +560,78 @@
         padding: 0 0.5rem;
     }
 
+    .dm-avatar-stack-more-btn {
+        appearance: none;
+        cursor: pointer;
+        transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+    }
+
+    .dm-avatar-stack-more-btn:hover,
+    .dm-avatar-stack-more-btn:focus-visible {
+        transform: translateY(-1px);
+        color: var(--canopy-text-primary);
+        border-color: color-mix(in srgb, var(--canopy-primary) 48%, var(--dm-bubble-border));
+        background: color-mix(in srgb, var(--canopy-primary) 16%, var(--dm-surface-strong));
+        outline: none;
+    }
+
+    .dm-recipient-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 0.65rem;
+    }
+
+    .dm-recipient-list-item {
+        display: flex;
+        align-items: center;
+        gap: 0.72rem;
+        min-width: 0;
+        width: 100%;
+        text-align: left;
+        border-radius: 16px;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        background:
+            radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 10%, transparent), transparent 42%),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+        color: inherit;
+        padding: 0.68rem;
+        cursor: pointer;
+    }
+
+    .dm-recipient-list-item:hover,
+    .dm-recipient-list-item:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-primary) 44%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 13%, var(--canopy-bg-tertiary));
+    }
+
+    .dm-recipient-list-item .dm-avatar {
+        width: 38px;
+        height: 38px;
+        border-radius: 14px;
+    }
+
+    .dm-recipient-list-copy {
+        min-width: 0;
+        display: grid;
+        gap: 0.1rem;
+    }
+
+    .dm-recipient-list-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 800;
+        color: var(--canopy-text-primary);
+    }
+
+    .dm-recipient-list-id {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--canopy-text-secondary);
+        font-size: 0.76rem;
+    }
+
     .dm-thread-scroll {
         flex: 1 1 auto;
         min-height: 0;
@@ -2042,6 +2114,66 @@
         return current.every((value, index) => value === baseline[index]);
     }
 
+    function dmDraftContextToken() {
+        if (composerUsesActiveThread && ACTIVE_THREAD) {
+            if (ACTIVE_THREAD.kind === 'group') {
+                return `group:${ACTIVE_THREAD.canonical_group_key || ACTIVE_THREAD.group_id || 'unknown'}`;
+            }
+            return `direct:${ACTIVE_THREAD.user_id || 'unknown'}`;
+        }
+        const selectedIds = selectedRecipients.map(rec => rec.user_id).filter(Boolean).sort();
+        return selectedIds.length ? `compose:${selectedIds.join(',')}` : 'compose:new';
+    }
+
+    function dmDraftKeyParts() {
+        return ['dm', CURRENT_USER_ID || 'anon', dmDraftContextToken()];
+    }
+
+    function dmDraftStorageKey() {
+        return window.CanopyDraftStore ? window.CanopyDraftStore.key(dmDraftKeyParts()) : '';
+    }
+
+    function saveDmComposerDraft(storageKey = null) {
+        const textarea = document.getElementById('messageContent');
+        if (!textarea || !window.CanopyDraftStore) return false;
+        const activeKey = storageKey || dmDraftStorageKey();
+        return window.CanopyDraftStore.writeKey(activeKey, textarea.value || '');
+    }
+
+    function clearDmComposerDraft(storageKey = null) {
+        if (!window.CanopyDraftStore) return false;
+        const activeKey = storageKey || dmDraftStorageKey();
+        return window.CanopyDraftStore.clearKey(activeKey);
+    }
+
+    function restoreDmComposerDraft({ replace = false, clearWhenMissing = false } = {}) {
+        const textarea = document.getElementById('messageContent');
+        if (!textarea || !window.CanopyDraftStore) return false;
+        const draft = window.CanopyDraftStore.readKey(dmDraftStorageKey());
+        if (!draft) {
+            if (clearWhenMissing) {
+                textarea.value = '';
+                updateDmCanopyLLMComposePanel();
+            }
+            return false;
+        }
+        if (!replace && String(textarea.value || '').trim()) return false;
+        textarea.value = draft;
+        setDmComposerExpanded(draft.length > 360 || (draft.match(/\n/g) || []).length >= 4);
+        updateDmCanopyLLMComposePanel();
+        return true;
+    }
+
+    function bindDmComposerDraftPersistence() {
+        const textarea = document.getElementById('messageContent');
+        if (!textarea || !window.CanopyDraftStore || textarea.dataset.canopyDraftBound === '1') return;
+        textarea.dataset.canopyDraftBound = '1';
+        window.CanopyDraftStore.bindTextarea(textarea, () => dmDraftKeyParts(), {
+            restore: false
+        });
+        restoreDmComposerDraft();
+    }
+
     function getDmQueryUrl(targetUrl) {
         if (targetUrl) {
             return targetUrl;
@@ -2333,6 +2465,7 @@
     }
 
     function startNewConversation() {
+        saveDmComposerDraft();
         composerUsesActiveThread = false;
         composerForceNewGroupThread = false;
         selectedRecipients = [];
@@ -2342,12 +2475,14 @@
         clearReplyContext();
         updateComposerTarget();
         const textarea = document.getElementById('messageContent');
+        restoreDmComposerDraft({ replace: true, clearWhenMissing: true });
         if (textarea) {
             textarea.focus();
         }
     }
 
     function startFreshGroupDiscussion() {
+        saveDmComposerDraft();
         if (!ACTIVE_THREAD || ACTIVE_THREAD.kind !== 'group') {
             startNewConversation();
             return;
@@ -2367,6 +2502,7 @@
         if (panel) panel.style.display = 'none';
         updateComposerTarget();
         const textarea = document.getElementById('messageContent');
+        restoreDmComposerDraft({ replace: true, clearWhenMissing: true });
         if (textarea) {
             textarea.focus();
         }
@@ -2839,6 +2975,7 @@
                         if (textarea) {
                             textarea.value = fullText;
                             setDmComposerExpanded(true);
+                            saveDmComposerDraft();
                         }
                     },
                 });
@@ -2855,6 +2992,7 @@
                 textarea.value = expanded;
                 textarea.setSelectionRange(textarea.value.length, textarea.value.length);
                 setDmComposerExpanded(true);
+                saveDmComposerDraft();
             }
             dmCanopyLLMDraftReady = true;
             setDmCanopyLLMStatus(`Draft inserted from ${(data && data.model) || 'LLM'}. Review, edit, send, or add @Canopy to refine again.`, true, 'success', {
@@ -3963,6 +4101,7 @@
             payload.reply_to = activeReplyContext.messageId;
         }
 
+        const sentDraftKey = dmDraftStorageKey();
         const sendBtn = document.getElementById('sendMessageBtn');
         if (sendBtn) {
             sendBtn.disabled = true;
@@ -3980,6 +4119,7 @@
                 sender_name: activeReplyContext.senderLabel || 'Reply',
                 preview: activeReplyContext.preview || 'Replying in thread',
             } : null;
+            clearDmComposerDraft(sentDraftKey);
             if (textarea) textarea.value = '';
             dmCanopyLLMDraftReady = false;
             dmCanopyLLMIgnoredDraft = '';
@@ -4421,6 +4561,7 @@
             });
             messageContent.addEventListener('blur', () => setTimeout(hideDmChannelSuggestions, 150));
         }
+        bindDmComposerDraftPersistence();
         const dmComposer = document.getElementById('dm-composer');
         if (dmComposer) {
             const generateBtn = dmComposer.querySelector('[data-dm-role="canopy-llm-generate"]');

@@ -9643,6 +9643,7 @@ if (document.readyState === 'loading') {
 // Channel management
 function selectChannel(channelId, channelName, options = {}) {
     hideChannelSelectionDock({ clearSelection: true });
+    saveChannelComposerDraft(currentChannelId);
     if (typeof window.canopyPersistActiveMedia === 'function') {
         try {
             window.canopyPersistActiveMedia();
@@ -9724,6 +9725,7 @@ function selectChannel(channelId, channelName, options = {}) {
         : !focusMessageId;
     loadChannelRemovalStatus(channelId, { silent: true });
     loadChannelMessages(channelId, { forceScroll, focusMessageId });
+    restoreChannelComposerDraft(channelId);
 }
 
 function updateCurrentChannelIdUI(channelId) {
@@ -16830,6 +16832,44 @@ function notifyComposerUpdate() {
     input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+function channelDraftKeyParts(channelId = currentChannelId) {
+    return ['channel', currentUserId || 'anon', channelId || 'none'];
+}
+
+function saveChannelComposerDraft(channelId = currentChannelId) {
+    const input = document.getElementById('message-input');
+    if (!input || !window.CanopyDraftStore) return false;
+    return window.CanopyDraftStore.write(channelDraftKeyParts(channelId), input.value || '');
+}
+
+function clearChannelComposerDraft(channelId = currentChannelId) {
+    if (!window.CanopyDraftStore) return false;
+    return window.CanopyDraftStore.clear(channelDraftKeyParts(channelId));
+}
+
+function restoreChannelComposerDraft(channelId = currentChannelId, opts = {}) {
+    const input = document.getElementById('message-input');
+    if (!input || !window.CanopyDraftStore) return false;
+    const draft = window.CanopyDraftStore.read(channelDraftKeyParts(channelId));
+    if (!draft && opts.clearWhenMissing === false) return false;
+    input.value = draft || '';
+    notifyComposerUpdate();
+    if (draft && (draft.length > 360 || (draft.match(/\n/g) || []).length >= 4)) {
+        setChannelComposerExpanded(true);
+    }
+    return !!draft;
+}
+
+function bindChannelComposerDraftPersistence() {
+    const input = document.getElementById('message-input');
+    if (!input || !window.CanopyDraftStore || input.dataset.canopyDraftBound === '1') return;
+    input.dataset.canopyDraftBound = '1';
+    window.CanopyDraftStore.bindTextarea(input, () => channelDraftKeyParts(currentChannelId), {
+        restore: false
+    });
+    restoreChannelComposerDraft(currentChannelId);
+}
+
 let channelSelectionContext = null;
 let channelSelectionDockTimer = null;
 let channelSelectionDockInteracting = false;
@@ -17968,7 +18008,8 @@ async function sendMessage(event) {
         });
         console.log('Send message response:', data);
         if (data.success || data.message) {
-            console.log('Message sent successfully!');
+        console.log('Message sent successfully!');
+            clearChannelComposerDraft(currentChannelId);
             messageInput.value = '';
             selectedFiles = [];
             updateFilePreview();
@@ -20525,6 +20566,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     }, 150);
                 });
             }
+            bindChannelComposerDraftPersistence();
             updateChannelTaskToggle();
             updateCanopyLLMComposePanel();
             syncChannelComposerAvailability();

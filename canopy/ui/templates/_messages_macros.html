@@ -21,7 +21,13 @@
             </div>
         {% endfor %}
         {% if users|length > 3 %}
-            <div class="dm-avatar-stack-item dm-avatar-stack-more">+{{ users|length - 3 }}</div>
+            <button type="button"
+                    class="dm-avatar-stack-item dm-avatar-stack-more dm-avatar-stack-more-btn"
+                    data-dm-action="show-recipients"
+                    data-dm-recipients="{{ users|tojson|forceescape }}"
+                    title="Show all {{ users|length }} group DM recipients"
+                    aria-label="Show all {{ users|length }} group DM recipients"
+                    aria-haspopup="dialog">+{{ users|length - 3 }}</button>
         {% endif %}
     </div>
 {%- endmacro %}

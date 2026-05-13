@@ -171,6 +171,62 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("event.target.closest('.sidebar-dm-contact[data-dm-open-deck]')", main_js)
         self.assertIn("if (window.location.pathname === '/messages') return;", main_js)
 
+    def test_group_dm_avatar_overflow_opens_full_recipient_list(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        macros_template = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+
+        self.assertIn('dm-avatar-stack-more-btn', macros_template)
+        self.assertIn('data-dm-action="show-recipients"', macros_template)
+        self.assertIn('data-dm-recipients="{{ users|tojson|forceescape }}"', macros_template)
+        self.assertIn('aria-haspopup="dialog"', macros_template)
+        self.assertIn('canopy-dm-recipient-modal', base_template)
+        self.assertIn('.dm-recipient-list-item:hover', base_template)
+        self.assertIn('.dm-recipient-list-item:hover', messages_template)
+        self.assertIn('function initCanopyDmRecipientDisclosure(global)', main_js)
+        self.assertIn('event.target.closest(\'[data-dm-action="show-recipients"]\')', main_js)
+        self.assertIn('document.addEventListener(\'click\', handleRecipientDisclosureClick, true);', main_js)
+        self.assertIn('data-dm-recipient-list', main_js)
+        self.assertIn('global.CanopyDmRecipients = {', main_js)
+        self.assertIn('global.copyUserId(userId, label, item);', main_js)
+
+    def test_composer_drafts_persist_across_navigation(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+
+        self.assertIn('function initCanopyDraftStore(global)', main_js)
+        self.assertIn('canopy.composer_draft.v1', main_js)
+        self.assertIn('const MAX_DRAFT_LENGTH = 20000;', main_js)
+        self.assertIn('const DRAFT_TTL_MS = 14 * 24 * 60 * 60 * 1000;', main_js)
+        self.assertIn('function bindTextarea(textarea, keyParts, options = {})', main_js)
+        self.assertIn('const activeKey = currentKey();', main_js)
+        self.assertIn('const draftValue = textarea.value || \'\';', main_js)
+        self.assertIn('return writeByKey(activeKey, draftValue);', main_js)
+        self.assertIn("global.addEventListener('pagehide', save);", main_js)
+        self.assertIn('readKey: readByKey', main_js)
+        self.assertIn('writeKey: writeByKey', main_js)
+        self.assertIn('clearKey: clearByKey', main_js)
+
+        self.assertIn('function bindChannelComposerDraftPersistence()', channels_template)
+        self.assertIn('saveChannelComposerDraft(currentChannelId);', channels_template)
+        self.assertIn('restoreChannelComposerDraft(channelId);', channels_template)
+        self.assertIn('clearChannelComposerDraft(currentChannelId);', channels_template)
+        self.assertIn('bindChannelComposerDraftPersistence();', channels_template)
+
+        self.assertIn('function bindDmComposerDraftPersistence()', messages_template)
+        self.assertIn('const sentDraftKey = dmDraftStorageKey();', messages_template)
+        self.assertIn('clearDmComposerDraft(sentDraftKey);', messages_template)
+        self.assertIn('restoreDmComposerDraft({ replace: true, clearWhenMissing: true });', messages_template)
+        self.assertIn('bindDmComposerDraftPersistence();', messages_template)
+
+        self.assertIn('function bindFeedComposerDraftPersistence()', feed_template)
+        self.assertIn('clearFeedComposerDraft();', feed_template)
+        self.assertIn('bindFeedComposerDraftPersistence();', feed_template)
+        self.assertIn('window.CanopyDraftStore.bindTextarea(textarea, () => feedDraftKeyParts(), {', feed_template)
+
     def test_reaction_palette_is_shared_across_dm_feed_and_channel_surfaces(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')

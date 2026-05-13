@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.92] - 2026-05-13
+
+### Added
+- **Group DM overflow recipients are now directly discoverable** - compact group DM avatar stacks expose the `+N` chip as an accessible action that opens the full recipient list across Messages and Deck Inbox surfaces.
+- **Main composers now preserve unsent text locally across navigation** - channel, DM, and feed composers restore browser-local text drafts per conversation/surface and clear those drafts after successful sends.
+
+### Fixed
+- **Draft persistence now avoids cross-context debounce races** - draft saves capture the active storage key and textarea value at input time so quick channel or DM context switches do not save old text under the new destination.
+
 ## [0.6.91] - 2026-05-13
 
 ### Added
