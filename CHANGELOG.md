@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.91] - 2026-05-13
+
+### Added
+- **Channel message selections now expose a contextual action dock** - selecting text inside a channel message opens Quote, Context, @Canopy, Reply, and Copy actions that reuse the excerpt directly in the channel composer.
+
+### Fixed
+- **Selected-text actions clear stale context on channel changes and rerenders** - the dock hides when the active channel or message snapshot changes, keeps a bounded desktop width, and preserves the corrected channel emoji picker target.
+
 ## [0.6.90] - 2026-05-13
 
 ### Fixed

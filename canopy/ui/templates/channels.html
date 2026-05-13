@@ -1341,6 +1341,142 @@
         max-width: 100%;
     }
 
+    .channel-selection-dock {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        z-index: 1085;
+        transform: translate(-50%, calc(-100% - 12px)) scale(0.96);
+        width: max-content;
+        max-width: min(640px, calc(100vw - 1.5rem));
+        pointer-events: none;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 130ms ease, transform 130ms ease, visibility 130ms ease;
+    }
+
+    .channel-selection-dock.is-visible {
+        pointer-events: auto;
+        opacity: 1;
+        visibility: visible;
+        transform: translate(-50%, calc(-100% - 12px)) scale(1);
+    }
+
+    .channel-selection-dock.is-below {
+        transform: translate(-50%, 12px) scale(0.96);
+    }
+
+    .channel-selection-dock.is-below.is-visible {
+        transform: translate(-50%, 12px) scale(1);
+    }
+
+    .channel-selection-dock-shell {
+        display: grid;
+        grid-template-columns: minmax(10rem, 1fr) auto;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.46rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 32%, var(--canopy-border));
+        border-radius: 1.1rem;
+        background:
+            radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--canopy-primary) 20%, transparent), transparent 34%),
+            linear-gradient(145deg, color-mix(in srgb, var(--canopy-bg-card) 96%, transparent), color-mix(in srgb, var(--canopy-bg-secondary) 96%, transparent));
+        box-shadow: 0 18px 46px color-mix(in srgb, var(--canopy-shadow) 88%, transparent), 0 0 0 1px rgba(255,255,255,0.03) inset;
+        backdrop-filter: blur(18px) saturate(1.12);
+    }
+
+    .channel-selection-dock-copy {
+        min-width: 0;
+        display: grid;
+        gap: 0.1rem;
+        padding: 0 0.25rem;
+    }
+
+    .channel-selection-dock-eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-text-primary));
+        font-size: 0.7rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    .channel-selection-dock-preview {
+        max-width: min(34rem, 50vw);
+        color: var(--canopy-text-secondary);
+        font-size: 0.78rem;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .channel-selection-dock-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.28rem;
+        flex-wrap: nowrap;
+        min-width: 0;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .channel-selection-dock-actions::-webkit-scrollbar {
+        display: none;
+    }
+
+    .channel-selection-dock-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.34rem;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+        color: var(--canopy-text-primary);
+        font-size: 0.75rem;
+        font-weight: 800;
+        line-height: 1;
+        padding: 0.44rem 0.62rem;
+        white-space: nowrap;
+        transition: transform 110ms ease, border-color 110ms ease, background 110ms ease;
+    }
+
+    .channel-selection-dock-btn:hover,
+    .channel-selection-dock-btn:focus-visible {
+        transform: translateY(-1px);
+        border-color: color-mix(in srgb, var(--canopy-primary) 55%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 16%, var(--canopy-bg-tertiary));
+    }
+
+    .channel-selection-dock-btn.primary {
+        background: linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 82%, #ffffff 4%), color-mix(in srgb, var(--canopy-primary-soft) 86%, #ffffff 2%));
+        border-color: color-mix(in srgb, var(--canopy-primary) 76%, var(--canopy-border));
+        color: #06120d;
+        box-shadow: 0 10px 24px color-mix(in srgb, var(--canopy-primary) 18%, transparent);
+    }
+
+    .channel-selection-dock-close {
+        width: 2rem;
+        min-width: 2rem;
+        justify-content: center;
+        padding-inline: 0;
+        color: var(--canopy-text-muted);
+    }
+
+    [data-theme="light"] .channel-selection-dock-shell {
+        background:
+            radial-gradient(circle at 10% 0%, rgba(20, 184, 166, 0.16), transparent 36%),
+            linear-gradient(145deg, rgba(255,255,255,0.98), rgba(241,245,249,0.98));
+        box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+    }
+
+    [data-theme="light"] .channel-selection-dock-btn.primary {
+        color: #052e16;
+    }
+
     /* Threading styles */
     .thread-reply {
         --thread-depth: 1;
@@ -3993,6 +4129,40 @@
         .message-item .flex-grow-1 { min-width: 0; overflow-wrap: break-word; }
         #channel-name, #channel-description { font-size: 16px; min-height: 44px; }
         #modal-member-input, #create-member-input { font-size: 16px; min-height: 36px; }
+        .channel-selection-dock,
+        .channel-selection-dock.is-visible {
+            top: auto !important;
+            left: 50% !important;
+            right: auto !important;
+            bottom: max(0.85rem, calc(env(safe-area-inset-bottom) + 0.65rem));
+            width: calc(100vw - 1rem);
+            max-width: none;
+            transform: translateX(-50%) translateY(12px) scale(0.98);
+        }
+        .channel-selection-dock.is-visible {
+            transform: translateX(-50%) translateY(0) scale(1);
+        }
+        .channel-selection-dock-shell {
+            grid-template-columns: 1fr;
+            border-radius: 1.15rem;
+            padding: 0.58rem;
+        }
+        .channel-selection-dock-preview {
+            max-width: 100%;
+        }
+        .channel-selection-dock-actions {
+            overflow-x: auto;
+            padding-bottom: 0.05rem;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        .channel-selection-dock-actions::-webkit-scrollbar {
+            display: none;
+        }
+        .channel-selection-dock-btn {
+            min-height: 2.35rem;
+            padding-inline: 0.76rem;
+        }
     }
 
     .channel-composer-wrap.composer-expanded #message-input {
@@ -4743,8 +4913,8 @@
                             <button type="button"
                                     class="btn btn-outline-secondary canopy-inline-emoji-trigger"
                                     id="emoji-toggle-btn"
-                                    data-canopy-emoji-target="#messageContent"
-                                    onclick="CanopyEmojiPicker.open({ target: '#messageContent', anchor: this })"
+                                    data-canopy-emoji-target="#message-input"
+                                    onclick="CanopyEmojiPicker.open({ target: '#message-input', anchor: this })"
                                     aria-label="Insert emoji or custom team emoji"
                                     title="Insert emoji or custom team emoji">
                                 <i class="bi bi-emoji-smile"></i>
@@ -4933,6 +5103,42 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<div id="channel-selection-dock"
+     class="channel-selection-dock"
+     role="toolbar"
+     aria-label="Selected channel text actions"
+     aria-hidden="true">
+    <div class="channel-selection-dock-shell">
+        <div class="channel-selection-dock-copy">
+            <span class="channel-selection-dock-eyebrow">
+                <i class="bi bi-cursor-text"></i>
+                Use selected text
+            </span>
+            <span id="channel-selection-dock-preview" class="channel-selection-dock-preview"></span>
+        </div>
+        <div class="channel-selection-dock-actions">
+            <button type="button" class="channel-selection-dock-btn primary" data-selection-action="quote">
+                <i class="bi bi-quote"></i><span>Quote</span>
+            </button>
+            <button type="button" class="channel-selection-dock-btn" data-selection-action="context">
+                <i class="bi bi-plus-circle"></i><span>Context</span>
+            </button>
+            <button type="button" class="channel-selection-dock-btn" data-selection-action="canopy">
+                <i class="bi bi-stars"></i><span>@Canopy</span>
+            </button>
+            <button type="button" class="channel-selection-dock-btn" data-selection-action="reply">
+                <i class="bi bi-reply"></i><span>Reply</span>
+            </button>
+            <button type="button" class="channel-selection-dock-btn" data-selection-action="copy">
+                <i class="bi bi-clipboard"></i><span>Copy</span>
+            </button>
+            <button type="button" class="channel-selection-dock-btn channel-selection-dock-close" data-selection-action="close" aria-label="Close selected text actions">
+                <i class="bi bi-x-lg"></i>
+            </button>
         </div>
     </div>
 </div>
@@ -9436,6 +9642,7 @@ if (document.readyState === 'loading') {
 
 // Channel management
 function selectChannel(channelId, channelName, options = {}) {
+    hideChannelSelectionDock({ clearSelection: true });
     if (typeof window.canopyPersistActiveMedia === 'function') {
         try {
             window.canopyPersistActiveMedia();
@@ -10424,6 +10631,7 @@ function scheduleChannelSourceLayouts(messagesContainer) {
 }
 
 function displayMessages(messages, options = {}) {
+    hideChannelSelectionDock();
     const messagesContainer = document.getElementById('messages-list');
     const scrollContainer = document.getElementById('messages-container');
     const wasNearBottom = isNearBottom(scrollContainer);
@@ -16622,6 +16830,274 @@ function notifyComposerUpdate() {
     input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+let channelSelectionContext = null;
+let channelSelectionDockTimer = null;
+let channelSelectionDockInteracting = false;
+
+function normalizeChannelSelectedText(text) {
+    return String(text || '')
+        .replace(/\u00a0/g, ' ')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{4,}/g, '\n\n\n')
+        .trim();
+}
+
+function getElementFromSelectionNode(node) {
+    if (!node) return null;
+    return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+}
+
+function getUsefulSelectionRect(range) {
+    if (!range) return null;
+    const rects = Array.from(range.getClientRects ? range.getClientRects() : [])
+        .filter(rect => rect && rect.width > 0 && rect.height > 0);
+    if (rects.length) return rects[0];
+    const rect = range.getBoundingClientRect ? range.getBoundingClientRect() : null;
+    return rect && rect.width > 0 && rect.height > 0 ? rect : null;
+}
+
+function getChannelSelectionContextFromWindow() {
+    const selection = window.getSelection ? window.getSelection() : null;
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const text = normalizeChannelSelectedText(selection.toString());
+    if (text.length < 2) return null;
+
+    const range = selection.getRangeAt(0);
+    const startEl = getElementFromSelectionNode(range.startContainer);
+    const endEl = getElementFromSelectionNode(range.endContainer);
+    if (!startEl || !endEl) return null;
+    if (startEl.closest('textarea, input, select, button, a, [contenteditable="true"], #channel-selection-dock')) {
+        return null;
+    }
+
+    const startContent = startEl.closest('.message-content');
+    const endContent = endEl.closest('.message-content');
+    if (!startContent || !endContent || startContent !== endContent) return null;
+
+    const messageEl = startContent.closest('.message-item[data-message-id]');
+    if (!messageEl || !messageEl.contains(endContent)) return null;
+
+    const rect = getUsefulSelectionRect(range);
+    if (!rect) return null;
+
+    const messageId = messageEl.getAttribute('data-message-id') || '';
+    const message = channelMessageCache[messageId] || {};
+    const authorEl = messageEl.querySelector('.d-flex.align-items-center.gap-2.mb-1 strong');
+    const author = String(
+        message.display_name ||
+        message.username ||
+        (authorEl && authorEl.textContent) ||
+        message.user_id ||
+        'message'
+    ).trim();
+    const channel = currentChannelName ? `#${currentChannelName}` : 'this channel';
+    return {
+        text: text.length > 6000 ? text.slice(0, 6000).trim() : text,
+        wasTrimmed: text.length > 6000,
+        rect,
+        messageId,
+        author,
+        channel,
+        sourceLabel: `${author} in ${channel}`,
+    };
+}
+
+function setChannelSelectionDockVisible(visible) {
+    const dock = document.getElementById('channel-selection-dock');
+    if (!dock) return;
+    dock.classList.toggle('is-visible', !!visible);
+    dock.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+function hideChannelSelectionDock(opts = {}) {
+    channelSelectionContext = null;
+    setChannelSelectionDockVisible(false);
+    if (opts.clearSelection && window.getSelection) {
+        const selection = window.getSelection();
+        if (selection && typeof selection.removeAllRanges === 'function') {
+            selection.removeAllRanges();
+        }
+    }
+}
+
+function positionChannelSelectionDock(ctx) {
+    const dock = document.getElementById('channel-selection-dock');
+    const preview = document.getElementById('channel-selection-dock-preview');
+    if (!dock || !ctx || !ctx.rect) return;
+
+    if (preview) {
+        const previewText = ctx.text.length > 120 ? `${ctx.text.slice(0, 117)}...` : ctx.text;
+        preview.textContent = `${ctx.sourceLabel}: "${previewText}"`;
+    }
+
+    if (window.innerWidth <= 767) {
+        dock.style.left = '50%';
+        dock.style.top = '';
+        dock.classList.remove('is-below');
+        setChannelSelectionDockVisible(true);
+        return;
+    }
+
+    const width = dock.offsetWidth || 420;
+    const gutter = 18;
+    const centerX = ctx.rect.left + (ctx.rect.width / 2);
+    const clampedX = Math.min(Math.max(centerX, gutter + width / 2), window.innerWidth - gutter - width / 2);
+    const placeBelow = ctx.rect.top < 104;
+    dock.style.left = `${Math.round(clampedX)}px`;
+    dock.style.top = `${Math.round(placeBelow ? ctx.rect.bottom : ctx.rect.top)}px`;
+    dock.classList.toggle('is-below', placeBelow);
+    setChannelSelectionDockVisible(true);
+}
+
+function syncChannelSelectionDock() {
+    const ctx = getChannelSelectionContextFromWindow();
+    if (!ctx) {
+        if (channelSelectionDockInteracting && channelSelectionContext) return;
+        hideChannelSelectionDock();
+        return;
+    }
+    channelSelectionContext = ctx;
+    positionChannelSelectionDock(ctx);
+}
+
+function scheduleChannelSelectionDockSync() {
+    clearTimeout(channelSelectionDockTimer);
+    channelSelectionDockTimer = setTimeout(syncChannelSelectionDock, 80);
+}
+
+function formatChannelSelectionQuote(text) {
+    return normalizeChannelSelectedText(text)
+        .split(/\r\n|\r|\n/)
+        .map(line => `> ${line}`)
+        .join('\n');
+}
+
+function insertTextIntoChannelComposer(text, opts = {}) {
+    const input = document.getElementById('message-input');
+    if (!input || !text) return false;
+    const value = String(input.value || '');
+    const start = typeof input.selectionStart === 'number' ? input.selectionStart : value.length;
+    const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : start;
+    const before = value.slice(0, start);
+    const after = value.slice(end);
+    const prefix = before ? (/\n\n$/.test(before) ? '' : (/\n$/.test(before) ? '\n' : '\n\n')) : '';
+    const suffix = after ? (/^\n/.test(after) ? '' : '\n\n') : '';
+    const insert = `${prefix}${text}${suffix}`;
+    input.value = before + insert + after;
+    const cursor = before.length + insert.length;
+    input.focus();
+    input.setSelectionRange(cursor, cursor);
+    notifyComposerUpdate();
+    if (opts.expand || text.length > 360 || (text.match(/\n/g) || []).length >= 4) {
+        setChannelComposerExpanded(true);
+    }
+    return true;
+}
+
+function buildChannelSelectionInsertion(action, ctx) {
+    const quote = formatChannelSelectionQuote(ctx.text);
+    if (action === 'quote') {
+        return `${quote}\n\n`;
+    }
+    if (action === 'context') {
+        return `Context from ${ctx.sourceLabel}:\n${quote}\n\n`;
+    }
+    if (action === 'canopy') {
+        return `@Canopy Use this selected context while drafting the next message:\n${quote}\n\n`;
+    }
+    if (action === 'reply') {
+        return `${quote}\n\n`;
+    }
+    return ctx.text;
+}
+
+function copyChannelSelectedText(text) {
+    const normalized = normalizeChannelSelectedText(text);
+    if (!normalized) return Promise.resolve(false);
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        return navigator.clipboard.writeText(normalized).then(() => true);
+    }
+    const tmp = document.createElement('textarea');
+    tmp.value = normalized;
+    tmp.setAttribute('readonly', 'readonly');
+    tmp.style.position = 'fixed';
+    tmp.style.left = '-9999px';
+    document.body.appendChild(tmp);
+    tmp.select();
+    let ok = false;
+    try {
+        ok = document.execCommand('copy');
+    } catch (_) {
+        ok = false;
+    }
+    tmp.remove();
+    return Promise.resolve(ok);
+}
+
+async function handleChannelSelectionDockAction(action) {
+    const ctx = channelSelectionContext;
+    if (!ctx || !ctx.text) {
+        hideChannelSelectionDock();
+        return;
+    }
+    if (action === 'close') {
+        hideChannelSelectionDock({ clearSelection: true });
+        return;
+    }
+    if (action === 'copy') {
+        const copied = await copyChannelSelectedText(ctx.text);
+        if (typeof showAlert === 'function') {
+            showAlert(copied ? 'Selected text copied.' : 'Could not copy selected text.', copied ? 'success' : 'warning');
+        }
+        hideChannelSelectionDock({ clearSelection: true });
+        return;
+    }
+    if (action === 'reply' && ctx.messageId && typeof setReplyTo === 'function') {
+        setReplyTo(ctx.messageId, ctx.author || 'author', ctx.text.slice(0, 120));
+    }
+    const inserted = insertTextIntoChannelComposer(buildChannelSelectionInsertion(action, ctx), {
+        expand: action === 'canopy' || ctx.text.length > 360,
+    });
+    if (inserted && typeof showAlert === 'function') {
+        const labels = { quote: 'Quoted selection in the composer.', context: 'Added selection as context.', canopy: 'Prepared @Canopy with selected context.', reply: 'Reply started with selected quote.' };
+        showAlert(labels[action] || 'Selected text added.', 'success');
+    }
+    hideChannelSelectionDock({ clearSelection: true });
+}
+
+function setupChannelSelectionDock() {
+    const dock = document.getElementById('channel-selection-dock');
+    if (!dock || dock.dataset.wired === '1') return;
+    dock.dataset.wired = '1';
+    dock.addEventListener('pointerdown', (event) => {
+        channelSelectionDockInteracting = true;
+        window.setTimeout(() => { channelSelectionDockInteracting = false; }, 800);
+    });
+    dock.addEventListener('click', (event) => {
+        const actionButton = event.target.closest('[data-selection-action]');
+        if (!actionButton) return;
+        event.preventDefault();
+        handleChannelSelectionDockAction(actionButton.getAttribute('data-selection-action') || '');
+    });
+    document.addEventListener('selectionchange', scheduleChannelSelectionDockSync);
+    document.addEventListener('keyup', (event) => {
+        if (event.key === 'Escape') {
+            hideChannelSelectionDock({ clearSelection: true });
+            return;
+        }
+        scheduleChannelSelectionDockSync();
+    });
+    document.addEventListener('mouseup', scheduleChannelSelectionDockSync);
+    document.addEventListener('touchend', scheduleChannelSelectionDockSync, { passive: true });
+    window.addEventListener('resize', () => {
+        if (channelSelectionContext) positionChannelSelectionDock(channelSelectionContext);
+    });
+    const scrollContainer = document.getElementById('messages-container');
+    if (scrollContainer) {
+        scrollContainer.addEventListener('scroll', () => hideChannelSelectionDock(), { passive: true });
+    }
+}
+
 function insertToolBlockIntoComposer(blockText, opts = {}) {
     const input = document.getElementById('message-input');
     if (!input || !blockText) return false;
@@ -19998,6 +20474,7 @@ document.addEventListener('DOMContentLoaded', function() {
 	        formatTimestamps();
 	        handleChannelExpiryChange();
             setupEmojiPicker();
+            setupChannelSelectionDock();
 	        setInterval(updateChannelExpiryBadges, 60000);
             startChannelSidebarEventPolling();
             startChannelThreadEventPolling();

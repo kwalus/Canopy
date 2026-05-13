@@ -218,8 +218,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertNotIn('onclick="toggleLike(\'${reactionEscapeAttr(messageId)}\', ${JSON.stringify(reaction.type)})"', channels_template)
         self.assertIn('dm-reaction-custom-img', messages_template)
         self.assertIn('data-canopy-emoji-target="#{{ textarea_id }}"', composer_template)
-        self.assertIn('data-canopy-emoji-target="#messageContent"', channels_template)
-        self.assertIn("CanopyEmojiPicker.open({ target: '#messageContent', anchor: this })", channels_template)
+        self.assertIn('data-canopy-emoji-target="#message-input"', channels_template)
+        self.assertIn("CanopyEmojiPicker.open({ target: '#message-input', anchor: this })", channels_template)
         self.assertIn("'X-CSRFToken': csrfToken", base_template)
         self.assertIn("'X-CSRFToken': csrfToken", channels_template)
         self.assertIn('reaction.image_url', thread_body)
@@ -1189,6 +1189,31 @@ console.log(JSON.stringify({{
         # setSidebarChannelUnreadCount, incrementSidebarChannelUnreadCount, and
         # pollChannelSidebarEvents (all using getElementById) can find it.
         self.assertIn('id="channel-list"', channels_template)
+
+    def test_channel_selected_text_dock_can_reuse_excerpts_in_composer(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+
+        self.assertIn('id="channel-selection-dock"', channels_template)
+        self.assertIn('Selected channel text actions', channels_template)
+        self.assertIn('data-selection-action="quote"', channels_template)
+        self.assertIn('data-selection-action="context"', channels_template)
+        self.assertIn('data-selection-action="canopy"', channels_template)
+        self.assertIn('data-selection-action="reply"', channels_template)
+        self.assertIn('function setupChannelSelectionDock()', channels_template)
+        self.assertIn('document.addEventListener(\'selectionchange\', scheduleChannelSelectionDockSync);', channels_template)
+        self.assertIn('let channelSelectionDockInteracting = false;', channels_template)
+        self.assertIn('function getChannelSelectionContextFromWindow()', channels_template)
+        self.assertIn("startEl.closest('.message-content')", channels_template)
+        self.assertIn('function insertTextIntoChannelComposer(text, opts = {})', channels_template)
+        self.assertIn('function buildChannelSelectionInsertion(action, ctx)', channels_template)
+        self.assertIn('@Canopy Use this selected context while drafting the next message:', channels_template)
+        self.assertIn('setReplyTo(ctx.messageId, ctx.author || \'author\', ctx.text.slice(0, 120));', channels_template)
+        self.assertIn('hideChannelSelectionDock({ clearSelection: true });', channels_template)
+        self.assertIn('hideChannelSelectionDock();', channels_template)
+        self.assertIn('max-width: min(640px, calc(100vw - 1.5rem));', channels_template)
+        self.assertIn('setupChannelSelectionDock();', channels_template)
+        self.assertIn('.channel-selection-dock.is-visible', channels_template)
+        self.assertIn('bottom: max(0.85rem, calc(env(safe-area-inset-bottom) + 0.65rem));', channels_template)
 
     def test_channel_sidebar_supports_personal_groups_collapse_and_pinned_order(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
