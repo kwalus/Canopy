@@ -180,6 +180,15 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("@ui.route('/ajax/vault/files/<file_id>/folder'", ui_routes)
         self.assertIn("_process_composer_attachments(", ui_routes)
         self.assertIn("_hydrate_existing_user_file_attachment", ui_routes)
+        self.assertIn("_extract_owned_vault_link_attachments", ui_routes)
+        self.assertIn("_augment_composer_attachments_with_vault_links", ui_routes)
+        self.assertIn("_VAULT_MARKDOWN_LINK_PATTERN", ui_routes)
+        self.assertIn("'source': 'vault_link'", ui_routes)
+        self.assertGreaterEqual(
+            ui_routes.count("_augment_composer_attachments_with_vault_links("),
+            7,
+            "Vault links pasted into feed, channel, DM, comment, and edit composers must hydrate server-side.",
+        )
         self.assertIn('copy_file_to_user_vault(file_id, user_id', ui_routes)
         self.assertIn("PENDING_VAULT_ATTACHMENT_SAVES", ui_routes)
         self.assertIn('uploader_is_peer', ui_routes)
@@ -191,13 +200,17 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("@api.route('/vault/save-attachment'", api_routes)
         self.assertIn('replace_user_file_content(', api_routes)
         self.assertIn('if_match_checksum', api_routes)
+        self.assertIn('reference_check_unavailable', api_routes)
         self.assertIn('Personal File Vault', agent_instructions)
         self.assertIn('/api/v1/vault/files', agent_instructions)
+        self.assertIn('get_metadata', agent_instructions)
         self.assertIn('canopy_vault_diff_file', agent_instructions)
         self.assertIn('canopy_vault_list', mcp_server)
         self.assertIn('canopy_vault_write_file', mcp_server)
         self.assertIn('canopy_vault_save_attachment', mcp_server)
         self.assertIn('profile_avatar_referenced', mcp_server)
+        self.assertIn('CANOPY_MCP_FILE_IMPORT_DIR', mcp_server)
+        self.assertIn('reference_check_unavailable', mcp_server)
         self.assertIn('is_large_attachment_reference(attachment)', mcp_server)
 
         self.assertIn('def list_user_files(', files_core)

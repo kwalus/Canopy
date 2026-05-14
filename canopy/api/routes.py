@@ -11089,7 +11089,10 @@ def create_api_blueprint() -> Blueprint:
                         'reason': 'profile_avatar_referenced',
                     }), 409
             except Exception:
-                pass
+                return jsonify({
+                    'error': 'Could not verify file references. Please try again.',
+                    'reason': 'reference_check_unavailable',
+                }), 503
             if file_manager.is_file_referenced(file_id):
                 return jsonify({
                     'error': 'This file is attached to content. Delete or edit those posts/messages before removing the file.',

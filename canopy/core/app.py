@@ -95,7 +95,7 @@ from ..network.routing import (
     decode_channel_key_material,
     encrypt_key_for_peer,
 )
-from ..security.file_access import evaluate_file_access_for_peer
+from ..security.file_access import evaluate_file_access, evaluate_file_access_for_peer
 from ..security.encryption import DataEncryptor
 from ..api.routes import create_api_blueprint
 from ..ui.routes import create_ui_blueprint
@@ -1000,6 +1000,29 @@ def create_app(config: Optional[Config] = None) -> Flask:
                         save_folder_id = str(entry.get('folder_id') or '').strip()
                         if save_folder_id and not file_manager.get_user_folder(save_user_id, save_folder_id):
                             save_folder_id = ''
+                        try:
+                            uploader_row = db_manager.get_user(getattr(finfo, 'uploaded_by', '') or '')
+                            uploader_is_peer = bool(uploader_row and uploader_row.get('origin_peer'))
+                        except Exception:
+                            uploader_is_peer = True
+                        owner_id = db_manager.get_instance_owner_user_id()
+                        is_local_admin = bool(owner_id and owner_id == save_user_id and not uploader_is_peer)
+                        access = evaluate_file_access(
+                            db_manager=db_manager,
+                            file_id=finfo.id,
+                            viewer_user_id=save_user_id,
+                            file_uploaded_by=getattr(finfo, 'uploaded_by', None),
+                            is_admin=is_local_admin,
+                        )
+                        if not access.allowed:
+                            logger.warning(
+                                "Pending vault save for remote attachment %s/%s denied for user %s: %s",
+                                source_peer_id,
+                                origin_file_id,
+                                save_user_id,
+                                access.reason,
+                            )
+                            continue
                         copied = file_manager.copy_file_to_user_vault(
                             finfo.id,
                             save_user_id,

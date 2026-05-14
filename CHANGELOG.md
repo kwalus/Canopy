@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.103] - 2026-05-14
+
+### Changed
+- **Vault-to-Vault attachment copies avoid double file reads** - copying an accessible attachment into a user's File Vault now writes and hashes in one streaming pass.
+
+### Fixed
+- **Pasted Vault file links now hydrate across posting surfaces** - owner-owned Markdown or raw `/files/<id>` Vault links pasted into channel posts, feed posts, comments, DMs, and edit flows are converted server-side into normal downloadable attachment metadata instead of remaining text-only for readers.
+- **Copilot review hardening for Vault and Bedrock** - MCP Vault imports can be constrained with `CANOPY_MCP_FILE_IMPORT_DIR`, Vault delete reference checks now fail closed if avatar checks cannot run, pending remote-large Vault saves re-check access when the file arrives, Bedrock stores web search as disabled for Bedrock settings, and Bedrock HTTP error fallbacks no longer echo raw provider bodies.
+- **Agent Vault instructions document metadata fetches** - the agent instructions now include the `GET /api/v1/vault/files/<file_id>` metadata endpoint.
+
 ## [0.6.102] - 2026-05-14
 
 ### Added

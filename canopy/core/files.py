@@ -1079,14 +1079,16 @@ class FileManager:
                 logger.error("Path traversal guard blocked Vault copy target: %s", target_path)
                 return None
 
-            with source_path.open('rb') as src, target_path.open('wb') as dst:
-                shutil.copyfileobj(src, dst, length=1024 * 1024)
-
-            size = target_path.stat().st_size
             hasher = hashlib.sha256()
-            with target_path.open('rb') as handle:
-                for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            size = 0
+            with source_path.open('rb') as src, target_path.open('wb') as dst:
+                while True:
+                    chunk = src.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    dst.write(chunk)
                     hasher.update(chunk)
+                    size += len(chunk)
             checksum = hasher.hexdigest()
             now = datetime.now(timezone.utc)
             file_info = FileInfo(

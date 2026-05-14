@@ -274,6 +274,8 @@ class CanopyLLMManager:
         prompt_clean = self._normalize_system_prompt(system_prompt)
         enabled_clean = 1 if bool(enabled) else 0
         web_search_enabled_clean = 1 if self._normalize_bool(web_search_enabled, default=True) else 0
+        if provider_clean == 'bedrock':
+            web_search_enabled_clean = 0
 
         self._ensure_schema()
         with self.db_manager.get_connection() as conn:
@@ -340,6 +342,8 @@ class CanopyLLMManager:
         prompt_clean = self._normalize_system_prompt(system_prompt)
         enabled_clean = 1 if bool(enabled) else 0
         web_search_enabled_clean = 1 if self._normalize_bool(web_search_enabled, default=True) else 0
+        if provider_clean == 'bedrock':
+            web_search_enabled_clean = 0
 
         self._ensure_schema()
         with self.db_manager.get_connection() as conn:
@@ -1196,8 +1200,6 @@ class CanopyLLMManager:
                     return f"AWS Bedrock request failed: {data[key]}"
             if isinstance(data, dict) and isinstance(data.get('__type'), str):
                 return f"AWS Bedrock request failed ({data.get('__type')})."
-            if raw.strip():
-                return raw.strip()[:500]
         except Exception:
             pass
         return f'AWS Bedrock request failed with HTTP {getattr(exc, "code", "error")}.'

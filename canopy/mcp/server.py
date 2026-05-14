@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import secrets
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, cast
@@ -179,10 +180,28 @@ def _mcp_decode_text(raw: bytes, *, force: bool = False) -> tuple[str, str]:
     raise ValueError('File is not valid UTF-8 text')
 
 
+def _mcp_vault_import_dir() -> Optional[Path]:
+    """Return an optional root that constrains local file imports into Vault."""
+    raw = str(os.getenv('CANOPY_MCP_FILE_IMPORT_DIR') or '').strip()
+    if not raw:
+        return None
+    root = Path(raw).expanduser().resolve()
+    return root if root.is_dir() else None
+
+
 def _mcp_decode_vault_payload(args: Dict[str, Any]) -> tuple[bytes, str, str]:
     file_path = str(args.get('file_path') or '').strip()
     if file_path:
-        path = Path(file_path).expanduser()
+        path = Path(file_path).expanduser().resolve()
+        import_dir = _mcp_vault_import_dir()
+        if import_dir is not None:
+            try:
+                path.relative_to(import_dir)
+            except ValueError as exc:
+                raise ValueError(
+                    f'file_path is outside the configured import directory ({import_dir}). '
+                    'Set CANOPY_MCP_FILE_IMPORT_DIR to adjust the allowed import root.'
+                ) from exc
         if not path.exists() or not path.is_file():
             raise ValueError(f'File not found: {file_path}')
         return path.read_bytes(), str(args.get('filename') or path.name), str(args.get('content_type') or 'application/octet-stream')
@@ -4245,7 +4264,11 @@ class CanopyMCPServer:
                             "message": "This file is used as a profile avatar. Change the avatar before removing the file.",
                         })
                 except Exception:
-                    pass
+                    return _mcp_json({
+                        "success": False,
+                        "error": "reference_check_unavailable",
+                        "message": "Could not verify file references. Please try again.",
+                    })
                 if file_manager.is_file_referenced(file_id):
                     return _mcp_json({"success": False, "error": "file_referenced"})
                 if not file_manager.delete_file(file_id, self.user_id):
@@ -4332,6 +4355,7 @@ class CanopyMCPServer:
                                 'user_id': self.user_id,
                                 'folder_id': folder_id,
                                 'request_id': request_id,
+                                'requested_at': time.time(),
                                 'source': 'mcp',
                             })
                         return _mcp_json({

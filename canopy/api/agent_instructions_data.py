@@ -818,6 +818,7 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
             'rest_endpoints': {
                 'list_files': {'method': 'GET', 'path': '/api/v1/vault/files?q=<query>&folder_id=<folder_id>&limit=60', 'permission': 'READ_FILES'},
                 'create_file': {'method': 'POST', 'path': '/api/v1/vault/files', 'permission': 'WRITE_FILES', 'body': {'filename': 'workplan.md', 'content_type': 'text/markdown', 'content': '# Workplan\\n...'}},
+                'get_metadata': {'method': 'GET', 'path': '/api/v1/vault/files/<file_id>', 'permission': 'READ_FILES'},
                 'read_content': {'method': 'GET', 'path': '/api/v1/vault/files/<file_id>/content?mode=text&offset=0&max_bytes=1048576', 'permission': 'READ_FILES'},
                 'read_binary': {'method': 'GET', 'path': '/api/v1/vault/files/<file_id>/content?mode=base64', 'permission': 'READ_FILES'},
                 'diff_text': {'method': 'POST', 'path': '/api/v1/vault/files/<file_id>/diff', 'permission': 'READ_FILES', 'body': {'content': 'proposed replacement'}},

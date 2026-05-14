@@ -341,6 +341,44 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertEqual(parsed['bearer_token'], 'bedrock-raw-api-key')
         self.assertEqual(parsed['region'], 'us-east-1')
 
+    def test_bedrock_web_search_is_stored_as_disabled_regardless_of_input(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+
+        user_settings = manager.save_settings(
+            'user-2',
+            provider='bedrock',
+            model='amazon.nova-pro-v1:0',
+            enabled=True,
+            api_key='aws_bearer_token_bedrock=token;region=us-east-1',
+            web_search_enabled=True,
+        )
+        self.assertFalse(user_settings['web_search_enabled'])
+        self.assertFalse(manager.get_settings('user-2')['web_search_enabled'])
+
+        instance_settings = manager.save_instance_settings(
+            'admin-1',
+            provider='bedrock',
+            model='amazon.nova-pro-v1:0',
+            enabled=True,
+            api_key='aws_bearer_token_bedrock=token;region=us-east-1',
+            web_search_enabled=True,
+        )
+        self.assertFalse(instance_settings['web_search_enabled'])
+
+    def test_bedrock_error_fallback_does_not_return_raw_body(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+
+        class _RawError:
+            code = 403
+
+            def read(self) -> bytes:
+                return b'SENSITIVE AWS DETAIL account 123456789'
+
+        message = manager._extract_bedrock_error(_RawError())  # type: ignore[arg-type]
+        self.assertIn('HTTP 403', message)
+        self.assertNotIn('SENSITIVE', message)
+        self.assertNotIn('123456789', message)
+
     def test_bedrock_personal_credentials_are_saved_and_used(self) -> None:
         manager = CanopyLLMManager(self.db, 'test-secret')
 

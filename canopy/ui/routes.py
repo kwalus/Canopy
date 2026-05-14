@@ -2222,6 +2222,108 @@ def create_ui_blueprint() -> Blueprint:
                 failed.append(err_name)
         return processed, failed
 
+    _VAULT_FILE_ID_PATTERN = re.compile(r"^F[0-9A-Za-z_-]{6,}$")
+    _VAULT_MARKDOWN_LINK_PATTERN = re.compile(
+        r"\[([^\]\n]{0,180})\]\((?:https?://[^)\s]+)?/files/(F[0-9A-Za-z_-]{6,})(?:[/?#][^)]*)?\)"
+    )
+    _VAULT_RAW_LINK_PATTERN = re.compile(
+        r"(?:^|[\s(<])(?:https?://[^\s)<>]+)?/files/(F[0-9A-Za-z_-]{6,})(?:[/?#][^\s)<>]*)?"
+    )
+
+    def _composer_attachment_ref_id(attachment: Any) -> str:
+        if not isinstance(attachment, dict):
+            return ''
+        return str(
+            attachment.get('vault_file_id')
+            or attachment.get('existing_file_id')
+            or attachment.get('file_id')
+            or attachment.get('id')
+            or ''
+        ).strip()
+
+    def _extract_owned_vault_link_attachments(
+        file_manager: Any,
+        content: Any,
+        user_id: str,
+        *,
+        existing_attachments: Optional[list[Any]] = None,
+    ) -> list[dict[str, Any]]:
+        """Turn pasted owner-owned /files/<id> Vault links into attachment refs."""
+        text = str(content or '')
+        if not text or not file_manager:
+            return []
+
+        seen: set[str] = set()
+        for attachment in existing_attachments or []:
+            ref_id = _composer_attachment_ref_id(attachment)
+            if ref_id:
+                seen.add(ref_id)
+
+        refs: list[tuple[str, str]] = []
+
+        def add_candidate(file_id: Any, label: Any = '') -> None:
+            clean_id = str(file_id or '').strip()
+            if not _VAULT_FILE_ID_PATTERN.match(clean_id) or clean_id in seen:
+                return
+            seen.add(clean_id)
+            refs.append((clean_id, str(label or clean_id).strip() or clean_id))
+
+        for match in _VAULT_MARKDOWN_LINK_PATTERN.finditer(text):
+            add_candidate(match.group(2), match.group(1))
+        for match in _VAULT_RAW_LINK_PATTERN.finditer(text):
+            add_candidate(match.group(1), match.group(1))
+
+        attachments: list[dict[str, Any]] = []
+        for file_id, label in refs:
+            try:
+                file_info = file_manager.get_file(file_id)
+            except Exception as e:
+                logger.debug("Could not resolve pasted Vault link %s: %s", file_id, e)
+                file_info = None
+            if not file_info:
+                continue
+            if str(getattr(file_info, 'uploaded_by', '') or '') != str(user_id):
+                logger.info(
+                    "Ignoring pasted /files/%s link for user %s because the local file is not owned by that user",
+                    file_id,
+                    user_id,
+                )
+                continue
+            attachments.append({
+                'id': file_info.id,
+                'vault_file_id': file_info.id,
+                'name': getattr(file_info, 'original_name', None) or label or file_info.id,
+                'type': getattr(file_info, 'content_type', None) or 'application/octet-stream',
+                'size': int(getattr(file_info, 'size', 0) or 0),
+                'url': getattr(file_info, 'url', None) or f'/files/{file_info.id}',
+                'source': 'vault_link',
+            })
+        return attachments
+
+    def _augment_composer_attachments_with_vault_links(
+        file_manager: Any,
+        raw_attachments: Any,
+        content: Any,
+        user_id: str,
+        *,
+        existing_attachments: Optional[list[Any]] = None,
+    ) -> list[Any]:
+        """Append owner-owned Vault file links from content to composer attachments."""
+        attachments = list(raw_attachments) if isinstance(raw_attachments, list) else []
+        existing_for_dedupe = []
+        if existing_attachments:
+            existing_for_dedupe.extend(existing_attachments)
+        existing_for_dedupe.extend(attachments)
+        linked = _extract_owned_vault_link_attachments(
+            file_manager,
+            content,
+            user_id,
+            existing_attachments=existing_for_dedupe,
+        )
+        if linked:
+            attachments.extend(linked)
+        return attachments
+
     def _is_admin():
         """True if the current session user is the instance owner (first registered user)."""
         if not _is_authenticated():
@@ -6685,7 +6787,11 @@ def create_ui_blueprint() -> Blueprint:
                         'reason': 'profile_avatar_referenced',
                     }), 409
             except Exception:
-                pass
+                return jsonify({
+                    'success': False,
+                    'error': 'Could not verify file references. Please try again.',
+                    'reason': 'reference_check_unavailable',
+                }), 503
             if file_manager.is_file_referenced(file_id):
                 return jsonify({
                     'success': False,
@@ -10881,7 +10987,12 @@ def create_ui_blueprint() -> Blueprint:
             if recipient_id == 'None' or recipient_id == '':
                 recipient_id = None  # Ensure proper null value for broadcast
             recipient_ids = [r for r in recipient_ids if r]
-            file_attachments = data.get('attachments', [])
+            file_attachments = _augment_composer_attachments_with_vault_links(
+                file_manager,
+                data.get('attachments', []),
+                content,
+                user_id,
+            )
             
             logger.info(f"Parsed data: content='{content}', recipient_id='{recipient_id}', recipient_ids={recipient_ids}, attachments_count={len(file_attachments)}")
             
@@ -14737,7 +14848,12 @@ def create_ui_blueprint() -> Blueprint:
             visibility = data.get('visibility', 'private')
             permissions = data.get('permissions', [])
             metadata = data.get('metadata')
-            file_attachments = data.get('attachments', [])
+            file_attachments = _augment_composer_attachments_with_vault_links(
+                file_manager,
+                data.get('attachments', []),
+                content,
+                user_id,
+            )
             expires_at = data.get('expires_at')
             ttl_seconds = data.get('ttl_seconds')
             ttl_mode = data.get('ttl_mode')
@@ -15369,7 +15485,16 @@ def create_ui_blueprint() -> Blueprint:
             visibility = data.get('visibility')
             permissions = data.get('permissions')
             metadata = data.get('metadata', {})
-            new_attachments = data.get('new_attachments', [])
+            existing_metadata_attachments = []
+            if isinstance(metadata, dict):
+                existing_metadata_attachments = metadata.get('attachments') or []
+            new_attachments = _augment_composer_attachments_with_vault_links(
+                file_manager,
+                data.get('new_attachments', []),
+                content,
+                user_id,
+                existing_attachments=existing_metadata_attachments,
+            )
             from ..core.source_layout import normalize_source_layout
             
             if not post_id:
@@ -16061,7 +16186,12 @@ def create_ui_blueprint() -> Blueprint:
             post_id = data.get('post_id')
             content = data.get('content', '').strip()
             parent_comment_id = data.get('parent_comment_id')
-            attachments = data.get('attachments', [])
+            attachments = _augment_composer_attachments_with_vault_links(
+                file_manager,
+                data.get('attachments', []),
+                content,
+                user_id,
+            )
             
             if not post_id:
                 return jsonify({'error': 'Post ID required'}), 400
@@ -16679,7 +16809,13 @@ def create_ui_blueprint() -> Blueprint:
             message_id = data.get('message_id')
             content = (data.get('content') or '').strip()
             attachments = data.get('attachments')
-            new_attachments = data.get('new_attachments') or []
+            new_attachments = _augment_composer_attachments_with_vault_links(
+                file_manager,
+                data.get('new_attachments') or [],
+                content,
+                user_id,
+                existing_attachments=attachments if isinstance(attachments, list) else None,
+            )
             from ..core.source_layout import normalize_source_layout
 
             if not message_id:
@@ -18755,7 +18891,12 @@ def create_ui_blueprint() -> Blueprint:
             
             content = data.get('content', '').strip()
             channel_id = data.get('channel_id')
-            file_attachments = data.get('attachments', [])
+            file_attachments = _augment_composer_attachments_with_vault_links(
+                file_manager,
+                data.get('attachments', []),
+                content,
+                user_id,
+            )
             parent_message_id = data.get('parent_message_id')
             security = data.get('security')
             from ..core.source_layout import normalize_source_layout
@@ -20000,6 +20141,22 @@ def create_ui_blueprint() -> Blueprint:
                 lock_reason = poll_edit_lock_reason(created_dt, votes_total, now=datetime.now(timezone.utc))
                 if lock_reason:
                     return jsonify({'error': lock_reason}), 400
+
+            existing_channel_attachments: list[Any] = []
+            if attachments is None and row['attachments']:
+                try:
+                    existing_channel_attachments = json.loads(row['attachments']) or []
+                except Exception:
+                    existing_channel_attachments = []
+            elif isinstance(attachments, list):
+                existing_channel_attachments = attachments
+            new_attachments = _augment_composer_attachments_with_vault_links(
+                file_manager,
+                new_attachments,
+                content,
+                user_id,
+                existing_attachments=existing_channel_attachments,
+            )
 
             processed_new_attachments, failed_new_attachments = _process_composer_attachments(
                 file_manager,
