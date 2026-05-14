@@ -2125,8 +2125,28 @@ def create_ui_blueprint() -> Blueprint:
                 'url': f'/files/{file_id}',
                 'source': 'vault',
             },
+            'folder_id': str(getattr(file_info, 'vault_folder_id', '') or ''),
         }
         return entry
+
+    def _vault_folder_to_entry(folder: Any) -> dict[str, Any]:
+        created_at = getattr(folder, 'created_at', None)
+        updated_at = getattr(folder, 'updated_at', None)
+        return {
+            'id': str(getattr(folder, 'id', '') or ''),
+            'name': str(getattr(folder, 'name', '') or 'Folder'),
+            'parent_id': str(getattr(folder, 'parent_id', '') or ''),
+            'created_at': created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at or ''),
+            'updated_at': updated_at.isoformat() if hasattr(updated_at, 'isoformat') else str(updated_at or ''),
+        }
+
+    def _vault_path_entries(file_manager: Any, user_id: str, folder_id: str) -> list[dict[str, Any]]:
+        if not file_manager or not folder_id:
+            return []
+        try:
+            return [_vault_folder_to_entry(folder) for folder in file_manager.get_user_folder_path(user_id, folder_id)]
+        except Exception:
+            return []
 
     def _save_inline_composer_attachment(file_manager: Any, attachment: dict[str, Any], user_id: str) -> tuple[Optional[dict[str, Any]], Optional[str]]:
         """Persist one base64 composer attachment and return normalized metadata."""
@@ -6256,14 +6276,22 @@ def create_ui_blueprint() -> Blueprint:
         try:
             _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
+            current_folder_id = ''
             initial_files = [
                 _file_info_to_vault_entry(info)
-                for info in file_manager.list_user_files(user_id, limit=48)
+                for info in file_manager.list_user_files(user_id, limit=48, folder_id=current_folder_id)
+            ] if file_manager else []
+            initial_folders = [
+                _vault_folder_to_entry(folder)
+                for folder in file_manager.list_user_folders(user_id, current_folder_id)
             ] if file_manager else []
             stats = file_manager.count_user_files(user_id) if file_manager else {'count': 0, 'bytes': 0, 'by_category': {}}
             return render_template(
                 'vault.html',
                 vault_files=initial_files,
+                vault_folders=initial_folders,
+                vault_path=[],
+                vault_current_folder_id=current_folder_id,
                 vault_stats=stats,
             )
         except Exception as e:
@@ -6284,6 +6312,9 @@ def create_ui_blueprint() -> Blueprint:
             offset = max(0, int(request.args.get('offset', 0) or 0))
             query = str(request.args.get('q') or request.args.get('query') or '').strip()
             category = str(request.args.get('category') or '').strip()
+            folder_id = str(request.args.get('folder_id') or '').strip()
+            if folder_id and not file_manager.get_user_folder(user_id, folder_id):
+                return jsonify({'success': False, 'error': 'Folder not found'}), 404
             files = [
                 _file_info_to_vault_entry(info)
                 for info in file_manager.list_user_files(
@@ -6292,12 +6323,20 @@ def create_ui_blueprint() -> Blueprint:
                     offset=offset,
                     query=query,
                     category=category,
+                    folder_id=folder_id,
                 )
+            ]
+            folders = [] if query else [
+                _vault_folder_to_entry(folder)
+                for folder in file_manager.list_user_folders(user_id, folder_id)
             ]
             stats = file_manager.count_user_files(user_id, query=query)
             return jsonify({
                 'success': True,
                 'files': files,
+                'folders': folders,
+                'path': _vault_path_entries(file_manager, user_id, folder_id),
+                'current_folder_id': folder_id,
                 'stats': stats,
                 'offset': offset,
                 'limit': limit,
@@ -6324,6 +6363,9 @@ def create_ui_blueprint() -> Blueprint:
             uploads = [upload for upload in uploads if upload and upload.filename]
             if not uploads:
                 return jsonify({'success': False, 'error': 'Choose at least one file to upload'}), 400
+            folder_id = str(request.form.get('folder_id') or '').strip()
+            if folder_id and not file_manager.get_user_folder(user_id, folder_id):
+                return jsonify({'success': False, 'error': 'Folder not found'}), 404
 
             from ..security.file_validation import detect_zip_bomb, validate_file_upload
 
@@ -6356,6 +6398,8 @@ def create_ui_blueprint() -> Blueprint:
                         continue
                     file_info = file_manager.save_file(file_data, original_name, content_type, user_id)
                     if file_info:
+                        if folder_id:
+                            file_info = file_manager.move_user_file_to_folder(user_id, file_info.id, folder_id)
                         saved.append(_file_info_to_vault_entry(file_info))
                     else:
                         failed.append({'name': original_name, 'error': 'Failed to save file'})
@@ -6371,6 +6415,85 @@ def create_ui_blueprint() -> Blueprint:
             }), status
         except Exception as e:
             logger.error(f"Vault upload error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/vault/folders', methods=['POST'])
+    @require_login
+    def ajax_vault_create_folder():
+        """Create a current-user logical Vault folder."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            data = request.get_json(silent=True) or {}
+            folder = file_manager.create_user_folder(
+                user_id,
+                data.get('name'),
+                str(data.get('parent_id') or '').strip(),
+            )
+            return jsonify({'success': True, 'folder': _vault_folder_to_entry(folder)}), 201
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        except Exception as e:
+            logger.error(f"Vault folder create error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/vault/folders/<folder_id>', methods=['PATCH'])
+    @require_login
+    def ajax_vault_rename_folder(folder_id: str):
+        """Rename a current-user logical Vault folder."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            data = request.get_json(silent=True) or {}
+            folder = file_manager.rename_user_folder(user_id, folder_id, data.get('name'))
+            return jsonify({'success': True, 'folder': _vault_folder_to_entry(folder)})
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        except Exception as e:
+            logger.error(f"Vault folder rename error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/vault/folders/<folder_id>', methods=['DELETE'])
+    @require_login
+    def ajax_vault_delete_folder(folder_id: str):
+        """Delete an empty current-user logical Vault folder."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            file_manager.delete_user_folder(user_id, folder_id)
+            return jsonify({'success': True, 'folder_id': folder_id})
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 409
+        except Exception as e:
+            logger.error(f"Vault folder delete error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/vault/files/<file_id>/folder', methods=['PATCH'])
+    @require_login
+    def ajax_vault_move_file(file_id: str):
+        """Move a current-user Vault file into a logical folder or back to root."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            data = request.get_json(silent=True) or {}
+            file_info = file_manager.move_user_file_to_folder(
+                user_id,
+                file_id,
+                str(data.get('folder_id') or '').strip(),
+            )
+            return jsonify({'success': True, 'file': _file_info_to_vault_entry(file_info)})
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        except Exception as e:
+            logger.error(f"Vault file move error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
     @ui.route('/ajax/vault/files/<file_id>', methods=['DELETE'])

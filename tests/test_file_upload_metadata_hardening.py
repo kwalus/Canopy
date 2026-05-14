@@ -239,6 +239,54 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
 
         self.assertTrue(self.file_manager.is_file_referenced(file_id))
 
+    def test_user_file_vault_folders_are_owner_scoped_and_move_files(self) -> None:
+        self.conn.execute("INSERT INTO users (id) VALUES (?)", ('other-user',))
+        root_report = self.file_manager.save_file(
+            file_data=b"root report",
+            original_name='root-report.txt',
+            content_type='text/plain',
+            uploaded_by='user-test',
+        )
+        nested_report = self.file_manager.save_file(
+            file_data=b"nested report",
+            original_name='nested-report.txt',
+            content_type='text/plain',
+            uploaded_by='user-test',
+        )
+        other_file = self.file_manager.save_file(
+            file_data=b"private",
+            original_name='other.txt',
+            content_type='text/plain',
+            uploaded_by='other-user',
+        )
+        self.assertIsNotNone(root_report)
+        self.assertIsNotNone(nested_report)
+        self.assertIsNotNone(other_file)
+        assert nested_report is not None
+        assert other_file is not None
+
+        projects = self.file_manager.create_user_folder('user-test', 'Projects')
+        nested = self.file_manager.create_user_folder('user-test', 'Drafts', projects.id)
+        self.file_manager.move_user_file_to_folder('user-test', nested_report.id, projects.id)
+
+        root_files = self.file_manager.list_user_files('user-test', folder_id='', limit=10)
+        self.assertEqual([f.original_name for f in root_files], ['root-report.txt'])
+        project_files = self.file_manager.list_user_files('user-test', folder_id=projects.id, limit=10)
+        self.assertEqual([f.original_name for f in project_files], ['nested-report.txt'])
+        self.assertEqual([f.name for f in self.file_manager.list_user_folders('user-test')], ['Projects'])
+        self.assertEqual([f.name for f in self.file_manager.list_user_folders('user-test', projects.id)], ['Drafts'])
+        self.assertEqual([f.name for f in self.file_manager.get_user_folder_path('user-test', nested.id)], ['Projects', 'Drafts'])
+
+        with self.assertRaises(ValueError):
+            self.file_manager.move_user_file_to_folder('user-test', other_file.id, projects.id)
+        with self.assertRaises(ValueError):
+            self.file_manager.delete_user_folder('user-test', projects.id)
+
+        self.file_manager.move_user_file_to_folder('user-test', nested_report.id, '')
+        self.file_manager.delete_user_folder('user-test', nested.id)
+        self.file_manager.delete_user_folder('user-test', projects.id)
+        self.assertEqual(self.file_manager.list_user_folders('user-test'), [])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -158,6 +158,59 @@
         border-color: transparent;
         color: #fff;
     }
+    .vault-explorer-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.85rem;
+        margin-bottom: 1rem;
+    }
+    .vault-breadcrumb {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.35rem;
+        min-width: 0;
+    }
+    .vault-crumb {
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--canopy-text-secondary);
+        padding: 0.35rem 0.55rem;
+        font-weight: 750;
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .vault-crumb:hover,
+    .vault-crumb.active {
+        color: var(--canopy-text-primary);
+        border-color: var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
+    }
+    .vault-folder-card {
+        min-height: 150px;
+        border-style: dashed;
+    }
+    .vault-folder-card.is-drop-target {
+        border-color: var(--canopy-secondary);
+        background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-card));
+    }
+    .vault-folder-preview {
+        height: 78px;
+        color: var(--canopy-primary);
+        font-size: 2.35rem;
+    }
+    .vault-card[draggable="true"] {
+        cursor: grab;
+    }
+    .vault-card.is-dragging {
+        opacity: 0.55;
+    }
     .vault-stats {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -251,6 +304,12 @@
         padding: 0.8rem;
         border-top: 1px solid var(--canopy-border);
     }
+    .vault-file-location {
+        display: none;
+    }
+    .vault-file-location.is-visible {
+        display: inline-flex;
+    }
     .vault-empty {
         display: none;
         padding: 2.2rem;
@@ -268,6 +327,9 @@
         }
         .vault-filter-row {
             justify-content: flex-start;
+        }
+        .vault-explorer-bar {
+            align-items: flex-start;
         }
         .vault-stats {
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -328,6 +390,22 @@
         </div>
     </section>
 
+    <section class="vault-panel vault-explorer-bar" aria-label="Vault folder navigation">
+        <nav class="vault-breadcrumb" id="vault-breadcrumb" aria-label="Current vault folder">
+            <button class="vault-crumb active" type="button" data-vault-folder-target="">
+                <i class="bi bi-house-door me-1"></i>Vault Home
+            </button>
+        </nav>
+        <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-root-btn" hidden>
+                <i class="bi bi-arrow-up-left"></i> Back to Vault Home
+            </button>
+            <button class="btn btn-primary btn-sm" type="button" id="vault-new-folder-btn">
+                <i class="bi bi-folder-plus"></i> New Folder
+            </button>
+        </div>
+    </section>
+
     <section class="vault-stats" aria-label="Vault summary">
         <div class="vault-stat">
             <div class="vault-stat-label">Files</div>
@@ -376,6 +454,9 @@
 <script>
     window.CANOPY_VAULT_INITIAL = {
         files: {{ vault_files|tojson }},
+        folders: {{ vault_folders|tojson }},
+        path: {{ vault_path|tojson }},
+        currentFolderId: {{ vault_current_folder_id|tojson }},
         stats: {{ vault_stats|tojson }},
     };
 </script>

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.95] - 2026-05-13
+
+### Added
+- **File Vault now has folder-based explorer organization** - users can create, rename, and delete empty Vault folders, navigate with breadcrumbs, upload into the current folder, and move files between Vault Home and folders without changing file IDs or breaking existing attachments.
+
+### Changed
+- **Vault organization is metadata-only and owner-scoped** - folder moves update local Vault metadata instead of moving bytes on disk, preserving stable `/files/<id>` links while keeping folder operations restricted to the file owner.
+
 ## [0.6.94] - 2026-05-13
 
 ### Added

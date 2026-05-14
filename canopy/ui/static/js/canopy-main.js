@@ -249,6 +249,7 @@
                 return {
                     files: urls.vaultFiles || '/ajax/vault/files',
                     upload: urls.vaultUpload || '/ajax/vault/upload',
+                    folders: urls.vaultFolders || '/ajax/vault/folders',
                     page: urls.vault || '/vault'
                 };
             }
@@ -337,13 +338,14 @@
                 }
             }
 
-            async function fetchVaultFiles({ q = '', category = '', offset = 0, limit = DEFAULT_LIMIT } = {}) {
+            async function fetchVaultFiles({ q = '', category = '', offset = 0, limit = DEFAULT_LIMIT, folderId = null } = {}) {
                 const urls = vaultUrls();
                 const params = new URLSearchParams();
                 params.set('limit', String(limit));
                 params.set('offset', String(offset));
                 if (q) params.set('q', q);
                 if (category) params.set('category', category);
+                if (folderId !== null && folderId !== undefined) params.set('folder_id', String(folderId || ''));
                 return apiCall(`${urls.files}?${params.toString()}`);
             }
 
@@ -709,6 +711,33 @@
                 loadPickerFiles(modal);
             }
 
+            function renderVaultFolderCard(folder) {
+                const id = vaultEscape(folder.id || '');
+                const name = vaultEscape(folder.name || 'Folder');
+                return `
+                    <article class="vault-card vault-folder-card" data-vault-folder-id="${id}" data-vault-folder-drop="${id}">
+                        <button type="button" class="vault-card-preview vault-folder-preview border-0 w-100" data-vault-open-folder="${id}" aria-label="Open folder ${name}">
+                            <i class="bi bi-folder-fill"></i>
+                        </button>
+                        <div class="vault-card-body">
+                            <div class="vault-file-name">${name}</div>
+                            <div class="vault-file-meta">
+                                <span class="vault-file-pill"><i class="bi bi-folder"></i> Folder</span>
+                                <span class="vault-file-pill">Private</span>
+                            </div>
+                        </div>
+                        <div class="vault-card-actions">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-folder-action="rename" data-vault-folder-id="${id}">
+                                <i class="bi bi-pencil"></i> Rename
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger ms-auto" type="button" data-vault-folder-action="delete" data-vault-folder-id="${id}">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </article>
+                `;
+            }
+
             function renderVaultPageCard(file) {
                 const id = vaultEscape(file.id || '');
                 const name = vaultEscape(file.name || file.filename || 'File');
@@ -717,7 +746,7 @@
                 const uploaded = vaultEscape(formatTimestamp(file.uploaded_at || ''));
                 const url = vaultEscape(file.url || `/files/${encodeURIComponent(file.id || '')}`);
                 return `
-                    <article class="vault-card" data-vault-file-id="${id}">
+                    <article class="vault-card" data-vault-file-id="${id}" draggable="true">
                         <div class="vault-card-preview">${renderVaultPreview(file)}</div>
                         <div class="vault-card-body">
                             <div class="vault-file-name">${name}</div>
@@ -725,6 +754,7 @@
                                 <span class="vault-file-pill"><i class="bi ${fileIcon(file)}"></i>${type}</span>
                                 <span class="vault-file-pill">${size}</span>
                                 <span class="vault-file-pill">${uploaded || 'Recently'}</span>
+                                <span class="vault-file-pill vault-file-location${file.folder_id ? ' is-visible' : ''}"><i class="bi bi-folder"></i> Organized</span>
                             </div>
                         </div>
                         <div class="vault-card-actions">
@@ -734,6 +764,9 @@
                             <a class="btn btn-sm btn-outline-secondary" href="${url}" target="_blank" rel="noopener">
                                 <i class="bi bi-box-arrow-up-right"></i> Open
                             </a>
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-action="move-root" data-vault-id="${id}">
+                                <i class="bi bi-house-door"></i> Move Home
+                            </button>
                             <button class="btn btn-sm btn-outline-danger ms-auto" type="button" data-vault-action="delete" data-vault-id="${id}">
                                 <i class="bi bi-trash"></i>
                             </button>
@@ -747,6 +780,9 @@
                 if (!page) return;
                 const state = {
                     files: Array.isArray(global.CANOPY_VAULT_INITIAL?.files) ? global.CANOPY_VAULT_INITIAL.files.slice() : [],
+                    folders: Array.isArray(global.CANOPY_VAULT_INITIAL?.folders) ? global.CANOPY_VAULT_INITIAL.folders.slice() : [],
+                    path: Array.isArray(global.CANOPY_VAULT_INITIAL?.path) ? global.CANOPY_VAULT_INITIAL.path.slice() : [],
+                    currentFolderId: String(global.CANOPY_VAULT_INITIAL?.currentFolderId || ''),
                     stats: global.CANOPY_VAULT_INITIAL?.stats || {},
                     query: '',
                     category: '',
@@ -761,6 +797,9 @@
                 const loadMore = document.getElementById('vault-load-more');
                 const uploadInput = document.getElementById('vault-upload-input');
                 const dropzone = document.getElementById('vault-dropzone');
+                const breadcrumb = document.getElementById('vault-breadcrumb');
+                const newFolderBtn = document.getElementById('vault-new-folder-btn');
+                const rootBtn = document.getElementById('vault-root-btn');
 
                 function updateStats(stats) {
                     const safeStats = stats || {};
@@ -782,17 +821,40 @@
 
                 function render() {
                     if (!grid || !empty) return;
-                    if (!state.files.length) {
+                    if (!state.files.length && !state.folders.length) {
                         grid.innerHTML = '';
                         empty.style.display = 'block';
                     } else {
                         empty.style.display = 'none';
-                        grid.innerHTML = state.files.map(renderVaultPageCard).join('');
+                        grid.innerHTML = state.folders.map(renderVaultFolderCard).join('') + state.files.map(renderVaultPageCard).join('');
                     }
                     updateStats(state.stats);
+                    if (breadcrumb) {
+                        const crumbs = [
+                            `<button class="vault-crumb${state.currentFolderId ? '' : ' active'}" type="button" data-vault-folder-target=""><i class="bi bi-house-door me-1"></i>Vault Home</button>`
+                        ];
+                        state.path.forEach((folder) => {
+                            const id = vaultEscape(folder.id || '');
+                            const name = vaultEscape(folder.name || 'Folder');
+                            const active = String(folder.id || '') === String(state.currentFolderId || '') ? ' active' : '';
+                            crumbs.push(`<span class="text-muted">/</span><button class="vault-crumb${active}" type="button" data-vault-folder-target="${id}">${name}</button>`);
+                        });
+                        breadcrumb.innerHTML = crumbs.join('');
+                    }
+                    if (rootBtn) rootBtn.hidden = !state.currentFolderId;
                     if (loadMore) {
                         loadMore.hidden = !(state.files.length && state.files.length % state.limit === 0);
                     }
+                }
+
+                function folderEndpoint(folderId) {
+                    return `${vaultUrls().folders}/${encodeURIComponent(folderId)}`;
+                }
+
+                async function navigateToFolder(folderId) {
+                    state.currentFolderId = String(folderId || '');
+                    state.offset = 0;
+                    await loadFiles({ append: false });
                 }
 
                 async function loadFiles({ append = false } = {}) {
@@ -808,10 +870,16 @@
                             q: state.query,
                             category: state.category,
                             offset,
-                            limit: state.limit
+                            limit: state.limit,
+                            folderId: state.currentFolderId
                         });
                         const nextFiles = Array.isArray(data.files) ? data.files : [];
                         state.files = append ? state.files.concat(nextFiles) : nextFiles;
+                        if (!append) {
+                            state.folders = Array.isArray(data.folders) ? data.folders : [];
+                            state.path = Array.isArray(data.path) ? data.path : [];
+                            state.currentFolderId = String(data.current_folder_id || state.currentFolderId || '');
+                        }
                         state.stats = data.stats || state.stats || {};
                         render();
                     } catch (error) {
@@ -831,6 +899,7 @@
                     if (!files.length) return;
                     const form = new FormData();
                     files.forEach(file => form.append('files', file, file.name || 'upload'));
+                    form.append('folder_id', state.currentFolderId || '');
                     if (dropzone) dropzone.classList.add('is-dragging');
                     try {
                         const data = await apiCall(vaultUrls().upload, {
@@ -853,6 +922,30 @@
                 }
 
                 render();
+                if (breadcrumb) {
+                    breadcrumb.addEventListener('click', (event) => {
+                        const target = event.target.closest('[data-vault-folder-target]');
+                        if (!target || !breadcrumb.contains(target)) return;
+                        navigateToFolder(target.getAttribute('data-vault-folder-target') || '');
+                    });
+                }
+                if (rootBtn) rootBtn.addEventListener('click', () => navigateToFolder(''));
+                if (newFolderBtn) {
+                    newFolderBtn.addEventListener('click', async () => {
+                        const name = global.prompt('New folder name');
+                        if (!name || !name.trim()) return;
+                        try {
+                            await apiCall(vaultUrls().folders, {
+                                method: 'POST',
+                                body: JSON.stringify({ name: name.trim(), parent_id: state.currentFolderId || '' })
+                            });
+                            if (typeof showAlert === 'function') showAlert('Folder created.', 'success');
+                            await loadFiles({ append: false });
+                        } catch (error) {
+                            if (typeof showAlert === 'function') showAlert(error.error || 'Could not create folder.', 'warning');
+                        }
+                    });
+                }
                 if (search) {
                     search.addEventListener('input', () => {
                         clearTimeout(state.timer);
@@ -898,7 +991,86 @@
                     });
                 }
                 if (grid) {
+                    let draggingFileId = '';
+                    grid.addEventListener('dragstart', (event) => {
+                        const card = event.target.closest('[data-vault-file-id]');
+                        if (!card) return;
+                        draggingFileId = card.getAttribute('data-vault-file-id') || '';
+                        card.classList.add('is-dragging');
+                        if (event.dataTransfer) {
+                            event.dataTransfer.effectAllowed = 'move';
+                            event.dataTransfer.setData('text/plain', draggingFileId);
+                        }
+                    });
+                    grid.addEventListener('dragend', () => {
+                        draggingFileId = '';
+                        grid.querySelectorAll('.is-dragging, .is-drop-target').forEach(el => el.classList.remove('is-dragging', 'is-drop-target'));
+                    });
+                    grid.addEventListener('dragover', (event) => {
+                        const folderCard = event.target.closest('[data-vault-folder-drop]');
+                        if (!folderCard || !draggingFileId) return;
+                        event.preventDefault();
+                        folderCard.classList.add('is-drop-target');
+                        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+                    });
+                    grid.addEventListener('dragleave', (event) => {
+                        const folderCard = event.target.closest('[data-vault-folder-drop]');
+                        if (folderCard) folderCard.classList.remove('is-drop-target');
+                    });
+                    grid.addEventListener('drop', async (event) => {
+                        const folderCard = event.target.closest('[data-vault-folder-drop]');
+                        if (!folderCard || !draggingFileId) return;
+                        event.preventDefault();
+                        const folderId = folderCard.getAttribute('data-vault-folder-drop') || '';
+                        try {
+                            await apiCall(`/ajax/vault/files/${encodeURIComponent(draggingFileId)}/folder`, {
+                                method: 'PATCH',
+                                body: JSON.stringify({ folder_id: folderId })
+                            });
+                            if (typeof showAlert === 'function') showAlert('File moved.', 'success');
+                            await loadFiles({ append: false });
+                        } catch (error) {
+                            if (typeof showAlert === 'function') showAlert(error.error || 'Could not move file.', 'warning');
+                        }
+                    });
                     grid.addEventListener('click', async (event) => {
+                        const openFolder = event.target.closest('[data-vault-open-folder]');
+                        if (openFolder && grid.contains(openFolder)) {
+                            await navigateToFolder(openFolder.getAttribute('data-vault-open-folder') || '');
+                            return;
+                        }
+                        const folderActionBtn = event.target.closest('[data-vault-folder-action]');
+                        if (folderActionBtn && grid.contains(folderActionBtn)) {
+                            const folderId = folderActionBtn.getAttribute('data-vault-folder-id') || '';
+                            const folder = state.folders.find(candidate => String(candidate.id || '') === folderId);
+                            if (!folder) return;
+                            const action = folderActionBtn.getAttribute('data-vault-folder-action') || '';
+                            if (action === 'rename') {
+                                const nextName = global.prompt('Rename folder', folder.name || 'Folder');
+                                if (!nextName || !nextName.trim() || nextName.trim() === folder.name) return;
+                                try {
+                                    await apiCall(folderEndpoint(folderId), {
+                                        method: 'PATCH',
+                                        body: JSON.stringify({ name: nextName.trim() })
+                                    });
+                                    if (typeof showAlert === 'function') showAlert('Folder renamed.', 'success');
+                                    await loadFiles({ append: false });
+                                } catch (error) {
+                                    if (typeof showAlert === 'function') showAlert(error.error || 'Could not rename folder.', 'warning');
+                                }
+                            } else if (action === 'delete') {
+                                const ok = global.confirm(`Delete empty folder "${folder.name || 'Folder'}"?`);
+                                if (!ok) return;
+                                try {
+                                    await apiCall(folderEndpoint(folderId), { method: 'DELETE' });
+                                    if (typeof showAlert === 'function') showAlert('Folder deleted.', 'success');
+                                    await loadFiles({ append: false });
+                                } catch (error) {
+                                    if (typeof showAlert === 'function') showAlert(error.error || 'Could not delete folder.', 'warning');
+                                }
+                            }
+                            return;
+                        }
                         const actionBtn = event.target.closest('[data-vault-action]');
                         if (!actionBtn || !grid.contains(actionBtn)) return;
                         const id = actionBtn.getAttribute('data-vault-id') || '';
@@ -907,6 +1079,17 @@
                         if (!file) return;
                         if (action === 'copy') {
                             await copyText(file.markdown_link || `[${file.name || id}](/files/${id})`, 'Vault link');
+                        } else if (action === 'move-root') {
+                            try {
+                                await apiCall(`/ajax/vault/files/${encodeURIComponent(id)}/folder`, {
+                                    method: 'PATCH',
+                                    body: JSON.stringify({ folder_id: '' })
+                                });
+                                if (typeof showAlert === 'function') showAlert('File moved to Vault Home.', 'success');
+                                await loadFiles({ append: false });
+                            } catch (error) {
+                                if (typeof showAlert === 'function') showAlert(error.error || 'Could not move vault file.', 'warning');
+                            }
                         } else if (action === 'delete') {
                             const ok = global.confirm(`Delete "${file.name || id}" from your local vault? This is only allowed before it is attached to content.`);
                             if (!ok) return;

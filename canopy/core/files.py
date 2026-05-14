@@ -49,11 +49,29 @@ class FileInfo:
     uploaded_at: datetime
     url: str
     checksum: str
+    vault_folder_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         data = asdict(self)
         data['uploaded_at'] = self.uploaded_at.isoformat()
+        return data
+
+
+@dataclass
+class VaultFolder:
+    """User-owned logical folder inside the File Vault."""
+    id: str
+    user_id: str
+    name: str
+    parent_id: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = asdict(self)
+        data['created_at'] = self.created_at.isoformat()
+        data['updated_at'] = self.updated_at.isoformat()
         return data
 
 class FileManager:
@@ -341,8 +359,23 @@ class FileManager:
                         size INTEGER NOT NULL,
                         uploaded_by TEXT NOT NULL,
                         uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        vault_folder_id TEXT,
                         checksum TEXT NOT NULL,
-                        FOREIGN KEY (uploaded_by) REFERENCES users (id)
+                        FOREIGN KEY (uploaded_by) REFERENCES users (id),
+                        FOREIGN KEY (vault_folder_id) REFERENCES vault_folders (id) ON DELETE SET NULL
+                    );
+
+                    -- User-owned logical folders for File Vault organization.
+                    CREATE TABLE IF NOT EXISTS vault_folders (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        parent_id TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users (id),
+                        FOREIGN KEY (parent_id) REFERENCES vault_folders (id) ON DELETE CASCADE,
+                        UNIQUE(user_id, parent_id, name)
                     );
                     
                     -- File access log (optional, for tracking downloads)
@@ -359,8 +392,10 @@ class FileManager:
                     
                     -- Indexes for performance
                     CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by);
+                    CREATE INDEX IF NOT EXISTS idx_files_vault_folder ON files(uploaded_by, vault_folder_id);
                     CREATE INDEX IF NOT EXISTS idx_files_content_type ON files(content_type);
                     CREATE INDEX IF NOT EXISTS idx_files_uploaded_at ON files(uploaded_at);
+                    CREATE INDEX IF NOT EXISTS idx_vault_folders_user_parent ON vault_folders(user_id, parent_id);
                     CREATE INDEX IF NOT EXISTS idx_file_access_log_file_id ON file_access_log(file_id);
 
                     -- Remote transfer tracking for large attachments fetched over P2P.
@@ -386,6 +421,13 @@ class FileManager:
                     CREATE INDEX IF NOT EXISTS idx_remote_attachment_transfers_origin_file
                         ON remote_attachment_transfers(origin_file_id);
                 """)
+                columns = {
+                    str(row['name'] if hasattr(row, 'keys') else row[1])
+                    for row in conn.execute("PRAGMA table_info(files)").fetchall()
+                }
+                if 'vault_folder_id' not in columns:
+                    conn.execute("ALTER TABLE files ADD COLUMN vault_folder_id TEXT")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_vault_folder ON files(uploaded_by, vault_folder_id)")
                 conn.commit()
                 logger.info("File database tables ensured successfully")
         except Exception as e:
@@ -840,7 +882,8 @@ class FileManager:
                 uploaded_by=uploaded_by,
                 uploaded_at=datetime.now(timezone.utc),
                 url=f"/files/{file_id}",
-                checksum=checksum
+                checksum=checksum,
+                vault_folder_id=None,
             )
             
             # Save to database
@@ -1011,8 +1054,8 @@ class FileManager:
         try:
             with self.db.get_connection() as conn:
                 cursor = conn.execute("""
-                    SELECT id, original_name, stored_name, file_path, content_type, 
-                           size, uploaded_by, uploaded_at, checksum
+                    SELECT id, original_name, stored_name, file_path, content_type,
+                           size, uploaded_by, uploaded_at, checksum, vault_folder_id
                     FROM files WHERE id = ?
                 """, (file_id,))
                 
@@ -1031,7 +1074,8 @@ class FileManager:
                     uploaded_by=row['uploaded_by'],
                     uploaded_at=datetime.fromisoformat(row['uploaded_at']),
                     url=f"/files/{row['id']}",
-                    checksum=row['checksum']
+                    checksum=row['checksum'],
+                    vault_folder_id=row['vault_folder_id'] if 'vault_folder_id' in row.keys() else None,
                 )
                 return self._backfill_generic_file_metadata(file_info)
 
@@ -1299,6 +1343,7 @@ class FileManager:
         offset: int = 0,
         query: Optional[str] = None,
         category: Optional[str] = None,
+        folder_id: Optional[str] = None,
     ) -> List[FileInfo]:
         """Get files uploaded by a specific user.
         
@@ -1319,6 +1364,14 @@ class FileManager:
             offset = max(0, int(offset or 0))
             clauses = ["uploaded_by = ?"]
             params: List[Any] = [user_id]
+
+            if folder_id is not None:
+                folder_clean = str(folder_id or '').strip()
+                if folder_clean:
+                    clauses.append("vault_folder_id = ?")
+                    params.append(folder_clean)
+                else:
+                    clauses.append("(vault_folder_id IS NULL OR vault_folder_id = '')")
 
             search = str(query or '').strip()
             if search:
@@ -1404,9 +1457,9 @@ class FileManager:
             params.extend([limit, offset])
             with self.db.get_connection() as conn:
                 cursor = conn.execute(f"""
-                    SELECT id, original_name, stored_name, file_path, content_type, 
-                           size, uploaded_by, uploaded_at, checksum
-                    FROM files 
+                    SELECT id, original_name, stored_name, file_path, content_type,
+                           size, uploaded_by, uploaded_at, checksum, vault_folder_id
+                    FROM files
                     WHERE {where_sql}
                     ORDER BY uploaded_at DESC
                     LIMIT ? OFFSET ?
@@ -1424,7 +1477,8 @@ class FileManager:
                         uploaded_by=row['uploaded_by'],
                         uploaded_at=datetime.fromisoformat(row['uploaded_at']),
                         url=f"/files/{row['id']}",
-                        checksum=row['checksum']
+                        checksum=row['checksum'],
+                        vault_folder_id=row['vault_folder_id'] if 'vault_folder_id' in row.keys() else None,
                     ))
                 
                 logger.debug(f"Found {len(files)} files for user {user_id}")
@@ -1433,6 +1487,212 @@ class FileManager:
         except Exception as e:
             logger.error(f"Failed to get files for user {user_id}: {e}", exc_info=True)
             return []
+
+    @staticmethod
+    def _vault_folder_from_row(row: Any) -> VaultFolder:
+        return VaultFolder(
+            id=row['id'],
+            user_id=row['user_id'],
+            name=row['name'],
+            parent_id=row['parent_id'],
+            created_at=datetime.fromisoformat(row['created_at']),
+            updated_at=datetime.fromisoformat(row['updated_at']),
+        )
+
+    @staticmethod
+    def _normalize_vault_folder_name(name: Any) -> str:
+        clean = ' '.join(str(name or '').strip().split())
+        clean = clean.strip('/\\')
+        if not clean:
+            raise ValueError('Folder name is required.')
+        if len(clean) > 80:
+            raise ValueError('Folder name must be 80 characters or fewer.')
+        if clean in {'.', '..'}:
+            raise ValueError('Choose a different folder name.')
+        return clean
+
+    def get_user_folder(self, user_id: str, folder_id: Optional[str]) -> Optional[VaultFolder]:
+        folder_clean = str(folder_id or '').strip()
+        if not folder_clean:
+            return None
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT id, user_id, name, parent_id, created_at, updated_at
+                    FROM vault_folders
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (folder_clean, user_id),
+                ).fetchone()
+            return self._vault_folder_from_row(row) if row else None
+        except Exception as e:
+            logger.error("Failed to load vault folder %s for user %s: %s", folder_id, user_id, e, exc_info=True)
+            return None
+
+    def list_user_folders(self, user_id: str, parent_id: Optional[str] = None) -> List[VaultFolder]:
+        parent_clean = str(parent_id or '').strip()
+        try:
+            with self.db.get_connection() as conn:
+                if parent_clean:
+                    rows = conn.execute(
+                        """
+                        SELECT id, user_id, name, parent_id, created_at, updated_at
+                        FROM vault_folders
+                        WHERE user_id = ? AND parent_id = ?
+                        ORDER BY LOWER(name), name
+                        """,
+                        (user_id, parent_clean),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        """
+                        SELECT id, user_id, name, parent_id, created_at, updated_at
+                        FROM vault_folders
+                        WHERE user_id = ? AND (parent_id IS NULL OR parent_id = '')
+                        ORDER BY LOWER(name), name
+                        """,
+                        (user_id,),
+                    ).fetchall()
+            return [self._vault_folder_from_row(row) for row in rows]
+        except Exception as e:
+            logger.error("Failed to list vault folders for user %s: %s", user_id, e, exc_info=True)
+            return []
+
+    def create_user_folder(self, user_id: str, name: Any, parent_id: Optional[str] = None) -> VaultFolder:
+        name_clean = self._normalize_vault_folder_name(name)
+        parent_clean = str(parent_id or '').strip() or None
+        if parent_clean and not self.get_user_folder(user_id, parent_clean):
+            raise ValueError('Parent folder was not found.')
+        folder_id = f"V{secrets.token_hex(8)}"
+        now = datetime.now(timezone.utc)
+        try:
+            with self.db.get_connection() as conn:
+                duplicate = conn.execute(
+                    """
+                    SELECT id FROM vault_folders
+                    WHERE user_id = ? AND name = ? AND (
+                        (? IS NULL AND (parent_id IS NULL OR parent_id = '')) OR parent_id = ?
+                    )
+                    LIMIT 1
+                    """,
+                    (user_id, name_clean, parent_clean, parent_clean or ''),
+                ).fetchone()
+                if duplicate:
+                    raise ValueError('A folder with that name already exists here.')
+                conn.execute(
+                    """
+                    INSERT INTO vault_folders (id, user_id, name, parent_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (folder_id, user_id, name_clean, parent_clean, now.isoformat(), now.isoformat()),
+                )
+                conn.commit()
+            folder = self.get_user_folder(user_id, folder_id)
+            if not folder:
+                raise ValueError('Folder could not be created.')
+            return folder
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error("Failed to create vault folder for user %s: %s", user_id, e, exc_info=True)
+            raise ValueError('Folder could not be created.') from e
+
+    def rename_user_folder(self, user_id: str, folder_id: str, name: Any) -> VaultFolder:
+        folder = self.get_user_folder(user_id, folder_id)
+        if not folder:
+            raise ValueError('Folder was not found.')
+        name_clean = self._normalize_vault_folder_name(name)
+        try:
+            with self.db.get_connection() as conn:
+                duplicate = conn.execute(
+                    """
+                    SELECT id FROM vault_folders
+                    WHERE user_id = ? AND id != ? AND name = ? AND (
+                        (? IS NULL AND (parent_id IS NULL OR parent_id = '')) OR parent_id = ?
+                    )
+                    LIMIT 1
+                    """,
+                    (user_id, folder.id, name_clean, folder.parent_id, folder.parent_id or ''),
+                ).fetchone()
+                if duplicate:
+                    raise ValueError('A folder with that name already exists here.')
+                conn.execute(
+                    "UPDATE vault_folders SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+                    (name_clean, folder.id, user_id),
+                )
+                conn.commit()
+            updated = self.get_user_folder(user_id, folder.id)
+            if not updated:
+                raise ValueError('Folder was not found.')
+            return updated
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error("Failed to rename vault folder %s: %s", folder_id, e, exc_info=True)
+            raise ValueError('Folder could not be renamed.') from e
+
+    def delete_user_folder(self, user_id: str, folder_id: str) -> bool:
+        folder = self.get_user_folder(user_id, folder_id)
+        if not folder:
+            raise ValueError('Folder was not found.')
+        try:
+            with self.db.get_connection() as conn:
+                child = conn.execute(
+                    "SELECT 1 FROM vault_folders WHERE user_id = ? AND parent_id = ? LIMIT 1",
+                    (user_id, folder.id),
+                ).fetchone()
+                if child:
+                    raise ValueError('Move or delete nested folders first.')
+                file_row = conn.execute(
+                    "SELECT 1 FROM files WHERE uploaded_by = ? AND vault_folder_id = ? LIMIT 1",
+                    (user_id, folder.id),
+                ).fetchone()
+                if file_row:
+                    raise ValueError('Move files out of this folder before deleting it.')
+                conn.execute("DELETE FROM vault_folders WHERE id = ? AND user_id = ?", (folder.id, user_id))
+                conn.commit()
+            return True
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error("Failed to delete vault folder %s: %s", folder_id, e, exc_info=True)
+            raise ValueError('Folder could not be deleted.') from e
+
+    def move_user_file_to_folder(self, user_id: str, file_id: str, folder_id: Optional[str]) -> FileInfo:
+        file_info = self.get_file(file_id)
+        if not file_info or str(file_info.uploaded_by) != str(user_id):
+            raise ValueError('File was not found in your Vault.')
+        folder_clean = str(folder_id or '').strip() or None
+        if folder_clean and not self.get_user_folder(user_id, folder_clean):
+            raise ValueError('Destination folder was not found.')
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    "UPDATE files SET vault_folder_id = ? WHERE id = ? AND uploaded_by = ?",
+                    (folder_clean, file_id, user_id),
+                )
+                conn.commit()
+            updated = self.get_file(file_id)
+            if not updated:
+                raise ValueError('File was not found in your Vault.')
+            return updated
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error("Failed to move vault file %s: %s", file_id, e, exc_info=True)
+            raise ValueError('File could not be moved.') from e
+
+    def get_user_folder_path(self, user_id: str, folder_id: Optional[str]) -> List[VaultFolder]:
+        path: List[VaultFolder] = []
+        seen: set[str] = set()
+        current = self.get_user_folder(user_id, folder_id)
+        while current and current.id not in seen:
+            path.append(current)
+            seen.add(current.id)
+            current = self.get_user_folder(user_id, current.parent_id)
+        path.reverse()
+        return path
 
     def count_user_files(self, user_id: str, *, query: Optional[str] = None) -> Dict[str, Any]:
         """Return lightweight vault statistics for a user's local files."""
