@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.96] - 2026-05-13
+
+### Fixed
+- **Vault explorer upgrades now restart cleanly on existing databases** - legacy `files` tables add `vault_folder_id` before the folder index is created, preventing startup failures during the File Vault folder migration.
+
 ## [0.6.95] - 2026-05-13
 
 ### Added

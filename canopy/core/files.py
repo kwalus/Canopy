@@ -392,7 +392,6 @@ class FileManager:
                     
                     -- Indexes for performance
                     CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by);
-                    CREATE INDEX IF NOT EXISTS idx_files_vault_folder ON files(uploaded_by, vault_folder_id);
                     CREATE INDEX IF NOT EXISTS idx_files_content_type ON files(content_type);
                     CREATE INDEX IF NOT EXISTS idx_files_uploaded_at ON files(uploaded_at);
                     CREATE INDEX IF NOT EXISTS idx_vault_folders_user_parent ON vault_folders(user_id, parent_id);
@@ -427,7 +426,7 @@ class FileManager:
                 }
                 if 'vault_folder_id' not in columns:
                     conn.execute("ALTER TABLE files ADD COLUMN vault_folder_id TEXT")
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_files_vault_folder ON files(uploaded_by, vault_folder_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_files_vault_folder ON files(uploaded_by, vault_folder_id)")
                 conn.commit()
                 logger.info("File database tables ensured successfully")
         except Exception as e:

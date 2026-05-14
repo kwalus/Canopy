@@ -239,6 +239,36 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
 
         self.assertTrue(self.file_manager.is_file_referenced(file_id))
 
+    def test_legacy_files_table_migrates_vault_folder_column_before_index(self) -> None:
+        legacy = sqlite3.connect(':memory:')
+        legacy.row_factory = sqlite3.Row
+        self.addCleanup(legacy.close)
+        legacy.execute("CREATE TABLE users (id TEXT PRIMARY KEY)")
+        legacy.execute("INSERT INTO users (id) VALUES (?)", ('legacy-user',))
+        legacy.execute(
+            """
+            CREATE TABLE files (
+                id TEXT PRIMARY KEY,
+                original_name TEXT NOT NULL,
+                stored_name TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                uploaded_by TEXT NOT NULL,
+                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                checksum TEXT NOT NULL
+            )
+            """
+        )
+        legacy.commit()
+
+        FileManager(_FakeDbManager(legacy), str(Path(self.tempdir.name) / "legacy-files"))
+
+        columns = {row['name'] for row in legacy.execute("PRAGMA table_info(files)").fetchall()}
+        self.assertIn('vault_folder_id', columns)
+        indexes = {row['name'] for row in legacy.execute("PRAGMA index_list(files)").fetchall()}
+        self.assertIn('idx_files_vault_folder', indexes)
+
     def test_user_file_vault_folders_are_owner_scoped_and_move_files(self) -> None:
         self.conn.execute("INSERT INTO users (id) VALUES (?)", ('other-user',))
         root_report = self.file_manager.save_file(
