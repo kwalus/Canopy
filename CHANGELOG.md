@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.113] - 2026-05-14
+
+### Changed
+- **Selected-text toolbar fits crowded channel actions** - the channel selection dock now uses a wider viewport-aware layout, wrapping desktop controls, and a mobile 3-column action grid so quote/context/@Canopy/reply/copy/matches controls remain reachable.
+- **Selected text keeps a durable visual anchor** - the channel dock renders a non-interactive highlight overlay from selection rectangles while toolbar actions are active, and explicit close/scroll/channel-change now resets stale keep-alive state.
+
 ## [0.6.112] - 2026-05-14
 
 ### Added
