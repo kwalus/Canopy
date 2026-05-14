@@ -9365,6 +9365,10 @@ class ChannelManager:
         if not query or not query.strip():
             return []
         try:
+            try:
+                safe_limit = max(1, min(500, int(limit or 50)))
+            except Exception:
+                safe_limit = 50
             access = self.get_channel_access_decision(
                 channel_id=channel_id,
                 user_id=user_id,
@@ -9383,7 +9387,7 @@ class ChannelManager:
                       AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
                     ORDER BY m.created_at DESC
                     LIMIT ?
-                """, (channel_id, search_term, limit)).fetchall()
+                """, (channel_id, search_term, safe_limit)).fetchall()
 
                 messages = []
                 for row in rows:

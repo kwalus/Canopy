@@ -2308,11 +2308,28 @@ console.log(JSON.stringify({{
     def test_channel_search_preserves_search_view_and_scrolls_to_top(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("let currentChannelSearchQuery = '';", channels_template)
+        self.assertIn("let channelSearchMatches = [];", channels_template)
         self.assertIn("if (isSearchActive) {\n        return;\n    }", channels_template)
         self.assertIn("scrollToBottom: false,", channels_template)
-        self.assertIn("forceScroll: opts.scrollToBottom !== false,", channels_template)
+        self.assertIn("function applyChannelSearchHighlights(query) {", channels_template)
+        self.assertIn("className = 'channel-search-match';", channels_template)
+        self.assertIn("function navigateChannelSearchMatch(direction) {", channels_template)
+        self.assertIn("if (e.key === 'F3' && isSearchActive) {", channels_template)
+        self.assertIn("Shift+F3 previous", channels_template)
+        self.assertIn("limit=${encodeURIComponent(searchLimit)}", channels_template)
         self.assertIn("function rerunActiveChannelSearch(options = {}) {", channels_template)
         self.assertNotIn("if (isSearchActive) {\n        loadChannelMessages(currentChannelId, { forceScroll });", channels_template)
+
+    def test_channel_threads_expand_by_default_with_manual_collapse_controls(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn("data-thread-toggle=", channels_template)
+        self.assertIn("data-expanded=\"true\"", channels_template)
+        self.assertIn('aria-label="${replies.length} replies, collapse thread"', channels_template)
+        self.assertIn("toggleEl.setAttribute('aria-label'", channels_template)
+        self.assertIn("function setAllChannelThreadsCollapsed(collapsed) {", channels_template)
+        self.assertIn("Expand all threads", channels_template)
+        self.assertIn("Collapse all threads", channels_template)
+        self.assertNotIn("const showCount = 3;", channels_template)
 
     def test_curated_channel_creation_and_member_policy_controls_exist(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
@@ -2425,7 +2442,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.104', api_ref)
+        self.assertIn('0.6.105', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

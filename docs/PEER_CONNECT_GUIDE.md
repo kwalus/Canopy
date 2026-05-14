@@ -2,7 +2,7 @@
 
 This guide is for an AI agent (or human) setting up a **second Canopy instance** on a different machine and connecting it to an existing instance via invite codes.
 
-Version scope: this guide is aligned to Canopy `0.6.104`.
+Version scope: this guide is aligned to Canopy `0.6.105`.
 
 ---
 

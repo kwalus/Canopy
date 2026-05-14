@@ -17323,7 +17323,11 @@ def create_ui_blueprint() -> Blueprint:
                 user_display_cache[uid] = display
                 return display
 
-            limit = int(request.args.get('limit', 50))
+            try:
+                limit = int(request.args.get('limit', 250))
+            except Exception:
+                limit = 250
+            limit = max(1, min(500, limit))
             before_message_id = request.args.get('before')
             focus_message_id = str(request.args.get('focus_message') or '').strip()
             
@@ -18097,7 +18101,11 @@ def create_ui_blueprint() -> Blueprint:
                     }), 403
                 return jsonify({'error': 'You are not a member of this channel'}), 403
             query = request.args.get('q', '').strip()
-            limit = int(request.args.get('limit', 50))
+            try:
+                limit = int(request.args.get('limit', 250))
+            except Exception:
+                limit = 250
+            limit = max(1, min(500, limit))
             from ..core.polls import parse_poll, resolve_poll_end, describe_poll_status
             from ..core.tasks import parse_task_blocks, strip_task_blocks, derive_task_id
             from ..core.circles import parse_circle_blocks, strip_circle_blocks, derive_circle_id

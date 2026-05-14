@@ -1581,6 +1581,45 @@
     .search-results-badge {
         font-size: 0.75rem;
     }
+    .channel-search-nav-btn,
+    .channel-search-count {
+        display: none;
+    }
+    .channel-search-nav-btn.is-visible,
+    .channel-search-count.is-visible {
+        display: inline-flex;
+    }
+    .channel-search-count {
+        align-items: center;
+        justify-content: center;
+        min-width: 3.8rem;
+        color: var(--canopy-text-secondary);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, var(--canopy-primary) 22%);
+        border-color: color-mix(in srgb, var(--canopy-border) 82%, var(--canopy-primary) 18%);
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .channel-search-banner {
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 36%, var(--canopy-border) 64%);
+        background:
+            radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 18%, transparent), transparent 40%),
+            color-mix(in srgb, var(--canopy-bg-card) 88%, var(--canopy-primary) 12%);
+        color: var(--canopy-text-primary);
+        border-radius: 14px;
+        box-shadow: 0 10px 28px rgba(2, 6, 23, 0.16);
+    }
+    .channel-search-match {
+        background: color-mix(in srgb, #facc15 54%, transparent);
+        color: inherit;
+        border-radius: 0.22em;
+        box-shadow: inset 0 -1px 0 rgba(161, 98, 7, 0.45);
+        padding: 0 0.04em;
+    }
+    .channel-search-match.is-current {
+        background: color-mix(in srgb, #fb923c 70%, #fef3c7 30%);
+        color: #111827;
+        box-shadow: 0 0 0 2px rgba(251, 146, 60, 0.32), 0 0 18px rgba(251, 146, 60, 0.38);
+    }
 
     /* Channel header layout */
     .channel-header {
@@ -4624,6 +4663,13 @@
                                 <button class="btn btn-outline-secondary channel-header-tool-btn" onclick="searchChannelMessages()" title="Search">
                                     <i class="bi bi-search"></i>
                                 </button>
+                                <button class="btn btn-outline-secondary channel-header-tool-btn channel-search-nav-btn" onclick="navigateChannelSearchMatch(-1)" title="Previous search match (Shift+F3)" id="search-prev-btn" aria-label="Previous search match">
+                                    <i class="bi bi-chevron-up"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary channel-header-tool-btn channel-search-nav-btn" onclick="navigateChannelSearchMatch(1)" title="Next search match (F3)" id="search-next-btn" aria-label="Next search match">
+                                    <i class="bi bi-chevron-down"></i>
+                                </button>
+                                <span class="input-group-text channel-search-count" id="search-count-badge" title="Search match count">0/0</span>
                                 <button class="btn btn-outline-secondary channel-header-tool-btn" onclick="clearSearch()" title="Clear search" id="search-clear-btn" style="display:none;">
                                     <i class="bi bi-x"></i>
                                 </button>
@@ -4722,6 +4768,18 @@
                                             <i class="bi bi-arrow-clockwise me-2"></i>Refresh messages
                                         </button>
                                     </li>
+                                    <li><h6 class="dropdown-header">Threads</h6></li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="setAllChannelThreadsCollapsed(false)">
+                                            <i class="bi bi-arrows-expand me-2"></i>Expand all threads
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="setAllChannelThreadsCollapsed(true)">
+                                            <i class="bi bi-arrows-collapse me-2"></i>Collapse all threads
+                                        </button>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
                                     <li>
                                         <button type="button" class="dropdown-item" id="channel-human-filter-menu-btn" onclick="toggleChannelHumanThreadFilter()">
                                             <i class="bi bi-person-check me-2"></i><span id="channel-human-filter-menu-label">Hide agent-only threads</span>
@@ -7486,6 +7544,8 @@ let replyToMessageId = null;   // threading: parent message we're replying to
 let replyToAuthor = '';
 let isSearchActive = false;
 let currentChannelSearchQuery = '';
+let channelSearchMatches = [];
+let activeChannelSearchMatchIndex = -1;
 let initialFocusMessageId = null;
 /** When true with focus_message, open antecedent deck after scroll (deep link / repost card). */
 let channelDeepLinkOpenDeck = false;
@@ -10715,19 +10775,13 @@ function displayMessages(messages, options = {}) {
                 // Render all threaded replies (including reply-to-reply) under the root
                 const replies = repliesByRoot[message.id];
                 if (replies && replies.length > 0) {
-                    const showCount = 3;
-                    const hidden = replies.length > showCount ? replies.length - showCount : 0;
-                    if (hidden > 0) {
-                        html += `<div class="thread-toggle ms-5 mb-1" onclick="expandThread(this)" data-expanded="false">
-                        <i class="bi bi-chat-dots me-1"></i>${replies.length} replies &mdash; click to expand
+                    const safeThreadRootId = escapeHtml(String(message.id || ''));
+                    html += `<div class="thread-toggle ms-5 mb-1" onclick="expandThread(this)" data-thread-toggle="${safeThreadRootId}" data-expanded="true" data-total="${replies.length}" role="button" tabindex="0" aria-expanded="true" aria-label="${replies.length} replies, collapse thread">
+                        <i class="bi bi-chat-dots me-1"></i>${replies.length} replies &mdash; collapse
                     </div>`;
-                        html += `<div class="thread-replies-hidden" style="display:none;">`;
-                        replies.slice(0, hidden).forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
-                        html += `</div>`;
-                        replies.slice(hidden).forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
-                    } else {
-                        replies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
-                    }
+                    html += `<div class="thread-replies" data-thread-replies="${safeThreadRootId}">`;
+                    replies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
+                    html += `</div>`;
                 }
             });
 
@@ -12540,12 +12594,37 @@ function expandThread(el) {
     const expanded = el.dataset.expanded === 'true';
     if (expanded) {
         hidden.style.display = 'none';
-        el.innerHTML = `<i class="bi bi-chat-dots me-1"></i>${el.dataset.total || ''} replies &mdash; click to expand`;
+        el.innerHTML = `<i class="bi bi-chat-dots me-1"></i>${el.dataset.total || ''} replies &mdash; expand`;
         el.dataset.expanded = 'false';
+        el.setAttribute('aria-expanded', 'false');
+        el.setAttribute('aria-label', `${el.dataset.total || ''} replies, expand thread`);
     } else {
         hidden.style.display = 'block';
-        el.innerHTML = `<i class="bi bi-chat-dots me-1"></i>Collapse thread`;
+        el.innerHTML = `<i class="bi bi-chat-dots me-1"></i>${el.dataset.total || ''} replies &mdash; collapse`;
         el.dataset.expanded = 'true';
+        el.setAttribute('aria-expanded', 'true');
+        el.setAttribute('aria-label', `${el.dataset.total || ''} replies, collapse thread`);
+    }
+}
+
+function setThreadCollapsed(toggleEl, collapsed) {
+    if (!toggleEl) return;
+    const replies = toggleEl.nextElementSibling;
+    if (!replies) return;
+    const total = toggleEl.dataset.total || '';
+    const nextCollapsed = !!collapsed;
+    replies.style.display = nextCollapsed ? 'none' : 'block';
+    toggleEl.dataset.expanded = nextCollapsed ? 'false' : 'true';
+    toggleEl.setAttribute('aria-expanded', nextCollapsed ? 'false' : 'true');
+    toggleEl.setAttribute('aria-label', `${total} replies, ${nextCollapsed ? 'expand' : 'collapse'} thread`);
+    toggleEl.innerHTML = `<i class="bi bi-chat-dots me-1"></i>${total} replies &mdash; ${nextCollapsed ? 'expand' : 'collapse'}`;
+}
+
+function setAllChannelThreadsCollapsed(collapsed) {
+    const toggles = Array.from(document.querySelectorAll('[data-thread-toggle]'));
+    toggles.forEach(toggle => setThreadCollapsed(toggle, collapsed));
+    if (toggles.length) {
+        showAlert(collapsed ? 'Threads collapsed.' : 'Threads expanded.', 'info');
     }
 }
 
@@ -20464,6 +20543,116 @@ function deleteChannelMessage(messageId) {
 }
 
 // --- Channel Search ---
+function updateChannelSearchNavUI() {
+    const total = channelSearchMatches.length;
+    const hasMatches = isSearchActive && total > 0;
+    const current = hasMatches ? activeChannelSearchMatchIndex + 1 : 0;
+    const countBadge = document.getElementById('search-count-badge');
+    const prevBtn = document.getElementById('search-prev-btn');
+    const nextBtn = document.getElementById('search-next-btn');
+    if (countBadge) {
+        countBadge.textContent = hasMatches ? `${current}/${total}` : '0/0';
+        countBadge.classList.toggle('is-visible', isSearchActive);
+    }
+    [prevBtn, nextBtn].forEach(btn => {
+        if (!btn) return;
+        btn.classList.toggle('is-visible', isSearchActive);
+        btn.disabled = !hasMatches;
+    });
+}
+
+function clearChannelSearchHighlights() {
+    channelSearchMatches = [];
+    activeChannelSearchMatchIndex = -1;
+    document.querySelectorAll('.channel-search-match').forEach(mark => {
+        const parent = mark.parentNode;
+        if (!parent) return;
+        parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+        parent.normalize();
+    });
+    updateChannelSearchNavUI();
+}
+
+function applyChannelSearchHighlights(query) {
+    clearChannelSearchHighlights();
+    const needle = String(query || '').trim();
+    const root = document.getElementById('messages-list');
+    if (!needle || !root) return 0;
+    const lowerNeedle = needle.toLocaleLowerCase();
+    const contentNodes = Array.from(root.querySelectorAll('.message-content'));
+    contentNodes.forEach(contentEl => {
+        const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                const value = node.nodeValue || '';
+                if (!value.trim()) return NodeFilter.FILTER_REJECT;
+                const parentEl = node.parentElement;
+                if (!parentEl) return NodeFilter.FILTER_REJECT;
+                if (parentEl.closest('.message-actions, script, style, textarea, input, button, .channel-search-banner')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return value.toLocaleLowerCase().includes(lowerNeedle)
+                    ? NodeFilter.FILTER_ACCEPT
+                    : NodeFilter.FILTER_REJECT;
+            }
+        });
+        const textNodes = [];
+        while (walker.nextNode()) {
+            textNodes.push(walker.currentNode);
+        }
+        textNodes.forEach(textNode => {
+            const text = textNode.nodeValue || '';
+            const textLower = text.toLocaleLowerCase();
+            const frag = document.createDocumentFragment();
+            let cursor = 0;
+            let index = textLower.indexOf(lowerNeedle, cursor);
+            while (index !== -1) {
+                if (index > cursor) {
+                    frag.appendChild(document.createTextNode(text.slice(cursor, index)));
+                }
+                const mark = document.createElement('mark');
+                mark.className = 'channel-search-match';
+                mark.textContent = text.slice(index, index + needle.length);
+                frag.appendChild(mark);
+                channelSearchMatches.push(mark);
+                cursor = index + needle.length;
+                index = textLower.indexOf(lowerNeedle, cursor);
+            }
+            if (cursor < text.length) {
+                frag.appendChild(document.createTextNode(text.slice(cursor)));
+            }
+            if (textNode.parentNode) {
+                textNode.parentNode.replaceChild(frag, textNode);
+            }
+        });
+    });
+    if (channelSearchMatches.length) {
+        activeChannelSearchMatchIndex = 0;
+        channelSearchMatches[0].classList.add('is-current');
+    }
+    updateChannelSearchNavUI();
+    return channelSearchMatches.length;
+}
+
+function navigateChannelSearchMatch(direction) {
+    if (!isSearchActive || !channelSearchMatches.length) return;
+    const step = Number(direction || 1) < 0 ? -1 : 1;
+    const total = channelSearchMatches.length;
+    const current = activeChannelSearchMatchIndex >= 0 ? activeChannelSearchMatchIndex : 0;
+    const next = (current + step + total) % total;
+    channelSearchMatches.forEach(mark => mark.classList.remove('is-current'));
+    activeChannelSearchMatchIndex = next;
+    const target = channelSearchMatches[next];
+    if (target) {
+        target.classList.add('is-current');
+        try {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        } catch (_) {
+            target.scrollIntoView();
+        }
+    }
+    updateChannelSearchNavUI();
+}
+
 function searchChannelMessages(options = {}) {
     const opts = options || {};
     const query = String(Object.prototype.hasOwnProperty.call(opts, 'query') ? opts.query : (document.getElementById('search-input').value || '')).trim();
@@ -20481,33 +20670,54 @@ function searchChannelMessages(options = {}) {
         }
     }
 
-    return apiCall(`/ajax/channel_search/${currentChannelId}?q=${encodeURIComponent(query)}`)
+    const searchLimit = Number(opts.limit || 500);
+    return apiCall(`/ajax/channel_search/${currentChannelId}?q=${encodeURIComponent(query)}&limit=${encodeURIComponent(searchLimit)}`)
         .then(data => {
             const container = document.getElementById('messages-list');
             const scrollContainer = document.getElementById('messages-container');
             if (data.messages && data.messages.length > 0) {
-                displayMessages(data.messages, {
+                return displayMessages(data.messages, {
                     ignoreSignature: true,
-                    forceScroll: opts.scrollToBottom !== false,
+                    forceScroll: false,
+                }).then(() => {
+                    const matchCount = applyChannelSearchHighlights(query);
+                    const banner = document.createElement('div');
+                    banner.className = 'channel-search-banner py-2 px-3 mb-2';
+                    banner.style.fontSize = '0.88rem';
+                    banner.innerHTML = `<div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                        <span><i class="bi bi-search me-1"></i>
+                            ${data.count} message${data.count !== 1 ? 's' : ''}, ${matchCount} text match${matchCount !== 1 ? 'es' : ''} for "<strong>${escapeHtml(query)}</strong>"
+                        </span>
+                        <span class="d-flex align-items-center gap-2 flex-wrap">
+                            <span class="text-muted small">F3 next · Shift+F3 previous</span>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="navigateChannelSearchMatch(-1)" ${matchCount ? '' : 'disabled'}>Previous</button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="navigateChannelSearchMatch(1)" ${matchCount ? '' : 'disabled'}>Next</button>
+                            <button class="btn btn-sm btn-link p-0" onclick="clearSearch()">Clear</button>
+                        </span>
+                    </div>`;
+                    if (container) container.prepend(banner);
+                    if (matchCount && channelSearchMatches[0]) {
+                        try {
+                            channelSearchMatches[0].scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                        } catch (_) {
+                            channelSearchMatches[0].scrollIntoView();
+                        }
+                    } else if (scrollContainer) {
+                        scrollContainer.scrollTop = 0;
+                    }
+                    return data;
                 });
-                const banner = document.createElement('div');
-                banner.className = 'alert alert-info py-1 px-2 mb-2';
-                banner.style.fontSize = '0.85rem';
-                banner.innerHTML = `<i class="bi bi-search me-1"></i>
-                    ${data.count} result${data.count !== 1 ? 's' : ''} for "<strong>${escapeHtml(query)}</strong>"
-                    <button class="btn btn-sm btn-link p-0 ms-2" onclick="clearSearch()">Clear</button>`;
-                container.prepend(banner);
-                if (scrollContainer && opts.scrollToBottom !== false) {
-                    scrollContainer.scrollTop = scrollContainer.scrollHeight;
-                }
             } else {
-                container.innerHTML = `<div class="text-center text-muted p-4">
-                    <i class="bi bi-search fs-3"></i>
-                    <p>No messages found for "<strong>${escapeHtml(query)}</strong>"</p>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="clearSearch()">Clear search</button>
-                </div>`;
+                if (container) {
+                    container.innerHTML = `<div class="text-center text-muted p-4">
+                        <i class="bi bi-search fs-3"></i>
+                        <p>No messages found for "<strong>${escapeHtml(query)}</strong>"</p>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="clearSearch()">Clear search</button>
+                    </div>`;
+                }
+                clearChannelSearchHighlights();
+                return data;
             }
-            return data;
         })
         .catch(err => {
             console.error('Search error:', err);
@@ -20570,6 +20780,7 @@ function toggleChannelHeaderSearch(forceOpen) {
 function clearSearch() {
     isSearchActive = false;
     currentChannelSearchQuery = '';
+    clearChannelSearchHighlights();
     document.getElementById('search-input').value = '';
     document.getElementById('search-clear-btn').style.display = 'none';
     syncChannelHeaderSearchUI(false);
@@ -20601,6 +20812,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 scheduleChannelNameOverflowSync();
             });
         }
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'F3' && isSearchActive) {
+                e.preventDefault();
+                navigateChannelSearchMatch(e.shiftKey ? -1 : 1);
+                return;
+            }
+            const target = e.target;
+            if ((e.key === 'Enter' || e.key === ' ') && target && target.matches && target.matches('[data-thread-toggle]')) {
+                e.preventDefault();
+                expandThread(target);
+            }
+        });
         refreshChannelMentionListOptions();
         renderChannelMentionMacroButtons();
 
