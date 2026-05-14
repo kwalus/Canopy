@@ -8,10 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.106] - 2026-05-14
+
+### Changed
+- **Selected-text match highlighting is more careful in busy channel threads** - the Matches toggle now ignores CSS-hidden/collapsed thread content, reports capped result counts as `250+`, and exposes a clearer accessible state for screen readers.
+
 ## [0.6.105] - 2026-05-14
 
 ### Added
 - **Channel search match navigation** - in-channel search now highlights every rendered match, exposes previous/next controls, supports F3 and Shift+F3 navigation, and keeps thread replies visible so matches are not hidden inside automatic collapse.
+- **Selected text can highlight visible matches** - the channel selected-text toolbar now includes a local `Matches` toggle that softly highlights other rendered instances of the selected phrase without replacing the formal channel search workflow.
 
 ### Changed
 - **Channel thread visibility is explicit** - channel replies no longer auto-collapse after three replies; users can collapse or expand individual threads or use the channel menu's Expand all / Collapse all controls.

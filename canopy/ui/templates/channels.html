@@ -1458,6 +1458,34 @@
         box-shadow: 0 10px 24px color-mix(in srgb, var(--canopy-primary) 18%, transparent);
     }
 
+    .channel-selection-dock-btn.match-toggle {
+        border-color: color-mix(in srgb, var(--canopy-primary) 32%, var(--canopy-border));
+    }
+
+    .channel-selection-dock-btn.match-toggle.is-active {
+        background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-tertiary));
+        color: color-mix(in srgb, var(--canopy-primary) 76%, var(--canopy-text-primary));
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 18%, transparent);
+    }
+
+    .channel-selection-dock-btn.match-toggle:not(.is-active) {
+        opacity: 0.72;
+    }
+
+    .channel-selection-match-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.25rem;
+        height: 1.25rem;
+        padding: 0 0.36rem;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canopy-bg-card) 76%, transparent);
+        color: var(--canopy-text-secondary);
+        font-size: 0.66rem;
+        line-height: 1;
+    }
+
     .channel-selection-dock-close {
         width: 2rem;
         min-width: 2rem;
@@ -1475,6 +1503,16 @@
 
     [data-theme="light"] .channel-selection-dock-btn.primary {
         color: #052e16;
+    }
+
+    .channel-selection-match {
+        background: color-mix(in srgb, var(--canopy-primary) 24%, transparent);
+        color: inherit;
+        border-radius: 0.22em;
+        box-shadow:
+            inset 0 -0.2em 0 color-mix(in srgb, var(--canopy-primary) 42%, transparent),
+            0 0 0 1px color-mix(in srgb, var(--canopy-primary) 10%, transparent);
+        padding: 0 0.035em;
     }
 
     /* Threading styles */
@@ -5205,6 +5243,13 @@
             </button>
             <button type="button" class="channel-selection-dock-btn" data-selection-action="copy">
                 <i class="bi bi-clipboard"></i><span>Copy</span>
+            </button>
+            <button type="button"
+                    class="channel-selection-dock-btn match-toggle"
+                    data-selection-action="matches"
+                    aria-pressed="true"
+                    title="Highlight visible matches for the selected text">
+                <i class="bi bi-search"></i><span>Matches</span><span id="channel-selection-match-count" class="channel-selection-match-count">0</span>
             </button>
             <button type="button" class="channel-selection-dock-btn channel-selection-dock-close" data-selection-action="close" aria-label="Close selected text actions">
                 <i class="bi bi-x-lg"></i>
@@ -16996,6 +17041,19 @@ function bindChannelComposerDraftPersistence() {
 let channelSelectionContext = null;
 let channelSelectionDockTimer = null;
 let channelSelectionDockInteracting = false;
+const CHANNEL_SELECTION_MATCH_STORAGE_KEY = 'canopy.channel.selectionMatchHighlights.v1';
+const CHANNEL_SELECTION_MATCH_LIMIT = 250;
+let channelSelectionHighlightsEnabled = true;
+let channelSelectionHighlightMarks = [];
+let channelSelectionHighlightTimer = null;
+let channelSelectionHighlightNeedle = '';
+let channelSelectionHighlightLimitReached = false;
+
+try {
+    channelSelectionHighlightsEnabled = localStorage.getItem(CHANNEL_SELECTION_MATCH_STORAGE_KEY) !== 'off';
+} catch (_) {
+    channelSelectionHighlightsEnabled = true;
+}
 
 function normalizeChannelSelectedText(text) {
     return String(text || '')
@@ -17008,6 +17066,192 @@ function normalizeChannelSelectedText(text) {
 function getElementFromSelectionNode(node) {
     if (!node) return null;
     return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+}
+
+function normalizeChannelSelectionNeedle(text) {
+    return normalizeChannelSelectedText(text)
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function getActiveChannelSelectionRange() {
+    const selection = window.getSelection ? window.getSelection() : null;
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    try {
+        return selection.getRangeAt(0);
+    } catch (_) {
+        return null;
+    }
+}
+
+function textNodeIntersectsRange(textNode, range) {
+    if (!textNode || !range || typeof document.createRange !== 'function') return false;
+    const nodeRange = document.createRange();
+    try {
+        nodeRange.selectNodeContents(textNode);
+        return (
+            range.compareBoundaryPoints(Range.END_TO_START, nodeRange) > 0 &&
+            range.compareBoundaryPoints(Range.START_TO_END, nodeRange) < 0
+        );
+    } catch (_) {
+        return false;
+    } finally {
+        if (typeof nodeRange.detach === 'function') {
+            nodeRange.detach();
+        }
+    }
+}
+
+function isChannelSelectionHighlightHidden(el) {
+    const root = document.getElementById('messages-list');
+    let current = el;
+    while (current && current !== root && current.nodeType === Node.ELEMENT_NODE) {
+        if (
+            current.hidden ||
+            current.classList.contains('d-none') ||
+            current.getAttribute('aria-hidden') === 'true'
+        ) {
+            return true;
+        }
+        if (typeof window.getComputedStyle === 'function') {
+            const style = window.getComputedStyle(current);
+            if (style && (style.display === 'none' || style.visibility === 'hidden')) {
+                return true;
+            }
+        }
+        current = current.parentElement;
+    }
+    return false;
+}
+
+function updateChannelSelectionMatchButtonState(count = channelSelectionHighlightMarks.length) {
+    const btn = document.querySelector('[data-selection-action="matches"]');
+    const countEl = document.getElementById('channel-selection-match-count');
+    const countLabel = channelSelectionHighlightLimitReached && count >= CHANNEL_SELECTION_MATCH_LIMIT
+        ? `${CHANNEL_SELECTION_MATCH_LIMIT}+`
+        : String(count || 0);
+    if (btn) {
+        btn.classList.toggle('is-active', channelSelectionHighlightsEnabled);
+        btn.setAttribute('aria-pressed', channelSelectionHighlightsEnabled ? 'true' : 'false');
+        btn.setAttribute(
+            'aria-label',
+            channelSelectionHighlightsEnabled
+                ? `Matching selected text is on. ${countLabel} visible matches highlighted.`
+                : 'Matching selected text is off. Click to highlight visible matches.'
+        );
+        btn.title = channelSelectionHighlightsEnabled
+            ? 'Matching text is highlighted. Click to turn off.'
+            : 'Click to highlight visible matches for selected text.';
+    }
+    if (countEl) {
+        countEl.textContent = channelSelectionHighlightsEnabled ? countLabel : 'off';
+    }
+}
+
+function clearChannelSelectionHighlights() {
+    clearTimeout(channelSelectionHighlightTimer);
+    channelSelectionHighlightTimer = null;
+    channelSelectionHighlightNeedle = '';
+    channelSelectionHighlightLimitReached = false;
+    const marks = channelSelectionHighlightMarks.length
+        ? channelSelectionHighlightMarks
+        : Array.from(document.querySelectorAll('.channel-selection-match'));
+    channelSelectionHighlightMarks = [];
+    marks.forEach(mark => {
+        const parent = mark.parentNode;
+        if (!parent) return;
+        parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+        parent.normalize();
+    });
+    updateChannelSelectionMatchButtonState(0);
+}
+
+function applyChannelSelectionHighlights(text) {
+    clearChannelSelectionHighlights();
+    if (!channelSelectionHighlightsEnabled) return 0;
+
+    const needle = normalizeChannelSelectionNeedle(text);
+    if (needle.length < 2 || needle.length > 160) {
+        return 0;
+    }
+
+    const root = document.getElementById('messages-list');
+    const activeRange = getActiveChannelSelectionRange();
+    if (!root) return 0;
+
+    const lowerNeedle = needle.toLocaleLowerCase();
+    channelSelectionHighlightNeedle = lowerNeedle;
+    const contentNodes = Array.from(root.querySelectorAll('.message-content'));
+    let limitReached = false;
+
+    for (const contentEl of contentNodes) {
+        if (limitReached) break;
+        const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                const value = node.nodeValue || '';
+                if (!value.trim()) return NodeFilter.FILTER_REJECT;
+                const parentEl = node.parentElement;
+                if (!parentEl) return NodeFilter.FILTER_REJECT;
+                if (isChannelSelectionHighlightHidden(parentEl)) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                if (parentEl.closest('.message-actions, script, style, textarea, input, button, a, [contenteditable="true"], .channel-search-banner, #channel-selection-dock, .channel-search-match, .channel-selection-match')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                if (activeRange && textNodeIntersectsRange(node, activeRange)) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return value.toLocaleLowerCase().includes(lowerNeedle)
+                    ? NodeFilter.FILTER_ACCEPT
+                    : NodeFilter.FILTER_REJECT;
+            }
+        });
+        const textNodes = [];
+        while (walker.nextNode()) {
+            textNodes.push(walker.currentNode);
+        }
+        for (const textNode of textNodes) {
+            if (limitReached) break;
+            const rawText = textNode.nodeValue || '';
+            const textLower = rawText.toLocaleLowerCase();
+            const frag = document.createDocumentFragment();
+            let cursor = 0;
+            let index = textLower.indexOf(lowerNeedle, cursor);
+            while (index !== -1) {
+                if (channelSelectionHighlightMarks.length >= CHANNEL_SELECTION_MATCH_LIMIT) {
+                    limitReached = true;
+                    channelSelectionHighlightLimitReached = true;
+                    break;
+                }
+                if (index > cursor) {
+                    frag.appendChild(document.createTextNode(rawText.slice(cursor, index)));
+                }
+                const mark = document.createElement('mark');
+                mark.className = 'channel-selection-match';
+                mark.textContent = rawText.slice(index, index + needle.length);
+                frag.appendChild(mark);
+                channelSelectionHighlightMarks.push(mark);
+                cursor = index + needle.length;
+                index = textLower.indexOf(lowerNeedle, cursor);
+            }
+            if (cursor < rawText.length) {
+                frag.appendChild(document.createTextNode(rawText.slice(cursor)));
+            }
+            if (textNode.parentNode && frag.childNodes.length) {
+                textNode.parentNode.replaceChild(frag, textNode);
+            }
+        }
+    }
+
+    updateChannelSelectionMatchButtonState(channelSelectionHighlightMarks.length);
+    return channelSelectionHighlightMarks.length;
+}
+
+function scheduleChannelSelectionHighlights(text) {
+    clearTimeout(channelSelectionHighlightTimer);
+    channelSelectionHighlightTimer = setTimeout(() => {
+        applyChannelSelectionHighlights(text);
+    }, 110);
 }
 
 function getUsefulSelectionRect(range) {
@@ -17075,6 +17319,7 @@ function setChannelSelectionDockVisible(visible) {
 function hideChannelSelectionDock(opts = {}) {
     channelSelectionContext = null;
     setChannelSelectionDockVisible(false);
+    clearChannelSelectionHighlights();
     if (opts.clearSelection && window.getSelection) {
         const selection = window.getSelection();
         if (selection && typeof selection.removeAllRanges === 'function') {
@@ -17092,6 +17337,7 @@ function positionChannelSelectionDock(ctx) {
         const previewText = ctx.text.length > 120 ? `${ctx.text.slice(0, 117)}...` : ctx.text;
         preview.textContent = `${ctx.sourceLabel}: "${previewText}"`;
     }
+    updateChannelSelectionMatchButtonState();
 
     if (window.innerWidth <= 767) {
         dock.style.left = '50%';
@@ -17121,6 +17367,7 @@ function syncChannelSelectionDock() {
     }
     channelSelectionContext = ctx;
     positionChannelSelectionDock(ctx);
+    scheduleChannelSelectionHighlights(ctx.text);
 }
 
 function scheduleChannelSelectionDockSync() {
@@ -17207,6 +17454,19 @@ async function handleChannelSelectionDockAction(action) {
         hideChannelSelectionDock({ clearSelection: true });
         return;
     }
+    if (action === 'matches') {
+        channelSelectionHighlightsEnabled = !channelSelectionHighlightsEnabled;
+        try {
+            localStorage.setItem(CHANNEL_SELECTION_MATCH_STORAGE_KEY, channelSelectionHighlightsEnabled ? 'on' : 'off');
+        } catch (_) {}
+        if (channelSelectionHighlightsEnabled) {
+            applyChannelSelectionHighlights(ctx.text);
+        } else {
+            clearChannelSelectionHighlights();
+        }
+        updateChannelSelectionMatchButtonState();
+        return;
+    }
     if (action === 'copy') {
         const copied = await copyChannelSelectedText(ctx.text);
         if (typeof showAlert === 'function') {
@@ -17259,6 +17519,7 @@ function setupChannelSelectionDock() {
     if (scrollContainer) {
         scrollContainer.addEventListener('scroll', () => hideChannelSelectionDock(), { passive: true });
     }
+    updateChannelSelectionMatchButtonState();
 }
 
 function insertToolBlockIntoComposer(blockText, opts = {}) {
@@ -20575,6 +20836,7 @@ function clearChannelSearchHighlights() {
 
 function applyChannelSearchHighlights(query) {
     clearChannelSearchHighlights();
+    clearChannelSelectionHighlights();
     const needle = String(query || '').trim();
     const root = document.getElementById('messages-list');
     if (!needle || !root) return 0;

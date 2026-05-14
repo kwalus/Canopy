@@ -1477,6 +1477,29 @@ console.log(JSON.stringify({{
         self.assertIn('.channel-selection-dock.is-visible', channels_template)
         self.assertIn('bottom: max(0.85rem, calc(env(safe-area-inset-bottom) + 0.65rem));', channels_template)
 
+    def test_channel_selection_dock_can_highlight_matching_visible_text(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+
+        self.assertIn('data-selection-action="matches"', channels_template)
+        self.assertIn('id="channel-selection-match-count"', channels_template)
+        self.assertIn('CHANNEL_SELECTION_MATCH_STORAGE_KEY', channels_template)
+        self.assertIn('CHANNEL_SELECTION_MATCH_LIMIT = 250', channels_template)
+        self.assertIn('function applyChannelSelectionHighlights(text)', channels_template)
+        self.assertIn('function clearChannelSelectionHighlights()', channels_template)
+        self.assertIn('function textNodeIntersectsRange(textNode, range)', channels_template)
+        self.assertIn('function isChannelSelectionHighlightHidden(el)', channels_template)
+        self.assertIn('scheduleChannelSelectionHighlights(ctx.text);', channels_template)
+        self.assertIn("localStorage.setItem(CHANNEL_SELECTION_MATCH_STORAGE_KEY", channels_template)
+        self.assertIn("mark.className = 'channel-selection-match';", channels_template)
+        self.assertIn("style.display === 'none' || style.visibility === 'hidden'", channels_template)
+        self.assertIn('channelSelectionHighlightLimitReached', channels_template)
+        self.assertIn("`${CHANNEL_SELECTION_MATCH_LIMIT}+`", channels_template)
+        self.assertIn(".channel-search-match, .channel-selection-match", channels_template)
+        self.assertIn('clearChannelSelectionHighlights();\n    const needle = String(query || \'\').trim();', channels_template)
+        self.assertIn("btn.setAttribute(\n            'aria-label',", channels_template)
+        self.assertIn('.channel-selection-dock-btn.match-toggle.is-active', channels_template)
+        self.assertIn('.channel-selection-match {', channels_template)
+
     def test_channel_sidebar_supports_personal_groups_collapse_and_pinned_order(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         routes_py = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
@@ -2442,7 +2465,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.105', api_ref)
+        self.assertIn('0.6.106', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
