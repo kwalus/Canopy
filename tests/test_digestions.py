@@ -170,6 +170,117 @@ class TestDigestions(unittest.TestCase):
             'private-corpus.txt',
         )
 
+    def test_material_sources_outputs_context_and_export(self) -> None:
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Reusable lab digest',
+            purpose='Normalize notes and make them reusable for agents.',
+            provider='local_hash',
+            source_materials=[
+                {
+                    'kind': 'meeting_note',
+                    'title': 'Surface prep note',
+                    'source_uri': 'canopy://channel/lab/1',
+                    'content': 'Hydrogen passivation and silicon surface preparation matter for reliable SiDB experiments.',
+                    'metadata': {'channel': 'lab'},
+                }
+            ],
+        )
+        sources = self.digestion_manager.list_sources(digestion['id'], user_id='owner-user')
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0]['source_kind'], 'meeting_note')
+
+        build = self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+
+        self.assertTrue(build['success'])
+        self.assertGreaterEqual(len(build['outputs']), 3)
+        outputs = self.digestion_manager.list_outputs(digestion['id'], 'owner-user')
+        output_kinds = {item['output_kind'] for item in outputs}
+        self.assertTrue({'manifest', 'human_brief', 'agent_context'}.issubset(output_kinds))
+        manifest = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'manifest')
+        self.assertEqual(manifest['content_type'], 'application/json')
+        self.assertIn('canopy_digestion_manifest_v2', manifest['content'])
+
+        context = self.digestion_manager.context_pack(digestion['id'], 'owner-user', 'silicon surface preparation', top_k=2)
+
+        self.assertTrue(context['success'])
+        self.assertIn('Use only the cited snippets', context['prompt_context'])
+        self.assertGreaterEqual(len(context['citations']), 1)
+
+        exported = self.digestion_manager.export_output_to_vault(digestion['id'], 'owner-user', 'human_brief')
+
+        self.assertTrue(exported['success'])
+        self.assertTrue(exported['file']['original_name'].endswith('-human_brief.md'))
+
+    def test_query_only_users_cannot_read_source_revealing_outputs(self) -> None:
+        source = self._save_text(
+            'source-revealing-corpus.txt',
+            'Reusable outputs should preserve the same source metadata boundary as source listings.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Source-gated outputs',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
+
+        reader_outputs = self.digestion_manager.list_outputs(digestion['id'], 'reader-user', include_content=True)
+        self.assertEqual({output['output_kind'] for output in reader_outputs}, {'agent_context'})
+        with self.assertRaisesRegex(Exception, 'Source metadata access'):
+            self.digestion_manager.get_output(digestion['id'], 'reader-user', 'manifest')
+        with self.assertRaisesRegex(Exception, 'Source metadata access'):
+            self.digestion_manager.export_output_to_vault(digestion['id'], 'reader-user', 'human_brief')
+
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_read_sources=True,
+        )
+        reader_manifest = self.digestion_manager.get_output(digestion['id'], 'reader-user', 'manifest')
+        self.assertIn('source-revealing-corpus.txt', reader_manifest['content'])
+
+    def test_manager_added_materials_remain_owner_bound_and_buildable(self) -> None:
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Delegated material digest',
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+
+        added = self.digestion_manager.add_materials(
+            digestion['id'],
+            'reader-user',
+            [
+                {
+                    'kind': 'agent_note',
+                    'title': 'Delegated source',
+                    'content': 'A trusted agent can normalize source material into the owner-bound Digestion corpus.',
+                }
+            ],
+        )
+
+        self.assertTrue(added['success'])
+        self.assertEqual(added['added'], 1)
+        source = self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')[0]
+        saved_file = self.file_manager.get_file(source['file_id'])
+        self.assertEqual(saved_file.uploaded_by, 'owner-user')
+
+        build = self.digestion_manager.build_digestion(digestion['id'], 'reader-user')
+
+        self.assertTrue(build['success'])
+        self.assertGreaterEqual(build['chunk_count'], 1)
+
     def test_digestion_rest_create_build_query_and_acl(self) -> None:
         source = self._save_text('api-corpus.txt', 'Canopy Digestions help agents query a large document corpus with citations.')
         components = (
@@ -244,6 +355,71 @@ class TestDigestions(unittest.TestCase):
                 headers={'X-API-Key': 'reader-key'},
             )
             self.assertEqual(sources_response.status_code, 403)
+
+    def test_digestion_rest_materials_outputs_and_context(self) -> None:
+        components = (
+            self.db_manager,
+            _FakeApiKeyManager(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            self.file_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        )
+        with patch('canopy.api.routes.get_app_components', return_value=components), \
+             patch('canopy.api.routes._get_app_components_any', return_value=components):
+            app = Flask(__name__)
+            app.config['TESTING'] = True
+            app.secret_key = 'digestion-api-v2'
+            app.config['DIGESTION_MANAGER'] = self.digestion_manager
+            app.register_blueprint(create_api_blueprint(), url_prefix='/api/v1')
+            client = app.test_client()
+
+            create_response = client.post(
+                '/api/v1/digestions',
+                json={
+                    'name': 'API materials',
+                    'provider': 'local_hash',
+                    'materials': [
+                        {
+                            'kind': 'post',
+                            'title': 'Agent memo',
+                            'content': 'Reusable Digestions can normalize source material into agent context packs.',
+                        }
+                    ],
+                    'auto_build': True,
+                },
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(create_response.status_code, 201)
+            digestion_id = create_response.get_json()['digestion_id']
+
+            outputs_response = client.get(
+                f'/api/v1/digestions/{digestion_id}/outputs',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(outputs_response.status_code, 200)
+            self.assertGreaterEqual(outputs_response.get_json()['count'], 3)
+
+            context_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/context',
+                json={'query': 'agent context packs'},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(context_response.status_code, 200)
+            self.assertIn('prompt_context', context_response.get_json())
+
+            export_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/outputs/human_brief/export',
+                json={},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(export_response.status_code, 200)
+            self.assertTrue(export_response.get_json()['success'])
 
 
 if __name__ == '__main__':

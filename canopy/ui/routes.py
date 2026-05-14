@@ -6485,6 +6485,11 @@ def create_ui_blueprint() -> Blueprint:
         source_file_ids = data.get('source_file_ids') or data.get('file_ids') or []
         if isinstance(source_file_ids, str):
             source_file_ids = [source_file_ids]
+        source_materials = data.get('source_materials') if data.get('source_materials') is not None else data.get('materials')
+        if isinstance(source_materials, dict):
+            source_materials = [source_materials]
+        if not isinstance(source_materials, list):
+            source_materials = []
         try:
             item = manager.create_digestion(
                 get_current_user(),
@@ -6492,6 +6497,7 @@ def create_ui_blueprint() -> Blueprint:
                 description=data.get('description') or '',
                 purpose=data.get('purpose') or '',
                 source_file_ids=source_file_ids if isinstance(source_file_ids, list) else [],
+                source_materials=source_materials,
                 provider=data.get('provider'),
                 embedding_model=data.get('embedding_model') or data.get('model'),
                 embedding_dimensions=data.get('embedding_dimensions') or data.get('dimensions'),
@@ -6526,6 +6532,29 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI build error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not build Digestion'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/materials', methods=['POST'])
+    @require_login
+    def ajax_add_digestion_materials(digestion_id: str):
+        """Add inline/source materials to a Digestion."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        materials = data.get('materials') or data.get('source_materials') or []
+        if isinstance(materials, dict):
+            materials = [materials]
+        try:
+            return jsonify(manager.add_materials(
+                digestion_id,
+                get_current_user(),
+                materials if isinstance(materials, list) else [],
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI add materials error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not add Digestion materials'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/query', methods=['POST'])
     @require_login
     def ajax_query_digestion(digestion_id: str):
@@ -6548,6 +6577,86 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error("Digestion UI query error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not query Digestion'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/context', methods=['POST'])
+    @require_login
+    def ajax_digestion_context(digestion_id: str):
+        """Return a compact prompt-ready context pack for a Digestion query."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            top_k = max(1, min(int(data.get('top_k') or 5), 12))
+            return jsonify(manager.context_pack(
+                digestion_id,
+                get_current_user(),
+                str(data.get('query') or data.get('q') or ''),
+                top_k=top_k,
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI context error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not build Digestion context'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/outputs', methods=['GET', 'POST'])
+    @require_login
+    def ajax_digestion_outputs(digestion_id: str):
+        """List or generate reusable Digestion outputs."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            if request.method == 'POST':
+                data = request.get_json(silent=True) or {}
+                kinds = data.get('kinds') or data.get('output_kinds') or []
+                if isinstance(kinds, str):
+                    kinds = [kinds]
+                return jsonify(manager.generate_outputs(
+                    digestion_id,
+                    get_current_user(),
+                    kinds=kinds if isinstance(kinds, list) else None,
+                ))
+            include_content = str(request.args.get('include_content') or '').strip().lower() in {'1', 'true', 'yes'}
+            outputs = manager.list_outputs(digestion_id, get_current_user(), include_content=include_content)
+            return jsonify({'success': True, 'digestion_id': digestion_id, 'outputs': outputs, 'count': len(outputs)})
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI outputs error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load Digestion outputs'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/outputs/<output_ref>', methods=['GET'])
+    @require_login
+    def ajax_digestion_output(digestion_id: str, output_ref: str):
+        """Return a reusable Digestion output."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            output = manager.get_output(digestion_id, get_current_user(), output_ref)
+            return jsonify({'success': True, 'digestion_id': digestion_id, 'output': output})
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI output error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load Digestion output'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/outputs/<output_ref>/export', methods=['POST'])
+    @require_login
+    def ajax_digestion_output_export(digestion_id: str, output_ref: str):
+        """Export a Digestion output into the current user's Vault."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.export_output_to_vault(digestion_id, get_current_user(), output_ref))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI output export error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not export Digestion output'}), 500
 
     @ui.route('/ajax/workspace_search', methods=['GET'])
     @require_login

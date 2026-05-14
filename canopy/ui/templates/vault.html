@@ -400,7 +400,7 @@
     }
     .vault-digestion-create {
         display: none;
-        grid-template-columns: minmax(180px, 1fr) auto auto;
+        grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.85fr) auto auto;
         gap: 0.45rem;
         margin-top: 0.65rem;
         width: 100%;
@@ -425,6 +425,35 @@
     }
     .vault-digestion-result strong {
         color: var(--canopy-text-primary);
+    }
+    .vault-digestion-output-list {
+        display: none;
+        gap: 0.55rem;
+        margin-top: 0.85rem;
+        border-top: 1px solid var(--canopy-border);
+        padding-top: 0.75rem;
+    }
+    .vault-digestion-output-list.is-visible {
+        display: grid;
+    }
+    .vault-digestion-output {
+        border: 1px solid color-mix(in srgb, var(--canopy-secondary) 28%, var(--canopy-border));
+        border-radius: 14px;
+        padding: 0.65rem;
+        background: color-mix(in srgb, var(--canopy-bg-card) 82%, transparent);
+        color: var(--canopy-text-secondary);
+        font-size: 0.83rem;
+    }
+    .vault-digestion-output-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-bottom: 0.35rem;
+    }
+    .vault-digestion-output-title {
+        color: var(--canopy-text-primary);
+        font-weight: 850;
     }
     .vault-grid {
         display: grid;
@@ -842,6 +871,12 @@
                            maxlength="180"
                            placeholder="Name this Digestion"
                            aria-label="Digestion name">
+                    <input class="form-control form-control-sm"
+                           type="text"
+                           id="vault-digestion-create-purpose"
+                           maxlength="400"
+                           placeholder="Purpose / reuse goal"
+                           aria-label="Digestion purpose">
                     <button class="btn btn-sm btn-primary" type="submit">
                         <i class="bi bi-diagram-3"></i> Create
                     </button>

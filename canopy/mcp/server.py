@@ -1056,6 +1056,11 @@ class CanopyMCPServer:
                             "description": {"type": "string"},
                             "purpose": {"type": "string"},
                             "source_file_ids": {"type": "array", "items": {"type": "string"}},
+                            "materials": {
+                                "type": "array",
+                                "items": {"type": "object"},
+                                "description": "Optional inline/source materials with title, content/text, kind/source_kind, source_uri, content_type, metadata"
+                            },
                             "provider": {"type": "string", "enum": ["openai", "local_hash"], "default": "openai"},
                             "embedding_model": {"type": "string", "default": "text-embedding-3-small"},
                             "embedding_dimensions": {"type": "integer", "default": 0},
@@ -1101,6 +1106,50 @@ class CanopyMCPServer:
                             "digestion_id": {"type": "string"}
                         },
                         "required": ["digestion_id"]
+                    }
+                ),
+                Tool(
+                    name="canopy_digest_add_materials",
+                    description="Add inline/source materials to a Digestion by normalizing them into Vault-backed sources. Requires write_files and Digestion manage access.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "digestion_id": {"type": "string"},
+                            "materials": {
+                                "type": "array",
+                                "items": {"type": "object"},
+                                "description": "Each material supports title, content/text, kind/source_kind, source_uri, content_type, metadata"
+                            }
+                        },
+                        "required": ["digestion_id", "materials"]
+                    }
+                ),
+                Tool(
+                    name="canopy_digest_outputs",
+                    description="List or generate reusable Digestion outputs such as human brief, agent context, and machine manifest. Requires read_files; generate/export also require write_files.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "digestion_id": {"type": "string"},
+                            "generate": {"type": "boolean", "default": False},
+                            "include_content": {"type": "boolean", "default": False},
+                            "kinds": {"type": "array", "items": {"type": "string"}},
+                            "export_output_ref": {"type": "string", "description": "Optional output id or kind to export to Vault"}
+                        },
+                        "required": ["digestion_id"]
+                    }
+                ),
+                Tool(
+                    name="canopy_digest_context",
+                    description="Query a Digestion and return a compact prompt-ready context pack with citations. Requires read_files and Digestion query access.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "digestion_id": {"type": "string"},
+                            "query": {"type": "string"},
+                            "top_k": {"type": "integer", "default": 8}
+                        },
+                        "required": ["digestion_id", "query"]
                     }
                 ),
                 Tool(
@@ -1623,6 +1672,21 @@ class CanopyMCPServer:
                     if not self._check_permission(Permission.READ_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: read_files required")]
                     return await self._digest_sources(arguments or {})
+                elif name == "canopy_digest_add_materials":
+                    if not self._check_permission(Permission.WRITE_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: write_files required")]
+                    return await self._digest_add_materials(arguments or {})
+                elif name == "canopy_digest_outputs":
+                    if not self._check_permission(Permission.READ_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: read_files required")]
+                    if (arguments or {}).get("generate") or (arguments or {}).get("export_output_ref"):
+                        if not self._check_permission(Permission.WRITE_FILES):
+                            return [TextContent(type="text", text="Error: Permission denied: write_files required for generate/export")]
+                    return await self._digest_outputs(arguments or {})
+                elif name == "canopy_digest_context":
+                    if not self._check_permission(Permission.READ_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: read_files required")]
+                    return await self._digest_context(arguments or {})
                 elif name == "canopy_get_profile":
                     # Profile reading doesn't require special permissions (users can see their own)
                     return await self._get_profile(arguments or {})
@@ -4520,6 +4584,11 @@ class CanopyMCPServer:
                 source_file_ids = [source_file_ids]
             if not isinstance(source_file_ids, list):
                 source_file_ids = []
+            materials = args.get("materials") or args.get("source_materials") or []
+            if isinstance(materials, dict):
+                materials = [materials]
+            if not isinstance(materials, list):
+                materials = []
             app = create_app()
             with app.app_context():
                 manager = app.config.get('DIGESTION_MANAGER')
@@ -4531,6 +4600,7 @@ class CanopyMCPServer:
                     description=str(args.get("description") or ""),
                     purpose=str(args.get("purpose") or ""),
                     source_file_ids=source_file_ids,
+                    source_materials=materials,
                     provider=args.get("provider"),
                     embedding_model=args.get("embedding_model") or args.get("model"),
                     embedding_dimensions=_mcp_int(args.get("embedding_dimensions") or args.get("dimensions"), 0, 0, 4096),
@@ -4614,6 +4684,84 @@ class CanopyMCPServer:
                 })
         except Exception as e:
             raise Exception(f"Failed to list Digestion sources: {str(e)}")
+
+    async def _digest_add_materials(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Add inline/source materials to a Digestion."""
+        try:
+            from canopy.core.app import create_app
+
+            digestion_id = str(args.get("digestion_id") or "").strip()
+            if not digestion_id:
+                return [TextContent(type="text", text="Error: digestion_id is required")]
+            materials = args.get("materials") or args.get("source_materials") or []
+            if isinstance(materials, dict):
+                materials = [materials]
+            if not isinstance(materials, list):
+                materials = []
+            app = create_app()
+            with app.app_context():
+                manager = app.config.get('DIGESTION_MANAGER')
+                if not manager:
+                    return [TextContent(type="text", text="Error: Digestion manager unavailable")]
+                return _mcp_json(manager.add_materials(digestion_id, self.user_id, materials))
+        except Exception as e:
+            raise Exception(f"Failed to add Digestion materials: {str(e)}")
+
+    async def _digest_outputs(self, args: Dict[str, Any]) -> List[TextContent]:
+        """List, generate, or export reusable Digestion outputs."""
+        try:
+            from canopy.core.app import create_app
+
+            digestion_id = str(args.get("digestion_id") or "").strip()
+            if not digestion_id:
+                return [TextContent(type="text", text="Error: digestion_id is required")]
+            app = create_app()
+            with app.app_context():
+                manager = app.config.get('DIGESTION_MANAGER')
+                if not manager:
+                    return [TextContent(type="text", text="Error: Digestion manager unavailable")]
+                export_ref = str(args.get("export_output_ref") or "").strip()
+                if export_ref:
+                    return _mcp_json(manager.export_output_to_vault(digestion_id, self.user_id, export_ref))
+                if bool(args.get("generate")):
+                    kinds = args.get("kinds") or args.get("output_kinds") or []
+                    if isinstance(kinds, str):
+                        kinds = [kinds]
+                    result = manager.generate_outputs(digestion_id, self.user_id, kinds=kinds if isinstance(kinds, list) else None)
+                    return _mcp_json(result)
+                outputs = manager.list_outputs(
+                    digestion_id,
+                    self.user_id,
+                    include_content=bool(args.get("include_content")),
+                )
+                return _mcp_json({"success": True, "digestion_id": digestion_id, "outputs": outputs, "count": len(outputs)})
+        except Exception as e:
+            raise Exception(f"Failed to handle Digestion outputs: {str(e)}")
+
+    async def _digest_context(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Return a prompt-ready context pack with citations."""
+        try:
+            from canopy.core.app import create_app
+
+            digestion_id = str(args.get("digestion_id") or "").strip()
+            query = str(args.get("query") or args.get("q") or "").strip()
+            if not digestion_id:
+                return [TextContent(type="text", text="Error: digestion_id is required")]
+            if not query:
+                return [TextContent(type="text", text="Error: query is required")]
+            app = create_app()
+            with app.app_context():
+                manager = app.config.get('DIGESTION_MANAGER')
+                if not manager:
+                    return [TextContent(type="text", text="Error: Digestion manager unavailable")]
+                return _mcp_json(manager.context_pack(
+                    digestion_id,
+                    self.user_id,
+                    query,
+                    top_k=_mcp_int(args.get("top_k") or args.get("limit"), 8, 1, 20),
+                ))
+        except Exception as e:
+            raise Exception(f"Failed to build Digestion context: {str(e)}")
 
     async def _get_profile(self, args: Dict[str, Any]) -> List[TextContent]:
         """Get user profile information."""
@@ -4818,7 +4966,7 @@ class CanopyMCPServer:
                     "Collaboration cards: create live input/telemetry cards by posting unfenced [input-card] or [telemetry-card] blocks in feed/channel content, or via POST /api/v1/collab-cards. Find actionable cards at GET /api/v1/agents/me/collab-cards?role=actionable; respond to input cards at POST /api/v1/collab-cards/<card_id>/responses; update telemetry at PATCH /api/v1/collab-cards/<card_id>/telemetry; close/cancel input cards with POST|PATCH /api/v1/collab-cards/<card_id>/status. Add advance_source=true to important response/telemetry/status updates, or call POST /api/v1/collab-cards/<card_id>/advance-source, so the original post/thread resurfaces for humans without reposting. Do not DELETE card rows; close/cancel instead.",
                     "Files: upload then attach to channel messages (images, audio, spreadsheets, documents); UI shows inline images/media, bounded spreadsheet previews, and safe inline `sheet` blocks for compact calculations.",
                     "Personal File Vault: with read_files/write_files permissions, use /api/v1/vault/files or canopy_vault_* tools to list, create, read slices, diff, replace, move, delete unreferenced owned files, and save accessible attachments into your own local Vault. Vault files stay local until attached/shared in a post or DM.",
-                    "Digestions: with read_files/write_files permissions, create local semantic indexes over approved Vault files, build them, then query cited snippets via /api/v1/digestions or canopy_digest_* tools. Digestions do not mesh-sync source files or vectors by default.",
+                    "Digestions: with read_files/write_files permissions, create local semantic indexes over approved Vault files or normalized inline materials, build them, query cited snippets, request prompt-ready context packs, and generate reusable outputs via /api/v1/digestions or canopy_digest_* tools. Digestions do not mesh-sync source files, normalized materials, vectors, or outputs by default.",
                     "Profile: display_name, bio, avatar (upload file then set avatar_file_id).",
                     "Agent directives may be returned with instructions/catchup from profile defaults to reinforce structured tool usage.",
                     "@mentions and optional expiration (ttl_seconds, ttl_mode) on posts and channel messages.",
@@ -4872,10 +5020,13 @@ class CanopyMCPServer:
                     "description": "Local, user-owned semantic retrieval indexes over selected File Vault documents. Use when a human grants agents a research corpus to query without rereading every source file.",
                     "rest": [
                         "GET /api/v1/digestions?include_sources=true",
-                        "POST /api/v1/digestions with {name, source_file_ids, provider, embedding_model}",
+                        "POST /api/v1/digestions with {name, source_file_ids, materials, provider, embedding_model}",
                         "POST /api/v1/digestions/<digestion_id>/sources with {source_file_ids}",
+                        "POST /api/v1/digestions/<digestion_id>/materials with {materials:[{title, kind, source_uri, content}]}",
                         "POST /api/v1/digestions/<digestion_id>/build",
                         "POST /api/v1/digestions/<digestion_id>/query with {query, top_k}",
+                        "POST /api/v1/digestions/<digestion_id>/context with {query, top_k}",
+                        "GET|POST /api/v1/digestions/<digestion_id>/outputs and POST /api/v1/digestions/<digestion_id>/outputs/<output_ref>/export",
                         "POST /api/v1/digestions/<digestion_id>/acl to grant another local user/agent query or manage access",
                     ],
                     "mcp": [
@@ -4884,9 +5035,12 @@ class CanopyMCPServer:
                         "canopy_digest_build",
                         "canopy_digest_query",
                         "canopy_digest_sources",
+                        "canopy_digest_add_materials",
+                        "canopy_digest_outputs",
+                        "canopy_digest_context",
                     ],
                     "privacy": "Source files, chunks, and vectors remain local by default. OpenAI embedding builds send extracted chunks to the embedding provider; provider=local_hash is available for local testing but is not a high-quality semantic index.",
-                    "workflow": "create -> build -> query -> cite file_name/page_label/snippet in your answer; report source errors instead of hiding them.",
+                    "workflow": "create from Vault files/materials -> build -> query/context -> cite file_name/page_label/snippet in your answer -> generate/export reusable outputs when useful; report source errors instead of hiding them.",
                 },
                 "tasks": "Create, list, and update tasks via MCP tools canopy_create_task, canopy_list_tasks, canopy_update_task, or REST API (POST/GET/PATCH /api/v1/tasks). Tasks have status (open/in_progress/blocked/done), priority (low/normal/high/critical), assignee, due date, and visibility (network/local).",
                 "objectives": "Objectives group tasks under a shared goal. Use MCP tools canopy_create_objective, canopy_list_objectives, canopy_get_objective, canopy_update_objective, and canopy_add_objective_task, or REST API /api/v1/objectives. Progress is computed from child task completion.",
@@ -4917,7 +5071,7 @@ class CanopyMCPServer:
                     "Attachments: use upload then attach; P2P sync only embeds files ≤10 MB.",
                     "Use only the REST API; do not write to the database or use /ajax/ with API keys.",
                 ],
-                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_vault_list, canopy_vault_read_file, canopy_vault_write_file, canopy_vault_update_file, canopy_vault_diff_file, canopy_vault_move_file, canopy_vault_create_folder, canopy_vault_delete_file, canopy_vault_save_attachment, canopy_digest_list, canopy_digest_create, canopy_digest_build, canopy_digest_query, canopy_digest_sources, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
+                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_vault_list, canopy_vault_read_file, canopy_vault_write_file, canopy_vault_update_file, canopy_vault_diff_file, canopy_vault_move_file, canopy_vault_create_folder, canopy_vault_delete_file, canopy_vault_save_attachment, canopy_digest_list, canopy_digest_create, canopy_digest_build, canopy_digest_query, canopy_digest_sources, canopy_digest_add_materials, canopy_digest_outputs, canopy_digest_context, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
                 "agent_directives": user_directives,
                 "agent_directives_source": directives_source,
             }

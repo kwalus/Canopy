@@ -986,6 +986,7 @@
                 const selectionClear = document.getElementById('vault-selection-clear');
                 const digestionCreateForm = document.getElementById('vault-digestion-create-form');
                 const digestionCreateName = document.getElementById('vault-digestion-create-name');
+                const digestionCreatePurpose = document.getElementById('vault-digestion-create-purpose');
                 const digestionCreateCancel = document.getElementById('vault-digestion-create-cancel');
                 const digestionList = document.getElementById('vault-digestion-list');
                 const digestionRefresh = document.getElementById('vault-digestion-refresh');
@@ -1023,6 +1024,9 @@
                     digestionCreateForm.hidden = false;
                     digestionCreateForm.classList.add('is-visible');
                     digestionCreateName.value = defaultDigestionName(selected);
+                    if (digestionCreatePurpose) {
+                        digestionCreatePurpose.value = `Reusable context for ${selected.length} selected source${selected.length === 1 ? '' : 's'}`;
+                    }
                     global.setTimeout(() => {
                         digestionCreateName.focus();
                         digestionCreateName.select();
@@ -1106,20 +1110,27 @@
                     const status = vaultEscape(digestionStatusLabel(digestion));
                     const stats = digestion.stats || {};
                     const chunks = Number(stats.chunks || 0);
+                    const tokens = Number(stats.token_estimate || 0);
                     const sourceCount = Array.isArray(digestion.sources) ? digestion.sources.length : 0;
                     const provider = vaultEscape(digestion.provider || 'local');
+                    const purpose = vaultEscape(digestion.purpose || digestion.description || '');
                     return `
                         <article class="vault-digestion-card" data-vault-digestion-id="${id}">
                             <div class="vault-digestion-card-title">${name}</div>
+                            ${purpose ? `<div class="small text-muted mt-1">${purpose}</div>` : ''}
                             <div class="vault-digestion-meta">
                                 <span class="vault-digestion-pill"><i class="bi bi-activity"></i>${status}</span>
                                 <span class="vault-digestion-pill"><i class="bi bi-files"></i>${sourceCount} source${sourceCount === 1 ? '' : 's'}</span>
                                 <span class="vault-digestion-pill"><i class="bi bi-braces"></i>${chunks} chunks</span>
+                                <span class="vault-digestion-pill"><i class="bi bi-file-earmark-text"></i>${tokens} tokens</span>
                                 <span class="vault-digestion-pill"><i class="bi bi-cpu"></i>${provider}</span>
                             </div>
                             <div class="vault-digestion-actions">
                                 <button class="btn btn-sm btn-primary" type="button" data-vault-digestion-action="build" data-vault-digestion-id="${id}">
                                     <i class="bi bi-hammer"></i> Build
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="outputs" data-vault-digestion-id="${id}">
+                                    <i class="bi bi-journal-richtext"></i> Outputs
                                 </button>
                             </div>
                             <form class="vault-digestion-query" data-vault-digestion-query-form="${id}">
@@ -1133,6 +1144,7 @@
                                 </button>
                             </form>
                             <div class="vault-digestion-results" data-vault-digestion-results="${id}"></div>
+                            <div class="vault-digestion-output-list" data-vault-digestion-outputs="${id}"></div>
                         </article>
                     `;
                 }
@@ -1169,6 +1181,7 @@
                     const selected = selectedVaultFiles();
                     if (!selected.length) return;
                     const name = String(digestionCreateName && digestionCreateName.value || defaultDigestionName(selected)).trim();
+                    const purpose = String(digestionCreatePurpose && digestionCreatePurpose.value || '').trim();
                     if (!name) {
                         if (digestionCreateName) digestionCreateName.focus();
                         return;
@@ -1179,6 +1192,7 @@
                             method: 'POST',
                             body: JSON.stringify({
                                 name: name.trim(),
+                                purpose,
                                 source_file_ids: selected.map(file => file.id).filter(Boolean)
                             })
                         });
@@ -1217,6 +1231,88 @@
                         await loadDigestions();
                     } catch (error) {
                         if (typeof showAlert === 'function') showAlert(error.error || 'Could not build Digestion.', 'danger');
+                    } finally {
+                        if (button) {
+                            button.disabled = false;
+                            button.innerHTML = original;
+                        }
+                    }
+                }
+
+                async function loadDigestionOutputs(digestionId, button) {
+                    if (!digestionId) return;
+                    const outputsEl = document.querySelector(`[data-vault-digestion-outputs="${vaultCssEscape(digestionId)}"]`);
+                    if (!outputsEl) return;
+                    const visible = outputsEl.classList.contains('is-visible');
+                    if (visible && outputsEl.dataset.loaded === '1') {
+                        outputsEl.classList.remove('is-visible');
+                        return;
+                    }
+                    const original = button ? button.innerHTML : '';
+                    if (button) {
+                        button.disabled = true;
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Outputs';
+                    }
+                    outputsEl.classList.add('is-visible');
+                    outputsEl.innerHTML = '<div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Loading reusable outputs...</div>';
+                    try {
+                        let data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/outputs`);
+                        let outputs = Array.isArray(data.outputs) ? data.outputs : [];
+                        if (!outputs.length) {
+                            data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/outputs`, {
+                                method: 'POST',
+                                body: JSON.stringify({})
+                            });
+                            outputs = Array.isArray(data.outputs) ? data.outputs : [];
+                        }
+                        outputsEl.dataset.loaded = '1';
+                        outputsEl.innerHTML = outputs.length
+                            ? outputs.map(output => `
+                                <div class="vault-digestion-output">
+                                    <div class="vault-digestion-output-head">
+                                        <div class="vault-digestion-output-title">${vaultEscape(output.title || output.output_kind || 'Output')}</div>
+                                        <button class="btn btn-sm btn-outline-primary"
+                                                type="button"
+                                                data-vault-digestion-action="export-output"
+                                                data-vault-digestion-id="${vaultEscape(digestionId)}"
+                                                data-vault-output-ref="${vaultEscape(output.id || output.output_kind || '')}">
+                                            <i class="bi bi-save"></i> Vault
+                                        </button>
+                                    </div>
+                                    <div>${vaultEscape(output.preview || '').slice(0, 420)}</div>
+                                </div>
+                            `).join('')
+                            : '<div class="small text-muted">No reusable outputs are available yet. Build this Digestion first.</div>';
+                    } catch (error) {
+                        outputsEl.innerHTML = `<div class="small text-danger">${vaultEscape(error.error || 'Could not load Digestion outputs.')}</div>`;
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not load Digestion outputs.', 'danger');
+                    } finally {
+                        if (button) {
+                            button.disabled = false;
+                            button.innerHTML = original;
+                        }
+                    }
+                }
+
+                async function exportDigestionOutput(digestionId, outputRef, button) {
+                    if (!digestionId || !outputRef) return;
+                    const original = button ? button.innerHTML : '';
+                    if (button) {
+                        button.disabled = true;
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Saving';
+                    }
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/outputs/${encodeURIComponent(outputRef)}/export`, {
+                            method: 'POST',
+                            body: JSON.stringify({})
+                        });
+                        if (typeof showAlert === 'function') {
+                            const name = data.file && (data.file.original_name || data.file.id) || 'Digestion output';
+                            showAlert(`${name} saved to Vault.`, 'success');
+                        }
+                        await loadVaultFiles({ reset: true });
+                    } catch (error) {
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not export Digestion output.', 'danger');
                     } finally {
                         if (button) {
                             button.disabled = false;
@@ -1560,6 +1656,14 @@
                         const action = actionBtn.getAttribute('data-vault-digestion-action') || '';
                         if (action === 'build') {
                             buildDigestion(digestionId, actionBtn);
+                        } else if (action === 'outputs') {
+                            loadDigestionOutputs(digestionId, actionBtn);
+                        } else if (action === 'export-output') {
+                            exportDigestionOutput(
+                                digestionId,
+                                actionBtn.getAttribute('data-vault-output-ref') || '',
+                                actionBtn,
+                            );
                         }
                     });
                     digestionList.addEventListener('submit', (event) => {

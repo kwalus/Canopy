@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.110` release line.
+Version scope: this reference is aligned to the Canopy `0.6.111` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -416,18 +416,26 @@ Vault notes:
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | GET | `/digestions` | Yes (`read_files`) | List Digestions owned by or shared with the authenticated user. Optional `include_sources=1` only returns source metadata when the caller has source-read access. |
-| POST | `/digestions` | Yes (`write_files`) | Create a local semantic Digestion over selected user-owned Vault file IDs. Optional `provider`, `embedding_model`, `chunk_size`, `chunk_overlap`, and `auto_build`. |
+| POST | `/digestions` | Yes (`write_files`) | Create a local semantic Digestion over selected user-owned Vault file IDs and/or inline `materials`. Optional `purpose`, `provider`, `embedding_model`, `chunk_size`, `chunk_overlap`, and `auto_build`. |
 | GET | `/digestions/<digestion_id>` | Yes (`read_files`) | Return Digestion metadata, stats, and source metadata when permitted. |
 | GET | `/digestions/<digestion_id>/sources` | Yes (`read_files`) | List source metadata and build status; requires owner/manage/source-read access. |
 | POST | `/digestions/<digestion_id>/sources` | Yes (`write_files`) | Add caller-owned Vault files to a managed Digestion. |
+| POST | `/digestions/<digestion_id>/materials` | Yes (`write_files`) | Normalize inline/source materials such as posts, notes, transcripts, or pasted text into Vault-backed Digestion sources. |
 | POST | `/digestions/<digestion_id>/build` | Yes (`write_files`) | Synchronously build or rebuild the local index. |
 | POST | `/digestions/<digestion_id>/query` | Yes (`read_files`) | Query cited snippets from indexed chunks; query access does not grant raw Vault file reads. |
+| POST | `/digestions/<digestion_id>/context` | Yes (`read_files`) | Return a compact prompt-ready context pack with query citations for agents or drafting flows. |
+| GET | `/digestions/<digestion_id>/outputs` | Yes (`read_files`) | List reusable generated outputs such as human brief, agent context, and machine manifest; source-revealing outputs are omitted unless the caller has source-metadata or manage access. |
+| POST | `/digestions/<digestion_id>/outputs` | Yes (`write_files`) | Generate or refresh reusable outputs; requires Digestion manage access. |
+| GET | `/digestions/<digestion_id>/outputs/<output_ref>` | Yes (`read_files`) | Fetch one reusable output by ID or output kind; `human_brief` and `manifest` require source-metadata or manage access. |
+| POST | `/digestions/<digestion_id>/outputs/<output_ref>/export` | Yes (`write_files`) | Save a reusable output into the caller's Vault as a shareable artifact, subject to the same output access checks. |
 | POST | `/digestions/<digestion_id>/acl` | Yes (`write_files`) | Grant another local user/agent query, manage, or source-metadata access. |
 
 Digestion notes:
-- Digestions stay local to the node by default; source files, chunks, vectors, and query logs are not mesh-synced.
+- Digestions stay local to the node by default; source files, normalized material files, chunks, vectors, outputs, and query logs are not mesh-synced unless a user deliberately shares/export-attaches an output.
+- Inline `materials` accept fields such as `title`, `content`/`text`, `kind`/`source_kind`, `source_uri`, `content_type`, and `metadata`. They are persisted as owner-bound Vault files before indexing so the normal file safety boundary remains intact.
 - `provider=local_hash` is available for offline testing. OpenAI-backed builds use `OPENAI_API_KEY` or `CANOPY_OPENAI_API_KEY` and send extracted chunks to the embedding provider.
 - Query responses include cited snippets with `file_name`, `file_id`, `page_label`, `chunk_index`, `score`, and `snippet`.
+- Reusable outputs let a Digestion become a durable Canopy capability: a human brief for review, an agent context artifact for tool users, and a machine manifest for future automation. Query-only grantees can use the safer `agent_context` output; source-revealing outputs remain behind explicit source-metadata access.
 - Build limits are bounded by environment settings such as `CANOPY_DIGESTION_MAX_FILE_BYTES`, `CANOPY_DIGESTION_MAX_FILE_CHARS`, and `CANOPY_DIGESTION_MAX_CHUNKS_PER_BUILD`.
 
 Preview notes:

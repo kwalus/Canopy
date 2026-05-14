@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.111] - 2026-05-14
+
+### Added
+- **Reusable Digestion outputs** - Digestions can now normalize inline/source materials into owner-bound Vault sources, generate durable human briefs, agent context, and machine manifests, expose prompt-ready context packs, and export generated outputs into the caller's Vault.
+
+### Changed
+- **Digestion reuse keeps source boundaries explicit** - source-revealing reusable outputs remain gated behind source-metadata or manage access, while query-only users can still use cited retrieval and safer agent-context outputs.
+
 ## [0.6.110] - 2026-05-14
 
 ### Added
