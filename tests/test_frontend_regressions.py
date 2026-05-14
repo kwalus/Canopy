@@ -129,6 +129,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('openCommentVaultPicker', feed_template)
         self.assertIn('openInlinePostVaultPicker', feed_template)
         self.assertIn('addVaultFilesToFeedComposer', feed_template)
+        self.assertIn('extractVaultFileReferencesFromPostContent', feed_template)
+        self.assertIn('attachVaultLinksFromPostContent(content)', feed_template)
+        self.assertIn("source: 'vault_link'", feed_template)
         self.assertIn('aria-label="Attach from File Vault"', feed_template)
         self.assertIn("(error && (error.error || error.message)) || 'Failed to add comment'", feed_template)
 

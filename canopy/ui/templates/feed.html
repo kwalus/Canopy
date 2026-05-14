@@ -7054,6 +7054,8 @@
                 return;
             }
 
+            attachVaultLinksFromPostContent(content);
+
             setShareButtonState(true);
         
         let metadata = {};
@@ -8682,6 +8684,54 @@
     function removePostFile(index) {
         selectedPostFiles.splice(index, 1);
         updatePostFilePreview();
+    }
+
+    function extractVaultFileReferencesFromPostContent(content) {
+        const text = String(content || '');
+        const refs = [];
+        const seen = new Set();
+        const addRef = (fileId, label) => {
+            const id = String(fileId || '').trim();
+            if (!/^F[0-9A-Za-z_-]{6,}$/.test(id) || seen.has(id)) return;
+            seen.add(id);
+            refs.push({
+                id,
+                vault_file_id: id,
+                name: String(label || id).trim() || id,
+                url: `/files/${encodeURIComponent(id)}`,
+                source: 'vault_link'
+            });
+        };
+
+        const markdownPattern = /\[([^\]\n]{0,180})\]\((?:https?:\/\/[^)\s]+)?\/files\/(F[0-9A-Za-z_-]{6,})(?:[/?#][^)]*)?\)/g;
+        let match;
+        while ((match = markdownPattern.exec(text)) !== null) {
+            addRef(match[2], match[1]);
+        }
+
+        const rawPattern = /(?:^|[\s(<])(?:https?:\/\/[^\s)<>]+)?\/files\/(F[0-9A-Za-z_-]{6,})(?:[/?#][^\s)<>]*)?/g;
+        while ((match = rawPattern.exec(text)) !== null) {
+            addRef(match[1], match[1]);
+        }
+        return refs;
+    }
+
+    function attachVaultLinksFromPostContent(content) {
+        const refs = extractVaultFileReferencesFromPostContent(content);
+        let added = 0;
+        refs.forEach((attachment) => {
+            const id = String(attachment.id || attachment.vault_file_id || '').trim();
+            if (!id) return;
+            if (selectedPostFiles.some(existing => String(existing.id || existing.vault_file_id || existing.file_id || '') === id)) {
+                return;
+            }
+            selectedPostFiles.push(attachment);
+            added += 1;
+        });
+        if (added) {
+            updatePostFilePreview();
+        }
+        return added;
     }
 
     function normalizeVaultAttachmentForPost(file) {

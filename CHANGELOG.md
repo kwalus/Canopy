@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.100] - 2026-05-13
+
+### Fixed
+- **Copied Vault file links now attach when pasted into feed posts** - Markdown links or raw `/files/<id>` URLs copied from the File Vault are detected during post submission and converted into Vault attachment references, so posts render the file embed instead of text-only links.
+
 ## [0.6.99] - 2026-05-13
 
 ### Changed
