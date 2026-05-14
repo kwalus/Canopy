@@ -2,6 +2,8 @@
 
 {% block title %}Profile Settings - Canopy{% endblock %}
 
+{% set profile_custom_theme = profile.privacy_settings.get('custom_theme') if profile.privacy_settings is mapping and profile.privacy_settings.get('custom_theme') is mapping else {} %}
+
 {% block extra_css %}
 <style>
     .profile-header {
@@ -173,6 +175,136 @@
     
     .theme-auto .theme-preview {
         background: linear-gradient(135deg, #0f0f23 0%, #f8fafc 100%);
+    }
+
+    .theme-custom .theme-preview {
+        background:
+            linear-gradient(135deg,
+                var(--custom-preview-bg-a, #0f172a) 0%,
+                var(--custom-preview-bg-b, #1e293b) 52%,
+                var(--custom-preview-accent, #22c55e) 100%);
+        border: 1px solid var(--custom-preview-border, rgba(34, 197, 94, 0.3));
+    }
+
+    .custom-theme-editor {
+        display: none;
+        margin-top: 1rem;
+        padding: 1rem;
+        border-radius: 18px;
+        border: 1px solid var(--canopy-border);
+        background:
+            radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 12%, transparent), transparent 42%),
+            var(--canopy-bg-tertiary);
+    }
+
+    .custom-theme-editor.is-visible {
+        display: block;
+    }
+
+    .custom-theme-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: end;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+    }
+
+    .custom-theme-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: end;
+    }
+
+    .custom-theme-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .custom-theme-group {
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 74%, transparent);
+        border-radius: 14px;
+        padding: 0.75rem;
+        background: color-mix(in srgb, var(--canopy-bg-card) 84%, transparent);
+    }
+
+    .custom-theme-group-title {
+        font-size: 0.76rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--canopy-text-muted);
+        margin-bottom: 0.65rem;
+    }
+
+    .custom-theme-field {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 0.55rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .custom-theme-field:last-child {
+        margin-bottom: 0;
+    }
+
+    .custom-theme-field label {
+        font-size: 0.82rem;
+        color: var(--canopy-text-secondary);
+    }
+
+    .custom-theme-field input[type="color"] {
+        inline-size: 42px;
+        block-size: 32px;
+        border: 1px solid var(--canopy-border);
+        border-radius: 10px;
+        padding: 2px;
+        background: var(--canopy-bg-card);
+        cursor: pointer;
+    }
+
+    .custom-theme-sample {
+        display: grid;
+        gap: 0.65rem;
+        margin-top: 1rem;
+        padding: 1rem;
+        border-radius: 16px;
+        background: var(--canopy-card-body-bg);
+        border: 1px solid var(--canopy-border);
+        color: var(--canopy-text-secondary);
+    }
+
+    .custom-theme-sample-head {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--canopy-text-primary);
+        font-weight: 800;
+    }
+
+    .custom-theme-sample-card {
+        border: 1px solid var(--canopy-border);
+        border-radius: 14px;
+        overflow: hidden;
+        background: var(--canopy-bg-card);
+    }
+
+    .custom-theme-sample-card-header {
+        background: var(--canopy-card-header-bg);
+        color: var(--canopy-text-primary);
+        padding: 0.55rem 0.75rem;
+        font-weight: 700;
+        border-bottom: 1px solid var(--canopy-border);
+    }
+
+    .custom-theme-sample-card-body {
+        background: var(--canopy-card-body-bg);
+        padding: 0.75rem;
     }
     
     .theme-eco .theme-preview {
@@ -417,6 +549,103 @@
                                 <div class="theme-preview"></div>
                                 <strong>Eco</strong>
                                 <div class="text-muted small">Alternate forest look</div>
+                            </div>
+                            <div class="theme-option theme-custom {{ 'active' if profile.theme_preference == 'custom' else '' }}"
+                                 data-theme="custom"
+                                 id="custom-theme-option">
+                                <div class="theme-preview" id="custom-theme-preview"></div>
+                                <strong>Custom</strong>
+                                <div class="text-muted small">Build from scratch or remix a theme</div>
+                            </div>
+                        </div>
+
+                        <div class="custom-theme-editor{% if profile.theme_preference == 'custom' %} is-visible{% endif %}" id="custom-theme-editor">
+                            <div class="custom-theme-toolbar">
+                                <div>
+                                    <div class="fw-semibold">Custom Theme Builder</div>
+                                    <div class="text-muted small">Start from any theme, then tune the same semantic colors used across cards, mentions, surfaces, and controls.</div>
+                                </div>
+                                <div class="custom-theme-controls">
+                                    <label class="form-label small mb-0">
+                                        Base
+                                        <select class="form-select form-select-sm" id="custom-theme-base">
+                                            <option value="dark">Dark</option>
+                                            <option value="graphite">Graphite</option>
+                                            <option value="light">Light</option>
+                                            <option value="outlook">Outlook</option>
+                                            <option value="teams">Teams</option>
+                                            <option value="liquid-glass">Liquid Glass</option>
+                                            <option value="eco">Eco</option>
+                                        </select>
+                                    </label>
+                                    <label class="form-label small mb-0">
+                                        Scheme
+                                        <select class="form-select form-select-sm" id="custom-theme-scheme">
+                                            <option value="dark">Dark controls</option>
+                                            <option value="light">Light controls</option>
+                                        </select>
+                                    </label>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="custom-theme-load-base">
+                                        <i class="bi bi-magic"></i> Load Base
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" id="custom-theme-reset">
+                                        Reset
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="custom-theme-grid" id="custom-theme-grid">
+                                <div class="custom-theme-group">
+                                    <div class="custom-theme-group-title">Brand</div>
+                                    <div class="custom-theme-field"><label for="ct-primary">Primary</label><input id="ct-primary" type="color" data-custom-theme-color="primary"></div>
+                                    <div class="custom-theme-field"><label for="ct-primary-hover">Primary hover</label><input id="ct-primary-hover" type="color" data-custom-theme-color="primaryHover"></div>
+                                    <div class="custom-theme-field"><label for="ct-secondary">Secondary</label><input id="ct-secondary" type="color" data-custom-theme-color="secondary"></div>
+                                    <div class="custom-theme-field"><label for="ct-accent">Accent</label><input id="ct-accent" type="color" data-custom-theme-color="accent"></div>
+                                </div>
+                                <div class="custom-theme-group">
+                                    <div class="custom-theme-group-title">Status</div>
+                                    <div class="custom-theme-field"><label for="ct-success">Success</label><input id="ct-success" type="color" data-custom-theme-color="success"></div>
+                                    <div class="custom-theme-field"><label for="ct-warning">Warning</label><input id="ct-warning" type="color" data-custom-theme-color="warning"></div>
+                                    <div class="custom-theme-field"><label for="ct-danger">Danger</label><input id="ct-danger" type="color" data-custom-theme-color="danger"></div>
+                                </div>
+                                <div class="custom-theme-group">
+                                    <div class="custom-theme-group-title">Surfaces</div>
+                                    <div class="custom-theme-field"><label for="ct-bg-primary">Page</label><input id="ct-bg-primary" type="color" data-custom-theme-color="bgPrimary"></div>
+                                    <div class="custom-theme-field"><label for="ct-bg-secondary">Panel</label><input id="ct-bg-secondary" type="color" data-custom-theme-color="bgSecondary"></div>
+                                    <div class="custom-theme-field"><label for="ct-bg-tertiary">Subtle</label><input id="ct-bg-tertiary" type="color" data-custom-theme-color="bgTertiary"></div>
+                                    <div class="custom-theme-field"><label for="ct-card-bg">Card</label><input id="ct-card-bg" type="color" data-custom-theme-color="cardBg"></div>
+                                    <div class="custom-theme-field"><label for="ct-card-hover">Card hover</label><input id="ct-card-hover" type="color" data-custom-theme-color="cardHover"></div>
+                                    <div class="custom-theme-field"><label for="ct-card-header">Card header</label><input id="ct-card-header" type="color" data-custom-theme-color="cardHeader"></div>
+                                    <div class="custom-theme-field"><label for="ct-card-body">Card body</label><input id="ct-card-body" type="color" data-custom-theme-color="cardBody"></div>
+                                </div>
+                                <div class="custom-theme-group">
+                                    <div class="custom-theme-group-title">Text / Borders</div>
+                                    <div class="custom-theme-field"><label for="ct-text-primary">Text primary</label><input id="ct-text-primary" type="color" data-custom-theme-color="textPrimary"></div>
+                                    <div class="custom-theme-field"><label for="ct-text-secondary">Text secondary</label><input id="ct-text-secondary" type="color" data-custom-theme-color="textSecondary"></div>
+                                    <div class="custom-theme-field"><label for="ct-text-muted">Text muted</label><input id="ct-text-muted" type="color" data-custom-theme-color="textMuted"></div>
+                                    <div class="custom-theme-field"><label for="ct-border">Border</label><input id="ct-border" type="color" data-custom-theme-color="border"></div>
+                                    <div class="custom-theme-field"><label for="ct-border-light">Border light</label><input id="ct-border-light" type="color" data-custom-theme-color="borderLight"></div>
+                                </div>
+                                <div class="custom-theme-group">
+                                    <div class="custom-theme-group-title">Highlights</div>
+                                    <div class="custom-theme-field"><label for="ct-mention-bg">Mention bg</label><input id="ct-mention-bg" type="color" data-custom-theme-color="mentionBg"></div>
+                                    <div class="custom-theme-field"><label for="ct-mention-text">Mention text</label><input id="ct-mention-text" type="color" data-custom-theme-color="mentionText"></div>
+                                    <div class="custom-theme-field"><label for="ct-mention-border">Mention border</label><input id="ct-mention-border" type="color" data-custom-theme-color="mentionBorder"></div>
+                                    <div class="custom-theme-field"><label for="ct-channel-bg">Channel bg</label><input id="ct-channel-bg" type="color" data-custom-theme-color="channelBg"></div>
+                                    <div class="custom-theme-field"><label for="ct-channel-text">Channel text</label><input id="ct-channel-text" type="color" data-custom-theme-color="channelText"></div>
+                                    <div class="custom-theme-field"><label for="ct-channel-border">Channel border</label><input id="ct-channel-border" type="color" data-custom-theme-color="channelBorder"></div>
+                                </div>
+                            </div>
+
+                            <div class="custom-theme-sample">
+                                <div class="custom-theme-sample-head">
+                                    <span>Live sample</span>
+                                    <span><span class="mention-tag">@Canopy</span> <a class="channel-tag" href="#">#general</a></span>
+                                </div>
+                                <div class="custom-theme-sample-card">
+                                    <div class="custom-theme-sample-card-header">Card header</div>
+                                    <div class="custom-theme-sample-card-body">Readable card body text with <span class="text-muted">muted metadata</span> and a <button type="button" class="btn btn-sm btn-primary">Primary action</button>.</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -688,6 +917,65 @@
 let selectedTheme = '{{ profile.theme_preference }}';
 const CANOPY_LLM_SETTINGS = {{ (canopy_llm_settings|default({}))|tojson }};
 const PROFILE_CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+const PROFILE_CUSTOM_THEME = {{ profile_custom_theme|tojson }};
+const CUSTOM_THEME_STORAGE_KEY = 'canopy-custom-theme';
+const CUSTOM_THEME_FIELDS = Object.freeze({
+    primary: '--canopy-primary',
+    primaryHover: '--canopy-primary-hover',
+    secondary: '--canopy-secondary',
+    accent: '--canopy-accent',
+    success: '--canopy-success',
+    warning: '--canopy-warning',
+    danger: '--canopy-danger',
+    bgPrimary: '--canopy-bg-primary',
+    bgSecondary: '--canopy-bg-secondary',
+    bgTertiary: '--canopy-bg-tertiary',
+    cardBg: '--canopy-bg-card',
+    cardHover: '--canopy-bg-card-hover',
+    cardHeader: '--canopy-card-header-bg',
+    cardBody: '--canopy-card-body-bg',
+    textPrimary: '--canopy-text-primary',
+    textSecondary: '--canopy-text-secondary',
+    textMuted: '--canopy-text-muted',
+    border: '--canopy-border',
+    borderLight: '--canopy-border-light',
+    mentionBg: '--canopy-mention-bg',
+    mentionText: '--canopy-mention-text',
+    mentionBorder: '--canopy-mention-border',
+    channelBg: '--canopy-channel-tag-bg',
+    channelText: '--canopy-channel-tag-text',
+    channelBorder: '--canopy-channel-tag-border'
+});
+const CUSTOM_THEME_DEFAULTS = Object.freeze({
+    scheme: 'dark',
+    colors: {
+        primary: '#22c55e',
+        primaryHover: '#16a34a',
+        secondary: '#4ade80',
+        accent: '#06b6d4',
+        success: '#10b981',
+        warning: '#f59e0b',
+        danger: '#ef4444',
+        bgPrimary: '#0f0f1a',
+        bgSecondary: '#171728',
+        bgTertiary: '#1e1e32',
+        cardBg: '#1e293b',
+        cardHover: '#2d3748',
+        cardHeader: '#1e1e32',
+        cardBody: '#1e293b',
+        textPrimary: '#f8fafc',
+        textSecondary: '#cbd5e1',
+        textMuted: '#64748b',
+        border: '#334155',
+        borderLight: '#475569',
+        mentionBg: '#123d27',
+        mentionText: '#bbf7d0',
+        mentionBorder: '#216a41',
+        channelBg: '#102d57',
+        channelText: '#bfdbfe',
+        channelBorder: '#27548f'
+    }
+});
 
 function profileFetch(url, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
@@ -723,30 +1011,156 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function setupThemeSelection() {
     const themeOptions = document.querySelectorAll('.theme-option');
+    const customEditor = document.getElementById('custom-theme-editor');
+    const customInputs = document.querySelectorAll('[data-custom-theme-color]');
+    const schemeSelect = document.getElementById('custom-theme-scheme');
+    const baseSelect = document.getElementById('custom-theme-base');
+    const loadBaseBtn = document.getElementById('custom-theme-load-base');
+    const resetBtn = document.getElementById('custom-theme-reset');
+
+    function themeApiApply(theme, options = {}) {
+        if (window.CanopyThemes && typeof window.CanopyThemes.applyTheme === 'function') {
+            return window.CanopyThemes.applyTheme(theme, options);
+        }
+        if (typeof applyTheme === 'function') {
+            return applyTheme(theme, options);
+        }
+        const resolvedTheme = theme === 'auto' && window.matchMedia
+            ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+            : theme;
+        const colorScheme = ['light', 'outlook', 'teams'].includes(String(resolvedTheme || '').toLowerCase()) ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', resolvedTheme);
+        document.documentElement.setAttribute('data-theme-preference', theme);
+        document.documentElement.setAttribute('data-bs-theme', colorScheme);
+        document.documentElement.style.colorScheme = colorScheme;
+        localStorage.setItem('canopy-theme', theme);
+        return resolvedTheme;
+    }
+
+    function normalizeHex(value, fallback = '#22c55e') {
+        const raw = String(value || '').trim();
+        if (/^#[0-9a-f]{6}$/i.test(raw)) return raw.toLowerCase();
+        if (/^#[0-9a-f]{3}$/i.test(raw)) {
+            return ('#' + raw.slice(1).split('').map(ch => ch + ch).join('')).toLowerCase();
+        }
+        const rgb = raw.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+        if (rgb) {
+            return '#' + [rgb[1], rgb[2], rgb[3]].map(v => Math.max(0, Math.min(255, parseInt(v, 10) || 0)).toString(16).padStart(2, '0')).join('');
+        }
+        const firstHex = raw.match(/#[0-9a-f]{6}|#[0-9a-f]{3}/i);
+        if (firstHex) return normalizeHex(firstHex[0], fallback);
+        return fallback;
+    }
+
+    function readStoredCustomTheme() {
+        try {
+            const stored = JSON.parse(localStorage.getItem(CUSTOM_THEME_STORAGE_KEY) || 'null');
+            if (stored && typeof stored === 'object') return stored;
+        } catch (_) {}
+        return PROFILE_CUSTOM_THEME && Object.keys(PROFILE_CUSTOM_THEME).length ? PROFILE_CUSTOM_THEME : CUSTOM_THEME_DEFAULTS;
+    }
+
+    function collectCustomTheme() {
+        const colors = { ...CUSTOM_THEME_DEFAULTS.colors };
+        customInputs.forEach(input => {
+            const key = input.getAttribute('data-custom-theme-color');
+            if (key) colors[key] = normalizeHex(input.value, colors[key]);
+        });
+        return {
+            scheme: schemeSelect && schemeSelect.value === 'light' ? 'light' : 'dark',
+            colors
+        };
+    }
+
+    function persistCustomTheme(theme) {
+        try {
+            localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify(theme));
+        } catch (_) {}
+        if (window.CanopyThemes && typeof window.CanopyThemes.saveCustomTheme === 'function') {
+            window.CanopyThemes.saveCustomTheme(theme);
+        }
+    }
+
+    function populateCustomTheme(theme) {
+        const safeTheme = theme && typeof theme === 'object' ? theme : CUSTOM_THEME_DEFAULTS;
+        const colors = { ...CUSTOM_THEME_DEFAULTS.colors, ...(safeTheme.colors || {}) };
+        customInputs.forEach(input => {
+            const key = input.getAttribute('data-custom-theme-color');
+            if (key) input.value = normalizeHex(colors[key], CUSTOM_THEME_DEFAULTS.colors[key]);
+        });
+        if (schemeSelect) schemeSelect.value = safeTheme.scheme === 'light' ? 'light' : 'dark';
+        updateCustomPreview(colors);
+    }
+
+    function updateCustomPreview(colors) {
+        const preview = document.getElementById('custom-theme-preview');
+        if (!preview) return;
+        preview.style.setProperty('--custom-preview-bg-a', normalizeHex(colors.bgPrimary, '#0f172a'));
+        preview.style.setProperty('--custom-preview-bg-b', normalizeHex(colors.cardBg, '#1e293b'));
+        preview.style.setProperty('--custom-preview-accent', normalizeHex(colors.primary, '#22c55e'));
+        preview.style.setProperty('--custom-preview-border', normalizeHex(colors.borderLight, '#22c55e'));
+    }
+
+    function applyCurrentCustomTheme() {
+        const theme = collectCustomTheme();
+        persistCustomTheme(theme);
+        updateCustomPreview(theme.colors);
+        if (selectedTheme === 'custom') {
+            themeApiApply('custom', { customTheme: theme });
+        }
+        return theme;
+    }
+    window.getCurrentProfileCustomTheme = collectCustomTheme;
+
+    function captureCurrentThemeAsCustom(baseTheme) {
+        themeApiApply(baseTheme, { persist: false });
+        const styles = getComputedStyle(document.documentElement);
+        const colors = { ...CUSTOM_THEME_DEFAULTS.colors };
+        Object.keys(CUSTOM_THEME_FIELDS).forEach(key => {
+            colors[key] = normalizeHex(styles.getPropertyValue(CUSTOM_THEME_FIELDS[key]), colors[key]);
+        });
+        const theme = {
+            scheme: ['light', 'outlook', 'teams'].includes(String(baseTheme || '').toLowerCase()) ? 'light' : 'dark',
+            colors
+        };
+        populateCustomTheme(theme);
+        selectedTheme = 'custom';
+        themeOptions.forEach(opt => opt.classList.toggle('active', opt.dataset.theme === 'custom'));
+        if (customEditor) customEditor.classList.add('is-visible');
+        persistCustomTheme(theme);
+        themeApiApply('custom', { customTheme: theme });
+    }
+
+    populateCustomTheme(readStoredCustomTheme());
     
     themeOptions.forEach(option => {
         option.addEventListener('click', function() {
             themeOptions.forEach(opt => opt.classList.remove('active'));
             this.classList.add('active');
             selectedTheme = this.dataset.theme;
-            
-            // Apply theme immediately for preview
-            if (typeof applyTheme === 'function') {
-                applyTheme(selectedTheme);
+            if (customEditor) {
+                customEditor.classList.toggle('is-visible', selectedTheme === 'custom');
+            }
+
+            if (selectedTheme === 'custom') {
+                themeApiApply('custom', { customTheme: collectCustomTheme() });
             } else {
-                // Fallback if base theme function not available
-                const resolvedTheme = selectedTheme === 'auto' && window.matchMedia
-                    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-                    : selectedTheme;
-                const colorScheme = ['light', 'outlook', 'teams'].includes(String(resolvedTheme || '').toLowerCase()) ? 'light' : 'dark';
-                document.documentElement.setAttribute('data-theme', resolvedTheme);
-                document.documentElement.setAttribute('data-theme-preference', selectedTheme);
-                document.documentElement.setAttribute('data-bs-theme', colorScheme);
-                document.documentElement.style.colorScheme = colorScheme;
-                localStorage.setItem('canopy-theme', selectedTheme);
+                themeApiApply(selectedTheme);
             }
         });
     });
+
+    customInputs.forEach(input => input.addEventListener('input', applyCurrentCustomTheme));
+    if (schemeSelect) schemeSelect.addEventListener('change', applyCurrentCustomTheme);
+    if (loadBaseBtn) {
+        loadBaseBtn.addEventListener('click', () => captureCurrentThemeAsCustom(baseSelect ? baseSelect.value : 'dark'));
+    }
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            populateCustomTheme(CUSTOM_THEME_DEFAULTS);
+            applyCurrentCustomTheme();
+        });
+    }
 }
 
 function setupAvatarUpload() {
@@ -986,6 +1400,13 @@ document.getElementById('profile-form').addEventListener('submit', function(e) {
         bio: bio,
         theme_preference: selectedTheme
     };
+    if (selectedTheme === 'custom') {
+        try {
+            data.custom_theme = JSON.parse(localStorage.getItem(CUSTOM_THEME_STORAGE_KEY) || 'null') || (window.getCurrentProfileCustomTheme ? window.getCurrentProfileCustomTheme() : CUSTOM_THEME_DEFAULTS);
+        } catch (_) {
+            data.custom_theme = window.getCurrentProfileCustomTheme ? window.getCurrentProfileCustomTheme() : CUSTOM_THEME_DEFAULTS;
+        }
+    }
     
     profileFetch('/ajax/update_profile', {
         method: 'POST',

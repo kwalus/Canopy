@@ -8,6 +8,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+LIGHT_SCHEME_SELECTOR = ':is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"])'
 
 
 class TestFrontendRegressions(unittest.TestCase):
@@ -147,6 +148,44 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('--ff-only', updates_core)
         self.assertIn('repo_url_contains_credentials', updates_core)
         self.assertIn('insecure_repo_url', updates_core)
+
+    def test_theme_system_exposes_custom_builder_and_light_safe_highlights(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+        profile_core = (ROOT / 'canopy' / 'core' / 'profile.py').read_text(encoding='utf-8')
+
+        self.assertIn("'custom'", base_template)
+        self.assertIn('initial_custom_theme', base_template)
+        self.assertIn('data-custom-theme-scheme', base_template)
+        self.assertIn('--canopy-mention-bg', base_template)
+        self.assertIn('--canopy-mention-text', base_template)
+        self.assertIn('--canopy-card-header-bg', base_template)
+        self.assertIn('--canopy-card-body-bg', base_template)
+        self.assertIn('color: var(--canopy-mention-text);', base_template)
+        self.assertIn('background: var(--canopy-card-body-bg) !important;', base_template)
+        self.assertIn('[data-theme="custom"][data-custom-theme-scheme="light"]', base_template)
+
+        self.assertIn('theme-custom', profile_template)
+        self.assertIn('custom-theme-editor', profile_template)
+        self.assertIn('custom-theme-load-base', profile_template)
+        self.assertIn('data-custom-theme-color="mentionText"', profile_template)
+        self.assertIn('data-custom-theme-color="cardHeader"', profile_template)
+        self.assertIn('window.getCurrentProfileCustomTheme', profile_template)
+        self.assertIn('data.custom_theme', profile_template)
+
+        self.assertIn('CANOPY_CUSTOM_THEME_VARS', main_js)
+        self.assertIn('applyCanopyCustomTheme', main_js)
+        self.assertIn('readCustomTheme: readCanopyCustomTheme', main_js)
+        self.assertIn('saveCustomTheme: saveCanopyCustomTheme', main_js)
+
+        self.assertIn('[data-theme="custom"][data-custom-theme-scheme="light"]', feed_template)
+        self.assertIn("'dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco', 'custom'", ui_routes)
+        self.assertIn('def _sanitize_custom_theme(raw_theme: Any)', ui_routes)
+        self.assertIn('privacy_updates[\'custom_theme\']', ui_routes)
+        self.assertIn('eco, custom', profile_core)
 
     def test_user_file_vault_ui_and_composer_picker_are_wired(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
@@ -909,7 +948,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('.file-preview-container.md-preview :where(p, li, td)', base_template)
         self.assertIn('.file-preview-container.md-preview blockquote', base_template)
         self.assertIn('.file-preview-container.md-preview th', base_template)
-        self.assertIn('[data-theme="light"] .file-preview-container.md-preview', base_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .file-preview-container.md-preview', base_template)
         self.assertIn('[data-theme="dark"] .file-preview-container.md-preview', base_template)
         self.assertNotIn('background: var(--bs-tertiary-bg, #2b3035);', base_template)
 
@@ -920,8 +959,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertNotIn('var(--bs-secondary-bg,', base_template)
         self.assertNotIn('var(--bs-tertiary-bg,', base_template)
         self.assertNotIn('var(--bs-border-color,', base_template)
-        self.assertIn('[data-theme="light"] .file-preview-container.code-preview,', base_template)
-        self.assertIn('[data-theme="light"] .file-preview-container.spreadsheet-preview', base_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .file-preview-container.code-preview,', base_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .file-preview-container.spreadsheet-preview', base_template)
 
     def test_business_document_attachments_are_allowed_and_previewable(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -1042,7 +1081,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('--canopy-theme-color: #052e16;', base_template)
         self.assertIn('html[data-theme="light"],', base_template)
         self.assertIn('html[data-theme="outlook"],', base_template)
-        self.assertIn('html[data-theme="teams"] {', base_template)
+        self.assertIn('html[data-theme="teams"],', base_template)
+        self.assertIn('html[data-theme="custom"][data-custom-theme-scheme="light"] {', base_template)
         self.assertIn('html[data-theme="graphite"],', base_template)
         self.assertIn('color-scheme: light;', base_template)
 
@@ -1096,9 +1136,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Microsoft mail-style blue workspace', profile_template)
         self.assertIn('data-theme="teams"', profile_template)
         self.assertIn('Microsoft collaboration-style indigo workspace', profile_template)
-        self.assertIn('[data-theme="light"] .sidebar-peers,', base_template)
-        self.assertIn('[data-theme="light"] .sidebar-dm-contact,', base_template)
-        self.assertIn('[data-theme="light"] .sidebar-media-mini', base_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .sidebar-peers,', base_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .sidebar-dm-contact,', base_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .sidebar-media-mini', base_template)
         self.assertIn('[data-theme="outlook"] .sidebar-peers,', base_template)
         self.assertIn('[data-theme="teams"] .sidebar-dm-contact,', base_template)
 
@@ -1120,17 +1160,17 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('[data-theme="outlook"] .messages-page,', messages_template)
         self.assertIn(':is([data-theme="outlook"], [data-theme="teams"]) .feed-page .post-card,', feed_template)
         self.assertIn(':is([data-theme="outlook"], [data-theme="teams"]) .channel-header {', channels_template)
-        self.assertIn('[data-theme="light"] .message-card {', channels_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .message-card {{', channels_template)
         self.assertIn('border: 1px solid #bdccdc;', channels_template)
-        self.assertIn('[data-theme="light"] #messages-container {', channels_template)
-        self.assertIn('[data-theme="light"] .message-actions .icon-action-btn,', channels_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} #messages-container {{', channels_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .message-actions .icon-action-btn,', channels_template)
         self.assertIn(':is([data-theme="dark"], [data-theme="graphite"]) .message-card {', channels_template)
         self.assertIn(':is([data-theme="dark"], [data-theme="graphite"]) #messages-container {', channels_template)
         self.assertIn('[data-theme="dark"] .channel-item.active {', channels_template)
-        self.assertIn(':is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-shell {', base_template)
-        self.assertIn(':is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-footer {', base_template)
-        self.assertIn(':is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-action-btn,', base_template)
-        self.assertIn(':is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-backdrop {', base_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .sidebar-media-deck-shell {{', base_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .sidebar-media-deck-footer {{', base_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .sidebar-media-deck-action-btn,', base_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .sidebar-media-deck-backdrop {{', base_template)
         self.assertIn(':is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck-shell {', base_template)
         self.assertIn('[data-theme="liquid-glass"] .sidebar-media-deck-shell {', base_template)
 
@@ -1141,13 +1181,13 @@ class TestFrontendRegressions(unittest.TestCase):
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
         self.assertIn('<section class="feed-page">', feed_template)
-        self.assertIn('[data-theme="light"] .feed-page .post-card,', feed_template)
-        self.assertIn('[data-theme="light"] .messages-page,', messages_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .feed-page .post-card,', feed_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .messages-page,', messages_template)
         self.assertIn('--dm-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 255, 0.96));', messages_template)
-        self.assertIn('[data-theme="light"] .channel-item.active {', channels_template)
-        self.assertIn('[data-theme="light"] .channel-header {', channels_template)
-        self.assertIn('[data-theme="light"] .connect-page .card {', connect_template)
-        self.assertIn('[data-theme="light"] .trust-hero {', trust_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .channel-item.active {{', channels_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .channel-header {{', channels_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .connect-page .card {{', connect_template)
+        self.assertIn(f'{LIGHT_SCHEME_SELECTOR} .trust-hero {{', trust_template)
 
     def test_channel_reply_button_uses_dataset_helper(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
@@ -2573,7 +2613,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.111', api_ref)
+        self.assertIn('0.6.112', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

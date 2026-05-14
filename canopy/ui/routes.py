@@ -13126,7 +13126,7 @@ def create_ui_blueprint() -> Blueprint:
 
             if 'theme_preference' in data:
                 theme_preference = (data.get('theme_preference') or 'dark').strip().lower()
-                if theme_preference not in ['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco']:
+                if theme_preference not in ['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco', 'custom']:
                     return jsonify({'error': 'Invalid theme_preference'}), 400
                 updates['theme_preference'] = theme_preference
 
@@ -23593,10 +23593,10 @@ def create_ui_blueprint() -> Blueprint:
             _, _, _, _, _, _, _, _, profile_manager, _, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
             
-            data = request.get_json()
+            data = request.get_json(silent=True) or {}
             display_name = data.get('display_name', '').strip()
             bio = data.get('bio', '').strip()
-            theme_preference = data.get('theme_preference', 'dark')
+            theme_preference = str(data.get('theme_preference') or 'dark').strip().lower()
             
             # Validate inputs
             if len(display_name) > 100:
@@ -23605,15 +23605,43 @@ def create_ui_blueprint() -> Blueprint:
             if len(bio) > 500:
                 return jsonify({'error': 'Bio too long (max 500 characters)'}), 400
             
-            if theme_preference not in ['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco']:
+            if theme_preference not in ['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco', 'custom']:
                 theme_preference = 'dark'
+
+            def _sanitize_custom_theme(raw_theme: Any) -> dict[str, Any]:
+                allowed_keys = {
+                    'primary', 'primaryHover', 'secondary', 'accent', 'success', 'warning', 'danger',
+                    'bgPrimary', 'bgSecondary', 'bgTertiary', 'cardBg', 'cardHover', 'cardHeader', 'cardBody',
+                    'textPrimary', 'textSecondary', 'textMuted', 'border', 'borderLight',
+                    'mentionBg', 'mentionText', 'mentionBorder', 'channelBg', 'channelText', 'channelBorder',
+                }
+                color_re = re.compile(r'^#[0-9a-fA-F]{6}$')
+                if not isinstance(raw_theme, dict):
+                    return {}
+                raw_colors = raw_theme.get('colors') if isinstance(raw_theme.get('colors'), dict) else raw_theme
+                colors = {}
+                for key in allowed_keys:
+                    value = str(raw_colors.get(key) or '').strip()
+                    if color_re.match(value):
+                        colors[key] = value.lower()
+                return {
+                    'scheme': 'light' if str(raw_theme.get('scheme') or '').lower() == 'light' else 'dark',
+                    'colors': colors,
+                }
+
+            privacy_updates = None
+            if theme_preference == 'custom' and isinstance(data.get('custom_theme'), dict):
+                current_profile = profile_manager.get_profile(user_id) if profile_manager else None
+                privacy_updates = dict(getattr(current_profile, 'privacy_settings', None) or {})
+                privacy_updates['custom_theme'] = _sanitize_custom_theme(data.get('custom_theme') or {})
             
             # Update profile
             success = profile_manager.update_profile(
                 user_id,
                 display_name=display_name or None,
                 bio=bio or None,
-                theme_preference=theme_preference
+                theme_preference=theme_preference,
+                **({'privacy_settings': privacy_updates} if privacy_updates is not None else {})
             )
             
             if success:

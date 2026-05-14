@@ -8416,10 +8416,44 @@
             teams: '#6264a7',
             light: '#ffffff',
             eco: '#052e16',
-            'liquid-glass': '#0f0f1a'
+            'liquid-glass': '#0f0f1a',
+            custom: '#0f0f1a'
         });
-        const CANOPY_THEME_NAMES = Object.freeze(['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco']);
+        const CANOPY_THEME_NAMES = Object.freeze(['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco', 'custom']);
         const CANOPY_LIGHT_SCHEME_THEMES = Object.freeze(['light', 'outlook', 'teams']);
+        const CANOPY_CUSTOM_THEME_STORAGE_KEY = 'canopy-custom-theme';
+        const CANOPY_CUSTOM_THEME_VARS = Object.freeze({
+            primary: '--canopy-primary',
+            primaryHover: '--canopy-primary-hover',
+            secondary: '--canopy-secondary',
+            secondaryHover: '--canopy-secondary-hover',
+            accent: '--canopy-accent',
+            accentHover: '--canopy-accent-hover',
+            success: '--canopy-success',
+            warning: '--canopy-warning',
+            danger: '--canopy-danger',
+            bgPrimary: '--canopy-bg-primary',
+            bgSecondary: '--canopy-bg-secondary',
+            bgTertiary: '--canopy-bg-tertiary',
+            cardBg: '--canopy-bg-card',
+            cardHover: '--canopy-bg-card-hover',
+            cardHeader: '--canopy-card-header-bg',
+            cardBody: '--canopy-card-body-bg',
+            textPrimary: '--canopy-text-primary',
+            textSecondary: '--canopy-text-secondary',
+            textMuted: '--canopy-text-muted',
+            border: '--canopy-border',
+            borderLight: '--canopy-border-light',
+            mentionBg: '--canopy-mention-bg',
+            mentionText: '--canopy-mention-text',
+            mentionBorder: '--canopy-mention-border',
+            channelBg: '--canopy-channel-tag-bg',
+            channelText: '--canopy-channel-tag-text',
+            channelBorder: '--canopy-channel-tag-border',
+            navbarBg: '--canopy-navbar-bg',
+            sidebarBg: '--canopy-sidebar-bg'
+        });
+        const CANOPY_CUSTOM_THEME_COLOR_RE = /^(#[0-9a-f]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\)|[a-z]+)$/i;
         let canopyThemeMediaQueryBound = false;
 
         function normalizeCanopyThemePreference(theme) {
@@ -8438,14 +8472,86 @@
         }
 
         function canopyThemeColorScheme(resolvedTheme) {
-            return CANOPY_LIGHT_SCHEME_THEMES.includes(String(resolvedTheme || '').trim().toLowerCase()) ? 'light' : 'dark';
+            const theme = String(resolvedTheme || '').trim().toLowerCase();
+            if (theme === 'custom') {
+                const custom = readCanopyCustomTheme();
+                return String(custom.scheme || '').toLowerCase() === 'light' ? 'light' : 'dark';
+            }
+            return CANOPY_LIGHT_SCHEME_THEMES.includes(theme) ? 'light' : 'dark';
         }
 
         function updateCanopyThemeMetaColor(resolvedTheme) {
             const meta = document.querySelector('meta[name="theme-color"]');
             if (meta) {
-                meta.setAttribute('content', CANOPY_THEME_META_COLORS[resolvedTheme] || CANOPY_THEME_META_COLORS.dark);
+                const customColor = document.documentElement.style.getPropertyValue('--canopy-theme-color').trim();
+                meta.setAttribute('content', resolvedTheme === 'custom' && customColor ? customColor : (CANOPY_THEME_META_COLORS[resolvedTheme] || CANOPY_THEME_META_COLORS.dark));
             }
+        }
+
+        function readCanopyCustomTheme() {
+            try {
+                const stored = localStorage.getItem(CANOPY_CUSTOM_THEME_STORAGE_KEY);
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    if (parsed && typeof parsed === 'object') return parsed;
+                }
+            } catch (_) {
+                // Ignore broken local theme JSON.
+            }
+            const profileCustom = window.CANOPY_VARS && window.CANOPY_VARS.customTheme;
+            return profileCustom && typeof profileCustom === 'object' ? profileCustom : {};
+        }
+
+        function saveCanopyCustomTheme(theme) {
+            try {
+                localStorage.setItem(CANOPY_CUSTOM_THEME_STORAGE_KEY, JSON.stringify(theme || {}));
+            } catch (_) {
+                // Custom theme persistence should not block previewing.
+            }
+        }
+
+        function clearInlineCustomThemeVars() {
+            Object.values(CANOPY_CUSTOM_THEME_VARS).forEach((cssVar) => {
+                document.documentElement.style.removeProperty(cssVar);
+            });
+            [
+                '--canopy-gradient-primary',
+                '--canopy-gradient-primary-hover',
+                '--canopy-gradient-secondary',
+                '--canopy-gradient-bg',
+                '--canopy-theme-color'
+            ].forEach((cssVar) => document.documentElement.style.removeProperty(cssVar));
+        }
+
+        function applyCanopyCustomTheme(theme) {
+            const customTheme = theme && typeof theme === 'object' ? theme : readCanopyCustomTheme();
+            const colors = customTheme.colors && typeof customTheme.colors === 'object' ? customTheme.colors : customTheme;
+            Object.keys(CANOPY_CUSTOM_THEME_VARS).forEach((key) => {
+                const value = String(colors[key] || '').trim();
+                if (value && CANOPY_CUSTOM_THEME_COLOR_RE.test(value)) {
+                    document.documentElement.style.setProperty(CANOPY_CUSTOM_THEME_VARS[key], value);
+                }
+            });
+            const primary = String(colors.primary || '').trim();
+            const primaryHover = String(colors.primaryHover || primary || '').trim();
+            const secondary = String(colors.secondary || primary || '').trim();
+            const accent = String(colors.accent || primary || '').trim();
+            const bgPrimary = String(colors.bgPrimary || '').trim();
+            const bgSecondary = String(colors.bgSecondary || bgPrimary || '').trim();
+            if (CANOPY_CUSTOM_THEME_COLOR_RE.test(primary) && CANOPY_CUSTOM_THEME_COLOR_RE.test(primaryHover || primary)) {
+                document.documentElement.style.setProperty('--canopy-gradient-primary', `linear-gradient(135deg, ${primary} 0%, ${primaryHover || primary} 100%)`);
+                document.documentElement.style.setProperty('--canopy-gradient-primary-hover', `linear-gradient(135deg, ${primaryHover || primary} 0%, ${primary} 100%)`);
+            }
+            if (CANOPY_CUSTOM_THEME_COLOR_RE.test(accent) && CANOPY_CUSTOM_THEME_COLOR_RE.test(secondary)) {
+                document.documentElement.style.setProperty('--canopy-gradient-secondary', `linear-gradient(135deg, ${accent} 0%, ${secondary} 100%)`);
+            }
+            if (CANOPY_CUSTOM_THEME_COLOR_RE.test(bgPrimary) && CANOPY_CUSTOM_THEME_COLOR_RE.test(bgSecondary)) {
+                document.documentElement.style.setProperty('--canopy-gradient-bg', `linear-gradient(180deg, ${bgSecondary} 0%, ${bgPrimary} 100%)`);
+                document.documentElement.style.setProperty('--canopy-theme-color', bgPrimary);
+            }
+            const scheme = String(customTheme.scheme || '').toLowerCase() === 'light' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-custom-theme-scheme', scheme);
+            return scheme;
         }
 
         function readCanopyThemePreference() {
@@ -8486,9 +8592,15 @@
         function applyTheme(theme, options = {}) {
             const preference = normalizeCanopyThemePreference(theme);
             const resolvedTheme = resolveCanopyThemePreference(preference);
-            const colorScheme = canopyThemeColorScheme(resolvedTheme);
+            if (resolvedTheme !== 'custom') {
+                clearInlineCustomThemeVars();
+            }
+            let colorScheme = canopyThemeColorScheme(resolvedTheme);
             document.documentElement.setAttribute('data-theme', resolvedTheme);
             document.documentElement.setAttribute('data-theme-preference', preference);
+            if (resolvedTheme === 'custom') {
+                colorScheme = applyCanopyCustomTheme(options.customTheme);
+            }
             document.documentElement.setAttribute('data-bs-theme', colorScheme);
             document.documentElement.style.colorScheme = colorScheme;
             updateCanopyThemeMetaColor(resolvedTheme);
@@ -8519,13 +8631,23 @@
             const profileTheme = (window.CANOPY_VARS && window.CANOPY_VARS.profileTheme) || 'dark';
             const savedTheme = readCanopyThemePreference() || profileTheme || 'dark';
             const resolvedTheme = resolveCanopyThemePreference(savedTheme);
-            const colorScheme = canopyThemeColorScheme(resolvedTheme);
+            let colorScheme = canopyThemeColorScheme(resolvedTheme);
             document.documentElement.setAttribute('data-theme', resolvedTheme);
             document.documentElement.setAttribute('data-theme-preference', normalizeCanopyThemePreference(savedTheme));
+            if (resolvedTheme === 'custom') {
+                colorScheme = applyCanopyCustomTheme();
+            }
             document.documentElement.setAttribute('data-bs-theme', colorScheme);
             document.documentElement.style.colorScheme = colorScheme;
             updateCanopyThemeMetaColor(resolvedTheme);
         })();
+
+        window.CanopyThemes = {
+            applyTheme,
+            readCustomTheme: readCanopyCustomTheme,
+            saveCustomTheme: saveCanopyCustomTheme,
+            customThemeVars: CANOPY_CUSTOM_THEME_VARS
+        };
 
         // Format timestamps immediately and then refresh relative labels.
         if (document.readyState === 'loading') {

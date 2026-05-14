@@ -176,6 +176,45 @@ class TestProfilePageRegressions(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
 
+    def test_update_profile_sanitizes_custom_theme(self) -> None:
+        csrf_token = 'csrf-custom-theme'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        self.profile_manager.get_profile.return_value = types.SimpleNamespace(
+            privacy_settings={'profile_visibility': 'network'}
+        )
+
+        response = self.client.post(
+            '/ajax/update_profile',
+            json={
+                'display_name': 'A',
+                'bio': 'B',
+                'theme_preference': ' Custom ',
+                'custom_theme': {
+                    'scheme': 'light',
+                    'colors': {
+                        'primary': '#22C55E',
+                        'mentionText': '#14532d',
+                        'danger': 'red',
+                        'bgPrimary': '#fff',
+                        'unsupported': '#000000',
+                    },
+                },
+            },
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        _, kwargs = self.profile_manager.update_profile.call_args
+        self.assertEqual(kwargs['theme_preference'], 'custom')
+        self.assertEqual(kwargs['privacy_settings']['profile_visibility'], 'network')
+        self.assertEqual(kwargs['privacy_settings']['custom_theme'], {
+            'scheme': 'light',
+            'colors': {
+                'primary': '#22c55e',
+                'mentionText': '#14532d',
+            },
+        })
+
     def test_upload_avatar_succeeds_with_csrf(self) -> None:
         csrf_token = 'csrf-ok'
         self._set_authenticated_session(csrf_token=csrf_token)

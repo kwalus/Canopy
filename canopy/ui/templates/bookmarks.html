@@ -327,14 +327,12 @@
         font-size: 0.82rem;
         font-weight: 600;
     }
-
-    [data-theme="light"] .bookmark-preview-image,
-    [data-theme="light"] .bookmark-preview-chip {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .bookmark-preview-image,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .bookmark-preview-chip {
         background: rgba(255, 255, 255, 0.9);
         border-color: rgba(148, 163, 184, 0.28);
     }
-
-    [data-theme="light"] .bookmark-preview-chip {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .bookmark-preview-chip {
         color: var(--canopy-text-secondary);
     }
 

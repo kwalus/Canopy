@@ -49,8 +49,7 @@
         --dm-inline-editor-border: rgba(110, 148, 255, 0.18);
         --dm-inline-editor-shadow: 0 14px 28px rgba(3, 10, 22, 0.24);
     }
-
-    [data-theme="light"] .messages-page,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .messages-page,
     [data-theme="outlook"] .messages-page,
     [data-theme="teams"] .messages-page {
         --dm-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 255, 0.96));
@@ -1447,50 +1446,41 @@
     .flash-focus {
         animation: dmFlashFocus 1.3s ease;
     }
-
-    [data-theme="light"] .dm-unread-pill {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-unread-pill {
         color: #166534;
     }
-
-    [data-theme="light"] .dm-security-pill.e2e,
-    [data-theme="light"] .dm-security-chip.e2e,
-    [data-theme="light"] .dm-bubble-reply-preview strong,
-    [data-theme="light"] .dm-composer-reply strong {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-security-pill.e2e,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-security-chip.e2e,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-bubble-reply-preview strong,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-composer-reply strong {
         color: #15803d;
     }
-
-    [data-theme="light"] .dm-security-pill.local,
-    [data-theme="light"] .dm-security-chip.local {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-security-pill.local,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-security-chip.local {
         color: #1d4ed8;
     }
-
-    [data-theme="light"] .dm-security-pill.warning,
-    [data-theme="light"] .dm-security-chip.warning {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-security-pill.warning,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-security-chip.warning {
         color: #a16207;
     }
-
-    [data-theme="light"] .dm-security-pill.failure,
-    [data-theme="light"] .dm-security-chip.failure {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-security-pill.failure,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-security-chip.failure {
         color: #b91c1c;
     }
-
-    [data-theme="light"] .dm-avatar.stacked {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-avatar.stacked {
         border-color: rgba(255, 255, 255, 0.94);
     }
-
-    [data-theme="light"] .dm-bubble-reply-preview:hover,
-    [data-theme="light"] .dm-bubble-reply-preview:focus-visible,
-    [data-theme="light"] .dm-search-result-card:hover,
-    [data-theme="light"] .dm-search-result-card:focus-visible {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-bubble-reply-preview:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-bubble-reply-preview:focus-visible,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-search-result-card:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-search-result-card:focus-visible {
         background: #f1f5f9;
         border-color: rgba(37, 99, 235, 0.28);
     }
-
-    [data-theme="light"] .dm-attachment-image img {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-attachment-image img {
         border-color: rgba(100, 116, 139, 0.26);
     }
-
-    [data-theme="light"] .dm-composer-input-wrap:focus-within {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .dm-composer-input-wrap:focus-within {
         box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16);
     }
 

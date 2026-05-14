@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.112] - 2026-05-14
+
+### Added
+- **Custom Theme Builder** - Profile now includes a Custom appearance option that lets users start from a built-in theme, choose a light or dark control scheme, tune semantic color tokens, preview mentions/cards/buttons live, and save the sanitized palette with their profile settings.
+
+### Changed
+- **Light-theme contrast is token-driven** - mentions, channel chips, cards, hover/focus surfaces, and light-scheme page polish now use shared theme variables across Light, Outlook, Teams, and custom light themes instead of hard-coded colors.
+
 ## [0.6.111] - 2026-05-14
 
 ### Added

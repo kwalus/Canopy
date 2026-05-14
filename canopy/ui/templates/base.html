@@ -1,10 +1,14 @@
 {%- set initial_theme_preference = (profile.theme_preference if profile is defined and profile and profile.theme_preference else 'dark') -%}
 {%- set initial_theme_preference = initial_theme_preference|string|lower -%}
-{%- if initial_theme_preference not in ['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco'] -%}
+{%- if initial_theme_preference not in ['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco', 'custom'] -%}
     {%- set initial_theme_preference = 'dark' -%}
 {%- endif -%}
+{%- set initial_custom_theme = {} -%}
+{%- if profile is defined and profile and profile.privacy_settings is mapping and profile.privacy_settings.get('custom_theme') is mapping -%}
+    {%- set initial_custom_theme = profile.privacy_settings.get('custom_theme') -%}
+{%- endif -%}
 {%- set initial_theme_resolved = 'dark' if initial_theme_preference == 'auto' else initial_theme_preference -%}
-{%- set initial_theme_scheme = 'light' if initial_theme_resolved in ['light', 'outlook', 'teams'] else 'dark' -%}
+{%- set initial_theme_scheme = 'light' if initial_theme_resolved in ['light', 'outlook', 'teams'] or (initial_theme_resolved == 'custom' and initial_custom_theme.get('scheme') == 'light') else 'dark' -%}
 <!DOCTYPE html>
 <html lang="en"
       data-theme="{{ initial_theme_resolved }}"
@@ -39,7 +43,7 @@
     {% endif %}
     <script>
         (function() {
-            const VALID_THEMES = new Set(['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco']);
+            const VALID_THEMES = new Set(['dark', 'graphite', 'outlook', 'teams', 'light', 'auto', 'liquid-glass', 'eco', 'custom']);
             const LIGHT_SCHEME_THEMES = new Set(['light', 'outlook', 'teams']);
             const THEME_META_COLORS = {
                 dark: '#0f0f1a',
@@ -48,12 +52,85 @@
                 teams: '#6264a7',
                 light: '#ffffff',
                 eco: '#052e16',
-                'liquid-glass': '#0f0f1a'
+                'liquid-glass': '#0f0f1a',
+                custom: '#0f0f1a'
             };
+            const CUSTOM_THEME_VARS = {
+                primary: '--canopy-primary',
+                primaryHover: '--canopy-primary-hover',
+                secondary: '--canopy-secondary',
+                secondaryHover: '--canopy-secondary-hover',
+                accent: '--canopy-accent',
+                accentHover: '--canopy-accent-hover',
+                success: '--canopy-success',
+                warning: '--canopy-warning',
+                danger: '--canopy-danger',
+                bgPrimary: '--canopy-bg-primary',
+                bgSecondary: '--canopy-bg-secondary',
+                bgTertiary: '--canopy-bg-tertiary',
+                cardBg: '--canopy-bg-card',
+                cardHover: '--canopy-bg-card-hover',
+                cardHeader: '--canopy-card-header-bg',
+                cardBody: '--canopy-card-body-bg',
+                textPrimary: '--canopy-text-primary',
+                textSecondary: '--canopy-text-secondary',
+                textMuted: '--canopy-text-muted',
+                border: '--canopy-border',
+                borderLight: '--canopy-border-light',
+                mentionBg: '--canopy-mention-bg',
+                mentionText: '--canopy-mention-text',
+                mentionBorder: '--canopy-mention-border',
+                channelBg: '--canopy-channel-tag-bg',
+                channelText: '--canopy-channel-tag-text',
+                channelBorder: '--canopy-channel-tag-border',
+                navbarBg: '--canopy-navbar-bg',
+                sidebarBg: '--canopy-sidebar-bg'
+            };
+            const CUSTOM_THEME_SERVER = {{ initial_custom_theme|tojson }};
+            const CSS_COLOR_RE = /^(#[0-9a-f]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\)|[a-z]+)$/i;
 
             function normalizeTheme(value) {
                 const theme = String(value || 'dark').trim().toLowerCase() || 'dark';
                 return VALID_THEMES.has(theme) ? theme : 'dark';
+            }
+
+            function readCustomTheme() {
+                try {
+                    const stored = window.localStorage ? JSON.parse(window.localStorage.getItem('canopy-custom-theme') || 'null') : null;
+                    if (stored && typeof stored === 'object') return stored;
+                } catch (_) {}
+                return (CUSTOM_THEME_SERVER && typeof CUSTOM_THEME_SERVER === 'object') ? CUSTOM_THEME_SERVER : {};
+            }
+
+            function applyCustomTheme(root, customTheme) {
+                const theme = (customTheme && typeof customTheme === 'object') ? customTheme : {};
+                const colors = (theme.colors && typeof theme.colors === 'object') ? theme.colors : theme;
+                Object.keys(CUSTOM_THEME_VARS).forEach((key) => {
+                    const value = String(colors[key] || '').trim();
+                    if (value && CSS_COLOR_RE.test(value)) {
+                        root.style.setProperty(CUSTOM_THEME_VARS[key], value);
+                    }
+                });
+                const scheme = String(theme.scheme || '').toLowerCase() === 'light' ? 'light' : 'dark';
+                root.setAttribute('data-custom-theme-scheme', scheme);
+                const primary = String(colors.primary || '').trim();
+                const primaryHover = String(colors.primaryHover || primary || '').trim();
+                const secondary = String(colors.secondary || primary || '').trim();
+                const accent = String(colors.accent || primary || '').trim();
+                const bgPrimary = String(colors.bgPrimary || '').trim();
+                const bgSecondary = String(colors.bgSecondary || bgPrimary || '').trim();
+                if (CSS_COLOR_RE.test(primary) && CSS_COLOR_RE.test(primaryHover || primary)) {
+                    root.style.setProperty('--canopy-gradient-primary', `linear-gradient(135deg, ${primary} 0%, ${primaryHover || primary} 100%)`);
+                    root.style.setProperty('--canopy-gradient-primary-hover', `linear-gradient(135deg, ${primaryHover || primary} 0%, ${primary} 100%)`);
+                }
+                if (CSS_COLOR_RE.test(accent) && CSS_COLOR_RE.test(secondary)) {
+                    root.style.setProperty('--canopy-gradient-secondary', `linear-gradient(135deg, ${accent} 0%, ${secondary} 100%)`);
+                }
+                if (CSS_COLOR_RE.test(bgPrimary) && CSS_COLOR_RE.test(bgSecondary)) {
+                    root.style.setProperty('--canopy-gradient-bg', `linear-gradient(180deg, ${bgSecondary} 0%, ${bgPrimary} 100%)`);
+                    root.style.setProperty('--canopy-theme-color', bgPrimary);
+                }
+                return scheme;
             }
 
             function resolveTheme(preference) {
@@ -77,15 +154,19 @@
             const serverPreference = normalizeTheme({{ initial_theme_preference|tojson }});
             const preference = normalizeTheme(readSavedTheme() || serverPreference);
             const resolvedTheme = resolveTheme(preference);
-            const colorScheme = LIGHT_SCHEME_THEMES.has(resolvedTheme) ? 'light' : 'dark';
             const root = document.documentElement;
+            let colorScheme = LIGHT_SCHEME_THEMES.has(resolvedTheme) ? 'light' : 'dark';
             root.setAttribute('data-theme', resolvedTheme);
             root.setAttribute('data-theme-preference', preference);
+            if (resolvedTheme === 'custom') {
+                colorScheme = applyCustomTheme(root, readCustomTheme());
+            }
             root.setAttribute('data-bs-theme', colorScheme);
             root.style.colorScheme = colorScheme;
             const meta = document.querySelector('meta[name="theme-color"]');
             if (meta) {
-                meta.setAttribute('content', THEME_META_COLORS[resolvedTheme] || THEME_META_COLORS.dark);
+                const customColor = root.style.getPropertyValue('--canopy-theme-color').trim();
+                meta.setAttribute('content', resolvedTheme === 'custom' && customColor ? customColor : (THEME_META_COLORS[resolvedTheme] || THEME_META_COLORS.dark));
             }
             window.__CANOPY_PREPAINT_THEME__ = { preference, resolvedTheme, colorScheme };
         })();
@@ -234,6 +315,17 @@
             --canopy-chip-muted: rgba(148, 163, 184, 0.88);
             --canopy-chip-rail-muted: rgba(226, 232, 240, 0.72);
             --canopy-chip-caret: rgba(191, 219, 254, 0.82);
+            --canopy-card-header-bg: linear-gradient(135deg, var(--canopy-bg-tertiary) 0%, var(--canopy-bg-card) 100%);
+            --canopy-card-body-bg: var(--canopy-bg-card);
+            --canopy-mention-bg: rgba(34, 197, 94, 0.16);
+            --canopy-mention-text: #bbf7d0;
+            --canopy-mention-border: rgba(34, 197, 94, 0.28);
+            --canopy-channel-tag-bg: rgba(59, 130, 246, 0.18);
+            --canopy-channel-tag-text: #bfdbfe;
+            --canopy-channel-tag-border: rgba(59, 130, 246, 0.3);
+            --canopy-interactive-bg: rgba(255, 255, 255, 0.04);
+            --canopy-interactive-hover-bg: rgba(148, 163, 184, 0.12);
+            --canopy-focus-ring: rgba(34, 197, 94, 0.16);
             --canopy-theme-color: #0f0f1a;
         }
 
@@ -285,6 +377,17 @@
             --canopy-chip-muted: #64748b;
             --canopy-chip-rail-muted: #64748b;
             --canopy-chip-caret: #64748b;
+            --canopy-card-header-bg: linear-gradient(135deg, #ffffff 0%, #f2f8f5 100%);
+            --canopy-card-body-bg: #ffffff;
+            --canopy-mention-bg: rgba(21, 128, 61, 0.12);
+            --canopy-mention-text: #14532d;
+            --canopy-mention-border: rgba(21, 128, 61, 0.28);
+            --canopy-channel-tag-bg: rgba(8, 145, 178, 0.11);
+            --canopy-channel-tag-text: #0e7490;
+            --canopy-channel-tag-border: rgba(8, 145, 178, 0.25);
+            --canopy-interactive-bg: rgba(15, 23, 42, 0.04);
+            --canopy-interactive-hover-bg: rgba(21, 128, 61, 0.08);
+            --canopy-focus-ring: rgba(21, 128, 61, 0.16);
             --canopy-theme-color: #ffffff;
         }
 
@@ -337,6 +440,17 @@
             --canopy-chip-muted: rgba(150, 150, 150, 0.9);
             --canopy-chip-rail-muted: rgba(204, 204, 204, 0.72);
             --canopy-chip-caret: rgba(204, 204, 204, 0.82);
+            --canopy-card-header-bg: linear-gradient(135deg, #2d2d30 0%, #252526 100%);
+            --canopy-card-body-bg: #252526;
+            --canopy-mention-bg: rgba(55, 148, 255, 0.16);
+            --canopy-mention-text: #cfe8ff;
+            --canopy-mention-border: rgba(55, 148, 255, 0.3);
+            --canopy-channel-tag-bg: rgba(79, 193, 255, 0.14);
+            --canopy-channel-tag-text: #cfe8ff;
+            --canopy-channel-tag-border: rgba(79, 193, 255, 0.28);
+            --canopy-interactive-bg: rgba(255, 255, 255, 0.04);
+            --canopy-interactive-hover-bg: rgba(55, 148, 255, 0.12);
+            --canopy-focus-ring: rgba(55, 148, 255, 0.16);
             --canopy-theme-color: #252526;
         }
 
@@ -389,6 +503,17 @@
             --canopy-chip-muted: #605e5c;
             --canopy-chip-rail-muted: #605e5c;
             --canopy-chip-caret: #605e5c;
+            --canopy-card-header-bg: linear-gradient(135deg, #ffffff 0%, #edf6ff 100%);
+            --canopy-card-body-bg: #ffffff;
+            --canopy-mention-bg: rgba(16, 124, 16, 0.12);
+            --canopy-mention-text: #0b5a0b;
+            --canopy-mention-border: rgba(16, 124, 16, 0.25);
+            --canopy-channel-tag-bg: rgba(0, 120, 212, 0.12);
+            --canopy-channel-tag-text: #005a9e;
+            --canopy-channel-tag-border: rgba(0, 120, 212, 0.25);
+            --canopy-interactive-bg: rgba(0, 120, 212, 0.05);
+            --canopy-interactive-hover-bg: rgba(0, 120, 212, 0.1);
+            --canopy-focus-ring: rgba(0, 120, 212, 0.16);
             --canopy-theme-color: #0078d4;
         }
 
@@ -441,6 +566,17 @@
             --canopy-chip-muted: #616161;
             --canopy-chip-rail-muted: #616161;
             --canopy-chip-caret: #616161;
+            --canopy-card-header-bg: linear-gradient(135deg, #ffffff 0%, #f1f1fb 100%);
+            --canopy-card-body-bg: #ffffff;
+            --canopy-mention-bg: rgba(19, 161, 14, 0.12);
+            --canopy-mention-text: #0f6b0b;
+            --canopy-mention-border: rgba(19, 161, 14, 0.25);
+            --canopy-channel-tag-bg: rgba(98, 100, 167, 0.12);
+            --canopy-channel-tag-text: #464775;
+            --canopy-channel-tag-border: rgba(98, 100, 167, 0.25);
+            --canopy-interactive-bg: rgba(98, 100, 167, 0.05);
+            --canopy-interactive-hover-bg: rgba(98, 100, 167, 0.1);
+            --canopy-focus-ring: rgba(98, 100, 167, 0.16);
             --canopy-theme-color: #6264a7;
         }
 
@@ -494,6 +630,17 @@
             --canopy-chip-muted: rgba(148, 163, 184, 0.9);
             --canopy-chip-rail-muted: rgba(226, 232, 240, 0.72);
             --canopy-chip-caret: rgba(209, 250, 229, 0.82);
+            --canopy-card-header-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 15, 26, 0.58));
+            --canopy-card-body-bg: rgba(30, 41, 59, 0.52);
+            --canopy-mention-bg: rgba(34, 197, 94, 0.18);
+            --canopy-mention-text: #bbf7d0;
+            --canopy-mention-border: rgba(74, 222, 128, 0.28);
+            --canopy-channel-tag-bg: rgba(6, 182, 212, 0.17);
+            --canopy-channel-tag-text: #cffafe;
+            --canopy-channel-tag-border: rgba(6, 182, 212, 0.28);
+            --canopy-interactive-bg: rgba(255, 255, 255, 0.06);
+            --canopy-interactive-hover-bg: rgba(74, 222, 128, 0.12);
+            --canopy-focus-ring: rgba(34, 197, 94, 0.18);
             --canopy-theme-color: #0f0f1a;
             
             /* Glass effect properties */
@@ -553,12 +700,28 @@
             --canopy-chip-muted: rgba(167, 243, 208, 0.82);
             --canopy-chip-rail-muted: rgba(209, 250, 229, 0.7);
             --canopy-chip-caret: rgba(209, 250, 229, 0.82);
+            --canopy-card-header-bg: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(5, 46, 22, 0.74));
+            --canopy-card-body-bg: var(--canopy-bg-card);
+            --canopy-mention-bg: rgba(163, 230, 53, 0.18);
+            --canopy-mention-text: #ecfccb;
+            --canopy-mention-border: rgba(163, 230, 53, 0.3);
+            --canopy-channel-tag-bg: rgba(45, 212, 191, 0.16);
+            --canopy-channel-tag-text: #ccfbf1;
+            --canopy-channel-tag-border: rgba(45, 212, 191, 0.28);
+            --canopy-interactive-bg: rgba(255, 255, 255, 0.05);
+            --canopy-interactive-hover-bg: rgba(163, 230, 53, 0.12);
+            --canopy-focus-ring: rgba(74, 222, 128, 0.18);
             --canopy-theme-color: #052e16;
+        }
+
+        [data-theme="custom"] {
+            --canopy-theme-color: var(--canopy-bg-primary);
         }
 
         html[data-theme="light"],
         html[data-theme="outlook"],
-        html[data-theme="teams"] {
+        html[data-theme="teams"],
+        html[data-theme="custom"][data-custom-theme-scheme="light"] {
             color-scheme: light;
         }
 
@@ -566,7 +729,8 @@
         html[data-theme="dark"],
         html[data-theme="graphite"],
         html[data-theme="eco"],
-        html[data-theme="liquid-glass"] {
+        html[data-theme="liquid-glass"],
+        html[data-theme="custom"][data-custom-theme-scheme="dark"] {
             color-scheme: dark;
         }
         
@@ -3061,8 +3225,7 @@
             --deck-inbox-unread-bg: color-mix(in srgb, var(--canopy-primary) 86%, #eafff3);
             --deck-inbox-unread-color: #04130b;
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck {
             --deck-inbox-panel-bg: rgba(255, 255, 255, 0.72);
             --deck-inbox-panel-bg-strong: rgba(255, 255, 255, 0.92);
             --deck-inbox-panel-bg-soft: color-mix(in srgb, var(--canopy-primary) 7%, #ffffff);
@@ -3844,147 +4007,126 @@
         .sidebar-media-deck-backdrop.is-visible {
             display: block;
         }
-
-        :is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck-shell {
+:is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck-shell {
             background: var(--canopy-surface-elevated-accent);
             border-color: var(--canopy-surface-border-strong);
             box-shadow:
                 var(--canopy-surface-shadow-strong),
                 inset 0 1px 0 rgba(255, 255, 255, 0.07);
         }
-
-        :is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck-header,
-        :is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck-footer {
+:is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck-header,
+:is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck-footer {
             border-color: var(--canopy-surface-border-soft);
         }
-
-        :is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck.is-module-active .sidebar-media-deck-queue-header {
+:is([data-theme="graphite"], [data-theme="eco"], [data-theme="liquid-glass"]) .sidebar-media-deck.is-module-active .sidebar-media-deck-queue-header {
             background: color-mix(in srgb, var(--canopy-bg-secondary) 84%, transparent);
         }
 
         [data-theme="liquid-glass"] .sidebar-media-deck-shell {
             backdrop-filter: var(--glass-backdrop-blur) var(--glass-backdrop-saturate);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-shell {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-shell {
             background: var(--canopy-surface-elevated-accent);
             border-color: var(--canopy-surface-border-strong);
             box-shadow:
                 var(--canopy-surface-shadow-strong),
                 inset 0 1px 0 rgba(255, 255, 255, 0.78);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-header {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-header {
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.7), transparent);
             border-bottom-color: var(--canopy-surface-border-soft);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-footer {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-footer {
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(248, 250, 252, 0.94));
             border-top-color: var(--canopy-surface-border-soft);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck.is-module-active .sidebar-media-deck-queue-header {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck.is-module-active .sidebar-media-deck-queue-header {
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.9));
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-chip {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-chip {
             background: color-mix(in srgb, var(--canopy-primary) 11%, #ffffff);
             border-color: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
             color: color-mix(in srgb, var(--canopy-primary) 72%, #0f172a);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-chip.muted,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-count,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-time,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-source,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-subtitle {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-chip.muted,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-count,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-time,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-source,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-subtitle {
             color: var(--canopy-text-secondary);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-action-btn,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-inline-toggle,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-btn {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-action-btn,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-inline-toggle,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-btn {
             background: rgba(255, 255, 255, 0.86);
             border-color: var(--canopy-border);
             color: var(--canopy-text-secondary);
             box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-action-btn:hover,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-action-btn:focus-visible,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-inline-toggle:hover,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-inline-toggle:focus-visible,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-btn:hover,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-btn:focus-visible {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-action-btn:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-action-btn:focus-visible,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-inline-toggle:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-inline-toggle:focus-visible,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-btn:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-btn:focus-visible {
             background: color-mix(in srgb, var(--canopy-primary) 9%, #ffffff);
             border-color: color-mix(in srgb, var(--canopy-primary) 30%, var(--canopy-border));
             color: var(--canopy-text-primary);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-action-btn.is-active,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-btn.primary {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-action-btn.is-active,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-btn.primary {
             background: color-mix(in srgb, var(--canopy-primary) 14%, #ffffff);
             border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
             color: color-mix(in srgb, var(--canopy-primary) 72%, #0f172a);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-provider {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-provider {
             background: color-mix(in srgb, var(--canopy-accent) 12%, #ffffff);
             border-color: color-mix(in srgb, var(--canopy-accent) 26%, var(--canopy-border));
             color: color-mix(in srgb, var(--canopy-accent) 72%, #0f172a);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-widget-summary,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-empty,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-item {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-widget-summary,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-empty,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-item {
             background: rgba(255, 255, 255, 0.78);
             border-color: var(--canopy-surface-border-soft);
             color: var(--canopy-text-primary);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-item:hover {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-item:hover {
             background: color-mix(in srgb, var(--canopy-primary) 8%, #ffffff);
             border-color: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-item.is-active {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-item.is-active {
             background: color-mix(in srgb, var(--canopy-primary) 11%, #ffffff);
             border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
             box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 16%, transparent);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-station-summary {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-station-summary {
             background:
                 radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 12%, transparent), transparent 40%),
                 rgba(255, 255, 255, 0.7);
             border-color: color-mix(in srgb, var(--canopy-primary) 22%, var(--canopy-border));
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-station-policy,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-station-badge,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-widget-badge,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-widget-kv {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-station-policy,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-station-badge,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-widget-badge,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-widget-kv {
             background: rgba(255, 255, 255, 0.7);
             border-color: var(--canopy-surface-border-soft);
             color: var(--canopy-text-secondary);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-widget-frame,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-widget-panel,
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-module-panel {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-widget-frame,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-widget-panel,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-module-panel {
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 252, 0.94));
             border-color: var(--canopy-surface-border-soft);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-item-thumb {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-item-thumb {
             background:
                 linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(226, 232, 240, 0.92)),
                 radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 16%, transparent), transparent 42%);
             color: var(--canopy-text-secondary);
         }
-
-        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"]) .sidebar-media-deck-backdrop {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-deck-backdrop {
             background: linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.18));
         }
 
@@ -4790,101 +4932,88 @@
         .sidebar-peer.activity .trust-pill {
             border-color: rgba(6, 182, 212, 0.45);
         }
-
-        [data-theme="light"] .sidebar-peers,
-        [data-theme="light"] .sidebar-dm-contacts,
-        [data-theme="light"] .sidebar-media-mini {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-peers,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-dm-contacts,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini {
             background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 252, 0.95));
             border-color: rgba(148, 163, 184, 0.24);
             box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
         }
-
-        [data-theme="light"] .sidebar-panel-mode,
-        [data-theme="light"] .sidebar-peers-count,
-        [data-theme="light"] .trust-pill {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-panel-mode,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-peers-count,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .trust-pill {
             background: #eef4fb;
             border-color: #d6e1ec;
             color: #475569;
         }
-
-        [data-theme="light"] .sidebar-panel-icon-btn,
-        [data-theme="light"] .sidebar-panel-expand-btn,
-        [data-theme="light"] .sidebar-media-mini-pin,
-        [data-theme="light"] .sidebar-media-mini-expand,
-        [data-theme="light"] .sidebar-media-mini-close,
-        [data-theme="light"] .sidebar-media-mini-btn {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-panel-icon-btn,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-panel-expand-btn,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-pin,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-expand,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-close,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-btn {
             background: #ffffff;
             border-color: #d6e1ec;
             color: #475569;
         }
-
-        [data-theme="light"] .sidebar-panel-icon-btn:hover,
-        [data-theme="light"] .sidebar-panel-expand-btn:hover,
-        [data-theme="light"] .sidebar-media-mini-pin:hover,
-        [data-theme="light"] .sidebar-media-mini-expand:hover,
-        [data-theme="light"] .sidebar-media-mini-btn:hover {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-panel-icon-btn:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-panel-expand-btn:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-pin:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-expand:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-btn:hover {
             background: rgba(21, 128, 61, 0.08);
             border-color: rgba(21, 128, 61, 0.24);
             color: #0f172a;
         }
-
-        [data-theme="light"] .sidebar-panel-icon-btn:focus-visible,
-        [data-theme="light"] .sidebar-panel-expand-btn:focus-visible,
-        [data-theme="light"] .sidebar-media-mini-pin:focus-visible,
-        [data-theme="light"] .sidebar-media-mini-expand:focus-visible,
-        [data-theme="light"] .sidebar-media-mini-btn:focus-visible {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-panel-icon-btn:focus-visible,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-panel-expand-btn:focus-visible,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-pin:focus-visible,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-expand:focus-visible,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-btn:focus-visible {
             background: rgba(21, 128, 61, 0.08);
             border-color: rgba(21, 128, 61, 0.32);
             color: #0f172a;
             box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.16);
         }
-
-        [data-theme="light"] .sidebar-media-mini-close:hover,
-        [data-theme="light"] .sidebar-media-mini-close:focus-visible {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-close:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-close:focus-visible {
             background: rgba(220, 38, 38, 0.08);
             color: #991b1b;
             border-color: rgba(220, 38, 38, 0.22);
         }
-
-        [data-theme="light"] .sidebar-dm-contact,
-        [data-theme="light"] .sidebar-peer {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-dm-contact,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-peer {
             background: #ffffff;
             border-color: #dce6f0;
             color: #0f172a;
         }
-
-        [data-theme="light"] .sidebar-dm-contact:hover,
-        [data-theme="light"] .sidebar-peer:hover,
-        [data-theme="light"] .sidebar-peer:focus-visible {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-dm-contact:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-peer:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-peer:focus-visible {
             background: #f4fbf7;
             border-color: rgba(21, 128, 61, 0.24);
             color: #0f172a;
         }
-
-        [data-theme="light"] .sidebar-dm-contact.unread {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-dm-contact.unread {
             background: linear-gradient(90deg, rgba(220, 38, 38, 0.08), #ffffff);
             border-color: rgba(220, 38, 38, 0.22);
         }
-
-        [data-theme="light"] .sidebar-dm-avatar,
-        [data-theme="light"] .sidebar-peer-avatar,
-        [data-theme="light"] .sidebar-media-mini-icon {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-dm-avatar,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-peer-avatar,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-icon {
             background: linear-gradient(135deg, rgba(21, 128, 61, 0.14), rgba(8, 145, 178, 0.12));
             border-color: rgba(21, 128, 61, 0.18);
             color: #14532d;
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
         }
-
-        [data-theme="light"] .sidebar-dm-status-dot {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-dm-status-dot {
             border-color: #ffffff;
             box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08);
         }
-
-        [data-theme="light"] .sidebar-media-mini-progress {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-media-mini-progress {
             background: #e2e8f0;
         }
-
-        [data-theme="light"] .sidebar-peer.activity {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .sidebar-peer.activity {
             background: linear-gradient(90deg, rgba(8, 145, 178, 0.1), #ffffff);
             border-color: rgba(8, 145, 178, 0.26);
             box-shadow: 0 0 0 1px rgba(8, 145, 178, 0.12), 0 12px 24px rgba(15, 23, 42, 0.08);
@@ -5261,26 +5390,30 @@
             display: inline-block;
             padding: 0 0.3rem;
             border-radius: 0.35rem;
-            background: rgba(34, 197, 94, 0.15);
-            color: #86efac;
+            background: var(--canopy-mention-bg);
+            color: var(--canopy-mention-text);
+            border: 1px solid var(--canopy-mention-border);
             font-weight: 600;
             letter-spacing: 0.01em;
+            line-height: 1.45;
         }
 
         .channel-tag {
             display: inline-block;
             padding: 0 0.3rem;
             border-radius: 0.35rem;
-            background: rgba(59, 130, 246, 0.18);
-            color: #93c5fd;
+            background: var(--canopy-channel-tag-bg);
+            color: var(--canopy-channel-tag-text);
+            border: 1px solid var(--canopy-channel-tag-border);
             font-weight: 600;
             letter-spacing: 0.01em;
             text-decoration: none;
+            line-height: 1.45;
         }
 
         .channel-tag:hover {
-            background: rgba(59, 130, 246, 0.28);
-            color: #bfdbfe;
+            background: var(--canopy-interactive-hover-bg);
+            color: var(--canopy-channel-tag-text);
             text-decoration: none;
         }
 
@@ -5316,7 +5449,7 @@
 
         .mention-suggestions .mention-item:hover,
         .mention-suggestions .mention-item.highlighted {
-            background: rgba(148, 163, 184, 0.12);
+            background: var(--canopy-interactive-hover-bg);
         }
 
         .mention-suggestions .mention-meta {
@@ -5993,7 +6126,7 @@
         }
         
         .card-header {
-            background: linear-gradient(135deg, var(--canopy-bg-tertiary) 0%, var(--canopy-bg-card) 100%) !important;
+            background: var(--canopy-card-header-bg) !important;
             border-bottom: 1px solid var(--canopy-border) !important;
             font-weight: 600;
             color: var(--canopy-text-primary) !important;
@@ -6004,7 +6137,7 @@
         .card-body {
             color: var(--canopy-text-secondary) !important;
             padding: 20px;
-            background: var(--canopy-bg-card) !important;
+            background: var(--canopy-card-body-bg) !important;
         }
 
         /* Liquid Glass Theme Enhancements */
@@ -6679,17 +6812,15 @@
         }
 
         /* ===== Light Theme Component Overrides ===== */
-        [data-theme="light"] .navbar-brand::before,
-        :is([data-theme="outlook"], [data-theme="teams"]) .navbar-brand::before {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .navbar-brand::before,
+:is([data-theme="outlook"], [data-theme="teams"]) .navbar-brand::before {
             background: radial-gradient(circle, rgba(15, 23, 42, 0.1), transparent 68%);
             opacity: 0.56;
         }
-
-        [data-theme="light"] .navbar-toggler-icon {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .navbar-toggler-icon {
             background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%2815, 23, 42, 0.72%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
         }
-
-        [data-theme="light"] .meshspace-crest {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .meshspace-crest {
             background:
                 radial-gradient(circle at 28% 24%, rgba(var(--mesh-accent-rgb), 0.28), transparent 48%),
                 linear-gradient(155deg, rgba(255, 255, 255, 0.98), rgba(232, 239, 246, 0.96));
@@ -6699,23 +6830,19 @@
                 inset 0 1px 0 rgba(255, 255, 255, 0.72),
                 0 10px 20px rgba(15, 23, 42, 0.1);
         }
-
-        [data-theme="light"] .meshspace-status-dot {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .meshspace-status-dot {
             border-color: rgba(255, 255, 255, 0.95);
         }
-
-        [data-theme="light"] .meshspace-switcher-item:hover,
-        [data-theme="light"] .meshspace-switcher-item:focus-visible {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .meshspace-switcher-item:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .meshspace-switcher-item:focus-visible {
             background: rgba(21, 128, 61, 0.07);
             border-color: rgba(21, 128, 61, 0.16);
         }
-
-        [data-theme="light"] .meshspace-switcher-item.is-current {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .meshspace-switcher-item.is-current {
             background: rgba(21, 128, 61, 0.08);
             border-color: rgba(21, 128, 61, 0.18);
         }
-
-        [data-theme="light"] .meshspace-rail-orb.has-recent-activity::after {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .meshspace-rail-orb.has-recent-activity::after {
             border-color: rgba(21, 128, 61, 0.18);
         }
         
@@ -9031,7 +9158,7 @@
         .btn:focus,
         .form-control:focus,
         .form-select:focus {
-            box-shadow: 0 0 0 0.25rem rgba(34, 197, 94, 0.1);
+            box-shadow: 0 0 0 0.25rem var(--canopy-focus-ring);
             border-color: var(--canopy-primary);
         }
         
@@ -9058,10 +9185,14 @@
             color: var(--canopy-text-secondary) !important;
             border-color: var(--canopy-border) !important;
         }
+
+        body .card-body {
+            background: var(--canopy-card-body-bg) !important;
+        }
         
         body .card-header,
         body .accordion-button {
-            background: var(--canopy-bg-tertiary) !important;
+            background: var(--canopy-card-header-bg) !important;
             color: var(--canopy-text-primary) !important;
         }
         
@@ -9274,12 +9405,12 @@
         }
         
         [data-theme="dark"] .card-body {
-            background: var(--canopy-bg-card) !important;
+            background: var(--canopy-card-body-bg) !important;
             color: var(--canopy-text-secondary) !important;
         }
         
         [data-theme="dark"] .card-header {
-            background: var(--canopy-bg-tertiary) !important;
+            background: var(--canopy-card-header-bg) !important;
             border-bottom: 1px solid var(--canopy-border) !important;
             color: var(--canopy-text-primary) !important;
         }
@@ -9866,27 +9997,23 @@
             border-color: rgba(148, 163, 184, 0.24);
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
         }
-
-        [data-theme="light"] .file-preview-container.md-preview {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-container.md-preview {
             background:
                 radial-gradient(circle at top right, rgba(34, 197, 94, 0.08), transparent 38%),
                 linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98));
             box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
         }
-
-        [data-theme="light"] .file-preview-container.md-preview pre {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-container.md-preview pre {
             background: #f8fafc;
             color: #0f172a;
         }
-
-        [data-theme="light"] .file-preview-container.md-preview code {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-container.md-preview code {
             background: #eef2f7;
             color: #0f172a;
         }
-
-        [data-theme="light"] .file-preview-container.code-preview,
-        [data-theme="light"] .file-preview-container.document-preview,
-        [data-theme="light"] .file-preview-container.spreadsheet-preview {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-container.code-preview,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-container.document-preview,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-container.spreadsheet-preview {
             background: #ffffff;
             border-color: var(--canopy-border);
             color: var(--canopy-text-primary);
@@ -11340,6 +11467,7 @@
             attentionEventCursor: {{ sidebar_attention_event_cursor|tojson if sidebar_attention_event_cursor is defined else '0' }},
             userId: {{ (session.get('user_id') or user_id or 'local_user')|tojson }},
             profileTheme: {{ (profile.theme_preference if profile else 'dark')|tojson }},
+            customTheme: {{ initial_custom_theme|tojson }},
             localUserId: {{ session.get('user_id')|tojson }},
             localPeerId: {{ sidebar_local_peer_id|tojson if sidebar_local_peer_id is defined else 'null' }},
             currentMeshspace: {{ current_meshspace_payload|tojson }},
