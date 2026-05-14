@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.97] - 2026-05-13
+
+### Changed
+- **File Vault uploads are more mobile-friendly and diagnosable** - the Vault picker now uses a native label-backed file input, upload failures surface per-file server reasons, and VPS storage permission problems return an actionable ownership/permissions message.
+- **Vault folder creation is now inline** - the New Folder flow uses a compact toolbar form instead of a browser popup, making it friendlier on mobile screens.
+
 ## [0.6.96] - 2026-05-13
 
 ### Fixed

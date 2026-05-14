@@ -112,6 +112,14 @@
         color: var(--canopy-text-secondary);
         font-size: 0.9rem;
     }
+    .vault-file-input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        overflow: hidden;
+        pointer-events: none;
+    }
     .vault-toolbar {
         display: grid;
         grid-template-columns: minmax(220px, 1fr) auto;
@@ -199,6 +207,27 @@
     .vault-folder-card.is-drop-target {
         border-color: var(--canopy-secondary);
         background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-card));
+    }
+    .vault-explorer-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        justify-content: flex-end;
+    }
+    .vault-inline-folder-form {
+        display: none;
+        flex: 1 1 100%;
+        grid-template-columns: minmax(180px, 1fr) auto auto;
+        gap: 0.5rem;
+        align-items: center;
+    }
+    .vault-inline-folder-form.is-visible {
+        display: grid;
+    }
+    .vault-inline-folder-error {
+        grid-column: 1 / -1;
+        color: var(--canopy-danger);
+        font-size: 0.82rem;
     }
     .vault-folder-preview {
         height: 78px;
@@ -331,6 +360,10 @@
         .vault-explorer-bar {
             align-items: flex-start;
         }
+        .vault-explorer-actions {
+            width: 100%;
+            justify-content: flex-start;
+        }
         .vault-stats {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -343,6 +376,9 @@
             grid-template-columns: 1fr;
         }
         .vault-grid {
+            grid-template-columns: 1fr;
+        }
+        .vault-inline-folder-form {
             grid-template-columns: 1fr;
         }
     }
@@ -366,12 +402,12 @@
                 <span class="vault-rule"><i class="bi bi-cpu"></i> Digest-ready later</span>
             </div>
         </div>
-        <div class="vault-panel vault-dropzone" id="vault-dropzone" role="button" tabindex="0" aria-label="Upload files to your vault">
+        <label class="vault-panel vault-dropzone" id="vault-dropzone" for="vault-upload-input" role="button" tabindex="0" aria-label="Upload files to your vault">
             <span class="vault-drop-icon"><i class="bi bi-cloud-arrow-up"></i></span>
             <span class="vault-drop-title">Drop files here or click to upload</span>
             <span class="vault-drop-copy">Uses the same validation and file-type support as Canopy attachments.</span>
-        </div>
-        <input type="file" id="vault-upload-input" multiple hidden
+        </label>
+        <input class="vault-file-input" type="file" id="vault-upload-input" multiple
                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
     </section>
 
@@ -396,13 +432,24 @@
                 <i class="bi bi-house-door me-1"></i>Vault Home
             </button>
         </nav>
-        <div class="d-flex flex-wrap gap-2">
+        <div class="vault-explorer-actions">
             <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-root-btn" hidden>
                 <i class="bi bi-arrow-up-left"></i> Back to Vault Home
             </button>
             <button class="btn btn-primary btn-sm" type="button" id="vault-new-folder-btn">
                 <i class="bi bi-folder-plus"></i> New Folder
             </button>
+            <form class="vault-inline-folder-form" id="vault-new-folder-form" hidden>
+                <label class="visually-hidden" for="vault-new-folder-name">Folder name</label>
+                <input class="form-control form-control-sm" id="vault-new-folder-name" type="text" maxlength="80" autocomplete="off" placeholder="Folder name">
+                <button class="btn btn-primary btn-sm" type="submit">
+                    <i class="bi bi-check2"></i> Create
+                </button>
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-new-folder-cancel">
+                    Cancel
+                </button>
+                <div class="vault-inline-folder-error" id="vault-new-folder-error" hidden></div>
+            </form>
         </div>
     </section>
 

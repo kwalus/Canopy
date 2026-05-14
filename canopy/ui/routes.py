@@ -6355,6 +6355,18 @@ def create_ui_blueprint() -> Blueprint:
             user_id = get_current_user()
             if not file_manager:
                 return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            try:
+                storage_root = Path(file_manager.storage_path)
+                storage_root.mkdir(parents=True, exist_ok=True)
+                fd, probe_path = tempfile.mkstemp(prefix='.canopy-upload-check-', dir=str(storage_root))
+                os.close(fd)
+                os.unlink(probe_path)
+            except Exception as storage_err:
+                logger.error("Vault storage is not writable: %s", storage_err, exc_info=True)
+                return jsonify({
+                    'success': False,
+                    'error': 'Vault storage is not writable on this node. Check the data/files directory ownership and permissions.',
+                }), 500
 
             uploads = list(request.files.getlist('files') or [])
             single = request.files.get('file')
@@ -6402,14 +6414,22 @@ def create_ui_blueprint() -> Blueprint:
                             file_info = file_manager.move_user_file_to_folder(user_id, file_info.id, folder_id)
                         saved.append(_file_info_to_vault_entry(file_info))
                     else:
-                        failed.append({'name': original_name, 'error': 'Failed to save file'})
+                        failed.append({
+                            'name': original_name,
+                            'error': 'File could not be saved. Check vault storage permissions and available disk space.',
+                        })
                 except Exception as upload_err:
                     logger.error(f"Vault upload failed for {original_name}: {upload_err}", exc_info=True)
                     failed.append({'name': original_name, 'error': 'Upload failed'})
 
             status = 201 if saved else 400
+            error = ''
+            if not saved and failed:
+                first = failed[0]
+                error = f"{first.get('name') or 'Upload'}: {first.get('error') or 'Upload failed'}"
             return jsonify({
                 'success': bool(saved),
+                'error': error,
                 'files': saved,
                 'failed': failed,
             }), status

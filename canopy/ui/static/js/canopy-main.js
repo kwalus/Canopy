@@ -799,6 +799,10 @@
                 const dropzone = document.getElementById('vault-dropzone');
                 const breadcrumb = document.getElementById('vault-breadcrumb');
                 const newFolderBtn = document.getElementById('vault-new-folder-btn');
+                const newFolderForm = document.getElementById('vault-new-folder-form');
+                const newFolderName = document.getElementById('vault-new-folder-name');
+                const newFolderCancel = document.getElementById('vault-new-folder-cancel');
+                const newFolderError = document.getElementById('vault-new-folder-error');
                 const rootBtn = document.getElementById('vault-root-btn');
 
                 function updateStats(stats) {
@@ -849,6 +853,44 @@
 
                 function folderEndpoint(folderId) {
                     return `${vaultUrls().folders}/${encodeURIComponent(folderId)}`;
+                }
+
+                function summarizeVaultUploadError(error) {
+                    const failed = Array.isArray(error && error.failed) ? error.failed : [];
+                    if (failed.length) {
+                        const first = failed[0] || {};
+                        const name = first.name ? `"${first.name}"` : 'Upload';
+                        const reason = first.error || error.error || error.message || 'failed';
+                        const extra = failed.length > 1 ? ` (${failed.length} files failed)` : '';
+                        return `${name}: ${reason}${extra}`;
+                    }
+                    return (error && (error.error || error.message)) || 'Upload failed.';
+                }
+
+                function setNewFolderError(message) {
+                    if (!newFolderError) return;
+                    const text = String(message || '').trim();
+                    newFolderError.textContent = text;
+                    newFolderError.hidden = !text;
+                }
+
+                function showNewFolderForm() {
+                    if (!newFolderForm) return;
+                    newFolderForm.hidden = false;
+                    newFolderForm.classList.add('is-visible');
+                    setNewFolderError('');
+                    if (newFolderName) {
+                        newFolderName.value = '';
+                        window.setTimeout(() => newFolderName.focus(), 0);
+                    }
+                }
+
+                function hideNewFolderForm() {
+                    if (!newFolderForm) return;
+                    newFolderForm.classList.remove('is-visible');
+                    newFolderForm.hidden = true;
+                    setNewFolderError('');
+                    if (newFolderName) newFolderName.value = '';
                 }
 
                 async function navigateToFolder(folderId) {
@@ -915,7 +957,7 @@
                         await loadFiles({ append: false });
                     } catch (error) {
                         console.error('Vault upload failed:', error);
-                        if (typeof showAlert === 'function') showAlert(error.error || 'Upload failed.', 'danger');
+                        if (typeof showAlert === 'function') showAlert(summarizeVaultUploadError(error), 'danger');
                     } finally {
                         if (dropzone) dropzone.classList.remove('is-dragging');
                     }
@@ -931,18 +973,36 @@
                 }
                 if (rootBtn) rootBtn.addEventListener('click', () => navigateToFolder(''));
                 if (newFolderBtn) {
-                    newFolderBtn.addEventListener('click', async () => {
-                        const name = global.prompt('New folder name');
-                        if (!name || !name.trim()) return;
+                    newFolderBtn.addEventListener('click', showNewFolderForm);
+                }
+                if (newFolderCancel) {
+                    newFolderCancel.addEventListener('click', hideNewFolderForm);
+                }
+                if (newFolderForm) {
+                    newFolderForm.addEventListener('submit', async (event) => {
+                        event.preventDefault();
+                        const name = String(newFolderName && newFolderName.value || '').trim();
+                        if (!name) {
+                            setNewFolderError('Folder name is required.');
+                            if (newFolderName) newFolderName.focus();
+                            return;
+                        }
+                        const submitBtn = newFolderForm.querySelector('button[type="submit"]');
+                        if (submitBtn) submitBtn.disabled = true;
                         try {
                             await apiCall(vaultUrls().folders, {
                                 method: 'POST',
-                                body: JSON.stringify({ name: name.trim(), parent_id: state.currentFolderId || '' })
+                                body: JSON.stringify({ name, parent_id: state.currentFolderId || '' })
                             });
+                            hideNewFolderForm();
                             if (typeof showAlert === 'function') showAlert('Folder created.', 'success');
                             await loadFiles({ append: false });
                         } catch (error) {
-                            if (typeof showAlert === 'function') showAlert(error.error || 'Could not create folder.', 'warning');
+                            const message = (error && (error.error || error.message)) || 'Could not create folder.';
+                            setNewFolderError(message);
+                            if (typeof showAlert === 'function') showAlert(message, 'warning');
+                        } finally {
+                            if (submitBtn) submitBtn.disabled = false;
                         }
                     });
                 }
@@ -968,7 +1028,6 @@
                 if (refreshBtn) refreshBtn.addEventListener('click', () => loadFiles({ append: false }));
                 if (loadMore) loadMore.addEventListener('click', () => loadFiles({ append: true }));
                 if (dropzone && uploadInput) {
-                    dropzone.addEventListener('click', () => uploadInput.click());
                     dropzone.addEventListener('keydown', (event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                             event.preventDefault();
