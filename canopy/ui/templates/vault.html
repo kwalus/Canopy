@@ -200,6 +200,18 @@
         border-color: var(--canopy-border);
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
     }
+    .vault-crumb[data-vault-folder-drop],
+    #vault-root-btn[data-vault-folder-drop] {
+        position: relative;
+    }
+    .vault-crumb.is-drop-target,
+    #vault-root-btn.is-drop-target,
+    .vault-explorer-bar.is-drop-target {
+        color: var(--canopy-text-primary);
+        border-color: color-mix(in srgb, var(--canopy-primary) 62%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-tertiary));
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--canopy-primary) 14%, transparent);
+    }
     .vault-folder-card {
         min-height: 150px;
         border-style: dashed;
@@ -291,9 +303,20 @@
     .vault-folder-card {
         cursor: pointer;
     }
+    .vault-card[data-vault-file-id][draggable="true"] {
+        cursor: grab;
+    }
+    .vault-card[data-vault-file-id][draggable="true"]:active {
+        cursor: grabbing;
+    }
     .vault-card.is-dragging {
         cursor: grabbing;
         opacity: 0.55;
+    }
+    .vault-drag-help {
+        color: var(--canopy-text-muted);
+        font-size: 0.76rem;
+        font-weight: 750;
     }
     .vault-stats {
         display: grid;
@@ -764,12 +787,12 @@
 
     <section class="vault-panel vault-explorer-bar" aria-label="Vault folder navigation">
         <nav class="vault-breadcrumb" id="vault-breadcrumb" aria-label="Current vault folder">
-            <button class="vault-crumb active" type="button" data-vault-folder-target="">
+            <button class="vault-crumb active" type="button" data-vault-folder-target="" data-vault-folder-drop="">
                 <i class="bi bi-house-door me-1"></i>Vault Home
             </button>
         </nav>
         <div class="vault-explorer-actions">
-            <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-root-btn" hidden>
+            <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-root-btn" data-vault-folder-drop="" hidden>
                 <i class="bi bi-arrow-up-left"></i> Back to Vault Home
             </button>
             <button class="btn btn-primary btn-sm" type="button" id="vault-new-folder-btn">

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.114] - 2026-05-14
+
+### Changed
+- **File Vault explorer drag/drop is clearer** - Vault Home, breadcrumb folders, and folder cards now behave like visible file-move destinations, while file cards expose draggable affordances and drop-target highlighting.
+- **Move Home only appears when useful** - home-level Vault files no longer show a no-op Move Home action, and shared move handling avoids server writes when a file is already in the destination folder.
+
 ## [0.6.113] - 2026-05-14
 
 ### Changed
