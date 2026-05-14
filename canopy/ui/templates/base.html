@@ -1048,6 +1048,313 @@
         .navbar .dropdown-menu {
             z-index: 1040; /* Above main content stacking contexts */
         }
+
+        .workspace-search-trigger {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-height: 2.35rem;
+            padding: 0.4rem 0.74rem;
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, var(--canopy-primary) 28%);
+            border-radius: 999px;
+            background:
+                radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--canopy-primary) 18%, transparent), transparent 34%),
+                color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
+            color: var(--canopy-text-primary);
+            font-weight: 800;
+            letter-spacing: 0.01em;
+            box-shadow: 0 10px 28px rgba(2, 8, 23, 0.16);
+            transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+        }
+
+        .workspace-search-trigger:hover,
+        .workspace-search-trigger:focus-visible {
+            transform: translateY(-1px);
+            border-color: color-mix(in srgb, var(--canopy-primary) 60%, var(--canopy-border));
+            background: color-mix(in srgb, var(--canopy-primary) 16%, var(--canopy-bg-tertiary));
+            outline: none;
+        }
+
+        .workspace-search-trigger kbd {
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, transparent);
+            border-radius: 0.55rem;
+            background: color-mix(in srgb, var(--canopy-bg-card) 74%, transparent);
+            color: var(--canopy-text-secondary);
+            font-size: 0.68rem;
+            line-height: 1;
+            padding: 0.2rem 0.34rem;
+            box-shadow: none;
+        }
+
+        .workspace-search-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 2060;
+            display: grid;
+            place-items: start center;
+            padding: max(5.2rem, calc(env(safe-area-inset-top) + 4.8rem)) 1rem 1rem;
+            background:
+                radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--canopy-primary) 20%, transparent), transparent 42%),
+                rgba(2, 6, 23, 0.58);
+            backdrop-filter: blur(12px) saturate(1.08);
+        }
+
+        body.workspace-search-open {
+            overflow: hidden;
+        }
+
+        .workspace-search-overlay[hidden] {
+            display: none !important;
+        }
+
+        .workspace-search-dialog {
+            width: min(880px, calc(100vw - 1.4rem));
+            max-height: min(760px, calc(100vh - 6.5rem));
+            display: grid;
+            grid-template-rows: auto auto minmax(0, 1fr);
+            overflow: hidden;
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 58%, var(--canopy-primary) 42%);
+            border-radius: 1.6rem;
+            background:
+                radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--canopy-primary) 16%, transparent), transparent 38%),
+                linear-gradient(145deg, color-mix(in srgb, var(--canopy-bg-card) 96%, transparent), color-mix(in srgb, var(--canopy-bg-secondary) 96%, transparent));
+            box-shadow: 0 34px 90px rgba(2, 8, 23, 0.52), 0 0 0 1px rgba(255,255,255,0.04) inset;
+        }
+
+        .workspace-search-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1rem 1rem 0.72rem;
+            border-bottom: 1px solid color-mix(in srgb, var(--canopy-border) 70%, transparent);
+        }
+
+        .workspace-search-title {
+            display: grid;
+            gap: 0.12rem;
+            min-width: 0;
+        }
+
+        .workspace-search-eyebrow {
+            color: color-mix(in srgb, var(--canopy-primary) 78%, var(--canopy-text-primary));
+            font-size: 0.74rem;
+            font-weight: 950;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .workspace-search-subtitle {
+            color: var(--canopy-text-secondary);
+            font-size: 0.82rem;
+        }
+
+        .workspace-search-close {
+            width: 2.35rem;
+            height: 2.35rem;
+            border-radius: 999px;
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 75%, transparent);
+            background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+            color: var(--canopy-text-primary);
+        }
+
+        .workspace-search-input-row {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 0.72rem;
+            margin: 0.88rem 1rem 0.72rem;
+            padding: 0.68rem 0.82rem;
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, var(--canopy-primary) 28%);
+            border-radius: 1.15rem;
+            background: color-mix(in srgb, var(--canopy-bg-tertiary) 80%, transparent);
+        }
+
+        .workspace-search-input-row i {
+            color: var(--canopy-primary);
+            font-size: 1.05rem;
+        }
+
+        .workspace-search-input {
+            min-width: 0;
+            border: 0;
+            outline: 0;
+            background: transparent;
+            color: var(--canopy-text-primary);
+            font-size: 1rem;
+            font-weight: 700;
+        }
+
+        .workspace-search-input::placeholder {
+            color: var(--canopy-text-muted);
+            font-weight: 600;
+        }
+
+        .workspace-search-status {
+            color: var(--canopy-text-secondary);
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+
+        .workspace-search-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+            padding: 0 1rem 0.82rem;
+        }
+
+        .workspace-search-filter {
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 74%, transparent);
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--canopy-bg-tertiary) 58%, transparent);
+            color: var(--canopy-text-secondary);
+            font-size: 0.76rem;
+            font-weight: 850;
+            padding: 0.36rem 0.58rem;
+        }
+
+        .workspace-search-filter.is-active {
+            border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border));
+            background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-tertiary));
+            color: var(--canopy-text-primary);
+        }
+
+        .workspace-search-results {
+            min-height: 210px;
+            overflow-y: auto;
+            padding: 0.1rem 1rem 1rem;
+        }
+
+        .workspace-search-empty {
+            display: grid;
+            place-items: center;
+            min-height: 210px;
+            text-align: center;
+            color: var(--canopy-text-secondary);
+            border: 1px dashed color-mix(in srgb, var(--canopy-border) 70%, transparent);
+            border-radius: 1.2rem;
+            background: color-mix(in srgb, var(--canopy-bg-tertiary) 35%, transparent);
+            padding: 1.4rem;
+        }
+
+        .workspace-search-group {
+            margin-top: 0.75rem;
+        }
+
+        .workspace-search-group:first-child {
+            margin-top: 0;
+        }
+
+        .workspace-search-group-title {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            color: var(--canopy-text-secondary);
+            font-size: 0.76rem;
+            font-weight: 950;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            margin: 0 0 0.4rem;
+        }
+
+        .workspace-search-result {
+            display: grid;
+            grid-template-columns: 2.35rem minmax(0, 1fr) auto;
+            gap: 0.72rem;
+            align-items: center;
+            padding: 0.72rem;
+            border: 1px solid transparent;
+            border-radius: 1rem;
+            color: var(--canopy-text-primary);
+            text-decoration: none;
+            background: color-mix(in srgb, var(--canopy-bg-tertiary) 42%, transparent);
+            transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+        }
+
+        .workspace-search-result + .workspace-search-result {
+            margin-top: 0.42rem;
+        }
+
+        .workspace-search-result:hover,
+        .workspace-search-result:focus-visible,
+        .workspace-search-result.is-active {
+            transform: translateY(-1px);
+            border-color: color-mix(in srgb, var(--canopy-primary) 52%, var(--canopy-border));
+            background: color-mix(in srgb, var(--canopy-primary) 14%, var(--canopy-bg-tertiary));
+            outline: none;
+        }
+
+        .workspace-search-result-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.35rem;
+            height: 2.35rem;
+            border-radius: 0.82rem;
+            background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-card));
+            color: var(--canopy-primary);
+            overflow: hidden;
+        }
+
+        .workspace-search-result-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .workspace-search-result-main {
+            min-width: 0;
+            display: grid;
+            gap: 0.16rem;
+        }
+
+        .workspace-search-result-title {
+            display: flex;
+            gap: 0.45rem;
+            align-items: center;
+            min-width: 0;
+            font-weight: 900;
+        }
+
+        .workspace-search-result-title span:last-child {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .workspace-search-result-label {
+            flex: 0 0 auto;
+            border-radius: 999px;
+            padding: 0.16rem 0.38rem;
+            background: color-mix(in srgb, var(--canopy-bg-card) 82%, transparent);
+            color: var(--canopy-text-secondary);
+            font-size: 0.65rem;
+            font-weight: 900;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .workspace-search-result-snippet,
+        .workspace-search-result-meta {
+            min-width: 0;
+            color: var(--canopy-text-secondary);
+            font-size: 0.8rem;
+            line-height: 1.35;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .workspace-search-result-snippet mark {
+            padding: 0 0.08em;
+            border-radius: 0.18em;
+            background: color-mix(in srgb, var(--canopy-primary) 28%, transparent);
+            color: inherit;
+        }
+
+        .workspace-search-result-go {
+            color: var(--canopy-text-muted);
+        }
         
         .sidebar {
             background: var(--canopy-sidebar-bg);
@@ -5452,6 +5759,64 @@
                 justify-content: center;
                 border-radius: 12px;
                 touch-action: manipulation;
+            }
+
+            .workspace-search-trigger {
+                min-width: 44px;
+                min-height: 44px;
+                padding: 0;
+                justify-content: center;
+                margin-right: 0 !important;
+                border-radius: 12px;
+            }
+
+            .workspace-search-trigger span,
+            .workspace-search-trigger kbd {
+                display: none;
+            }
+
+            .workspace-search-overlay {
+                align-items: stretch;
+                place-items: stretch;
+                padding: calc(env(safe-area-inset-top) + 0.55rem) 0.55rem calc(env(safe-area-inset-bottom) + 0.55rem);
+            }
+
+            .workspace-search-dialog {
+                width: 100%;
+                max-height: none;
+                height: 100%;
+                border-radius: 1.15rem;
+            }
+
+            .workspace-search-head {
+                padding: 0.82rem 0.82rem 0.62rem;
+            }
+
+            .workspace-search-input-row {
+                margin: 0.7rem 0.82rem 0.58rem;
+                grid-template-columns: auto minmax(0, 1fr);
+            }
+
+            .workspace-search-status {
+                grid-column: 1 / -1;
+            }
+
+            .workspace-search-filters {
+                padding-inline: 0.82rem;
+                overflow-x: auto;
+                flex-wrap: nowrap;
+            }
+
+            .workspace-search-results {
+                padding-inline: 0.82rem;
+            }
+
+            .workspace-search-result {
+                grid-template-columns: 2.15rem minmax(0, 1fr);
+            }
+
+            .workspace-search-result-go {
+                display: none;
             }
 
             .navbar-toggler {
@@ -10217,6 +10582,15 @@
                         {% endif %}
                     </div>
                 {% endif %}
+                <button class="workspace-search-trigger me-2"
+                        type="button"
+                        id="workspaceSearchTrigger"
+                        title="Search this meshspace (Ctrl/Cmd+K)"
+                        aria-label="Search this meshspace">
+                    <i class="bi bi-search"></i>
+                    <span>Search</span>
+                    <kbd>⌘K</kbd>
+                </button>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                     <span class="navbar-toggler-icon"></span>
                 </button>
@@ -10295,6 +10669,52 @@
                 </div>
             </div>
         </nav>
+
+        <div id="workspaceSearchOverlay"
+             class="workspace-search-overlay"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="workspaceSearchTitle"
+             hidden>
+            <div class="workspace-search-dialog">
+                <div class="workspace-search-head">
+                    <div class="workspace-search-title">
+                        <div class="workspace-search-eyebrow" id="workspaceSearchTitle">Search Workspace</div>
+                        <div class="workspace-search-subtitle">Find accessible channels, DMs, feed posts, Vault files, and work cards in this meshspace.</div>
+                    </div>
+                    <button type="button" class="workspace-search-close" id="workspaceSearchClose" aria-label="Close search">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+                <div class="workspace-search-input-row">
+                    <i class="bi bi-search"></i>
+                    <input id="workspaceSearchInput"
+                           class="workspace-search-input"
+                           type="search"
+                           autocomplete="off"
+                           spellcheck="false"
+                           placeholder="Search this meshspace..."
+                           aria-label="Search this meshspace">
+                    <span class="workspace-search-status" id="workspaceSearchStatus">Type at least 2 characters</span>
+                </div>
+                <div class="workspace-search-filters" role="tablist" aria-label="Workspace search filters">
+                    <button type="button" class="workspace-search-filter is-active" role="tab" aria-selected="true" data-workspace-search-scope="all">All</button>
+                    <button type="button" class="workspace-search-filter" role="tab" aria-selected="false" data-workspace-search-scope="channels">Channels</button>
+                    <button type="button" class="workspace-search-filter" role="tab" aria-selected="false" data-workspace-search-scope="dms">DMs</button>
+                    <button type="button" class="workspace-search-filter" role="tab" aria-selected="false" data-workspace-search-scope="feed">Feed</button>
+                    <button type="button" class="workspace-search-filter" role="tab" aria-selected="false" data-workspace-search-scope="vault">Vault</button>
+                    <button type="button" class="workspace-search-filter" role="tab" aria-selected="false" data-workspace-search-scope="work">Work</button>
+                </div>
+                <div class="workspace-search-results" id="workspaceSearchResults" role="listbox" aria-label="Workspace search results">
+                    <div class="workspace-search-empty">
+                        <div>
+                            <div class="fw-bold mb-1">Search across your meshspace</div>
+                            <div>Use Ctrl/Cmd+K from anywhere. Results are limited to content your account can already access.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         
         <!-- Flash Messages -->
         <div class="flash-messages">
@@ -10933,6 +11353,7 @@
                 vaultUpload: {{ url_for('ui.ajax_vault_upload')|tojson }},
                 vaultFolders: {{ url_for('ui.ajax_vault_create_folder')|tojson }},
                 vaultSaveAttachment: {{ url_for('ui.ajax_vault_save_attachment')|tojson }},
+                workspaceSearch: {{ url_for('ui.ajax_workspace_search')|tojson }},
                 trustNetwork: {{ url_for('ui.trust_management')|tojson }},
                 connect: {{ url_for('ui.connect_page')|tojson }},
                 sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }},

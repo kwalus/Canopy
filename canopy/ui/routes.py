@@ -6448,6 +6448,274 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Vault list error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/workspace_search', methods=['GET'])
+    @require_login
+    def ajax_workspace_search():
+        """Search the current user's accessible local workspace surfaces."""
+        try:
+            db_manager, _, _, message_manager, channel_manager, file_manager, _, _, profile_manager, _, _ = _get_app_components_any(current_app)
+            search_manager = current_app.config.get('SEARCH_MANAGER')
+            user_id = get_current_user()
+            query = str(request.args.get('q') or request.args.get('query') or '').strip()[:160]
+            scope = str(request.args.get('scope') or 'all').strip().lower() or 'all'
+            allowed_scopes = {'all', 'channels', 'dms', 'feed', 'vault', 'work'}
+            if scope not in allowed_scopes:
+                scope = 'all'
+            try:
+                limit = max(1, min(80, int(request.args.get('limit', 40) or 40)))
+            except Exception:
+                limit = 40
+            if not query or len(query) < 2:
+                return jsonify({
+                    'success': True,
+                    'query': query,
+                    'count': 0,
+                    'groups': [],
+                    'results': [],
+                    'fts_available': bool(search_manager and getattr(search_manager, 'enabled', False)),
+                })
+
+            def _clean_text(value: Any, max_len: int = 180) -> str:
+                text = re.sub(r'</?b>', '', str(value or ''))
+                text = re.sub(r'\s+', ' ', html_lib.unescape(text)).strip()
+                return build_preview(text, max_len)
+
+            def _format_file_size(size: Any) -> str:
+                try:
+                    value = float(size or 0)
+                except Exception:
+                    value = 0.0
+                units = ['B', 'KB', 'MB', 'GB', 'TB']
+                unit_index = 0
+                while value >= 1024 and unit_index < len(units) - 1:
+                    value /= 1024
+                    unit_index += 1
+                if unit_index == 0:
+                    return f"{int(value)} {units[unit_index]}"
+                return f"{value:.1f} {units[unit_index]}"
+
+            user_label_cache: dict[str, str] = {}
+
+            def _user_label(uid: Any) -> str:
+                clean_uid = str(uid or '').strip()
+                if not clean_uid:
+                    return 'Unknown'
+                if clean_uid in user_label_cache:
+                    return user_label_cache[clean_uid]
+                label = clean_uid
+                try:
+                    if profile_manager:
+                        profile = profile_manager.get_profile(clean_uid)
+                        if profile:
+                            label = (
+                                str(getattr(profile, 'display_name', '') or '').strip()
+                                or str(getattr(profile, 'username', '') or '').strip()
+                                or label
+                            )
+                    if label == clean_uid and db_manager:
+                        row = db_manager.get_user(clean_uid)
+                        if row:
+                            label = (
+                                str(row.get('display_name') or '').strip()
+                                or str(row.get('username') or '').strip()
+                                or label
+                            )
+                except Exception:
+                    label = clean_uid
+                user_label_cache[clean_uid] = label
+                return label
+
+            channel_names: dict[str, str] = {}
+            try:
+                if channel_manager:
+                    channel_names = {
+                        str(channel.id): str(channel.name or channel.id)
+                        for channel in channel_manager.get_user_channels(user_id)
+                    }
+            except Exception:
+                channel_names = {}
+
+            def _channel_title(channel_id: Any) -> str:
+                clean_channel_id = str(channel_id or '').strip()
+                name = channel_names.get(clean_channel_id) or clean_channel_id
+                return f"#{name}" if name else 'Channel'
+
+            def _core_href(item_type: str, item_id: str, channel_id: str, source_id: str) -> str:
+                if item_type == 'channel_message':
+                    return url_for('ui.channels_locate', message_id=item_id)
+                if item_type == 'feed_post':
+                    return url_for('ui.feed', focus_post=item_id)
+                if channel_id and source_id:
+                    return url_for('ui.channels', channel=channel_id, focus_message=source_id)
+                if source_id:
+                    return url_for('ui.feed', focus_post=source_id)
+                if item_type == 'task':
+                    return url_for('ui.tasks_page')
+                return url_for('ui.channels') if channel_id else url_for('ui.feed')
+
+            type_labels = {
+                'feed_post': ('Feed', 'bi-newspaper', 'feed'),
+                'channel_message': ('Channel', 'bi-hash', 'channels'),
+                'task': ('Task', 'bi-check2-square', 'work'),
+                'request': ('Request', 'bi-send-check', 'work'),
+                'objective': ('Objective', 'bi-bullseye', 'work'),
+                'circle': ('Circle', 'bi-record-circle', 'work'),
+                'circle_entry': ('Circle note', 'bi-chat-square-text', 'work'),
+                'handoff': ('Handoff', 'bi-arrow-left-right', 'work'),
+                'skill': ('Skill', 'bi-tools', 'work'),
+                'signal': ('Signal', 'bi-broadcast-pin', 'work'),
+            }
+            scope_to_types = {
+                'channels': ['channel_message'],
+                'feed': ['feed_post'],
+                'work': ['task', 'request', 'objective', 'circle', 'circle_entry', 'handoff', 'skill', 'signal'],
+            }
+
+            results: list[dict[str, Any]] = []
+            include_core = scope in {'all', 'channels', 'feed', 'work'}
+            if include_core and search_manager and getattr(search_manager, 'enabled', False):
+                core_types = scope_to_types.get(scope)
+                try:
+                    core_items = search_manager.search(query=query, user_id=user_id, limit=limit, types=core_types)
+                except Exception:
+                    logger.debug("Workspace search local FTS merge failed", exc_info=True)
+                    core_items = []
+                for item in core_items:
+                    item_type = str(item.get('item_type') or '')
+                    item_id = str(item.get('item_id') or '')
+                    label, icon, group_key = type_labels.get(item_type, ('Workspace', 'bi-search', 'work'))
+                    channel_id = str(item.get('channel_id') or '')
+                    source_id = str(item.get('source_id') or '')
+                    if scope not in {'all', group_key}:
+                        continue
+                    title = _clean_text(item.get('title'), 90)
+                    if item_type == 'channel_message':
+                        title = _channel_title(channel_id)
+                    elif item_type == 'feed_post':
+                        title = 'Feed post'
+                    elif not title:
+                        title = label
+                    author_label = _user_label(item.get('author_id'))
+                    subtitle = author_label
+                    if channel_id:
+                        subtitle = f"{_channel_title(channel_id)} · {author_label}"
+                    results.append({
+                        'id': f"{item_type}:{item_id}",
+                        'type': item_type,
+                        'label': label,
+                        'group': group_key,
+                        'icon': icon,
+                        'title': title,
+                        'subtitle': subtitle,
+                        'snippet': _clean_text(item.get('snippet')),
+                        'href': _core_href(item_type, item_id, channel_id, source_id),
+                        'created_at': item.get('created_at') or '',
+                        'updated_at': item.get('updated_at') or '',
+                    })
+
+            if scope in {'all', 'dms'} and message_manager:
+                try:
+                    for message in message_manager.search_messages(user_id, query, limit=12):
+                        metadata = getattr(message, 'metadata', None)
+                        metadata = metadata if isinstance(metadata, dict) else {}
+                        recipient_id = str(getattr(message, 'recipient_id', '') or '').strip()
+                        sender_id = str(getattr(message, 'sender_id', '') or '').strip()
+                        group_members = [
+                            str(member or '').strip()
+                            for member in (metadata.get('group_members') or [])
+                            if str(member or '').strip()
+                        ]
+                        group_id = str(metadata.get('group_id') or '').strip()
+                        if recipient_id.startswith('group:') and not group_id:
+                            group_id = recipient_id
+                        if not group_id and group_members:
+                            group_id = compute_group_id(group_members)
+                        if group_id or group_members:
+                            other_members = [member for member in group_members if member != user_id]
+                            names = [_user_label(member) for member in other_members[:3]]
+                            extra = max(0, len(other_members) - len(names))
+                            title = 'Group DM'
+                            if names:
+                                title = ', '.join(names) + (f" +{extra}" if extra else '')
+                            href = f"{url_for('ui.messages', group=group_id or compute_group_id([user_id, sender_id]))}#message-{quote_plus(message.id)}"
+                        else:
+                            other_user = recipient_id if sender_id == user_id else sender_id
+                            if not other_user or other_user == user_id:
+                                title = 'Personal scratchpad'
+                                href = f"{url_for('ui.messages')}#message-{quote_plus(message.id)}"
+                            else:
+                                title = _user_label(other_user)
+                                href = f"{url_for('ui.messages', **{'with': other_user})}#message-{quote_plus(message.id)}"
+                        attachments = metadata.get('attachments') or []
+                        results.append({
+                            'id': f"dm_message:{message.id}",
+                            'type': 'dm_message',
+                            'label': 'DM',
+                            'group': 'dms',
+                            'icon': 'bi-chat-left-text',
+                            'title': title,
+                            'subtitle': f"From {_user_label(sender_id)}",
+                            'snippet': build_dm_preview(getattr(message, 'content', '') or '', attachments) or 'Attachment',
+                            'href': href,
+                            'created_at': getattr(message, 'created_at', '').isoformat() if hasattr(getattr(message, 'created_at', None), 'isoformat') else str(getattr(message, 'created_at', '') or ''),
+                            'updated_at': getattr(message, 'edited_at', '').isoformat() if hasattr(getattr(message, 'edited_at', None), 'isoformat') else '',
+                        })
+                except Exception:
+                    logger.debug("Workspace search DM merge failed", exc_info=True)
+
+            if scope in {'all', 'vault'} and file_manager:
+                try:
+                    for file_info in file_manager.list_user_files(user_id, limit=12, query=query):
+                        entry = _file_info_to_vault_entry(file_info)
+                        results.append({
+                            'id': f"vault_file:{entry.get('id')}",
+                            'type': 'vault_file',
+                            'label': 'Vault',
+                            'group': 'vault',
+                            'icon': 'bi-folder2-open',
+                            'title': entry.get('name') or 'Vault file',
+                            'subtitle': f"{_format_file_size(entry.get('size'))} · {entry.get('content_type') or 'file'}",
+                            'snippet': 'Private file in your local File Vault',
+                            'href': entry.get('url') or url_for('ui.vault_page'),
+                            'created_at': entry.get('uploaded_at') or '',
+                            'updated_at': entry.get('uploaded_at') or '',
+                            'thumb_url': entry.get('thumb_url'),
+                        })
+                except Exception:
+                    logger.debug("Workspace search Vault merge failed", exc_info=True)
+
+            group_defs = [
+                ('channels', 'Channels', 'bi-hash'),
+                ('dms', 'Direct Messages', 'bi-chat-left-text'),
+                ('feed', 'Feed', 'bi-newspaper'),
+                ('vault', 'File Vault', 'bi-folder2-open'),
+                ('work', 'Tasks / Signals / Work', 'bi-diagram-3'),
+            ]
+            groups = []
+            for key, label, icon in group_defs:
+                group_results = [item for item in results if item.get('group') == key]
+                if group_results:
+                    groups.append({
+                        'key': key,
+                        'label': label,
+                        'icon': icon,
+                        'count': len(group_results),
+                        'results': group_results,
+                    })
+
+            return jsonify({
+                'success': True,
+                'query': query,
+                'scope': scope,
+                'count': len(results),
+                'groups': groups,
+                'results': results,
+                'fts_available': bool(search_manager and getattr(search_manager, 'enabled', False)),
+            })
+        except Exception as e:
+            logger.error(f"Workspace search failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Workspace search failed'}), 500
+
     @ui.route('/ajax/vault/upload', methods=['POST'])
     @require_login
     def ajax_vault_upload():

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.106-blue" alt="Version 0.6.106">
+  <img src="https://img.shields.io/badge/version-0.6.107-blue" alt="Version 0.6.107">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -158,7 +158,7 @@ Recent end-user improvements reflected in the app and docs:
 - **First-class Canopy Modules** — Self-contained `.canopy-module.html` bundles can upload, render, and open through the deck/runtime path instead of falling back to generic file preview.
 - **Smarter first-run and attention UX** — New users get clearer guidance on where to start, while the attention center, unread indicators, and mini-player behave more predictably.
 - **Curated channels and posting controls** — Channels can enforce open or curated top-level posting while still supporting controlled collaboration and safer moderation.
-- **Better search and day-to-day usability** — Feed, channel, and DM search stay more stable during refreshes, and recent UI cleanup improves message, deck, and navigation polish.
+- **Workspace search and day-to-day usability** — The shared header search palette opens with `Ctrl/Cmd+K` and searches accessible channels, DMs, feed posts, File Vault filenames, and work cards, while local feed/channel/DM search stays stable during refreshes.
 - **Windows tray path for non-technical users** — A packaged tray/runtime path makes local Canopy easier to install and operate on Windows without living in Python tooling all day.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
@@ -325,7 +325,7 @@ Vulnerability reporting and support-window policy: [SECURITY.md](SECURITY.md)
 | Team Mention Builder | Multi-select mention UI with saved mention-list macros for humans and agents. |
 | Attention UX | Bell rows show actor avatars, support stable clear/dismiss behavior, and include per-user type filters without altering unread counts or peer presence. |
 | Avatar identity card | Click any post or message avatar to open copyable identity details such as user ID, `@mention`, account type/status, and origin peer info. |
-| Search | Full-text search across channels, feed, and DMs. |
+| Search | Header workspace palette for user-visible channels, feed, DMs, Vault filenames, and work cards, plus focused full-text search inside channels, feed, and DMs. |
 | Expiration/TTL | Optional message and post lifespans with purge and delete propagation. |
 
 ### P2P Mesh

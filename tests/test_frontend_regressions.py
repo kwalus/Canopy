@@ -1500,6 +1500,36 @@ console.log(JSON.stringify({{
         self.assertIn('.channel-selection-dock-btn.match-toggle.is-active', channels_template)
         self.assertIn('.channel-selection-match {', channels_template)
 
+    def test_workspace_search_palette_spans_workspace_surfaces(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        routes_py = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+
+        self.assertIn('id="workspaceSearchTrigger"', base_template)
+        self.assertIn('id="workspaceSearchOverlay"', base_template)
+        self.assertIn('id="workspaceSearchInput"', base_template)
+        self.assertIn('data-workspace-search-scope="channels"', base_template)
+        self.assertIn('data-workspace-search-scope="dms"', base_template)
+        self.assertIn('data-workspace-search-scope="vault"', base_template)
+        self.assertIn('role="tab" aria-selected="true" data-workspace-search-scope="all"', base_template)
+        self.assertIn('workspaceSearch: {{ url_for(\'ui.ajax_workspace_search\')|tojson }}', base_template)
+        self.assertIn('.workspace-search-dialog', base_template)
+        self.assertIn('@ui.route(\'/ajax/workspace_search\', methods=[\'GET\'])', routes_py)
+        self.assertIn("query = str(request.args.get('q') or request.args.get('query') or '').strip()[:160]", routes_py)
+        self.assertIn("allowed_scopes = {'all', 'channels', 'dms', 'feed', 'vault', 'work'}", routes_py)
+        self.assertIn('search_manager.search(', routes_py)
+        self.assertIn('message_manager.search_messages(user_id, query, limit=12)', routes_py)
+        self.assertIn('file_manager.list_user_files(user_id, limit=12, query=query)', routes_py)
+        self.assertIn('url_for(\'ui.channels_locate\', message_id=item_id)', routes_py)
+        self.assertIn('function initWorkspaceSearch(global)', main_js)
+        self.assertIn("const chord = (event.metaKey || event.ctrlKey) && key === 'k';", main_js)
+        self.assertIn("routes().workspaceSearch || '/ajax/workspace_search'", main_js)
+        self.assertIn("const requestScope = state.scope || DEFAULT_SCOPE;", main_js)
+        self.assertIn('requestSerial: 0', main_js)
+        self.assertIn('if (requestSerial !== state.requestSerial || query !== state.query || requestScope !== (state.scope || DEFAULT_SCOPE))', main_js)
+        self.assertIn('state.returnFocusEl = document.activeElement && document.activeElement !== document.body', main_js)
+        self.assertIn("'.workspace-search-overlay, .canopy-media-deck-portal, .sidebar-media-deck'", main_js)
+
     def test_channel_sidebar_supports_personal_groups_collapse_and_pinned_order(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         routes_py = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
@@ -2465,7 +2495,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.106', api_ref)
+        self.assertIn('0.6.107', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

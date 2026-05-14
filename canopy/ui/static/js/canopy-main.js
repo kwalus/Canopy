@@ -6619,10 +6619,10 @@
                 });
         }
 
-        function apiCall(url, options = {}) {
-            console.log('apiCall:', url, options);
-            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-            const method = String(options.method || 'GET').toUpperCase();
+	        function apiCall(url, options = {}) {
+	            console.log('apiCall:', url, options);
+	            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+	            const method = String(options.method || 'GET').toUpperCase();
             const isSafeMethod = ['GET', 'HEAD', 'OPTIONS'].includes(method);
             const headers = { ...(options.headers || {}) };
             const hasHeader = (name) => Object.keys(headers).some((k) => k.toLowerCase() === name.toLowerCase());
@@ -6668,10 +6668,367 @@
                         return Promise.reject(errObj);
                     }
 
-                    console.log('apiCall success data:', payload, 'for URL:', url);
-                    return (payload && typeof payload === 'object') ? payload : {};
-                });
-        }
+	                    console.log('apiCall success data:', payload, 'for URL:', url);
+	                    return (payload && typeof payload === 'object') ? payload : {};
+	                });
+	        }
+
+	        (function initWorkspaceSearch(global) {
+	            const SEARCH_MIN_LENGTH = 2;
+	            const SEARCH_DEBOUNCE_MS = 180;
+	            const DEFAULT_SCOPE = 'all';
+	            const state = {
+	                open: false,
+	                query: '',
+	                scope: DEFAULT_SCOPE,
+	                timer: null,
+	                controller: null,
+	                activeIndex: -1,
+	                lastResults: [],
+	                requestSerial: 0,
+	                returnFocusEl: null,
+	            };
+
+	            function routes() {
+	                return (global.CANOPY_VARS && global.CANOPY_VARS.urls) || {};
+	            }
+
+	            function endpoint() {
+	                return routes().workspaceSearch || '/ajax/workspace_search';
+	            }
+
+	            function elements() {
+	                return {
+	                    trigger: document.getElementById('workspaceSearchTrigger'),
+	                    overlay: document.getElementById('workspaceSearchOverlay'),
+	                    input: document.getElementById('workspaceSearchInput'),
+	                    close: document.getElementById('workspaceSearchClose'),
+	                    status: document.getElementById('workspaceSearchStatus'),
+	                    results: document.getElementById('workspaceSearchResults'),
+	                    filters: Array.from(document.querySelectorAll('[data-workspace-search-scope]')),
+	                };
+	            }
+
+	            function setStatus(message) {
+	                const status = elements().status;
+	                if (status) status.textContent = message || '';
+	            }
+
+	            function clearSearchTimer() {
+	                if (state.timer) {
+	                    global.clearTimeout(state.timer);
+	                    state.timer = null;
+	                }
+	            }
+
+	            function abortSearch() {
+	                if (state.controller) {
+	                    state.controller.abort();
+	                    state.controller = null;
+	                }
+	            }
+
+	            function escapeHtml(value) {
+	                return typeof canopyEscapeHtml === 'function' ? canopyEscapeHtml(value) : String(value || '');
+	            }
+
+	            function highlightQuery(text, query) {
+	                const raw = String(text || '').trim();
+	                const needle = String(query || '').trim();
+	                if (!raw || !needle) return escapeHtml(raw);
+	                const lowerRaw = raw.toLocaleLowerCase();
+	                const lowerNeedle = needle.toLocaleLowerCase();
+	                const index = lowerRaw.indexOf(lowerNeedle);
+	                if (index === -1) return escapeHtml(raw);
+	                return [
+	                    escapeHtml(raw.slice(0, index)),
+	                    '<mark>',
+	                    escapeHtml(raw.slice(index, index + needle.length)),
+	                    '</mark>',
+	                    escapeHtml(raw.slice(index + needle.length)),
+	                ].join('');
+	            }
+
+	            function resultTimestamp(result) {
+	                const value = result && (result.updated_at || result.created_at);
+	                return value ? formatTimestamp(value) : '';
+	            }
+
+	            function renderEmpty(title, body, icon = 'bi-search') {
+	                const results = elements().results;
+	                if (!results) return;
+	                results.innerHTML = `
+	                    <div class="workspace-search-empty">
+	                        <div>
+	                            <div class="fs-3 mb-2"><i class="bi ${escapeHtml(icon)}"></i></div>
+	                            <div class="fw-bold mb-1">${escapeHtml(title)}</div>
+	                            <div>${escapeHtml(body)}</div>
+	                        </div>
+	                    </div>
+	                `;
+	                state.activeIndex = -1;
+	                state.lastResults = [];
+	            }
+
+	            function renderLoading() {
+	                const results = elements().results;
+	                if (!results) return;
+	                results.innerHTML = `
+	                    <div class="workspace-search-empty">
+	                        <div>
+	                            <div class="spinner-border spinner-border-sm text-success mb-2" role="status" aria-hidden="true"></div>
+	                            <div class="fw-bold mb-1">Searching this meshspace</div>
+	                            <div>Checking accessible messages, posts, files, and work cards.</div>
+	                        </div>
+	                    </div>
+	                `;
+	            }
+
+	            function flattenGroups(groups) {
+	                const flat = [];
+	                (groups || []).forEach(group => {
+	                    (group.results || []).forEach(result => flat.push(result));
+	                });
+	                return flat;
+	            }
+
+	            function renderGroups(payload) {
+	                const resultsEl = elements().results;
+	                if (!resultsEl) return;
+	                const groups = Array.isArray(payload && payload.groups) ? payload.groups : [];
+	                state.lastResults = flattenGroups(groups);
+	                state.activeIndex = state.lastResults.length ? 0 : -1;
+	                if (!groups.length || !state.lastResults.length) {
+	                    renderEmpty('No matches yet', 'Try a different word, file name, channel topic, or person.', 'bi-search-heart');
+	                    setStatus('0 results');
+	                    return;
+	                }
+	                let resultIndex = 0;
+	                resultsEl.innerHTML = groups.map(group => {
+	                    const groupResults = Array.isArray(group.results) ? group.results : [];
+	                    const items = groupResults.map(result => {
+	                        const index = resultIndex++;
+	                        const thumb = result.thumb_url
+	                            ? `<img src="${escapeHtml(result.thumb_url)}" alt="">`
+	                            : `<i class="bi ${escapeHtml(result.icon || group.icon || 'bi-search')}"></i>`;
+	                        const metaParts = [
+	                            result.subtitle || '',
+	                            resultTimestamp(result),
+	                        ].filter(Boolean);
+	                        return `
+	                            <a class="workspace-search-result${index === 0 ? ' is-active' : ''}"
+	                               href="${escapeHtml(result.href || '#')}"
+	                               data-workspace-search-result
+	                               data-workspace-search-index="${index}"
+	                               role="option"
+	                               aria-selected="${index === 0 ? 'true' : 'false'}">
+	                                <span class="workspace-search-result-icon">${thumb}</span>
+	                                <span class="workspace-search-result-main">
+	                                    <span class="workspace-search-result-title">
+	                                        <span class="workspace-search-result-label">${escapeHtml(result.label || group.label || 'Result')}</span>
+	                                        <span>${escapeHtml(result.title || 'Untitled')}</span>
+	                                    </span>
+	                                    <span class="workspace-search-result-snippet">${highlightQuery(result.snippet || '', payload.query || state.query)}</span>
+	                                    <span class="workspace-search-result-meta">${escapeHtml(metaParts.join(' · '))}</span>
+	                                </span>
+	                                <span class="workspace-search-result-go"><i class="bi bi-arrow-right"></i></span>
+	                            </a>
+	                        `;
+	                    }).join('');
+	                    return `
+	                        <section class="workspace-search-group" aria-label="${escapeHtml(group.label || 'Results')}">
+	                            <div class="workspace-search-group-title">
+	                                <i class="bi ${escapeHtml(group.icon || 'bi-collection')}"></i>
+	                                <span>${escapeHtml(group.label || 'Results')}</span>
+	                                <span>${escapeHtml(group.count || groupResults.length)}</span>
+	                            </div>
+	                            ${items}
+	                        </section>
+	                    `;
+	                }).join('');
+	                setStatus(`${state.lastResults.length} result${state.lastResults.length === 1 ? '' : 's'}`);
+	            }
+
+	            function setActiveIndex(nextIndex) {
+	                const resultEls = Array.from(document.querySelectorAll('[data-workspace-search-result]'));
+	                if (!resultEls.length) {
+	                    state.activeIndex = -1;
+	                    return;
+	                }
+	                const bounded = ((nextIndex % resultEls.length) + resultEls.length) % resultEls.length;
+	                state.activeIndex = bounded;
+	                resultEls.forEach((el, index) => {
+	                    const active = index === bounded;
+	                    el.classList.toggle('is-active', active);
+	                    el.setAttribute('aria-selected', active ? 'true' : 'false');
+	                    if (active) {
+	                        el.scrollIntoView({ block: 'nearest' });
+	                    }
+	                });
+	            }
+
+	            async function runSearch() {
+	                clearSearchTimer();
+	                abortSearch();
+	                const query = String(elements().input?.value || '').trim();
+	                state.query = query;
+	                if (query.length < SEARCH_MIN_LENGTH) {
+	                    setStatus(`Type at least ${SEARCH_MIN_LENGTH} characters`);
+	                    renderEmpty('Search across your meshspace', 'Find accessible channels, DMs, feed posts, Vault files, and work cards.', 'bi-search');
+	                    return;
+	                }
+	                renderLoading();
+	                setStatus('Searching...');
+	                state.controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+	                const requestSerial = ++state.requestSerial;
+	                const requestScope = state.scope || DEFAULT_SCOPE;
+	                const params = new URLSearchParams({
+	                    q: query,
+	                    scope: requestScope,
+	                    limit: '40',
+	                });
+	                try {
+	                    const payload = await apiCall(`${endpoint()}?${params.toString()}`, {
+	                        method: 'GET',
+	                        signal: state.controller ? state.controller.signal : undefined,
+	                    });
+	                    if (requestSerial !== state.requestSerial || query !== state.query || requestScope !== (state.scope || DEFAULT_SCOPE)) {
+	                        return;
+	                    }
+	                    if (!payload || payload.success === false) {
+	                        throw new Error((payload && payload.error) || 'Workspace search failed');
+	                    }
+	                    renderGroups(payload);
+	                } catch (error) {
+	                    if (error && error.name === 'AbortError') return;
+	                    if (requestSerial !== state.requestSerial) return;
+	                    console.warn('Workspace search failed:', error);
+	                    setStatus('Search unavailable');
+	                    renderEmpty('Search is unavailable', 'Canopy could not complete this search. Try again in a moment.', 'bi-exclamation-triangle');
+	                } finally {
+	                    if (requestSerial === state.requestSerial) {
+	                        state.controller = null;
+	                    }
+	                }
+	            }
+
+	            function scheduleSearch() {
+	                clearSearchTimer();
+	                state.timer = global.setTimeout(runSearch, SEARCH_DEBOUNCE_MS);
+	            }
+
+	            function setScope(scope) {
+	                state.scope = scope || DEFAULT_SCOPE;
+	                elements().filters.forEach(btn => {
+	                    const active = (btn.getAttribute('data-workspace-search-scope') || DEFAULT_SCOPE) === state.scope;
+	                    btn.classList.toggle('is-active', active);
+	                    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+	                });
+	                scheduleSearch();
+	            }
+
+	            function openSearch(seed = '') {
+	                const els = elements();
+	                if (!els.overlay || !els.input) return;
+	                state.open = true;
+	                state.returnFocusEl = document.activeElement && document.activeElement !== document.body
+	                    ? document.activeElement
+	                    : (els.trigger || null);
+	                els.overlay.hidden = false;
+	                document.body.classList.add('workspace-search-open');
+	                if (seed) {
+	                    els.input.value = seed;
+	                }
+	                global.setTimeout(() => {
+	                    els.input.focus();
+	                    els.input.select();
+	                }, 0);
+	                if (String(els.input.value || '').trim().length >= SEARCH_MIN_LENGTH) {
+	                    scheduleSearch();
+	                }
+	            }
+
+	            function closeSearch() {
+	                const els = elements();
+	                if (!els.overlay) return;
+	                state.open = false;
+	                clearSearchTimer();
+	                abortSearch();
+	                state.requestSerial += 1;
+	                els.overlay.hidden = true;
+	                document.body.classList.remove('workspace-search-open');
+	                const returnTarget = state.returnFocusEl;
+	                state.returnFocusEl = null;
+	                if (returnTarget && document.contains(returnTarget) && typeof returnTarget.focus === 'function') {
+	                    returnTarget.focus({ preventScroll: true });
+	                }
+	            }
+
+	            function openActiveResult() {
+	                const active = document.querySelector('[data-workspace-search-result].is-active');
+	                if (!active) return false;
+	                const href = active.getAttribute('href') || '';
+	                if (!href || href === '#') return false;
+	                global.location.href = href;
+	                return true;
+	            }
+
+	            function bindWorkspaceSearch() {
+	                const els = elements();
+	                if (!els.overlay || els.overlay.dataset.wired === '1') return;
+	                els.overlay.dataset.wired = '1';
+	                if (els.trigger) {
+	                    els.trigger.addEventListener('click', () => openSearch());
+	                }
+	                if (els.close) {
+	                    els.close.addEventListener('click', closeSearch);
+	                }
+	                els.overlay.addEventListener('click', (event) => {
+	                    if (event.target === els.overlay) closeSearch();
+	                });
+	                if (els.input) {
+	                    els.input.addEventListener('input', scheduleSearch);
+	                }
+	                els.filters.forEach(btn => {
+	                    btn.addEventListener('click', () => setScope(btn.getAttribute('data-workspace-search-scope') || DEFAULT_SCOPE));
+	                });
+	                document.addEventListener('keydown', (event) => {
+	                    const key = String(event.key || '').toLowerCase();
+	                    const chord = (event.metaKey || event.ctrlKey) && key === 'k';
+	                    if (chord) {
+	                        event.preventDefault();
+	                        openSearch();
+	                        return;
+	                    }
+	                    if (!state.open) return;
+	                    if (event.key === 'Escape') {
+	                        event.preventDefault();
+	                        closeSearch();
+	                    } else if (event.key === 'ArrowDown') {
+	                        event.preventDefault();
+	                        setActiveIndex(state.activeIndex + 1);
+	                    } else if (event.key === 'ArrowUp') {
+	                        event.preventDefault();
+	                        setActiveIndex(state.activeIndex - 1);
+	                    } else if (event.key === 'Enter') {
+	                        if (openActiveResult()) event.preventDefault();
+	                    }
+	                });
+	                document.addEventListener('mouseover', (event) => {
+	                    const result = event.target && event.target.closest ? event.target.closest('[data-workspace-search-result]') : null;
+	                    if (!result) return;
+	                    const index = Number(result.getAttribute('data-workspace-search-index'));
+	                    if (Number.isFinite(index)) setActiveIndex(index);
+	                });
+	            }
+
+	            global.CanopyWorkspaceSearch = {
+	                open: openSearch,
+	                close: closeSearch,
+	                search: runSearch,
+	            };
+	            document.addEventListener('DOMContentLoaded', bindWorkspaceSearch);
+	        })(window);
 
         // --- Signal (structured data) helpers ---
         function promptSignalTTL(signalId) {
@@ -15533,7 +15890,7 @@
                 const target = e.target;
                 if (target && target.closest && target.closest(
                     '.main-content, .sidebar, .modal, .offcanvas, .dropdown-menu, ' +
-                    '.canopy-media-deck-portal, .sidebar-media-deck'
+                    '.workspace-search-overlay, .canopy-media-deck-portal, .sidebar-media-deck'
                 )) {
                     return;
                 }

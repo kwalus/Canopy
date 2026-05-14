@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.107] - 2026-05-14
+
+### Added
+- **Top-level workspace search palette** - the shared header now exposes Search plus `Ctrl/Cmd+K`, opening a user-scoped palette that searches accessible channel messages, DMs, feed posts, File Vault filenames, and indexed work cards from the current meshspace.
+
+### Changed
+- **Workspace search is safer across slow or busy sessions** - palette requests now ignore stale responses, invalid scopes fall back to All, long queries are capped server-side, focus returns to the opener after close, and filter tabs expose clearer accessible state.
+
 ## [0.6.106] - 2026-05-14
 
 ### Changed
