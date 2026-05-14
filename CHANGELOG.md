@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.99] - 2026-05-13
+
+### Changed
+- **Vault drag/drop now handles cloud-backed local file failures clearly** - uploads pre-read each file before sending so Windows cloud placeholder errors are caught early and users are guided to hydrate OneDrive/Dropbox/iCloud files or copy them to a local folder before retrying.
+
 ## [0.6.98] - 2026-05-13
 
 ### Fixed

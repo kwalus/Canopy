@@ -864,7 +864,23 @@
                         const extra = failed.length > 1 ? ` (${failed.length} files failed)` : '';
                         return `${name}: ${reason}${extra}`;
                     }
-                    return (error && (error.error || error.message)) || 'Upload failed.';
+                    const message = String((error && (error.error || error.message || error.name)) || '').trim();
+                    if (/failed to fetch|networkerror|notreadable|0x80070194|cloud/i.test(message)) {
+                        return 'The browser could not read or send this file. If it is stored in OneDrive, Dropbox, iCloud, or another cloud folder, mark it "Always keep on this device" or copy it to a normal local folder, then try again.';
+                    }
+                    return message || 'Upload failed.';
+                }
+
+                async function prepareVaultUploadFile(file) {
+                    if (!file || typeof file.arrayBuffer !== 'function') return file;
+                    try {
+                        const bytes = await file.arrayBuffer();
+                        return new Blob([bytes], { type: file.type || 'application/octet-stream' });
+                    } catch (error) {
+                        const err = new Error(summarizeVaultUploadError(error));
+                        err.name = error && error.name ? error.name : 'FileReadError';
+                        throw err;
+                    }
                 }
 
                 function setNewFolderError(message) {
@@ -945,9 +961,10 @@
                     try {
                         for (const file of files) {
                             const form = new FormData();
-                            form.append('file', file, file.name || 'upload');
-                            form.append('folder_id', state.currentFolderId || '');
                             try {
+                                const uploadFile = await prepareVaultUploadFile(file);
+                                form.append('file', uploadFile, file.name || 'upload');
+                                form.append('folder_id', state.currentFolderId || '');
                                 const data = await apiCall(vaultUrls().upload, {
                                     method: 'POST',
                                     body: form
