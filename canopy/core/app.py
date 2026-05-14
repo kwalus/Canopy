@@ -26,6 +26,7 @@ from .database import DatabaseManager
 from .logging_config import setup_logging
 from .files import FileManager
 from .digestions import DigestionManager
+from .updates import UpdateManager
 from .interactions import InteractionManager
 from .profile import ProfileManager, build_local_peer_hint_payload
 from .feed import FeedManager
@@ -334,6 +335,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
         backup_manager = BackupManager(db_manager, file_manager, config)
         app.config['BACKUP_MANAGER'] = backup_manager
         logger.info("Instance backup manager initialized successfully")
+
+        logger.info("Initializing instance update manager...")
+        update_manager = UpdateManager(db_manager, config, app.config.get('SECRET_KEY', ''))
+        app.config['UPDATE_MANAGER'] = update_manager
+        logger.info("Instance update manager initialized successfully")
 
         logger.info("Initializing interaction manager...")
         interaction_manager = InteractionManager(db_manager)

@@ -216,6 +216,116 @@
     word-break: break-all;
 }
 
+.update-shell {
+    border: 1px solid rgba(86, 166, 255, 0.28);
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 86% 0%, rgba(34, 197, 94, 0.15), transparent 30%),
+        radial-gradient(circle at 10% 20%, rgba(56, 189, 248, 0.13), transparent 34%),
+        linear-gradient(145deg, rgba(9, 21, 40, 0.94), rgba(12, 22, 40, 0.9));
+    padding: 1rem;
+    box-shadow: 0 20px 46px rgba(3, 9, 24, 0.34);
+}
+
+.update-topline {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.update-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid rgba(122, 151, 215, 0.24);
+    background: rgba(10, 22, 38, 0.72);
+    color: #d9e7ff;
+    font-size: 0.76rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-weight: 800;
+}
+
+.update-status-pill.clean {
+    border-color: rgba(64, 220, 164, 0.45);
+    color: #8df5d0;
+    background: rgba(19, 112, 87, 0.18);
+}
+
+.update-status-pill.available {
+    border-color: rgba(56, 189, 248, 0.55);
+    color: #bae6fd;
+    background: rgba(14, 116, 144, 0.22);
+}
+
+.update-status-pill.blocked {
+    border-color: rgba(251, 113, 133, 0.5);
+    color: #fecdd3;
+    background: rgba(127, 29, 29, 0.2);
+}
+
+.update-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+    gap: 0.65rem;
+    margin: 0.9rem 0;
+}
+
+.update-kpi,
+.update-settings-panel,
+.update-commit-panel {
+    border: 1px solid rgba(122, 151, 215, 0.2);
+    border-radius: 16px;
+    background: rgba(8, 18, 32, 0.58);
+    padding: 0.85rem;
+}
+
+.update-kpi-label {
+    font-size: 0.66rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #8ea3c0;
+    margin-bottom: 0.22rem;
+}
+
+.update-kpi-value {
+    font-size: 1rem;
+    font-weight: 800;
+    color: #eef5ff;
+    word-break: break-word;
+}
+
+.update-commit-list {
+    display: grid;
+    gap: 0.45rem;
+    max-height: 210px;
+    overflow: auto;
+    padding-right: 0.15rem;
+}
+
+.update-commit-item {
+    border: 1px solid rgba(122, 151, 215, 0.16);
+    border-radius: 12px;
+    background: rgba(13, 27, 48, 0.7);
+    padding: 0.55rem 0.65rem;
+}
+
+.update-commit-item code {
+    color: #9ff5de;
+}
+
+.update-security-note {
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    border-radius: 12px;
+    background: rgba(113, 63, 18, 0.16);
+    color: #f8e4b4;
+    padding: 0.65rem 0.75rem;
+}
+
 .backup-security-note {
     border: 1px solid rgba(245, 158, 11, 0.28);
     background: rgba(120, 71, 8, 0.16);
@@ -2750,6 +2860,9 @@
 {% set backup = backup_status if backup_status is defined and backup_status else {} %}
 {% set backup_settings = backup.get('settings', {}) if backup else {} %}
 {% set recent_backups = backup.get('backups', []) if backup else [] %}
+{% set updates = update_status if update_status is defined and update_status else {} %}
+{% set update_settings = updates.get('settings', {}) if updates else {} %}
+{% set update_last = updates.get('last_check', {}) if updates else {} %}
 <div class="card mb-4 admin-section-data">
     <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-shield-check"></i> Data Operations & Backups</h5>
@@ -2882,6 +2995,135 @@
                             {% else %}
                                 <div class="text-muted small">No instance backup snapshots yet.</div>
                             {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="update-shell mb-3" id="instance-update-panel">
+            <div class="update-topline">
+                <div>
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                        <h6 class="mb-0">Instance Updates</h6>
+                        <span class="update-status-pill {{ 'blocked' if updates.get('dirty') else ('available' if update_last.get('update_available') else 'clean') }}" id="instance-update-status-pill">
+                            <i class="bi {{ 'bi-exclamation-triangle' if updates.get('dirty') else ('bi-cloud-arrow-down' if update_last.get('update_available') else 'bi-check-circle') }}"></i>
+                            {{ 'Local edits' if updates.get('dirty') else ('Update available' if update_last.get('update_available') else 'Ready') }}
+                        </span>
+                    </div>
+                    <div class="text-muted small mt-1">
+                        Check the public Canopy repository or an admin-configured private repository such as Canopy-Dev. Pulls are explicit and fast-forward only.
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary btn-sm" id="instance-update-save-btn" onclick="saveInstanceUpdateSettings()">
+                        <i class="bi bi-check2"></i> Save Settings
+                    </button>
+                    <button class="btn btn-outline-info btn-sm" id="instance-update-check-btn" onclick="checkInstanceUpdates()">
+                        <i class="bi bi-search"></i> Check Updates
+                    </button>
+                    <button class="btn btn-success btn-sm" id="instance-update-apply-btn" onclick="applyInstanceUpdate()" {% if not update_last.get('can_apply') %}disabled{% endif %}>
+                        <i class="bi bi-cloud-arrow-down"></i> Apply Update
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" id="instance-update-refresh-btn" onclick="loadInstanceUpdateStatus()">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
+            </div>
+
+            <div class="update-kpi-grid">
+                <div class="update-kpi">
+                    <div class="update-kpi-label">Current Commit</div>
+                    <div class="update-kpi-value" id="instance-update-current">{{ updates.get('current_commit_short') or 'Unknown' }}</div>
+                </div>
+                <div class="update-kpi">
+                    <div class="update-kpi-label">Remote Commit</div>
+                    <div class="update-kpi-value" id="instance-update-remote">{{ update_last.get('remote_commit_short') or 'Not checked' }}</div>
+                </div>
+                <div class="update-kpi">
+                    <div class="update-kpi-label">Ahead / Behind</div>
+                    <div class="update-kpi-value" id="instance-update-ahead-behind">{{ update_last.get('ahead_count', 0) }} / {{ update_last.get('behind_count', 0) }}</div>
+                </div>
+                <div class="update-kpi">
+                    <div class="update-kpi-label">Worktree</div>
+                    <div class="update-kpi-value" id="instance-update-worktree">{{ updates.get('dirty_count', 0) }} local change{{ '' if updates.get('dirty_count', 0) == 1 else 's' }}</div>
+                </div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-xl-7">
+                    <div class="update-settings-panel h-100">
+                        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                            <div>
+                                <div class="fw-semibold">Repository Source</div>
+                                <div class="text-muted small">Use the public repo for release users; use a private HTTPS/SSH repo for operator/dev instances.</div>
+                            </div>
+                            <span class="badge rounded-pill text-bg-dark border" id="instance-update-token-badge">
+                                {{ 'Token configured' if update_settings.get('github_token_configured') else 'No token' }}
+                            </span>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label for="instance-update-repo-url" class="form-label">Repository URL</label>
+                                <input type="text" class="form-control" id="instance-update-repo-url" value="{{ update_settings.get('repo_url', '') }}" placeholder="{{ update_settings.get('default_public_repo_url', 'https://github.com/kwalus/Canopy.git') }}">
+                                <small class="text-muted">HTTPS, SSH, git@, file://, or local Git repository path.</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="instance-update-branch" class="form-label">Branch</label>
+                                <input type="text" class="form-control" id="instance-update-branch" value="{{ update_settings.get('branch', 'main') }}" placeholder="main">
+                                <small class="text-muted">Example: main, release, meshspaces.</small>
+                            </div>
+                            <div class="col-md-8">
+                                <label for="instance-update-token" class="form-label">Private GitHub Token</label>
+                                <input type="password" class="form-control" id="instance-update-token" placeholder="{{ 'Saved token will be kept' if update_settings.get('github_token_saved') else 'Optional for private HTTPS repos' }}" autocomplete="new-password">
+                                <small class="text-muted">
+                                    Stored encrypted on this node only. Environment fallback: <code>{{ update_settings.get('environment_token_name', 'CANOPY_UPDATE_GITHUB_TOKEN') }}</code>.
+                                </small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label d-block">Options</label>
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="instance-update-check-enabled" {% if update_settings.get('check_enabled', True) %}checked{% endif %}>
+                                    <label class="form-check-label" for="instance-update-check-enabled">Show update checks</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="instance-update-clear-token">
+                                    <label class="form-check-label" for="instance-update-clear-token">Clear saved token</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="update-security-note small mt-3">
+                            <i class="bi bi-shield-lock"></i>
+                            Updates are local operator actions. Canopy fetches without writing credentials into <code>remote.origin.url</code>, refuses dirty or divergent working trees, and requires a restart after code changes.
+                        </div>
+                        <div id="instance-update-settings-status" class="small text-muted mt-2"></div>
+                    </div>
+                </div>
+                <div class="col-xl-5">
+                    <div class="update-commit-panel h-100">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                            <div>
+                                <div class="fw-semibold">Latest Check</div>
+                                <div class="text-muted small" id="instance-update-last-checked">{{ update_last.get('checked_at') or 'Not checked yet' }}</div>
+                            </div>
+                        </div>
+                        <div class="small text-muted mb-2" id="instance-update-origin-display">
+                            {{ updates.get('origin_url') or update_settings.get('repo_url', '') }}
+                        </div>
+                        <div id="instance-update-commit-list" class="update-commit-list">
+                            {% if update_last.get('recent_commits') %}
+                                {% for item in update_last.get('recent_commits') %}
+                                    <div class="update-commit-item">
+                                        <code>{{ item.get('short') }}</code>
+                                        <span>{{ item.get('subject') }}</span>
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="text-muted small">Run an update check to see incoming commits.</div>
+                            {% endif %}
+                        </div>
+                        <div id="instance-update-result" class="small text-muted mt-2">
+                            {% if update_last.get('error') %}Last error: {{ update_last.get('error') }}{% endif %}
                         </div>
                     </div>
                 </div>
@@ -4028,6 +4270,209 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         }[ch]));
     }
 
+    let instanceUpdateAutoCheckStarted = false;
+
+    function formatUpdateDate(value) {
+        if (!value) return 'Not checked yet';
+        const dt = new Date(value);
+        if (Number.isNaN(dt.getTime())) return String(value);
+        return dt.toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+        });
+    }
+
+    function renderInstanceUpdateStatus(payload) {
+        if (!payload) return;
+        const settings = payload.settings || {};
+        const check = payload.last_check || payload || {};
+        const dirty = !!payload.dirty || !!check.dirty;
+        const updateAvailable = !!check.update_available;
+        const canApply = !!check.can_apply && !dirty;
+        const pill = document.getElementById('instance-update-status-pill');
+        if (pill) {
+            pill.classList.toggle('clean', !dirty && !updateAvailable);
+            pill.classList.toggle('available', !dirty && updateAvailable);
+            pill.classList.toggle('blocked', dirty);
+            const icon = dirty ? 'bi-exclamation-triangle' : (updateAvailable ? 'bi-cloud-arrow-down' : 'bi-check-circle');
+            const label = dirty ? 'Local edits' : (updateAvailable ? 'Update available' : 'Ready');
+            pill.innerHTML = `<i class="bi ${icon}"></i> ${label}`;
+        }
+
+        const repoInput = document.getElementById('instance-update-repo-url');
+        const branchInput = document.getElementById('instance-update-branch');
+        const checkEnabledInput = document.getElementById('instance-update-check-enabled');
+        const clearTokenInput = document.getElementById('instance-update-clear-token');
+        const tokenInput = document.getElementById('instance-update-token');
+        if (repoInput && settings.repo_url) repoInput.value = settings.repo_url;
+        if (branchInput && settings.branch) branchInput.value = settings.branch;
+        if (checkEnabledInput) checkEnabledInput.checked = settings.check_enabled !== false;
+        if (clearTokenInput) clearTokenInput.checked = false;
+        if (tokenInput) tokenInput.value = '';
+
+        const tokenBadge = document.getElementById('instance-update-token-badge');
+        if (tokenBadge) {
+            const tokenLabel = settings.github_token_saved
+                ? 'Saved token'
+                : (settings.environment_token_available ? 'Env token' : 'No token');
+            tokenBadge.textContent = tokenLabel;
+        }
+
+        const current = document.getElementById('instance-update-current');
+        const remote = document.getElementById('instance-update-remote');
+        const aheadBehind = document.getElementById('instance-update-ahead-behind');
+        const worktree = document.getElementById('instance-update-worktree');
+        const lastChecked = document.getElementById('instance-update-last-checked');
+        const origin = document.getElementById('instance-update-origin-display');
+        if (current) current.textContent = payload.current_commit_short || check.local_commit_short || 'Unknown';
+        if (remote) remote.textContent = check.remote_commit_short || 'Not checked';
+        if (aheadBehind) aheadBehind.textContent = `${Number(check.ahead_count || 0)} / ${Number(check.behind_count || 0)}`;
+        if (worktree) {
+            const count = Number(payload.dirty_count || check.dirty_count || 0);
+            worktree.textContent = `${count} local change${count === 1 ? '' : 's'}`;
+        }
+        if (lastChecked) lastChecked.textContent = formatUpdateDate(check.checked_at || payload.last_checked_at);
+        if (origin) origin.textContent = payload.origin_url || check.repo_url || settings.repo_url || '';
+
+        const applyBtn = document.getElementById('instance-update-apply-btn');
+        if (applyBtn) applyBtn.disabled = !canApply;
+
+        const commits = Array.isArray(check.recent_commits) ? check.recent_commits : [];
+        const list = document.getElementById('instance-update-commit-list');
+        if (list) {
+            if (!commits.length) {
+                list.innerHTML = updateAvailable
+                    ? '<div class="text-muted small">Incoming commits were not listed by Git.</div>'
+                    : '<div class="text-muted small">Run an update check to see incoming commits.</div>';
+            } else {
+                list.innerHTML = commits.map(item => `
+                    <div class="update-commit-item">
+                        <code>${escapeBackupHtml(item.short || '')}</code>
+                        <span>${escapeBackupHtml(item.subject || '')}</span>
+                    </div>
+                `).join('');
+            }
+        }
+
+        const resultLine = document.getElementById('instance-update-result');
+        if (resultLine) {
+            const message = check.error
+                ? `Last error: ${check.error}`
+                : (check.message || (updateAvailable ? 'Updates are available.' : 'No update check result yet.'));
+            resultLine.textContent = message;
+            resultLine.classList.toggle('text-danger', !!check.error);
+            resultLine.classList.toggle('text-success', !check.error && !!check.success && !updateAvailable);
+            resultLine.classList.toggle('text-info', !check.error && updateAvailable);
+            resultLine.classList.toggle('text-muted', !check.error && !check.success && !updateAvailable);
+        }
+
+        const settingsLine = document.getElementById('instance-update-settings-status');
+        if (settingsLine && check.dependencies_changed) {
+            settingsLine.textContent = 'Dependency files changed in this update. After pulling, restart using the normal launcher/install path so dependencies are refreshed.';
+            settingsLine.classList.remove('text-muted', 'text-success', 'text-danger');
+            settingsLine.classList.add('text-warning');
+        }
+    }
+
+    function shouldAutoCheckInstanceUpdates(payload) {
+        if (instanceUpdateAutoCheckStarted || !payload || !payload.settings) return false;
+        if (payload.settings.check_enabled === false) return false;
+        if (payload.git_repo_available === false || payload.git_available === false) return false;
+        const check = payload.last_check || {};
+        const checkedAt = check.checked_at || payload.last_checked_at || '';
+        if (!checkedAt) return true;
+        const dt = new Date(checkedAt);
+        if (Number.isNaN(dt.getTime())) return true;
+        return Date.now() - dt.getTime() > 6 * 60 * 60 * 1000;
+    }
+
+    async function loadInstanceUpdateStatus() {
+        try {
+            const { ok, data } = await api('GET', '/ajax/admin/updates/status');
+            if (!ok) throw new Error(data.error || data.message || 'Could not load update status');
+            renderInstanceUpdateStatus(data);
+            if (shouldAutoCheckInstanceUpdates(data)) {
+                instanceUpdateAutoCheckStarted = true;
+                const resultLine = document.getElementById('instance-update-result');
+                if (resultLine) resultLine.textContent = 'Checking configured repository for updates...';
+                setTimeout(() => checkInstanceUpdates({ silent: true }), 300);
+            }
+        } catch (err) {
+            const statusLine = document.getElementById('instance-update-settings-status');
+            if (statusLine) {
+                statusLine.textContent = 'Update status unavailable: ' + extractErrorMessage(err, 'Unknown error');
+                statusLine.classList.remove('text-muted', 'text-success');
+                statusLine.classList.add('text-danger');
+            }
+        }
+    }
+
+    async function saveInstanceUpdateSettings() {
+        const payload = {
+            repo_url: document.getElementById('instance-update-repo-url')?.value || '',
+            branch: document.getElementById('instance-update-branch')?.value || 'main',
+            github_token: document.getElementById('instance-update-token')?.value || '',
+            clear_github_token: !!document.getElementById('instance-update-clear-token')?.checked,
+            check_enabled: document.getElementById('instance-update-check-enabled')?.checked !== false,
+        };
+        setButtonBusy('instance-update-save-btn', true, '<i class="bi bi-hourglass-split"></i> Saving...');
+        try {
+            const { ok, data } = await api('POST', '/ajax/admin/updates/settings', payload);
+            if (!ok || !data.success) throw new Error(data.error || data.message || 'Could not save update settings');
+            renderInstanceUpdateStatus(data.status || { settings: data.settings });
+            showAlert(data.message || 'Instance update settings saved.', 'success');
+            const statusLine = document.getElementById('instance-update-settings-status');
+            if (statusLine) {
+                statusLine.textContent = 'Instance update settings saved.';
+                statusLine.classList.remove('text-danger', 'text-muted', 'text-warning');
+                statusLine.classList.add('text-success');
+            }
+        } catch (err) {
+            showAlert('Update settings failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+        } finally {
+            setButtonBusy('instance-update-save-btn', false);
+        }
+    }
+
+    async function checkInstanceUpdates(options = {}) {
+        const silent = !!options.silent;
+        if (!silent) setButtonBusy('instance-update-check-btn', true, '<i class="bi bi-hourglass-split"></i> Checking...');
+        try {
+            const { ok, data } = await api('POST', '/ajax/admin/updates/check', {});
+            if (!ok || data.success === false) throw new Error(data.error || data.message || 'Could not check for updates');
+            renderInstanceUpdateStatus(data);
+            if (!silent || data.update_available) {
+                showAlert(data.update_available ? 'Update available.' : 'This instance is up to date.', data.update_available ? 'info' : 'success');
+            }
+            await loadInstanceUpdateStatus();
+        } catch (err) {
+            if (!silent) {
+                showAlert('Update check failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+            }
+            await loadInstanceUpdateStatus();
+        } finally {
+            if (!silent) setButtonBusy('instance-update-check-btn', false);
+        }
+    }
+
+    async function applyInstanceUpdate() {
+        if (!confirm('Apply a clean fast-forward source update now? Canopy must be restarted afterward to run the new code.')) return;
+        setButtonBusy('instance-update-apply-btn', true, '<i class="bi bi-hourglass-split"></i> Updating...');
+        try {
+            const { ok, data } = await api('POST', '/ajax/admin/updates/apply', {});
+            if (!ok || !data.success) throw new Error(data.error || data.message || 'Could not apply update');
+            showAlert(data.message || 'Update applied. Restart Canopy to use the new version.', data.changed ? 'success' : 'info');
+            await loadInstanceUpdateStatus();
+        } catch (err) {
+            showAlert('Update failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+            await loadInstanceUpdateStatus();
+        } finally {
+            setButtonBusy('instance-update-apply-btn', false);
+        }
+    }
+
     function renderBackupStatus(payload) {
         if (!payload || !payload.settings) return;
         const settings = payload.settings || {};
@@ -4596,6 +5041,10 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     window.runBackupNow = runBackupNow;
     window.downloadBackup = downloadBackup;
     window.downloadLatestBackup = downloadLatestBackup;
+    window.loadInstanceUpdateStatus = loadInstanceUpdateStatus;
+    window.saveInstanceUpdateSettings = saveInstanceUpdateSettings;
+    window.checkInstanceUpdates = checkInstanceUpdates;
+    window.applyInstanceUpdate = applyInstanceUpdate;
     window.updateRelayPolicy = updateRelayPolicy;
     window.saveLargeAttachmentSettings = saveLargeAttachmentSettings;
 
@@ -4606,6 +5055,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             if (file) importDatabaseFile(file);
         });
     }
+    loadInstanceUpdateStatus();
     loadBackupStatus();
     loadRelayStatus();
     bindTransportSecurityAdmin();

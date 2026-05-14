@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.110] - 2026-05-14
+
+### Added
+- **Admin-controlled instance updates** - admins can configure a public or private Git repository, check for incoming commits, and explicitly apply clean fast-forward source updates from the Admin data panel.
+
+### Changed
+- **Instance update checks use stricter source safety** - update pulls refuse dirty/diverged working trees, reject embedded HTTPS credentials and plain HTTP repository URLs, avoid writing tokens into Git remotes, and surface dependency-file changes so admins know when the normal restart/install path is needed.
+
 ## [0.6.109] - 2026-05-14
 
 ### Added

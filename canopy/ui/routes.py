@@ -10486,6 +10486,15 @@ def create_ui_blueprint() -> Blueprint:
                     backup_status = {'success': False, 'error': str(backup_status_err), 'settings': {}, 'backups': []}
             else:
                 backup_status = {'success': False, 'error': 'Backup manager unavailable', 'settings': {}, 'backups': []}
+            update_manager = current_app.config.get('UPDATE_MANAGER')
+            if update_manager and hasattr(update_manager, 'get_status'):
+                try:
+                    update_status = update_manager.get_status()
+                except Exception as update_status_err:
+                    logger.warning("Failed to load instance update status: %s", update_status_err)
+                    update_status = {'success': False, 'error': str(update_status_err), 'settings': {}, 'last_check': {}}
+            else:
+                update_status = {'success': False, 'error': 'Instance update manager unavailable', 'settings': {}, 'last_check': {}}
 
             return render_template('admin.html',
                                  users=users,
@@ -10509,6 +10518,7 @@ def create_ui_blueprint() -> Blueprint:
                                  transport_security_admin=transport_security_admin,
                                  instance_llm_settings=instance_llm_settings,
                                  backup_status=backup_status,
+                                 update_status=update_status,
                                  directive_presets=_agent_directive_presets_payload(),
                                  directive_max_length=MAX_AGENT_DIRECTIVES_LENGTH,
                                  user_id=get_current_user())
@@ -22718,6 +22728,12 @@ def create_ui_blueprint() -> Blueprint:
             return None, (jsonify({'error': 'Instance backup manager is unavailable on this node'}), 503)
         return manager, None
 
+    def _get_update_manager_or_response() -> tuple[Any, Optional[Any]]:
+        manager = current_app.config.get('UPDATE_MANAGER')
+        if not manager:
+            return None, (jsonify({'error': 'Instance update manager is unavailable on this node'}), 503)
+        return manager, None
+
     @ui.route('/ajax/admin/backups/status', methods=['GET'])
     @require_admin
     def ajax_admin_backups_status():
@@ -22786,6 +22802,79 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error("Backup download error: %s", e, exc_info=True)
             return jsonify({'error': 'Could not download backup'}), 500
+
+    @ui.route('/ajax/admin/updates/status', methods=['GET'])
+    @require_admin
+    def ajax_admin_updates_status():
+        """AJAX: Return instance Git update configuration and last check status."""
+        manager, error_response = _get_update_manager_or_response()
+        if error_response:
+            return error_response
+        try:
+            return jsonify(manager.get_status())
+        except Exception as e:
+            logger.error("Instance update status error: %s", e, exc_info=True)
+            return jsonify({'error': 'Could not load instance update status'}), 500
+
+    @ui.route('/ajax/admin/updates/settings', methods=['POST'])
+    @require_admin
+    def ajax_admin_updates_settings():
+        """AJAX: Save local instance update repo settings."""
+        manager, error_response = _get_update_manager_or_response()
+        if error_response:
+            return error_response
+        try:
+            from ..core.updates import UpdateError
+
+            payload = request.get_json(silent=True) or {}
+            settings = manager.save_settings(get_current_user(), payload)
+            return jsonify({
+                'success': True,
+                'message': 'Instance update settings saved.',
+                'settings': settings,
+                'status': manager.get_status(),
+            })
+        except UpdateError as e:
+            return jsonify({'error': str(e), 'reason': e.reason}), e.status_code
+        except Exception as e:
+            logger.error("Instance update settings save error: %s", e, exc_info=True)
+            return jsonify({'error': str(e) or 'Could not save instance update settings'}), 400
+
+    @ui.route('/ajax/admin/updates/check', methods=['POST'])
+    @require_admin
+    def ajax_admin_updates_check():
+        """AJAX: Fetch the configured Git branch and report update availability."""
+        manager, error_response = _get_update_manager_or_response()
+        if error_response:
+            return error_response
+        try:
+            from ..core.updates import UpdateError
+
+            result = manager.check_for_updates()
+            return jsonify(result)
+        except UpdateError as e:
+            return jsonify({'success': False, 'error': str(e), 'reason': e.reason}), e.status_code
+        except Exception as e:
+            logger.error("Instance update check error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not check for updates'}), 500
+
+    @ui.route('/ajax/admin/updates/apply', methods=['POST'])
+    @require_admin
+    def ajax_admin_updates_apply():
+        """AJAX: Apply a clean fast-forward Git update."""
+        manager, error_response = _get_update_manager_or_response()
+        if error_response:
+            return error_response
+        try:
+            from ..core.updates import UpdateError
+
+            result = manager.apply_update()
+            return jsonify(result)
+        except UpdateError as e:
+            return jsonify({'success': False, 'error': str(e), 'reason': e.reason}), e.status_code
+        except Exception as e:
+            logger.error("Instance update apply error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not apply update'}), 500
 
     # Database management AJAX endpoints for Settings page
     @ui.route('/ajax/database_cleanup', methods=['POST'])

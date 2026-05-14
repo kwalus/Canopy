@@ -115,6 +115,39 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('database/canopy.db', backups_core)
         self.assertIn('include_large_attachments', backups_core)
 
+    def test_admin_exposes_instance_update_controls(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+        app_core = (ROOT / 'canopy' / 'core' / 'app.py').read_text(encoding='utf-8')
+        updates_core = (ROOT / 'canopy' / 'core' / 'updates.py').read_text(encoding='utf-8')
+
+        self.assertIn('Instance Updates', admin_template)
+        self.assertIn('instance-update-repo-url', admin_template)
+        self.assertIn('instance-update-branch', admin_template)
+        self.assertIn('instance-update-token', admin_template)
+        self.assertIn('instance-update-check-btn', admin_template)
+        self.assertIn('instance-update-apply-btn', admin_template)
+        self.assertIn('function saveInstanceUpdateSettings()', admin_template)
+        self.assertIn('function checkInstanceUpdates(options = {})', admin_template)
+        self.assertIn('function applyInstanceUpdate()', admin_template)
+        self.assertIn('/ajax/admin/updates/status', admin_template)
+        self.assertIn('/ajax/admin/updates/settings', admin_template)
+        self.assertIn('/ajax/admin/updates/check', admin_template)
+        self.assertIn('/ajax/admin/updates/apply', admin_template)
+
+        self.assertIn("@ui.route('/ajax/admin/updates/status'", ui_routes)
+        self.assertIn("@ui.route('/ajax/admin/updates/settings'", ui_routes)
+        self.assertIn("@ui.route('/ajax/admin/updates/check'", ui_routes)
+        self.assertIn("@ui.route('/ajax/admin/updates/apply'", ui_routes)
+        self.assertIn("update_status=update_status", ui_routes)
+        self.assertIn('UPDATE_MANAGER', app_core)
+        self.assertIn('UpdateManager', app_core)
+        self.assertIn('class UpdateManager', updates_core)
+        self.assertIn('GIT_ASKPASS', updates_core)
+        self.assertIn('--ff-only', updates_core)
+        self.assertIn('repo_url_contains_credentials', updates_core)
+        self.assertIn('insecure_repo_url', updates_core)
+
     def test_user_file_vault_ui_and_composer_picker_are_wired(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         vault_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'vault.html').read_text(encoding='utf-8')
@@ -2526,7 +2559,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.109', api_ref)
+        self.assertIn('0.6.110', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
