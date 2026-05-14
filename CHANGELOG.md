@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.101] - 2026-05-13
+
+### Fixed
+- **The From Vault picker now supports Vault folders** - composer attachment pickers show folder breadcrumbs, let users open folders inside the modal, and list files from the selected folder instead of only showing Vault Home files.
+
 ## [0.6.100] - 2026-05-13
 
 ### Fixed

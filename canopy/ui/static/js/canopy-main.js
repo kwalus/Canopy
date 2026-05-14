@@ -400,6 +400,32 @@
                         color: #fff;
                         border-color: transparent;
                     }
+                    .canopy-vault-picker-path {
+                        display: flex;
+                        flex-wrap: wrap;
+                        align-items: center;
+                        gap: 0.32rem;
+                        margin-bottom: 0.75rem;
+                    }
+                    .canopy-vault-picker-crumb {
+                        border: 1px solid transparent;
+                        border-radius: 999px;
+                        background: transparent;
+                        color: var(--canopy-text-secondary);
+                        padding: 0.28rem 0.5rem;
+                        font-size: 0.82rem;
+                        font-weight: 750;
+                        max-width: 190px;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .canopy-vault-picker-crumb:hover,
+                    .canopy-vault-picker-crumb.active {
+                        color: var(--canopy-text-primary);
+                        border-color: var(--canopy-border);
+                        background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
+                    }
                     .canopy-vault-picker-grid {
                         display: grid;
                         grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
@@ -421,6 +447,9 @@
                         padding: 0.58rem;
                         background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
                         color: var(--canopy-text-primary);
+                    }
+                    .canopy-vault-picker-file.is-folder {
+                        border-style: dashed;
                     }
                     .canopy-vault-picker-file:hover,
                     .canopy-vault-picker-file.is-selected {
@@ -511,6 +540,7 @@
                                     <button type="button" class="canopy-vault-picker-filter" data-vault-picker-category="audio">Audio</button>
                                     <button type="button" class="canopy-vault-picker-filter" data-vault-picker-category="other">Other</button>
                                 </div>
+                                <div class="canopy-vault-picker-path" data-vault-picker-path aria-label="Current Vault folder"></div>
                                 <div class="canopy-vault-picker-grid" data-vault-picker-grid></div>
                                 <div class="canopy-vault-picker-empty" data-vault-picker-empty hidden>
                                     <i class="bi bi-folder2-open d-block fs-2 mb-2"></i>
@@ -536,11 +566,14 @@
 
             const pickerState = {
                 files: [],
+                folders: [],
+                path: [],
                 selected: new Map(),
                 onSelect: null,
                 multiple: true,
                 query: '',
                 category: '',
+                currentFolderId: '',
                 actionLabel: 'Attach',
                 title: 'Attach from File Vault',
                 loading: false,
@@ -571,15 +604,41 @@
             function renderPickerFiles(modal) {
                 const grid = modal.querySelector('[data-vault-picker-grid]');
                 const empty = modal.querySelector('[data-vault-picker-empty]');
+                const pathEl = modal.querySelector('[data-vault-picker-path]');
                 if (!grid || !empty) return;
-                if (!pickerState.files.length) {
+                if (pathEl) {
+                    const crumbs = [
+                        `<button class="canopy-vault-picker-crumb${pickerState.currentFolderId ? '' : ' active'}" type="button" data-vault-picker-folder-target=""><i class="bi bi-house-door me-1"></i>Vault Home</button>`
+                    ];
+                    pickerState.path.forEach((folder) => {
+                        const id = vaultEscape(folder.id || '');
+                        const name = vaultEscape(folder.name || 'Folder');
+                        const active = String(folder.id || '') === String(pickerState.currentFolderId || '') ? ' active' : '';
+                        crumbs.push(`<span class="text-muted">/</span><button class="canopy-vault-picker-crumb${active}" type="button" data-vault-picker-folder-target="${id}">${name}</button>`);
+                    });
+                    pathEl.innerHTML = crumbs.join('');
+                }
+                if (!pickerState.files.length && !pickerState.folders.length) {
                     grid.innerHTML = '';
                     empty.hidden = false;
                     updatePickerSelectionUi(modal);
                     return;
                 }
                 empty.hidden = true;
-                grid.innerHTML = pickerState.files.map((file) => {
+                const folderHtml = pickerState.folders.map((folder) => {
+                    const id = vaultEscape(folder.id || '');
+                    const name = vaultEscape(folder.name || 'Folder');
+                    return `
+                        <button type="button" class="canopy-vault-picker-file is-folder" data-vault-picker-folder="${id}">
+                            <span class="canopy-vault-picker-thumb"><i class="bi bi-folder-fill"></i></span>
+                            <span class="min-w-0">
+                                <span class="canopy-vault-picker-name">${name}</span>
+                                <span class="canopy-vault-picker-meta">Folder · Open to choose files</span>
+                            </span>
+                        </button>
+                    `;
+                }).join('');
+                const fileHtml = pickerState.files.map((file) => {
                     const id = vaultEscape(file.id || '');
                     const name = vaultEscape(file.name || file.filename || 'File');
                     const type = vaultEscape(CATEGORY_LABELS[file.category] || file.category || file.type || 'File');
@@ -595,7 +654,13 @@
                         </button>
                     `;
                 }).join('');
+                grid.innerHTML = folderHtml + fileHtml;
                 updatePickerSelectionUi(modal);
+            }
+
+            async function navigatePickerFolder(modal, folderId) {
+                pickerState.currentFolderId = String(folderId || '');
+                await loadPickerFiles(modal);
             }
 
             async function loadPickerFiles(modal) {
@@ -604,6 +669,7 @@
                 pickerState.loading = true;
                 const query = pickerState.query;
                 const category = pickerState.category;
+                const folderId = pickerState.currentFolderId;
                 const grid = modal.querySelector('[data-vault-picker-grid]');
                 if (grid) {
                     grid.innerHTML = '<div class="canopy-vault-picker-empty"><span class="spinner-border spinner-border-sm me-2"></span>Loading vault files...</div>';
@@ -612,16 +678,22 @@
                     const data = await fetchVaultFiles({
                         q: query,
                         category,
-                        limit: DEFAULT_LIMIT
+                        limit: DEFAULT_LIMIT,
+                        folderId
                     });
                     if (requestSeq !== pickerState.requestSeq) return;
                     pickerState.files = Array.isArray(data.files) ? data.files : [];
+                    pickerState.folders = Array.isArray(data.folders) ? data.folders : [];
+                    pickerState.path = Array.isArray(data.path) ? data.path : [];
+                    pickerState.currentFolderId = String(data.current_folder_id || folderId || '');
                     renderPickerFiles(modal);
                 } catch (error) {
                     if (requestSeq !== pickerState.requestSeq) return;
                     console.error('Vault picker load failed:', error);
                     if (typeof showAlert === 'function') showAlert(error.error || 'Could not load File Vault.', 'danger');
                     pickerState.files = [];
+                    pickerState.folders = [];
+                    pickerState.path = [];
                     renderPickerFiles(modal);
                 } finally {
                     if (requestSeq === pickerState.requestSeq) {
@@ -651,6 +723,16 @@
                             btn.classList.toggle('active', btn === filter);
                         });
                         loadPickerFiles(modal);
+                        return;
+                    }
+                    const folderTarget = event.target.closest('[data-vault-picker-folder-target]');
+                    if (folderTarget && modal.contains(folderTarget)) {
+                        navigatePickerFolder(modal, folderTarget.getAttribute('data-vault-picker-folder-target') || '');
+                        return;
+                    }
+                    const folder = event.target.closest('[data-vault-picker-folder]');
+                    if (folder && modal.contains(folder)) {
+                        navigatePickerFolder(modal, folder.getAttribute('data-vault-picker-folder') || '');
                         return;
                     }
                     const item = event.target.closest('[data-vault-picker-file]');
@@ -692,11 +774,14 @@
                 const modal = ensurePickerModal();
                 bindPickerModal(modal);
                 pickerState.files = [];
+                pickerState.folders = [];
+                pickerState.path = [];
                 pickerState.selected.clear();
                 pickerState.onSelect = typeof options.onSelect === 'function' ? options.onSelect : null;
                 pickerState.multiple = options.multiple !== false;
                 pickerState.query = '';
                 pickerState.category = '';
+                pickerState.currentFolderId = '';
                 pickerState.actionLabel = options.actionLabel || 'Attach';
                 pickerState.title = options.title || 'Attach from File Vault';
                 const titleEl = modal.querySelector('#canopy-vault-picker-title');
