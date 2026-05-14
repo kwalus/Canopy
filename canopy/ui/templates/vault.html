@@ -234,10 +234,65 @@
         color: var(--canopy-primary);
         font-size: 2.35rem;
     }
-    .vault-card[draggable="true"] {
-        cursor: grab;
+    .vault-list-tools {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+    .vault-view-switch {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.22rem;
+        border: 1px solid var(--canopy-border);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
+    }
+    .vault-view-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.34rem;
+        min-height: 2rem;
+        border: 0;
+        border-radius: 999px;
+        padding: 0.32rem 0.6rem;
+        background: transparent;
+        color: var(--canopy-text-secondary);
+        font-weight: 800;
+        font-size: 0.78rem;
+    }
+    .vault-view-btn.active {
+        background: color-mix(in srgb, var(--canopy-primary) 20%, var(--canopy-bg-card));
+        color: var(--canopy-text-primary);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 42%, transparent) inset;
+    }
+    .vault-selection-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.65rem;
+        margin-bottom: 0.85rem;
+        padding: 0.68rem 0.78rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 35%, var(--canopy-border));
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--canopy-primary) 12%, var(--canopy-bg-tertiary));
+        color: var(--canopy-text-primary);
+    }
+    .vault-selection-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        justify-content: flex-end;
+    }
+    .vault-card[data-vault-file-id],
+    .vault-folder-card {
+        cursor: pointer;
     }
     .vault-card.is-dragging {
+        cursor: grabbing;
         opacity: 0.55;
     }
     .vault-stats {
@@ -271,6 +326,7 @@
         gap: 0.85rem;
     }
     .vault-card {
+        position: relative;
         display: grid;
         grid-template-rows: auto 1fr auto;
         min-height: 220px;
@@ -280,6 +336,45 @@
             linear-gradient(160deg, color-mix(in srgb, var(--canopy-bg-card) 92%, transparent), color-mix(in srgb, var(--canopy-bg-secondary) 88%, transparent));
         overflow: hidden;
         box-shadow: 0 14px 30px color-mix(in srgb, var(--canopy-shadow) 70%, transparent);
+        transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+    .vault-card:hover,
+    .vault-card:focus-visible {
+        transform: translateY(-1px);
+        border-color: color-mix(in srgb, var(--canopy-primary) 46%, var(--canopy-border));
+        outline: none;
+    }
+    .vault-card.is-selected {
+        border-color: color-mix(in srgb, var(--canopy-primary) 68%, var(--canopy-border));
+        background:
+            radial-gradient(circle at 15% 10%, color-mix(in srgb, var(--canopy-primary) 18%, transparent), transparent 34%),
+            linear-gradient(160deg, color-mix(in srgb, var(--canopy-bg-card) 94%, transparent), color-mix(in srgb, var(--canopy-bg-secondary) 88%, transparent));
+    }
+    .vault-select-wrap,
+    .vault-select-spacer {
+        position: absolute;
+        z-index: 2;
+        top: 0.62rem;
+        left: 0.62rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.55rem;
+        height: 1.55rem;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        box-shadow: 0 8px 18px color-mix(in srgb, var(--canopy-shadow) 58%, transparent);
+    }
+    .vault-select-spacer {
+        opacity: 0;
+        pointer-events: none;
+    }
+    .vault-select-box {
+        width: 1rem;
+        height: 1rem;
+        margin: 0;
+        accent-color: var(--canopy-primary);
     }
     .vault-card-preview {
         height: 104px;
@@ -296,8 +391,9 @@
     .vault-card-preview img {
         width: 100%;
         height: 100%;
-        object-fit: cover;
+        object-fit: contain;
         display: block;
+        padding: 0.35rem;
     }
     .vault-card-body {
         padding: 0.85rem;
@@ -339,6 +435,84 @@
     .vault-file-location.is-visible {
         display: inline-flex;
     }
+    .vault-grid.view-list {
+        grid-template-columns: 1fr;
+    }
+    .vault-grid.view-list .vault-card {
+        grid-template-columns: auto 58px minmax(0, 1fr) auto;
+        grid-template-rows: auto;
+        min-height: 0;
+        align-items: center;
+    }
+    .vault-grid.view-list .vault-select-wrap,
+    .vault-grid.view-list .vault-select-spacer {
+        position: static;
+        margin-left: 0.72rem;
+    }
+    .vault-grid.view-list .vault-card-preview {
+        width: 58px;
+        height: 58px;
+        border-radius: 15px;
+        margin: 0.52rem 0;
+        font-size: 1.35rem;
+    }
+    .vault-grid.view-list .vault-card-body {
+        padding: 0.62rem 0.82rem;
+    }
+    .vault-grid.view-list .vault-file-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        word-break: normal;
+    }
+    .vault-grid.view-list .vault-file-meta {
+        margin-top: 0.35rem;
+    }
+    .vault-grid.view-list .vault-card-actions {
+        border-top: 0;
+        padding: 0.62rem 0.82rem;
+        justify-content: flex-end;
+        flex-wrap: nowrap;
+    }
+    .vault-grid.view-icons {
+        grid-template-columns: repeat(auto-fill, minmax(142px, 1fr));
+    }
+    .vault-grid.view-icons .vault-card {
+        min-height: 156px;
+    }
+    .vault-grid.view-icons .vault-card-preview {
+        height: 82px;
+        font-size: 1.75rem;
+    }
+    .vault-grid.view-icons .vault-card-body {
+        padding: 0.65rem;
+    }
+    .vault-grid.view-icons .vault-file-name {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        font-size: 0.9rem;
+    }
+    .vault-grid.view-icons .vault-file-meta {
+        display: none;
+    }
+    .vault-grid.view-icons .vault-card-actions {
+        padding: 0.55rem;
+    }
+    .vault-grid.view-icons .vault-card-actions .btn span {
+        display: none;
+    }
+    .vault-grid.view-preview {
+        grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+    }
+    .vault-grid.view-preview .vault-card {
+        min-height: 312px;
+    }
+    .vault-grid.view-preview .vault-card-preview {
+        height: clamp(180px, 24vw, 260px);
+        font-size: 2.8rem;
+    }
     .vault-empty {
         display: none;
         padding: 2.2rem;
@@ -364,6 +538,18 @@
             width: 100%;
             justify-content: flex-start;
         }
+        .vault-list-tools {
+            justify-content: flex-start;
+            width: 100%;
+        }
+        .vault-grid.view-list .vault-card {
+            grid-template-columns: auto 52px minmax(0, 1fr);
+        }
+        .vault-grid.view-list .vault-card-actions {
+            grid-column: 1 / -1;
+            justify-content: flex-start;
+            border-top: 1px solid var(--canopy-border);
+        }
         .vault-stats {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -380,6 +566,14 @@
         }
         .vault-inline-folder-form {
             grid-template-columns: 1fr;
+        }
+        .vault-view-switch {
+            width: 100%;
+            justify-content: space-between;
+        }
+        .vault-view-btn {
+            flex: 1 1 0;
+            justify-content: center;
         }
     }
 </style>
@@ -476,11 +670,41 @@
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
             <div>
                 <h2 class="h5 mb-1" style="color: var(--canopy-text-primary);">Your files</h2>
-                <div class="small text-muted">Use the Vault button in a channel, feed, or DM composer to attach these files.</div>
+                <div class="small text-muted">Click a file to open it. Use the Vault button in a channel, feed, or DM composer to attach these files.</div>
             </div>
-            <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-refresh-btn">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
-            </button>
+            <div class="vault-list-tools">
+                <div class="vault-view-switch" role="group" aria-label="Vault view mode">
+                    <button class="vault-view-btn" type="button" data-vault-view-mode="list" aria-pressed="false">
+                        <i class="bi bi-list-check"></i><span>Details</span>
+                    </button>
+                    <button class="vault-view-btn" type="button" data-vault-view-mode="icons" aria-pressed="false">
+                        <i class="bi bi-grid-3x3-gap"></i><span>Icons</span>
+                    </button>
+                    <button class="vault-view-btn" type="button" data-vault-view-mode="preview" aria-pressed="true">
+                        <i class="bi bi-card-image"></i><span>Preview</span>
+                    </button>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-refresh-btn">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+        <div class="vault-selection-bar" id="vault-selection-bar" hidden>
+            <div>
+                <strong id="vault-selection-count">0 selected</strong>
+                <span class="text-muted small ms-1">Collect Vault links without opening each file.</span>
+            </div>
+            <div class="vault-selection-actions">
+                <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-selection-open">
+                    <i class="bi bi-box-arrow-up-right"></i> Open first
+                </button>
+                <button class="btn btn-sm btn-primary" type="button" id="vault-selection-copy">
+                    <i class="bi bi-markdown"></i> Copy links
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-selection-clear">
+                    Clear
+                </button>
+            </div>
         </div>
         <div class="vault-grid" id="vault-grid" aria-live="polite"></div>
         <div class="vault-empty" id="vault-empty">

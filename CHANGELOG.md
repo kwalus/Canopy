@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.108] - 2026-05-14
+
+### Changed
+- **File Vault browsing is more flexible** - the Vault page now supports Details, Icons, and Preview views, keeps image previews contained instead of cropped, lets users click a file card to open it, and adds multi-select checkboxes for copying selected Vault links.
+- **File Vault card interactions are less surprising** - file and folder cards now use a natural click cursor, and drag/drop cleanup suppresses the stray post-drag click that can otherwise open the card after moving a file.
+
 ## [0.6.107] - 2026-05-14
 
 ### Added

@@ -243,6 +243,8 @@
                 document: 'Docs',
                 other: 'Other'
             };
+            const VAULT_VIEW_STORAGE_KEY = 'canopy:vault:viewMode';
+            const VAULT_VIEW_MODES = new Set(['list', 'icons', 'preview']);
 
             function vaultUrls() {
                 const urls = (global.CANOPY_VARS && global.CANOPY_VARS.urls) || {};
@@ -871,8 +873,9 @@
                 const id = vaultEscape(folder.id || '');
                 const name = vaultEscape(folder.name || 'Folder');
                 return `
-                    <article class="vault-card vault-folder-card" data-vault-folder-id="${id}" data-vault-folder-drop="${id}">
-                        <button type="button" class="vault-card-preview vault-folder-preview border-0 w-100" data-vault-open-folder="${id}" aria-label="Open folder ${name}">
+                    <article class="vault-card vault-folder-card" data-vault-folder-id="${id}" data-vault-folder-drop="${id}" data-vault-open-folder="${id}" role="button" tabindex="0" aria-label="Open folder ${name}">
+                        <span class="vault-select-spacer" aria-hidden="true"></span>
+                        <button type="button" class="vault-card-preview vault-folder-preview border-0" data-vault-open-folder="${id}" aria-label="Open folder ${name}">
                             <i class="bi bi-folder-fill"></i>
                         </button>
                         <div class="vault-card-body">
@@ -894,7 +897,7 @@
                 `;
             }
 
-            function renderVaultPageCard(file) {
+            function renderVaultPageCard(file, selected = false) {
                 const id = vaultEscape(file.id || '');
                 const name = vaultEscape(file.name || file.filename || 'File');
                 const type = vaultEscape(CATEGORY_LABELS[file.category] || file.category || file.type || 'File');
@@ -902,7 +905,10 @@
                 const uploaded = vaultEscape(formatTimestamp(file.uploaded_at || ''));
                 const url = vaultEscape(file.url || `/files/${encodeURIComponent(file.id || '')}`);
                 return `
-                    <article class="vault-card" data-vault-file-id="${id}" draggable="true">
+                    <article class="vault-card${selected ? ' is-selected' : ''}" data-vault-file-id="${id}" data-vault-open-url="${url}" draggable="true" role="button" tabindex="0" aria-label="Open ${name}">
+                        <label class="vault-select-wrap" title="Select ${name}" aria-label="Select ${name}">
+                            <input class="vault-select-box" type="checkbox" data-vault-select-file="${id}" ${selected ? 'checked' : ''}>
+                        </label>
                         <div class="vault-card-preview">${renderVaultPreview(file)}</div>
                         <div class="vault-card-body">
                             <div class="vault-file-name">${name}</div>
@@ -915,13 +921,13 @@
                         </div>
                         <div class="vault-card-actions">
                             <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-action="copy" data-vault-id="${id}">
-                                <i class="bi bi-markdown"></i> Copy link
+                                <i class="bi bi-markdown"></i> <span>Copy link</span>
                             </button>
                             <a class="btn btn-sm btn-outline-secondary" href="${url}" target="_blank" rel="noopener">
-                                <i class="bi bi-box-arrow-up-right"></i> Open
+                                <i class="bi bi-box-arrow-up-right"></i> <span>Open</span>
                             </a>
                             <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-action="move-root" data-vault-id="${id}">
-                                <i class="bi bi-house-door"></i> Move Home
+                                <i class="bi bi-house-door"></i> <span>Move Home</span>
                             </button>
                             <button class="btn btn-sm btn-outline-danger ms-auto" type="button" data-vault-action="delete" data-vault-id="${id}">
                                 <i class="bi bi-trash"></i>
@@ -934,6 +940,14 @@
             function initVaultPage() {
                 const page = document.querySelector('[data-vault-page]');
                 if (!page) return;
+                function readVaultViewMode() {
+                    try {
+                        const saved = String(global.localStorage && global.localStorage.getItem(VAULT_VIEW_STORAGE_KEY) || '').trim();
+                        return VAULT_VIEW_MODES.has(saved) ? saved : 'preview';
+                    } catch (_) {
+                        return 'preview';
+                    }
+                }
                 const state = {
                     files: Array.isArray(global.CANOPY_VAULT_INITIAL?.files) ? global.CANOPY_VAULT_INITIAL.files.slice() : [],
                     folders: Array.isArray(global.CANOPY_VAULT_INITIAL?.folders) ? global.CANOPY_VAULT_INITIAL.folders.slice() : [],
@@ -945,7 +959,9 @@
                     offset: 0,
                     limit: 48,
                     loading: false,
-                    timer: null
+                    timer: null,
+                    viewMode: readVaultViewMode(),
+                    selectedIds: new Set()
                 };
                 const grid = document.getElementById('vault-grid');
                 const empty = document.getElementById('vault-empty');
@@ -960,6 +976,66 @@
                 const newFolderCancel = document.getElementById('vault-new-folder-cancel');
                 const newFolderError = document.getElementById('vault-new-folder-error');
                 const rootBtn = document.getElementById('vault-root-btn');
+                const selectionBar = document.getElementById('vault-selection-bar');
+                const selectionCount = document.getElementById('vault-selection-count');
+                const selectionOpen = document.getElementById('vault-selection-open');
+                const selectionCopy = document.getElementById('vault-selection-copy');
+                const selectionClear = document.getElementById('vault-selection-clear');
+
+                function vaultFileUrl(file) {
+                    return String(file && (file.url || `/files/${encodeURIComponent(file.id || '')}`) || '');
+                }
+
+                function openVaultFile(file) {
+                    const url = vaultFileUrl(file);
+                    if (!url) return;
+                    const opened = global.open(url, '_blank');
+                    if (opened) {
+                        try { opened.opener = null; } catch (_) {}
+                    }
+                    if (!opened) {
+                        global.location.href = url;
+                    }
+                }
+
+                function selectedVaultFiles() {
+                    return state.files.filter(file => state.selectedIds.has(String(file.id || '')));
+                }
+
+                function updateSelectionUi() {
+                    const selected = selectedVaultFiles();
+                    if (selectionBar) selectionBar.hidden = selected.length === 0;
+                    if (selectionCount) selectionCount.textContent = `${selected.length} selected`;
+                    if (selectionOpen) selectionOpen.disabled = selected.length === 0;
+                    if (selectionCopy) selectionCopy.disabled = selected.length === 0;
+                    if (selectionClear) selectionClear.disabled = selected.length === 0;
+                    if (grid) {
+                        grid.querySelectorAll('[data-vault-file-id]').forEach((card) => {
+                            const id = card.getAttribute('data-vault-file-id') || '';
+                            card.classList.toggle('is-selected', state.selectedIds.has(id));
+                        });
+                    }
+                }
+
+                function applyVaultViewMode() {
+                    if (!grid) return;
+                    grid.classList.remove('view-list', 'view-icons', 'view-preview');
+                    grid.classList.add(`view-${state.viewMode}`);
+                    page.querySelectorAll('[data-vault-view-mode]').forEach((btn) => {
+                        const active = btn.getAttribute('data-vault-view-mode') === state.viewMode;
+                        btn.classList.toggle('active', active);
+                        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+                    });
+                }
+
+                function setVaultViewMode(mode) {
+                    const nextMode = VAULT_VIEW_MODES.has(String(mode || '')) ? String(mode) : 'preview';
+                    state.viewMode = nextMode;
+                    try {
+                        if (global.localStorage) global.localStorage.setItem(VAULT_VIEW_STORAGE_KEY, nextMode);
+                    } catch (_) {}
+                    applyVaultViewMode();
+                }
 
                 function updateStats(stats) {
                     const safeStats = stats || {};
@@ -981,13 +1057,20 @@
 
                 function render() {
                     if (!grid || !empty) return;
+                    const visibleIds = new Set(state.files.map(file => String(file.id || '')).filter(Boolean));
+                    state.selectedIds.forEach((id) => {
+                        if (!visibleIds.has(id)) state.selectedIds.delete(id);
+                    });
                     if (!state.files.length && !state.folders.length) {
                         grid.innerHTML = '';
                         empty.style.display = 'block';
                     } else {
                         empty.style.display = 'none';
-                        grid.innerHTML = state.folders.map(renderVaultFolderCard).join('') + state.files.map(renderVaultPageCard).join('');
+                        grid.innerHTML = state.folders.map(renderVaultFolderCard).join('')
+                            + state.files.map(file => renderVaultPageCard(file, state.selectedIds.has(String(file.id || '')))).join('');
                     }
+                    applyVaultViewMode();
+                    updateSelectionUi();
                     updateStats(state.stats);
                     if (breadcrumb) {
                         const crumbs = [
@@ -1224,9 +1307,31 @@
                         loadFiles({ append: false });
                     });
                 });
+                page.querySelectorAll('[data-vault-view-mode]').forEach((btn) => {
+                    btn.addEventListener('click', () => setVaultViewMode(btn.getAttribute('data-vault-view-mode') || 'preview'));
+                });
                 const refreshBtn = document.getElementById('vault-refresh-btn');
                 if (refreshBtn) refreshBtn.addEventListener('click', () => loadFiles({ append: false }));
                 if (loadMore) loadMore.addEventListener('click', () => loadFiles({ append: true }));
+                if (selectionOpen) {
+                    selectionOpen.addEventListener('click', () => {
+                        const first = selectedVaultFiles()[0];
+                        if (first) openVaultFile(first);
+                    });
+                }
+                if (selectionCopy) {
+                    selectionCopy.addEventListener('click', async () => {
+                        const links = selectedVaultFiles().map(file => file.markdown_link || `[${file.name || file.id}](/files/${file.id})`);
+                        if (!links.length) return;
+                        await copyText(links.join('\n'), 'Vault links');
+                    });
+                }
+                if (selectionClear) {
+                    selectionClear.addEventListener('click', () => {
+                        state.selectedIds.clear();
+                        render();
+                    });
+                }
                 if (dropzone && uploadInput) {
                     dropzone.addEventListener('keydown', (event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
@@ -1251,10 +1356,12 @@
                 }
                 if (grid) {
                     let draggingFileId = '';
+                    let suppressNextCardOpen = false;
                     grid.addEventListener('dragstart', (event) => {
                         const card = event.target.closest('[data-vault-file-id]');
                         if (!card) return;
                         draggingFileId = card.getAttribute('data-vault-file-id') || '';
+                        suppressNextCardOpen = false;
                         card.classList.add('is-dragging');
                         if (event.dataTransfer) {
                             event.dataTransfer.effectAllowed = 'move';
@@ -1262,8 +1369,13 @@
                         }
                     });
                     grid.addEventListener('dragend', () => {
+                        const hadDrag = !!draggingFileId;
                         draggingFileId = '';
                         grid.querySelectorAll('.is-dragging, .is-drop-target').forEach(el => el.classList.remove('is-dragging', 'is-drop-target'));
+                        if (hadDrag) {
+                            suppressNextCardOpen = true;
+                            global.setTimeout(() => { suppressNextCardOpen = false; }, 80);
+                        }
                     });
                     grid.addEventListener('dragover', (event) => {
                         const folderCard = event.target.closest('[data-vault-folder-drop]');
@@ -1293,9 +1405,15 @@
                         }
                     });
                     grid.addEventListener('click', async (event) => {
-                        const openFolder = event.target.closest('[data-vault-open-folder]');
-                        if (openFolder && grid.contains(openFolder)) {
-                            await navigateToFolder(openFolder.getAttribute('data-vault-open-folder') || '');
+                        const selectBox = event.target.closest('[data-vault-select-file]');
+                        if (selectBox && grid.contains(selectBox)) {
+                            const id = selectBox.getAttribute('data-vault-select-file') || '';
+                            if (selectBox.checked) {
+                                state.selectedIds.add(id);
+                            } else {
+                                state.selectedIds.delete(id);
+                            }
+                            updateSelectionUi();
                             return;
                         }
                         const folderActionBtn = event.target.closest('[data-vault-folder-action]');
@@ -1331,36 +1449,72 @@
                             return;
                         }
                         const actionBtn = event.target.closest('[data-vault-action]');
-                        if (!actionBtn || !grid.contains(actionBtn)) return;
-                        const id = actionBtn.getAttribute('data-vault-id') || '';
-                        const file = state.files.find(candidate => String(candidate.id || '') === id);
-                        const action = actionBtn.getAttribute('data-vault-action') || '';
-                        if (!file) return;
-                        if (action === 'copy') {
-                            await copyText(file.markdown_link || `[${file.name || id}](/files/${id})`, 'Vault link');
-                        } else if (action === 'move-root') {
-                            try {
-                                await apiCall(`/ajax/vault/files/${encodeURIComponent(id)}/folder`, {
-                                    method: 'PATCH',
-                                    body: JSON.stringify({ folder_id: '' })
-                                });
-                                if (typeof showAlert === 'function') showAlert('File moved to Vault Home.', 'success');
-                                await loadFiles({ append: false });
-                            } catch (error) {
-                                if (typeof showAlert === 'function') showAlert(error.error || 'Could not move vault file.', 'warning');
+                        if (actionBtn && grid.contains(actionBtn)) {
+                            const id = actionBtn.getAttribute('data-vault-id') || '';
+                            const file = state.files.find(candidate => String(candidate.id || '') === id);
+                            const action = actionBtn.getAttribute('data-vault-action') || '';
+                            if (!file) return;
+                            if (action === 'copy') {
+                                await copyText(file.markdown_link || `[${file.name || id}](/files/${id})`, 'Vault link');
+                            } else if (action === 'move-root') {
+                                try {
+                                    await apiCall(`/ajax/vault/files/${encodeURIComponent(id)}/folder`, {
+                                        method: 'PATCH',
+                                        body: JSON.stringify({ folder_id: '' })
+                                    });
+                                    if (typeof showAlert === 'function') showAlert('File moved to Vault Home.', 'success');
+                                    await loadFiles({ append: false });
+                                } catch (error) {
+                                    if (typeof showAlert === 'function') showAlert(error.error || 'Could not move vault file.', 'warning');
+                                }
+                            } else if (action === 'delete') {
+                                const ok = global.confirm(`Delete "${file.name || id}" from your local vault? This is only allowed before it is attached to content.`);
+                                if (!ok) return;
+                                try {
+                                    await apiCall(`/ajax/vault/files/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                                    state.files = state.files.filter(candidate => String(candidate.id || '') !== id);
+                                    state.selectedIds.delete(id);
+                                    if (typeof showAlert === 'function') showAlert('Vault file deleted.', 'success');
+                                    await loadFiles({ append: false });
+                                } catch (error) {
+                                    if (typeof showAlert === 'function') showAlert(error.error || 'Could not delete vault file.', 'warning');
+                                }
                             }
-                        } else if (action === 'delete') {
-                            const ok = global.confirm(`Delete "${file.name || id}" from your local vault? This is only allowed before it is attached to content.`);
-                            if (!ok) return;
-                            try {
-                                await apiCall(`/ajax/vault/files/${encodeURIComponent(id)}`, { method: 'DELETE' });
-                                state.files = state.files.filter(candidate => String(candidate.id || '') !== id);
-                                if (typeof showAlert === 'function') showAlert('Vault file deleted.', 'success');
-                                await loadFiles({ append: false });
-                            } catch (error) {
-                                if (typeof showAlert === 'function') showAlert(error.error || 'Could not delete vault file.', 'warning');
-                            }
+                            return;
                         }
+                        const openTarget = event.target.closest('[data-vault-file-id], [data-vault-open-folder]');
+                        if (suppressNextCardOpen && openTarget && grid.contains(openTarget)) {
+                            event.preventDefault();
+                            suppressNextCardOpen = false;
+                            return;
+                        }
+                        const openFolder = event.target.closest('[data-vault-open-folder]');
+                        if (openFolder && grid.contains(openFolder)) {
+                            await navigateToFolder(openFolder.getAttribute('data-vault-open-folder') || '');
+                            return;
+                        }
+                        if (event.target.closest('a[href], button, input, label')) return;
+                        const fileCard = event.target.closest('[data-vault-file-id]');
+                        if (fileCard && grid.contains(fileCard)) {
+                            const id = fileCard.getAttribute('data-vault-file-id') || '';
+                            const file = state.files.find(candidate => String(candidate.id || '') === id);
+                            if (file) openVaultFile(file);
+                        }
+                    });
+                    grid.addEventListener('keydown', async (event) => {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        const card = event.target.closest('[data-vault-file-id], [data-vault-open-folder]');
+                        if (!card || !grid.contains(card)) return;
+                        if (event.target.closest('a[href], button, input, label')) return;
+                        event.preventDefault();
+                        const folderId = card.getAttribute('data-vault-open-folder') || '';
+                        if (folderId || card.hasAttribute('data-vault-folder-id')) {
+                            await navigateToFolder(folderId);
+                            return;
+                        }
+                        const fileId = card.getAttribute('data-vault-file-id') || '';
+                        const file = state.files.find(candidate => String(candidate.id || '') === fileId);
+                        if (file) openVaultFile(file);
                     });
                 }
             }
