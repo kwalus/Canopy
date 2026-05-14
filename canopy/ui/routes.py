@@ -32,7 +32,7 @@ from flask import Blueprint, render_template, request, jsonify, current_app, ses
 from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
 from typing import Any, Optional, cast
-from urllib.parse import urlparse, parse_qs, urlencode, quote_plus, urlunparse
+from urllib.parse import urlparse, parse_qs, urlencode, quote_plus, urlunparse, unquote
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
@@ -6435,6 +6435,147 @@ def create_ui_blueprint() -> Blueprint:
             }), status
         except Exception as e:
             logger.error(f"Vault upload error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/vault/save_attachment', methods=['POST'])
+    @require_login
+    def ajax_vault_save_attachment():
+        """Copy an accessible post/message attachment into the current user's Vault."""
+        try:
+            db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            data = request.get_json(silent=True) or {}
+            attachment = data.get('attachment') if isinstance(data.get('attachment'), dict) else data
+            if not isinstance(attachment, dict):
+                return jsonify({'success': False, 'error': 'Invalid attachment payload'}), 400
+
+            folder_id = str(data.get('folder_id') or attachment.get('folder_id') or '').strip()
+            if folder_id and not file_manager.get_user_folder(user_id, folder_id):
+                return jsonify({'success': False, 'error': 'Folder not found'}), 404
+
+            file_id = str(
+                attachment.get('vault_file_id')
+                or attachment.get('file_id')
+                or attachment.get('id')
+                or ''
+            ).strip()
+            if not file_id:
+                url = str(attachment.get('url') or '').strip()
+                match = re.search(r'/files/([^/?#]+)', url)
+                if match:
+                    try:
+                        file_id = unquote(match.group(1))
+                    except Exception:
+                        file_id = match.group(1)
+
+            if is_large_attachment_reference(attachment):
+                source_peer_id = get_attachment_source_peer_id(attachment)
+                origin_file_id = get_attachment_origin_file_id(attachment)
+                transfer = file_manager.get_remote_attachment_transfer(source_peer_id, origin_file_id) if source_peer_id and origin_file_id else None
+                local_file_id = str((transfer or {}).get('local_file_id') or '').strip()
+                if local_file_id and file_manager.get_file(local_file_id):
+                    file_id = local_file_id
+                elif origin_file_id and source_peer_id:
+                    if get_large_attachment_download_mode(db_manager) == LARGE_ATTACHMENT_DOWNLOAD_PAUSED:
+                        return jsonify({'success': False, 'error': 'Large attachment downloads are paused on this node'}), 409
+                    if not p2p_manager:
+                        return jsonify({'success': False, 'error': 'P2P manager unavailable'}), 503
+                    route_available = False
+                    route_check = getattr(p2p_manager, 'can_route_to_peer', None)
+                    if callable(route_check):
+                        try:
+                            route_available = route_check(source_peer_id) is True
+                        except Exception:
+                            route_available = False
+                    connection_manager = getattr(p2p_manager, 'connection_manager', None)
+                    is_connected = bool(
+                        connection_manager
+                        and connection_manager.is_connected(source_peer_id)
+                    )
+                    if is_connected and not p2p_manager.peer_supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
+                        return jsonify({'success': False, 'error': 'Source peer does not support large attachment fetch'}), 409
+                    request_id = f"LAR{secrets.token_hex(8)}"
+                    file_manager.upsert_remote_attachment_transfer(
+                        origin_peer_id=source_peer_id,
+                        origin_file_id=origin_file_id,
+                        file_name=attachment.get('name'),
+                        content_type=attachment.get('type'),
+                        size=attachment.get('size'),
+                        checksum=attachment.get('checksum'),
+                        status='requested',
+                        last_request_id=request_id,
+                        error=None,
+                    )
+                    if is_connected or route_available:
+                        sent = p2p_manager.send_large_attachment_request(
+                            to_peer=source_peer_id,
+                            request_id=request_id,
+                            origin_file_id=origin_file_id,
+                            source_context={'save_to_vault': True},
+                        )
+                        if not sent:
+                            file_manager.upsert_remote_attachment_transfer(
+                                origin_peer_id=source_peer_id,
+                                origin_file_id=origin_file_id,
+                                status='error',
+                                error='request_send_failed',
+                            )
+                            return jsonify({'success': False, 'error': 'Failed to request remote attachment'}), 502
+                    pending_vault_saves = current_app.config.setdefault('PENDING_VAULT_ATTACHMENT_SAVES', {})
+                    pending_key = f'{source_peer_id}:{origin_file_id}'
+                    if isinstance(pending_vault_saves, dict):
+                        pending_vault_saves.setdefault(pending_key, []).append({
+                            'user_id': user_id,
+                            'folder_id': folder_id,
+                            'request_id': request_id,
+                            'requested_at': time.time(),
+                        })
+                    return jsonify({
+                        'success': True,
+                        'queued': True,
+                        'request_id': request_id,
+                        'message': 'Attachment fetch queued. Canopy will save it to your Vault when the local copy arrives.',
+                    }), 202
+
+            if not file_id:
+                return jsonify({'success': False, 'error': 'Attachment file id is missing'}), 400
+
+            file_info = file_manager.get_file(file_id)
+            if not file_info:
+                return jsonify({'success': False, 'error': 'File is not available on this node yet'}), 404
+
+            owner_id = db_manager.get_instance_owner_user_id()
+            try:
+                uploader_row = db_manager.get_user(file_info.uploaded_by)
+                uploader_is_peer = bool(uploader_row and uploader_row.get('origin_peer'))
+            except Exception:
+                uploader_is_peer = False
+            is_local_admin = bool(owner_id and owner_id == user_id and not uploader_is_peer)
+            access = evaluate_file_access(
+                db_manager=db_manager,
+                file_id=file_id,
+                viewer_user_id=user_id,
+                file_uploaded_by=file_info.uploaded_by,
+                is_admin=is_local_admin,
+                trust_manager=trust_manager,
+                feed_manager=feed_manager,
+            )
+            if not access.allowed:
+                return jsonify({'success': False, 'error': 'Access denied', 'reason': access.reason}), 403
+
+            saved = file_manager.copy_file_to_user_vault(file_id, user_id, vault_folder_id=folder_id)
+            if not saved:
+                return jsonify({'success': False, 'error': 'Could not save attachment to Vault'}), 500
+            return jsonify({
+                'success': True,
+                'already_saved': str(getattr(file_info, 'uploaded_by', '') or '') == str(user_id),
+                'file': _file_info_to_vault_entry(saved),
+                'message': 'Attachment saved to your File Vault.',
+            })
+        except Exception as e:
+            logger.error(f"Vault save attachment error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
     @ui.route('/ajax/vault/folders', methods=['POST'])

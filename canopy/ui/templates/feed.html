@@ -629,20 +629,28 @@
                                                         <audio controls preload="metadata" class="mt-1" style="max-width:100%;width:100%;"><source src="{{ attachment.url }}" type="{{ attachment.type or 'audio/mpeg' }}">Your browser does not support the audio element.</audio>
                                                         {% endif %}
                                                     </div>
-                                                    {% if attachment.url %}
-                                                    <div class="d-flex align-items-center gap-2 ms-2">
-                                                        <button class="btn btn-sm btn-outline-primary" onclick="downloadFile('{{ attachment.url }}', '{{ attachment.name }}')"><i class="bi bi-download"></i> Download</button>
-                                                        <button class="btn btn-sm btn-outline-secondary" onclick='openFileAccessInspector({{ (attachment.id or attachment.file_id or attachment.url) | tojson }})' title="Inspect access">
-                                                            <i class="bi bi-shield-lock"></i>
-                                                        </button>
-                                                    </div>
-                                                    {% elif remote_large %}
-                                                    <button type="button" class="btn btn-sm btn-outline-primary ms-2" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
-                                                        <i class="bi bi-cloud-download"></i> Download
-                                                    </button>
-                                                    {% else %}
-                                                    <span class="small text-muted ms-2" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
-                                                    {% endif %}
+	                                                    {% if attachment.url %}
+	                                                    <div class="d-flex align-items-center gap-2 ms-2">
+	                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)' title="Save to File Vault">
+	                                                            <i class="bi bi-folder-plus"></i> Save to Vault
+	                                                        </button>
+	                                                        <button class="btn btn-sm btn-outline-primary" onclick="downloadFile('{{ attachment.url }}', '{{ attachment.name }}')"><i class="bi bi-download"></i> Download</button>
+	                                                        <button class="btn btn-sm btn-outline-secondary" onclick='openFileAccessInspector({{ (attachment.id or attachment.file_id or attachment.url) | tojson }})' title="Inspect access">
+	                                                            <i class="bi bi-shield-lock"></i>
+	                                                        </button>
+	                                                    </div>
+	                                                    {% elif remote_large %}
+	                                                    <div class="d-flex align-items-center gap-2 ms-2">
+	                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ remote_payload|tojson }}, this)' title="Fetch and save to File Vault">
+	                                                            <i class="bi bi-folder-plus"></i> Save to Vault
+	                                                        </button>
+	                                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+	                                                            <i class="bi bi-cloud-download"></i> Download
+	                                                        </button>
+	                                                    </div>
+	                                                    {% else %}
+	                                                    <span class="small text-muted ms-2" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
+	                                                    {% endif %}
                                                 </div>
                                             </div>
                                         {% endfor %}
@@ -733,11 +741,14 @@
                                                                 class="btn btn-sm btn-outline-success"
                                                                 onclick="openMediaDeckForManifestNode(this)">
                                                             <i class="bi bi-grid-1x2"></i> Open module
-                                                        </button>
-                                                        {% if attachment.url %}
-                                                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
-                                                            <i class="bi bi-download"></i> Download
-                                                        </a>
+	                                                        </button>
+	                                                        {% if attachment.url %}
+	                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)' title="Save to File Vault">
+	                                                            <i class="bi bi-folder-plus"></i> Save to Vault
+	                                                        </button>
+	                                                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+	                                                            <i class="bi bi-download"></i> Download
+	                                                        </a>
                                                         {% endif %}
                                                     </div>
                                                 </div>
@@ -763,9 +774,9 @@
                                                         </div>
                                                         {% endif %}
                                                     </div>
-                                                    {% if attachment.url %}
-                                                    <div class="d-flex align-items-center gap-2">
-                                                        {% if previewable %}
+	                                                    {% if attachment.url %}
+	                                                    <div class="d-flex align-items-center gap-2">
+	                                                        {% if previewable %}
                                                         <button type="button"
                                                                 class="btn btn-sm btn-outline-secondary"
                                                                 data-preview-toggle="{{ preview_id }}"
@@ -775,19 +786,27 @@
                                                             <i class="bi bi-eye"></i>
                                                             <span class="preview-label">{{ 'Open sheet' if spreadsheet_preview else ('Preview text' if document_preview else 'Preview') }}</span>
                                                         </button>
-                                                        {% endif %}
-                                                        <button class="btn btn-sm btn-outline-primary" onclick="downloadFile('{{ attachment.url }}', '{{ attachment.name }}')">
-                                                            <i class="bi bi-download"></i> Download
-                                                        </button>
+	                                                        {% endif %}
+	                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)' title="Save to File Vault">
+	                                                            <i class="bi bi-folder-plus"></i> Save to Vault
+	                                                        </button>
+	                                                        <button class="btn btn-sm btn-outline-primary" onclick="downloadFile('{{ attachment.url }}', '{{ attachment.name }}')">
+	                                                            <i class="bi bi-download"></i> Download
+	                                                        </button>
                                                         <button class="btn btn-sm btn-outline-secondary" onclick='openFileAccessInspector({{ (attachment.id or attachment.file_id or attachment.url) | tojson }})' title="Inspect access">
                                                             <i class="bi bi-shield-lock"></i>
                                                         </button>
                                                     </div>
                                                     {% elif remote_large %}
-                                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
-                                                        <i class="bi bi-cloud-download"></i> Download
-                                                    </button>
-                                                    {% else %}
+	                                                    <div class="d-flex align-items-center gap-2">
+	                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ remote_payload|tojson }}, this)' title="Fetch and save to File Vault">
+	                                                            <i class="bi bi-folder-plus"></i> Save to Vault
+	                                                        </button>
+	                                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
+	                                                            <i class="bi bi-cloud-download"></i> Download
+	                                                        </button>
+	                                                    </div>
+	                                                    {% else %}
                                                     <span class="small text-muted" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
                                                     {% endif %}
                                                 </div>

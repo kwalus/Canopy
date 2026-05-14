@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ import time
 from datetime import datetime
 from typing import Any, Iterator, Optional
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -25,7 +27,31 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_CANOPY_LLM_MODEL = os.getenv('CANOPY_LLM_DEFAULT_MODEL', 'gpt-5-mini').strip() or 'gpt-5-mini'
+DEFAULT_BEDROCK_LLM_MODEL = (
+    os.getenv('CANOPY_BEDROCK_DEFAULT_MODEL', 'anthropic.claude-3-5-sonnet-20240620-v1:0').strip()
+    or 'anthropic.claude-3-5-sonnet-20240620-v1:0'
+)
 INSTANCE_LLM_SETTINGS_ID = 'default'
+CANOPY_LLM_PROVIDER_OPTIONS = [
+    {
+        'id': 'openai',
+        'label': 'OpenAI Responses',
+        'credential_label': 'OpenAI API key',
+        'credential_help': 'Paste an OpenAI API key. This enables hosted web search when the selected model supports it.',
+        'supports_web_search': True,
+    },
+    {
+        'id': 'bedrock',
+        'label': 'AWS Bedrock',
+        'credential_label': 'AWS Bedrock API key or credentials',
+        'credential_help': (
+            'Paste a Bedrock API key/bearer token, or JSON/KEY=VALUE credentials with '
+            'aws_access_key_id, aws_secret_access_key, optional aws_session_token, and region. '
+            'Admin instance fallback can also use server AWS environment credentials.'
+        ),
+        'supports_web_search': False,
+    },
+]
 CANOPY_LLM_MODEL_OPTIONS = [
     {
         'id': 'gpt-5.4-mini',
@@ -46,6 +72,18 @@ CANOPY_LLM_MODEL_OPTIONS = [
     {
         'id': 'gpt-5',
         'label': 'GPT-5 - previous-generation Responses model with web search support',
+    },
+    {
+        'id': DEFAULT_BEDROCK_LLM_MODEL,
+        'label': 'AWS Bedrock default - Converse API model or inference profile ID',
+    },
+    {
+        'id': 'anthropic.claude-3-5-sonnet-20240620-v1:0',
+        'label': 'AWS Bedrock Claude 3.5 Sonnet - requires Bedrock model access',
+    },
+    {
+        'id': 'amazon.nova-pro-v1:0',
+        'label': 'AWS Bedrock Nova Pro - requires Bedrock model access',
     },
 ]
 CANOPY_LLM_POSTING_STRUCTURE_GUIDE = """
@@ -72,6 +110,14 @@ Current-information and web-search rules:
 - When web search is used, incorporate the useful facts into the post and include concise source attribution or source links in the post body so readers can verify them.
 - For local requests such as weather, traffic, restaurants, or events, use the location supplied by the user. If no location is supplied, ask for the location or write a short draft that explicitly says the location is needed.
 - Keep the result suitable for a Canopy post: short, useful, source-aware, and ready for human review.
+""".strip()
+CANOPY_LLM_NO_WEB_SEARCH_CURRENT_INFO_GUIDE = """
+Current-information and web-search rules:
+- Hosted web search is not available in this compose path.
+- If the user asks for current, today, latest, recent, live, weather, market, schedule, price, availability, news, or other time-sensitive information, say in the draft that current facts were not checked.
+- Do not fabricate live information, source links, prices, schedules, or recent events.
+- For local requests such as weather, traffic, restaurants, or events, use only the location supplied by the user and make clear that live details still need verification.
+- Keep the result suitable for a Canopy post: short, useful, and ready for human review.
 """.strip()
 DEFAULT_CANOPY_LLM_SYSTEM_PROMPT = (
     "You are Canopy's local compose assistant. Convert the user's draft into the exact "
@@ -150,7 +196,7 @@ class CanopyLLMManager:
             ).fetchone()
         if not row:
             return self._with_instance_summary(defaults, instance_settings)
-        provider = str(self._row_value(row, 'provider', 0, 'openai') or 'openai').strip() or 'openai'
+        provider = self._normalize_provider_for_display(self._row_value(row, 'provider', 0, 'openai'))
         model = str(self._row_value(row, 'model', 1, DEFAULT_CANOPY_LLM_MODEL) or DEFAULT_CANOPY_LLM_MODEL).strip() or DEFAULT_CANOPY_LLM_MODEL
         ciphertext = self._row_value(row, 'api_key_ciphertext', 2, '')
         enabled = self._row_value(row, 'enabled', 3, 0)
@@ -158,14 +204,15 @@ class CanopyLLMManager:
         updated_at = self._row_value(row, 'updated_at', 5, None)
         web_search_enabled = self._row_value(row, 'web_search_enabled', 6, 1)
         return self._with_instance_summary({
-            'provider': provider if provider == 'openai' else 'openai',
+            'provider': provider,
             'model': model[:120],
             'enabled': bool(enabled),
-            'api_key_configured': bool(str(ciphertext or '').strip()),
+            'api_key_configured': self._provider_secret_configured(provider, ciphertext, allow_environment=False),
             'web_search_enabled': self._normalize_bool(web_search_enabled, default=True),
             'system_prompt': system_prompt[:MAX_SYSTEM_PROMPT_CHARS],
             'updated_at': updated_at,
             'model_options': CANOPY_LLM_MODEL_OPTIONS,
+            'provider_options': CANOPY_LLM_PROVIDER_OPTIONS,
         }, instance_settings)
 
     def get_instance_settings(self) -> dict[str, Any]:
@@ -184,7 +231,7 @@ class CanopyLLMManager:
             ).fetchone()
         if not row:
             return defaults
-        provider = str(self._row_value(row, 'provider', 0, 'openai') or 'openai').strip() or 'openai'
+        provider = self._normalize_provider_for_display(self._row_value(row, 'provider', 0, 'openai'))
         model = str(self._row_value(row, 'model', 1, DEFAULT_CANOPY_LLM_MODEL) or DEFAULT_CANOPY_LLM_MODEL).strip() or DEFAULT_CANOPY_LLM_MODEL
         ciphertext = self._row_value(row, 'api_key_ciphertext', 2, '')
         enabled = self._row_value(row, 'enabled', 3, 0)
@@ -193,15 +240,18 @@ class CanopyLLMManager:
         web_search_enabled = self._row_value(row, 'web_search_enabled', 6, 1)
         updated_by = self._row_value(row, 'updated_by', 7, None)
         return {
-            'provider': provider if provider == 'openai' else 'openai',
+            'provider': provider,
             'model': model[:120],
             'enabled': bool(enabled),
-            'api_key_configured': bool(str(ciphertext or '').strip()),
+            'api_key_configured': self._provider_secret_configured(provider, ciphertext, allow_environment=True),
+            'key_saved': bool(str(ciphertext or '').strip()),
+            'environment_credentials_available': bool(provider == 'bedrock' and self._bedrock_environment_credentials_available()),
             'web_search_enabled': self._normalize_bool(web_search_enabled, default=True),
             'system_prompt': system_prompt[:MAX_SYSTEM_PROMPT_CHARS],
             'updated_at': updated_at,
             'updated_by': updated_by,
             'model_options': CANOPY_LLM_MODEL_OPTIONS,
+            'provider_options': CANOPY_LLM_PROVIDER_OPTIONS,
         }
 
     def save_settings(
@@ -220,7 +270,7 @@ class CanopyLLMManager:
         if not user_id:
             raise CanopyLLMError('Sign in before configuring Canopy AI Compose.', status_code=401, reason='not_authenticated')
         provider_clean = self._normalize_provider(provider)
-        model_clean = self._normalize_model(model)
+        model_clean = self._normalize_model(model, provider=provider_clean)
         prompt_clean = self._normalize_system_prompt(system_prompt)
         enabled_clean = 1 if bool(enabled) else 0
         web_search_enabled_clean = 1 if self._normalize_bool(web_search_enabled, default=True) else 0
@@ -286,7 +336,7 @@ class CanopyLLMManager:
         """Save admin-managed node-local fallback settings for users without personal keys."""
         admin_user_id = str(admin_user_id or '').strip()
         provider_clean = self._normalize_provider(provider)
-        model_clean = self._normalize_model(model)
+        model_clean = self._normalize_model(model, provider=provider_clean)
         prompt_clean = self._normalize_system_prompt(system_prompt)
         enabled_clean = 1 if bool(enabled) else 0
         web_search_enabled_clean = 1 if self._normalize_bool(web_search_enabled, default=True) else 0
@@ -355,6 +405,11 @@ class CanopyLLMManager:
             system_prompt=context['system_prompt'],
             prompt=context['prompt'],
             web_search_enabled=context['web_search_enabled'],
+        ) if context['provider'] == 'openai' else self._call_bedrock(
+            credential_secret=context.get('api_key') or '',
+            model=context['model'],
+            system_prompt=context['system_prompt'],
+            prompt=context['prompt'],
         )
         if not output.strip():
             raise CanopyLLMError('The LLM returned an empty draft.', status_code=502, reason='empty_llm_output')
@@ -375,6 +430,29 @@ class CanopyLLMManager:
     ) -> Iterator[dict[str, Any]]:
         """Stream an expanded draft as small events for the browser composer."""
         context = self._prepare_expand_context(user_id, content, channel_name=channel_name, context_label=context_label)
+        if context['provider'] == 'bedrock':
+            yield {
+                'type': 'status',
+                'message': 'Generating draft with AWS Bedrock...',
+            }
+            output = self._call_bedrock(
+                credential_secret=context.get('api_key') or '',
+                model=context['model'],
+                system_prompt=context['system_prompt'],
+                prompt=context['prompt'],
+            ).strip()
+            if output:
+                yield {'type': 'delta', 'delta': output}
+                yield {
+                    'type': 'done',
+                    'content': output,
+                    'provider': context['provider'],
+                    'model': context['model'],
+                    'credential_source': context.get('credential_source') or 'user',
+                }
+                return
+            raise CanopyLLMError('The LLM returned an empty draft.', status_code=502, reason='empty_llm_output')
+
         final_content = ''
         for event in self._stream_openai(
             api_key=context['api_key'],
@@ -414,8 +492,6 @@ class CanopyLLMManager:
 
         settings = self._resolve_effective_settings(user_id)
         provider = str(settings.get('provider') or 'openai')
-        if provider != 'openai':
-            raise CanopyLLMError('Only OpenAI is supported for Canopy AI Compose right now.', status_code=400, reason='unsupported_provider')
         api_key = str(settings.get('api_key') or '').strip()
 
         prompt = self.strip_canopy_trigger(raw_content)
@@ -436,7 +512,11 @@ class CanopyLLMManager:
         context_block = '\n'.join(context_lines)
         context_block = f"{context_block}\n\n" if context_block else ''
         current_timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
-        effective_web_search = bool(settings.get('web_search_enabled', True)) and self._should_enable_web_search_for_prompt(prompt)
+        effective_web_search = (
+            provider == 'openai'
+            and bool(settings.get('web_search_enabled', True))
+            and self._should_enable_web_search_for_prompt(prompt)
+        )
         composed_prompt = (
             f"{context_block}"
             f"Current node timestamp: {current_timestamp}\n\n"
@@ -447,7 +527,10 @@ class CanopyLLMManager:
             'provider': provider,
             'api_key': api_key,
             'model': str(settings.get('model') or DEFAULT_CANOPY_LLM_MODEL),
-            'system_prompt': self._compose_system_prompt(str(settings.get('system_prompt') or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)),
+            'system_prompt': self._compose_system_prompt(
+                str(settings.get('system_prompt') or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT),
+                web_search_available=provider == 'openai',
+            ),
             'prompt': composed_prompt,
             'web_search_enabled': effective_web_search,
             'credential_source': settings.get('credential_source') or 'user',
@@ -467,20 +550,29 @@ class CanopyLLMManager:
             return resolved
 
         instance_settings = self.get_instance_settings()
-        instance_key = (
-            self._get_instance_api_key()
-            if instance_settings.get('enabled') and instance_settings.get('api_key_configured')
-            else ''
+        instance_provider = str(instance_settings.get('provider') or 'openai')
+        instance_key = ''
+        if instance_settings.get('enabled') and instance_settings.get('api_key_configured'):
+            instance_key = self._get_instance_api_key() if instance_settings.get('key_saved') else ''
+            if instance_provider == 'bedrock' and not instance_key and self._bedrock_environment_credentials_available():
+                instance_key = ''
+        instance_auth_available = (
+            bool(instance_key)
+            if instance_provider == 'openai'
+            else bool(instance_settings.get('api_key_configured'))
         )
-        if instance_settings.get('enabled') and instance_key:
-            use_personal_preferences = personal_enabled
+        if instance_settings.get('enabled') and instance_auth_available:
+            use_personal_preferences = (
+                personal_enabled
+                and str(personal.get('provider') or 'openai') == instance_provider
+            )
             return {
-                'provider': instance_settings.get('provider') or 'openai',
+                'provider': instance_provider,
                 'model': (
                     personal.get('model')
                     if use_personal_preferences and personal.get('model')
                     else instance_settings.get('model')
-                ) or DEFAULT_CANOPY_LLM_MODEL,
+                ) or (DEFAULT_BEDROCK_LLM_MODEL if instance_provider == 'bedrock' else DEFAULT_CANOPY_LLM_MODEL),
                 'enabled': True,
                 'api_key': instance_key,
                 'web_search_enabled': (
@@ -498,7 +590,7 @@ class CanopyLLMManager:
 
         if personal_enabled:
             raise CanopyLLMError(
-                'Add an OpenAI API key in Profile > Canopy AI Compose, or ask an admin to configure the instance fallback key.',
+                'Add provider credentials in Profile > Canopy AI Compose, or ask an admin to configure the instance fallback.',
                 status_code=400,
                 reason='missing_api_key',
             )
@@ -585,6 +677,7 @@ class CanopyLLMManager:
             'system_prompt': DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
             'updated_at': None,
             'model_options': CANOPY_LLM_MODEL_OPTIONS,
+            'provider_options': CANOPY_LLM_PROVIDER_OPTIONS,
         }
 
     def _default_instance_settings(self) -> dict[str, Any]:
@@ -593,11 +686,14 @@ class CanopyLLMManager:
             'model': DEFAULT_CANOPY_LLM_MODEL,
             'enabled': False,
             'api_key_configured': False,
+            'key_saved': False,
+            'environment_credentials_available': False,
             'web_search_enabled': True,
             'system_prompt': DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
             'updated_at': None,
             'updated_by': None,
             'model_options': CANOPY_LLM_MODEL_OPTIONS,
+            'provider_options': CANOPY_LLM_PROVIDER_OPTIONS,
         }
 
     @staticmethod
@@ -609,6 +705,7 @@ class CanopyLLMManager:
             'instance_fallback_enabled': bool(instance_settings.get('enabled')),
             'instance_fallback_key_configured': bool(instance_settings.get('api_key_configured')),
             'instance_fallback_available': instance_available,
+            'instance_fallback_provider': instance_settings.get('provider') or 'openai',
             'instance_fallback_model': instance_settings.get('model') or DEFAULT_CANOPY_LLM_MODEL,
             'effective_enabled': bool(personal_available or instance_available),
             'using_instance_fallback': bool(instance_available and not personal_available),
@@ -616,16 +713,23 @@ class CanopyLLMManager:
         return merged
 
     @staticmethod
-    def _compose_system_prompt(system_prompt: Any) -> str:
+    def _compose_system_prompt(system_prompt: Any, *, web_search_available: bool = True) -> str:
         """Attach non-optional Canopy syntax rules even when the user customizes tone."""
         base = str(system_prompt or '').strip() or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT
+        current_info_guide = (
+            CANOPY_LLM_CURRENT_INFO_GUIDE
+            if web_search_available
+            else CANOPY_LLM_NO_WEB_SEARCH_CURRENT_INFO_GUIDE
+        )
+        if not web_search_available and CANOPY_LLM_CURRENT_INFO_GUIDE in base:
+            base = base.replace(CANOPY_LLM_CURRENT_INFO_GUIDE, current_info_guide)
         if 'Canopy structured block rules:' in base:
             if 'Current-information and web-search rules:' in base:
                 return base[:MAX_SYSTEM_PROMPT_CHARS]
-            guide = CANOPY_LLM_CURRENT_INFO_GUIDE
+            guide = current_info_guide
             base_limit = max(0, MAX_SYSTEM_PROMPT_CHARS - len(guide) - 2)
             return f"{base[:base_limit].rstrip()}\n\n{guide}"[:MAX_SYSTEM_PROMPT_CHARS]
-        guide = f"{CANOPY_LLM_CURRENT_INFO_GUIDE}\n\n{CANOPY_LLM_POSTING_STRUCTURE_GUIDE}"
+        guide = f"{current_info_guide}\n\n{CANOPY_LLM_POSTING_STRUCTURE_GUIDE}"
         base_limit = max(0, MAX_SYSTEM_PROMPT_CHARS - len(guide) - 2)
         return f"{base[:base_limit].rstrip()}\n\n{guide}"[:MAX_SYSTEM_PROMPT_CHARS]
 
@@ -691,6 +795,117 @@ class CanopyLLMManager:
                 ) from exc
             raise
 
+    def _provider_secret_configured(
+        self,
+        provider: Any,
+        ciphertext: Any,
+        *,
+        allow_environment: bool = False,
+    ) -> bool:
+        provider_clean = self._normalize_provider_for_display(provider)
+        if str(ciphertext or '').strip():
+            return True
+        if provider_clean == 'bedrock' and allow_environment:
+            return self._bedrock_environment_credentials_available()
+        return False
+
+    @staticmethod
+    def _bedrock_environment_credentials_available() -> bool:
+        region_available = bool(
+            os.getenv('AWS_REGION')
+            or os.getenv('AWS_DEFAULT_REGION')
+            or os.getenv('CANOPY_BEDROCK_REGION')
+        )
+        endpoint_available = bool(
+            os.getenv('CANOPY_BEDROCK_RUNTIME_ENDPOINT')
+        )
+        bearer_available = bool(
+            os.getenv('AWS_BEARER_TOKEN_BEDROCK')
+            and (region_available or endpoint_available)
+        )
+        sigv4_available = bool(
+            os.getenv('AWS_ACCESS_KEY_ID')
+            and os.getenv('AWS_SECRET_ACCESS_KEY')
+            and region_available
+        )
+        return bool(bearer_available or sigv4_available)
+
+    @staticmethod
+    def _parse_bedrock_credentials(secret: str) -> dict[str, str]:
+        """Parse encrypted Bedrock credential text or fall back to server environment."""
+        values: dict[str, str] = {}
+        raw = str(secret or '').strip()
+        if raw:
+            parsed: Any = None
+            if raw.startswith('{'):
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise CanopyLLMError(
+                        'AWS Bedrock credentials must be valid JSON or KEY=VALUE lines.',
+                        status_code=400,
+                        reason='invalid_bedrock_credentials',
+                    ) from exc
+                if not isinstance(parsed, dict):
+                    raise CanopyLLMError(
+                        'AWS Bedrock credential JSON must be an object.',
+                        status_code=400,
+                        reason='invalid_bedrock_credentials',
+                    )
+                for key, value in parsed.items():
+                    values[str(key).strip().lower()] = str(value or '').strip()
+            else:
+                saw_key_value = False
+                for line in raw.replace(';', '\n').splitlines():
+                    if '=' not in line:
+                        continue
+                    key, value = line.split('=', 1)
+                    values[key.strip().lower()] = value.strip().strip('"').strip("'")
+                    saw_key_value = True
+                if not saw_key_value and '\n' not in raw and ';' not in raw:
+                    values['bearer_token'] = raw
+
+        def pick(*keys: str, env: Optional[str] = None) -> str:
+            for key in keys:
+                if values.get(key):
+                    return values[key]
+            return str(os.getenv(env or '') or '').strip() if env else ''
+
+        credentials = {
+            'bearer_token': pick(
+                'aws_bearer_token_bedrock',
+                'bedrock_api_key',
+                'api_key',
+                'bearer_token',
+                env='AWS_BEARER_TOKEN_BEDROCK',
+            ),
+            'access_key_id': pick('aws_access_key_id', 'access_key_id', env='AWS_ACCESS_KEY_ID'),
+            'secret_access_key': pick('aws_secret_access_key', 'secret_access_key', env='AWS_SECRET_ACCESS_KEY'),
+            'session_token': pick('aws_session_token', 'session_token', 'token', env='AWS_SESSION_TOKEN'),
+            'region': pick('region', 'aws_region', env='CANOPY_BEDROCK_REGION')
+                or str(os.getenv('AWS_REGION') or os.getenv('AWS_DEFAULT_REGION') or '').strip(),
+            'endpoint_url': pick('endpoint_url', 'bedrock_endpoint_url', env='CANOPY_BEDROCK_RUNTIME_ENDPOINT'),
+        }
+        if not credentials['bearer_token'] and (not credentials['access_key_id'] or not credentials['secret_access_key']):
+            raise CanopyLLMError(
+                'AWS Bedrock credentials are missing a Bedrock API key/bearer token, or access key ID and secret access key.',
+                status_code=400,
+                reason='missing_bedrock_credentials',
+            )
+        if not credentials['region'] and not credentials['endpoint_url']:
+            raise CanopyLLMError(
+                'AWS Bedrock region is required unless a runtime endpoint URL is provided.',
+                status_code=400,
+                reason='missing_bedrock_region',
+            )
+        if not credentials['bearer_token'] and not credentials['region']:
+            raise CanopyLLMError(
+                'AWS Bedrock region is required when using access key / secret key credentials.',
+                status_code=400,
+                reason='missing_bedrock_region',
+            )
+        return credentials
+
     @staticmethod
     def _row_value(row: Any, key: str, index: int, default: Any = None) -> Any:
         try:
@@ -706,15 +921,32 @@ class CanopyLLMManager:
     @staticmethod
     def _normalize_provider(provider: Any) -> str:
         provider_clean = str(provider or 'openai').strip().lower()
-        if provider_clean != 'openai':
-            raise CanopyLLMError('Only OpenAI is supported right now.', status_code=400, reason='unsupported_provider')
-        return provider_clean
+        aliases = {
+            'openai': 'openai',
+            'responses': 'openai',
+            'aws': 'bedrock',
+            'aws-bedrock': 'bedrock',
+            'amazon-bedrock': 'bedrock',
+            'bedrock': 'bedrock',
+        }
+        normalized = aliases.get(provider_clean)
+        if not normalized:
+            raise CanopyLLMError('Unsupported AI compose provider.', status_code=400, reason='unsupported_provider')
+        return normalized
 
     @staticmethod
-    def _normalize_model(model: Any) -> str:
-        model_clean = str(model or DEFAULT_CANOPY_LLM_MODEL).strip()
+    def _normalize_provider_for_display(provider: Any) -> str:
+        try:
+            return CanopyLLMManager._normalize_provider(provider)
+        except CanopyLLMError:
+            return 'openai'
+
+    @staticmethod
+    def _normalize_model(model: Any, *, provider: str = 'openai') -> str:
+        default_model = DEFAULT_BEDROCK_LLM_MODEL if provider == 'bedrock' else DEFAULT_CANOPY_LLM_MODEL
+        model_clean = str(model or default_model).strip()
         if not model_clean:
-            return DEFAULT_CANOPY_LLM_MODEL
+            return default_model
         if len(model_clean) > 120:
             raise CanopyLLMError('Model name is too long.', status_code=400, reason='model_too_long')
         if not re.match(r'^[A-Za-z0-9._:/+-]+$', model_clean):
@@ -757,6 +989,218 @@ class CanopyLLMManager:
         if external_access is not None:
             tool['external_web_access'] = CanopyLLMManager._normalize_bool(external_access, default=True)
         return tool
+
+    def _call_bedrock(
+        self,
+        *,
+        credential_secret: str,
+        model: str,
+        system_prompt: str,
+        prompt: str,
+    ) -> str:
+        credentials = self._parse_bedrock_credentials(credential_secret)
+        region = credentials['region']
+        endpoint = (credentials.get('endpoint_url') or f'https://bedrock-runtime.{region}.amazonaws.com').rstrip('/')
+        timeout = float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '90') or '90')
+        max_output_tokens = self._bounded_int_env(
+            'CANOPY_BEDROCK_MAX_TOKENS',
+            default=2600,
+            minimum=256,
+            maximum=12000,
+        )
+        payload = {
+            'messages': [
+                {
+                    'role': 'user',
+                    'content': [{'text': prompt}],
+                }
+            ],
+            'system': [{'text': system_prompt}],
+            'inferenceConfig': {
+                'maxTokens': max_output_tokens,
+                'temperature': self._bounded_float_env(
+                    'CANOPY_BEDROCK_TEMPERATURE',
+                    default=0.4,
+                    minimum=0.0,
+                    maximum=1.0,
+                ),
+                'topP': self._bounded_float_env(
+                    'CANOPY_BEDROCK_TOP_P',
+                    default=0.9,
+                    minimum=0.0,
+                    maximum=1.0,
+                ),
+            },
+        }
+        data = self._invoke_bedrock_converse(
+            endpoint=endpoint,
+            region=region,
+            model=model,
+            payload=payload,
+            credentials=credentials,
+            timeout=timeout,
+        )
+        text = self._extract_bedrock_converse_text(data)
+        if not text:
+            raise CanopyLLMError(
+                'AWS Bedrock returned no output text. Check the selected model or inference profile.',
+                status_code=502,
+                reason='provider_empty_response',
+            )
+        return text
+
+    def _invoke_bedrock_converse(
+        self,
+        *,
+        endpoint: str,
+        region: str,
+        model: str,
+        payload: dict[str, Any],
+        credentials: dict[str, str],
+        timeout: float,
+    ) -> dict[str, Any]:
+        model_path = quote(str(model or DEFAULT_BEDROCK_LLM_MODEL), safe='')
+        url = f'{endpoint}/model/{model_path}/converse'
+        body = json.dumps(payload, separators=(',', ':')).encode('utf-8')
+        bearer_token = str(credentials.get('bearer_token') or '').strip()
+        if bearer_token:
+            headers = {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {bearer_token}',
+                'User-Agent': 'Canopy-LLM-Compose/1',
+            }
+        else:
+            headers = self._bedrock_sigv4_headers(
+                url=url,
+                body=body,
+                region=region,
+                credentials=credentials,
+            )
+        request = Request(url, data=body, method='POST', headers=headers)
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                raw_bytes = response.read(_MAX_LLM_RESPONSE_BYTES + 1)
+                if len(raw_bytes) > _MAX_LLM_RESPONSE_BYTES:
+                    raise CanopyLLMError(
+                        'AWS Bedrock returned a response that exceeded Canopy AI Compose limits.',
+                        status_code=502,
+                        reason='provider_response_too_large',
+                    )
+                raw = raw_bytes.decode('utf-8')
+        except HTTPError as exc:
+            message = self._extract_bedrock_error(exc)
+            logger.warning('AWS Bedrock compose request failed with HTTP %s: %s', exc.code, message)
+            raise CanopyLLMError(message, status_code=502, reason='provider_http_error') from exc
+        except (URLError, TimeoutError) as exc:
+            logger.warning('AWS Bedrock compose request failed: %s', exc)
+            raise CanopyLLMError(f'Could not reach AWS Bedrock: {exc}', status_code=502, reason='provider_unreachable') from exc
+
+        try:
+            data = json.loads(raw or '{}')
+        except json.JSONDecodeError as exc:
+            raise CanopyLLMError('AWS Bedrock returned a non-JSON response.', status_code=502, reason='provider_bad_response') from exc
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    def _bedrock_sigv4_headers(
+        *,
+        url: str,
+        body: bytes,
+        region: str,
+        credentials: dict[str, str],
+    ) -> dict[str, str]:
+        parsed = urlparse(url)
+        host = parsed.netloc
+        canonical_uri = parsed.path or '/'
+        canonical_query = parsed.query or ''
+        now = datetime.utcnow()
+        amz_date = now.strftime('%Y%m%dT%H%M%SZ')
+        date_stamp = now.strftime('%Y%m%d')
+        payload_hash = hashlib.sha256(body).hexdigest()
+        headers = {
+            'accept': 'application/json',
+            'content-type': 'application/json',
+            'host': host,
+            'x-amz-date': amz_date,
+        }
+        token = str(credentials.get('session_token') or '').strip()
+        if token:
+            headers['x-amz-security-token'] = token
+        signed_headers = ';'.join(sorted(headers.keys()))
+        canonical_headers = ''.join(f'{key}:{headers[key]}\n' for key in sorted(headers.keys()))
+        canonical_request = '\n'.join([
+            'POST',
+            canonical_uri,
+            canonical_query,
+            canonical_headers,
+            signed_headers,
+            payload_hash,
+        ])
+        service = 'bedrock'
+        credential_scope = f'{date_stamp}/{region}/{service}/aws4_request'
+        string_to_sign = '\n'.join([
+            'AWS4-HMAC-SHA256',
+            amz_date,
+            credential_scope,
+            hashlib.sha256(canonical_request.encode('utf-8')).hexdigest(),
+        ])
+
+        def sign(key: bytes, msg: str) -> bytes:
+            return hmac.new(key, msg.encode('utf-8'), hashlib.sha256).digest()
+
+        signing_key = sign(
+            sign(
+                sign(
+                    sign(('AWS4' + credentials['secret_access_key']).encode('utf-8'), date_stamp),
+                    region,
+                ),
+                service,
+            ),
+            'aws4_request',
+        )
+        signature = hmac.new(signing_key, string_to_sign.encode('utf-8'), hashlib.sha256).hexdigest()
+        authorization = (
+            f"AWS4-HMAC-SHA256 Credential={credentials['access_key_id']}/{credential_scope}, "
+            f"SignedHeaders={signed_headers}, Signature={signature}"
+        )
+        return {
+            'Accept': headers['accept'],
+            'Content-Type': headers['content-type'],
+            'Host': headers['host'],
+            'X-Amz-Date': headers['x-amz-date'],
+            **({'X-Amz-Security-Token': token} if token else {}),
+            'Authorization': authorization,
+            'User-Agent': 'Canopy-LLM-Compose/1',
+        }
+
+    @staticmethod
+    def _extract_bedrock_converse_text(data: dict[str, Any]) -> str:
+        chunks: list[str] = []
+        output = data.get('output')
+        message = output.get('message') if isinstance(output, dict) else None
+        content = message.get('content') if isinstance(message, dict) else None
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get('text'), str):
+                    chunks.append(part['text'])
+        return ''.join(chunks).strip()
+
+    @staticmethod
+    def _extract_bedrock_error(exc: HTTPError) -> str:
+        try:
+            raw = exc.read().decode('utf-8', errors='replace')
+            data = json.loads(raw or '{}')
+            for key in ('message', 'Message', 'errorMessage'):
+                if isinstance(data, dict) and data.get(key):
+                    return f"AWS Bedrock request failed: {data[key]}"
+            if isinstance(data, dict) and isinstance(data.get('__type'), str):
+                return f"AWS Bedrock request failed ({data.get('__type')})."
+            if raw.strip():
+                return raw.strip()[:500]
+        except Exception:
+            pass
+        return f'AWS Bedrock request failed with HTTP {getattr(exc, "code", "error")}.'
 
     def _call_openai(
         self,
@@ -1275,6 +1719,14 @@ class CanopyLLMManager:
     def _bounded_int_env(name: str, *, default: int, minimum: int, maximum: int) -> int:
         try:
             value = int(os.getenv(name, str(default)) or default)
+        except Exception:
+            value = default
+        return max(minimum, min(maximum, value))
+
+    @staticmethod
+    def _bounded_float_env(name: str, *, default: float, minimum: float, maximum: float) -> float:
+        try:
+            value = float(os.getenv(name, str(default)) or default)
         except Exception:
             value = default
         return max(minimum, min(maximum, value))

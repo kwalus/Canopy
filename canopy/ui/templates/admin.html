@@ -2440,7 +2440,7 @@
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <div>
             <h5 class="mb-0"><i class="bi bi-stars"></i> Instance AI Compose Fallback</h5>
-            <div class="small text-muted">Provide a node-local default key so users can try <code>@Canopy</code> without first adding their own OpenAI key.</div>
+            <div class="small text-muted">Provide a node-local default provider so users can try <code>@Canopy</code> without first adding their own model credentials.</div>
         </div>
         <span class="badge bg-{{ 'success' if instance_ai.get('enabled') and instance_ai.get('api_key_configured') else 'secondary' }}" id="instance-llm-state-badge">
             {{ 'Available' if instance_ai.get('enabled') and instance_ai.get('api_key_configured') else 'Not available' }}
@@ -2448,14 +2448,15 @@
     </div>
     <div class="card-body">
         <div class="alert alert-info py-2 small mb-3">
-            Personal user keys still take precedence. If a user has no enabled personal key, Canopy falls back to this instance key and default compose policy. The key is encrypted locally and is never returned to the browser after save.
+            Personal user credentials still take precedence. If a user has no enabled personal key, Canopy falls back to this instance provider and default compose policy. Saved credentials are encrypted locally and are never returned to the browser after save.
         </div>
 
         <div class="row g-3 align-items-end">
             <div class="col-md-3">
                 <label class="form-label" for="instance-llm-provider">Provider</label>
                 <select class="form-select form-select-sm" id="instance-llm-provider">
-                    <option value="openai" selected>OpenAI</option>
+                    <option value="openai" selected>OpenAI Responses</option>
+                    <option value="bedrock">AWS Bedrock</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -2473,16 +2474,18 @@
                     <option value="gpt-5.5">Flagship Responses model with web search</option>
                     <option value="gpt-5-mini">Existing economical default with web search</option>
                     <option value="gpt-5">Previous-generation Responses model with web search</option>
+                    <option value="anthropic.claude-3-5-sonnet-20240620-v1:0">AWS Bedrock Claude 3.5 Sonnet</option>
+                    <option value="amazon.nova-pro-v1:0">AWS Bedrock Nova Pro</option>
                 </datalist>
             </div>
             <div class="col-md-5">
-                <label class="form-label" for="instance-llm-api-key">OpenAI API key</label>
+                <label class="form-label" for="instance-llm-api-key" id="instance-llm-api-key-label">OpenAI API key</label>
                 <input type="password"
                        class="form-control form-control-sm"
                        id="instance-llm-api-key"
                        autocomplete="off"
                        placeholder="{% if instance_ai.get('api_key_configured') %}Saved fallback key configured - leave blank to keep{% else %}Paste instance fallback key{% endif %}">
-                <div class="form-text text-muted">Blank keeps the saved fallback key. Use clear to remove it.</div>
+                <div class="form-text text-muted" id="instance-llm-api-key-help">Blank keeps the saved fallback key. Use clear to remove it.</div>
             </div>
         </div>
 
@@ -4371,6 +4374,8 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     const instanceLlmSaveBtn = document.getElementById('instance-llm-save-btn');
     const instanceLlmStatus = document.getElementById('instance-llm-status');
     const instanceLlmStateBadge = document.getElementById('instance-llm-state-badge');
+    const instanceLlmApiKeyLabel = document.getElementById('instance-llm-api-key-label');
+    const instanceLlmApiKeyHelp = document.getElementById('instance-llm-api-key-help');
 
     function readMeshspaceTemplateSelection() {
         return meshspaceAgentTemplateCheckboxes
@@ -4415,6 +4420,30 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         instanceLlmStateBadge.classList.toggle('bg-secondary', !available);
     }
 
+    function applyInstanceLlmProviderCopy(settings = {}) {
+        const provider = instanceLlmProvider ? instanceLlmProvider.value : (settings.provider || 'openai');
+        const isBedrock = provider === 'bedrock';
+        if (instanceLlmApiKeyLabel) {
+            instanceLlmApiKeyLabel.textContent = isBedrock ? 'AWS Bedrock API key or credentials' : 'OpenAI API key';
+        }
+        if (instanceLlmApiKey) {
+            const configured = !!settings.api_key_configured;
+            const envReady = !!settings.environment_credentials_available && !settings.key_saved;
+            instanceLlmApiKey.placeholder = configured
+                ? (envReady ? 'Server AWS environment credentials detected' : 'Saved fallback credentials configured - leave blank to keep')
+                : (isBedrock ? 'Paste AWS credential JSON or KEY=VALUE lines' : 'Paste instance fallback key');
+        }
+        if (instanceLlmApiKeyHelp) {
+            instanceLlmApiKeyHelp.innerHTML = isBedrock
+                ? 'For Bedrock, use a Bedrock API key/bearer token plus <code>region</code>, or JSON/KEY=VALUE lines with <code>aws_bearer_token_bedrock</code>, or <code>aws_access_key_id</code>, <code>aws_secret_access_key</code>, optional <code>aws_session_token</code>, and <code>region</code>. If this node has AWS environment credentials or <code>AWS_BEARER_TOKEN_BEDROCK</code>, the admin can enable fallback without storing a credential here.'
+                : 'Blank keeps the saved fallback key. Use clear to remove it.';
+        }
+        if (instanceLlmWebSearch) {
+            instanceLlmWebSearch.disabled = isBedrock;
+            if (isBedrock) instanceLlmWebSearch.checked = false;
+        }
+    }
+
     function applyInstanceLlmSettings(settings) {
         const safeSettings = settings || {};
         if (instanceLlmProvider && safeSettings.provider) instanceLlmProvider.value = safeSettings.provider;
@@ -4423,11 +4452,9 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         if (instanceLlmWebSearch) instanceLlmWebSearch.checked = safeSettings.web_search_enabled !== false;
         if (instanceLlmApiKey) {
             instanceLlmApiKey.value = '';
-            instanceLlmApiKey.placeholder = safeSettings.api_key_configured
-                ? 'Saved fallback key configured - leave blank to keep'
-                : 'Paste instance fallback key';
         }
         if (instanceLlmClearKey) instanceLlmClearKey.checked = false;
+        applyInstanceLlmProviderCopy(safeSettings);
         updateInstanceLlmBadge(safeSettings);
     }
 
@@ -4464,6 +4491,11 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 ? 'Saved. Users without personal keys can now use @Canopy through the instance fallback.'
                 : 'Saved. Add a key and enable fallback before users can rely on the instance default.'
         );
+    }
+
+    if (instanceLlmProvider) {
+        instanceLlmProvider.addEventListener('change', () => applyInstanceLlmProviderCopy({}));
+        applyInstanceLlmProviderCopy({{ (instance_llm_settings|default({}))|tojson }});
     }
 
     function readOnlyPermissionPreset() {

@@ -246,13 +246,14 @@
 
             function vaultUrls() {
                 const urls = (global.CANOPY_VARS && global.CANOPY_VARS.urls) || {};
-                return {
-                    files: urls.vaultFiles || '/ajax/vault/files',
-                    upload: urls.vaultUpload || '/ajax/vault/upload',
-                    folders: urls.vaultFolders || '/ajax/vault/folders',
-                    page: urls.vault || '/vault'
-                };
-            }
+	                return {
+	                    files: urls.vaultFiles || '/ajax/vault/files',
+	                    upload: urls.vaultUpload || '/ajax/vault/upload',
+	                    folders: urls.vaultFolders || '/ajax/vault/folders',
+	                    saveAttachment: urls.vaultSaveAttachment || '/ajax/vault/save_attachment',
+	                    page: urls.vault || '/vault'
+	                };
+	            }
 
             function vaultEscape(value) {
                 return typeof canopyEscapeHtml === 'function' ? canopyEscapeHtml(value) : String(value == null ? '' : value)
@@ -292,9 +293,9 @@
                 return 'bi-file-earmark';
             }
 
-            function normalizedAttachment(file) {
-                const source = (file && file.attachment) ? file.attachment : (file || {});
-                const id = String(source.id || source.file_id || file?.id || '').trim();
+	            function normalizedAttachment(file) {
+	                const source = (file && file.attachment) ? file.attachment : (file || {});
+	                const id = String(source.id || source.file_id || file?.id || '').trim();
                 if (!id) return null;
                 return {
                     id,
@@ -303,9 +304,79 @@
                     type: source.type || source.content_type || file?.type || file?.content_type || 'application/octet-stream',
                     size: Number(source.size || file?.size || 0) || 0,
                     url: source.url || file?.url || `/files/${encodeURIComponent(id)}`,
-                    source: 'vault'
-                };
-            }
+	                    source: 'vault'
+	                };
+	            }
+
+	            function normalizedAttachmentForVaultSave(attachment) {
+	                if (!attachment) return null;
+	                if (typeof attachment === 'string') {
+	                    const raw = attachment.trim();
+	                    return raw ? { url: raw } : null;
+	                }
+	                if (typeof attachment !== 'object') return null;
+	                const payload = { ...attachment };
+	                const id = String(payload.id || payload.file_id || payload.vault_file_id || '').trim();
+	                if (id) {
+	                    payload.id = payload.id || id;
+	                    payload.file_id = payload.file_id || id;
+	                }
+	                const hasLocalRef = !!(payload.id || payload.file_id || payload.vault_file_id || payload.url);
+	                const hasRemoteRef = !!(
+	                    (payload.origin_file_id || payload.remote_file_id)
+	                    && (payload.source_peer_id || payload.origin_peer)
+	                );
+	                if (!hasLocalRef && !hasRemoteRef) return null;
+	                if (!payload.source_peer_id && payload.origin_peer) payload.source_peer_id = payload.origin_peer;
+	                return payload;
+	            }
+
+	            async function saveAttachmentToVault(attachment, triggerEl) {
+	                const payload = normalizedAttachmentForVaultSave(attachment);
+	                if (!payload) {
+	                    if (typeof showAlert === 'function') showAlert('Attachment metadata is incomplete.', 'warning');
+	                    return false;
+	                }
+	                const button = triggerEl instanceof HTMLElement ? triggerEl : null;
+	                const originalHtml = button ? button.innerHTML : '';
+	                const originalTitle = button ? button.getAttribute('title') : '';
+	                if (button) {
+	                    button.disabled = true;
+	                    button.setAttribute('aria-busy', 'true');
+	                    button.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>';
+	                }
+	                try {
+	                    const data = await apiCall(vaultUrls().saveAttachment, {
+	                        method: 'POST',
+	                        body: JSON.stringify({ attachment: payload }),
+	                    });
+	                    const message = String(data.message || '').trim();
+		                    if (typeof showAlert === 'function') {
+		                        if (data.queued) {
+		                            showAlert(message || 'Attachment fetch queued. Canopy will save it to your Vault when the local copy arrives.', 'info');
+		                        } else if (data.already_saved) {
+	                            showAlert(message || 'This attachment is already in your File Vault.', 'success');
+	                        } else {
+	                            showAlert(message || 'Attachment saved to your File Vault.', 'success');
+	                        }
+	                    }
+	                    try {
+	                        global.dispatchEvent(new CustomEvent('canopy:vault-file-saved', { detail: data }));
+	                    } catch (_) {}
+	                    return true;
+	                } catch (error) {
+	                    const message = (error && (error.error || error.message)) || 'Could not save attachment to Vault.';
+	                    if (typeof showAlert === 'function') showAlert(message, 'danger');
+	                    return false;
+	                } finally {
+	                    if (button) {
+	                        button.disabled = false;
+	                        button.removeAttribute('aria-busy');
+	                        button.innerHTML = originalHtml;
+	                        if (originalTitle) button.setAttribute('title', originalTitle);
+	                    }
+	                }
+	            }
 
             function renderVaultPreview(file) {
                 const type = String((file && (file.type || file.content_type)) || '').toLowerCase();
@@ -1294,15 +1365,17 @@
                 }
             }
 
-            global.CanopyVaultPicker = {
-                open: openPicker,
-                fetchFiles: fetchVaultFiles,
-                formatBytes,
-                normalizedAttachment
-            };
+	            global.CanopyVaultPicker = {
+	                open: openPicker,
+	                fetchFiles: fetchVaultFiles,
+	                formatBytes,
+	                normalizedAttachment,
+	                saveAttachment: saveAttachmentToVault
+	            };
+	            global.saveAttachmentToVault = saveAttachmentToVault;
 
-            document.addEventListener('DOMContentLoaded', initVaultPage);
-        })(window);
+	            document.addEventListener('DOMContentLoaded', initVaultPage);
+	        })(window);
 
         (function initCanopyDmRecipientDisclosure(global) {
             function parseRecipients(raw) {

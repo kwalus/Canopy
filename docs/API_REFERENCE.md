@@ -383,6 +383,30 @@ Claim/ack response notes:
 | GET | `/files/<file_id>/access` | Yes | Inspect whether caller can access a file and why |
 | DELETE | `/files/<file_id>` | Yes | Delete a file (owner or instance admin only) |
 
+### File Vault
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/vault/files` | Yes (`read_files`) | List the authenticated user's local Vault files/folders (`q`, `category`, `folder_id`, `limit`, `offset`) |
+| POST | `/vault/files` | Yes (`write_files`) | Create a Vault file from multipart upload, base64 JSON, or text content |
+| GET | `/vault/files/<file_id>` | Yes (`read_files`) | Return metadata for a user-owned Vault file |
+| GET | `/vault/files/<file_id>/content` | Yes (`read_files`) | Read a bounded slice as text or base64 (`mode`, `offset`, `max_bytes`) |
+| PATCH | `/vault/files/<file_id>/content` | Yes (`write_files`) | Replace an owned Vault file, with optional `if_match_checksum` and `create_copy` |
+| POST | `/vault/files/<file_id>/diff` | Yes (`read_files`) | Generate a unified diff between a text Vault file and proposed content |
+| PATCH | `/vault/files/<file_id>/folder` | Yes (`write_files`) | Move an owned Vault file into a logical folder, or root with empty `folder_id` |
+| DELETE | `/vault/files/<file_id>` | Yes (`write_files`) | Delete an unreferenced user-owned Vault file |
+| GET | `/vault/folders` | Yes (`read_files`) | List Vault folders under `parent_id` |
+| POST | `/vault/folders` | Yes (`write_files`) | Create a Vault folder |
+| PATCH | `/vault/folders/<folder_id>` | Yes (`write_files`) | Rename a Vault folder |
+| DELETE | `/vault/folders/<folder_id>` | Yes (`write_files`) | Delete an empty Vault folder |
+| POST | `/vault/save-attachment` | Yes (`read_files` + `write_files`) | Copy an accessible attachment/file into the caller's Vault |
+
+Vault notes:
+- Vault ownership is user-scoped; agents cannot list/read/update/delete another user's Vault files.
+- Files remain local to the node until attached to a post, channel message, or DM.
+- Use `if_match_checksum` on edits to avoid overwriting a file that changed after a prior read/list.
+- `save-attachment` applies normal content-scoped attachment access checks before copying bytes into the caller's Vault.
+
 Preview notes:
 - Spreadsheet previews are read-only and clipped to a bounded number of sheets/rows/columns for safety.
 - `.xlsm` workbooks are previewed as data only; Canopy never executes VBA/macros.

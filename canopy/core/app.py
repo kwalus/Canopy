@@ -983,6 +983,44 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     last_request_id=request_id or None,
                     error=None,
                 )
+                pending_vault_saves = app.config.get('PENDING_VAULT_ATTACHMENT_SAVES') or {}
+                pending_key = f'{source_peer_id}:{origin_file_id}'
+                pending_entries = []
+                if isinstance(pending_vault_saves, dict):
+                    raw_entries = pending_vault_saves.pop(pending_key, [])
+                    if isinstance(raw_entries, dict):
+                        pending_entries = [raw_entries]
+                    elif isinstance(raw_entries, list):
+                        pending_entries = [entry for entry in raw_entries if isinstance(entry, dict)]
+                for entry in pending_entries:
+                    save_user_id = str(entry.get('user_id') or '').strip()
+                    if not save_user_id:
+                        continue
+                    try:
+                        save_folder_id = str(entry.get('folder_id') or '').strip()
+                        if save_folder_id and not file_manager.get_user_folder(save_user_id, save_folder_id):
+                            save_folder_id = ''
+                        copied = file_manager.copy_file_to_user_vault(
+                            finfo.id,
+                            save_user_id,
+                            vault_folder_id=save_folder_id or None,
+                        )
+                        if copied:
+                            logger.info(
+                                "Auto-saved remote attachment %s/%s into Vault for user %s as %s",
+                                source_peer_id,
+                                origin_file_id,
+                                save_user_id,
+                                copied.id,
+                            )
+                    except Exception:
+                        logger.debug(
+                            "Could not auto-save remote attachment %s/%s into Vault for user %s",
+                            source_peer_id,
+                            origin_file_id,
+                            save_user_id,
+                            exc_info=True,
+                        )
                 _replace_large_attachment_references(source_peer_id, origin_file_id, finfo.id)
             except Exception as finalize_err:
                 file_manager.upsert_remote_attachment_transfer(

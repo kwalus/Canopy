@@ -446,9 +446,10 @@
                             <div class="col-md-4">
                                 <label class="form-label" for="canopy-llm-provider">Provider</label>
                                 <select class="form-select" id="canopy-llm-provider">
-                                    <option value="openai" selected>OpenAI</option>
+                                    <option value="openai" selected>OpenAI Responses</option>
+                                    <option value="bedrock">AWS Bedrock</option>
                                 </select>
-                                <div class="form-text text-muted">More providers can be added later without changing post flow.</div>
+                                <div class="form-text text-muted">Choose where <code>@Canopy</code> sends draft prompts. Bedrock uses AWS credentials saved only on this node.</div>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label" for="canopy-llm-model">Model</label>
@@ -465,6 +466,8 @@
                                     <option value="gpt-5.5">Flagship Responses model with web search</option>
                                     <option value="gpt-5-mini">Existing economical default with web search</option>
                                     <option value="gpt-5">Previous-generation Responses model with web search</option>
+                                    <option value="anthropic.claude-3-5-sonnet-20240620-v1:0">AWS Bedrock Claude 3.5 Sonnet</option>
+                                    <option value="amazon.nova-pro-v1:0">AWS Bedrock Nova Pro</option>
                                 </datalist>
                                 <div class="form-text text-muted">
                                     Use a Responses API model that supports hosted web search. Chat-Completions-only search models are not used here.
@@ -511,13 +514,13 @@
 
                         <div class="row g-3 mt-1">
                             <div class="col-md-8">
-                                <label class="form-label" for="canopy-llm-api-key">OpenAI API Key</label>
+                                <label class="form-label" for="canopy-llm-api-key" id="canopy-llm-api-key-label">OpenAI API Key</label>
                                 <input type="password"
                                        class="form-control"
                                        id="canopy-llm-api-key"
                                        autocomplete="off"
                                        placeholder="{% if canopy_ai.get('api_key_configured') %}Saved key configured - leave blank to keep{% else %}Paste API key{% endif %}">
-                                <div class="form-text text-muted">
+                                <div class="form-text text-muted" id="canopy-llm-api-key-help">
                                     Leaving this blank keeps the existing saved key. If you leave it blank without a saved key, Canopy uses the instance fallback when the admin has enabled one.
                                 </div>
                             </div>
@@ -884,10 +887,37 @@ function setupCanopyLLMSettings() {
     const enabledInput = document.getElementById('canopy-llm-enabled');
     const webSearchInput = document.getElementById('canopy-llm-web-search-enabled');
     const keyInput = document.getElementById('canopy-llm-api-key');
+    const keyLabel = document.getElementById('canopy-llm-api-key-label');
+    const keyHelp = document.getElementById('canopy-llm-api-key-help');
     const clearKeyInput = document.getElementById('canopy-llm-clear-key');
+
+    function applyProviderCopy(settings = {}) {
+        const provider = providerInput ? providerInput.value : (settings.provider || 'openai');
+        const isBedrock = provider === 'bedrock';
+        if (keyLabel) keyLabel.textContent = isBedrock ? 'AWS Bedrock API key or credentials' : 'OpenAI API Key';
+        if (keyInput) {
+            const configured = !!settings.api_key_configured;
+            keyInput.placeholder = configured
+                ? (isBedrock ? 'Saved AWS credentials configured - leave blank to keep' : 'Saved key configured - leave blank to keep')
+                : (isBedrock ? 'Paste AWS credential JSON or KEY=VALUE lines' : 'Paste API key');
+        }
+        if (keyHelp) {
+            keyHelp.innerHTML = isBedrock
+                ? 'Use a Bedrock API key/bearer token plus <code>region</code>, or JSON/KEY=VALUE lines containing <code>aws_bearer_token_bedrock</code>, or <code>aws_access_key_id</code>, <code>aws_secret_access_key</code>, optional <code>aws_session_token</code>, and <code>region</code>. Bedrock does not provide hosted web search in this compose path.'
+                : 'Leaving this blank keeps the existing saved key. If you leave it blank without a saved key, Canopy uses the instance fallback when the admin has enabled one.';
+        }
+        if (webSearchInput) {
+            webSearchInput.disabled = isBedrock;
+            if (isBedrock) webSearchInput.checked = false;
+        }
+    }
 
     if (CANOPY_LLM_SETTINGS && CANOPY_LLM_SETTINGS.provider && providerInput) {
         providerInput.value = CANOPY_LLM_SETTINGS.provider;
+    }
+    applyProviderCopy(CANOPY_LLM_SETTINGS || {});
+    if (providerInput) {
+        providerInput.addEventListener('change', () => applyProviderCopy({}));
     }
 
     saveBtn.addEventListener('click', () => {
@@ -917,17 +947,16 @@ function setupCanopyLLMSettings() {
             const settings = data.settings || {};
             if (keyInput) keyInput.value = '';
             if (clearKeyInput) clearKeyInput.checked = false;
-            if (keyInput) {
-                keyInput.placeholder = settings.api_key_configured
-                    ? 'Saved key configured - leave blank to keep'
-                    : 'Paste API key';
-            }
+            applyProviderCopy(settings);
             if (statusEl) {
                 statusEl.className = 'small text-success';
-                const searchText = settings.web_search_enabled ? ' Web search is allowed for current facts.' : ' Web search is off.';
-                let keyText = 'Saved. Add an API key before using @Canopy.';
+                const isBedrock = (settings.provider || (providerInput && providerInput.value)) === 'bedrock';
+                const searchText = isBedrock
+                    ? ' Bedrock compose does not use hosted web search.'
+                    : (settings.web_search_enabled ? ' Web search is allowed for current facts.' : ' Web search is off.');
+                let keyText = isBedrock ? 'Saved. Add AWS credentials before using @Canopy.' : 'Saved. Add an API key before using @Canopy.';
                 if (settings.api_key_configured) {
-                    keyText = 'Saved. Personal API key is configured locally.';
+                    keyText = isBedrock ? 'Saved. Personal AWS Bedrock API key or credentials are configured locally.' : 'Saved. Personal API key is configured locally.';
                 } else if (settings.instance_fallback_available) {
                     keyText = 'Saved. No personal key configured; instance fallback is available.';
                 }

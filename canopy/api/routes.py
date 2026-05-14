@@ -12,6 +12,7 @@ import logging
 import io
 import os
 import base64
+import difflib
 import json
 import re
 import time
@@ -80,6 +81,14 @@ from ..core.agent_event_subscriptions import (
     set_agent_event_subscriptions,
 )
 from ..core.file_preview import build_file_preview
+from ..core.large_attachments import (
+    LARGE_ATTACHMENT_CAPABILITY,
+    LARGE_ATTACHMENT_DOWNLOAD_PAUSED,
+    get_attachment_origin_file_id,
+    get_attachment_source_peer_id,
+    get_large_attachment_download_mode,
+    is_large_attachment_reference,
+)
 from ..security.api_keys import Permission
 from ..security.csrf import validate_csrf_request
 from ..core.messaging import (
@@ -561,6 +570,209 @@ def _sanitize_stream_proxy_segment_name(value: Any) -> str:
     ):
         return ''
     return candidate
+
+
+_API_VAULT_TEXT_PREVIEW_BYTES = 1 * 1024 * 1024
+_API_VAULT_TEXT_REPLACE_BYTES = 4 * 1024 * 1024
+_API_VAULT_DIFF_MAX_CHARS = 240_000
+_API_VAULT_TEXT_EXTENSIONS = {
+    '.txt', '.md', '.markdown', '.json', '.yaml', '.yml', '.toml', '.ini',
+    '.cfg', '.conf', '.csv', '.tsv', '.html', '.htm', '.css', '.js', '.mjs',
+    '.cjs', '.ts', '.tsx', '.jsx', '.py', '.pyi', '.pyw', '.sh', '.bash',
+    '.zsh', '.fish', '.sql', '.xml', '.svg', '.tex', '.latex', '.bib',
+    '.rs', '.go', '.java', '.c', '.cc', '.cpp', '.h', '.hpp', '.cs', '.rb',
+    '.php', '.swift', '.kt', '.kts', '.r', '.jl', '.m', '.mm', '.lua',
+    '.pl', '.pm', '.dockerfile', '.env', '.log',
+}
+_API_VAULT_TEXT_CONTENT_TYPES = {
+    'application/json',
+    'application/xml',
+    'application/x-yaml',
+    'application/yaml',
+    'application/toml',
+    'application/javascript',
+    'application/ecmascript',
+    'application/sql',
+    'application/x-latex',
+    'image/svg+xml',
+}
+
+
+def _api_int_param(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(minimum, min(parsed, maximum))
+
+
+def _api_vault_category_for_type(content_type: Any, name: Any = '') -> str:
+    ctype = str(content_type or '').strip().lower()
+    lower_name = str(name or '').strip().lower()
+    if ctype.startswith('image/'):
+        return 'images'
+    if ctype.startswith('video/'):
+        return 'videos'
+    if ctype.startswith('audio/'):
+        return 'audio'
+    if ctype.startswith('text/') or any(lower_name.endswith(ext) for ext in _API_VAULT_TEXT_EXTENSIONS):
+        return 'documents'
+    if any(token in ctype for token in ('pdf', 'document', 'spreadsheet', 'presentation', 'excel', 'word', 'powerpoint', 'json', 'xml')):
+        return 'documents'
+    return 'other'
+
+
+def _api_vault_file_entry(file_info: Any) -> dict[str, Any]:
+    uploaded_at = getattr(file_info, 'uploaded_at', None)
+    uploaded_at_value = uploaded_at.isoformat() if hasattr(uploaded_at, 'isoformat') else str(uploaded_at or '')
+    file_id = str(getattr(file_info, 'id', '') or '')
+    name = str(getattr(file_info, 'original_name', '') or file_id or 'file')
+    content_type = str(getattr(file_info, 'content_type', '') or 'application/octet-stream')
+    size = int(getattr(file_info, 'size', 0) or 0)
+    folder_id = str(getattr(file_info, 'vault_folder_id', '') or '')
+    attachment = {
+        'id': file_id,
+        'file_id': file_id,
+        'vault_file_id': file_id,
+        'name': name,
+        'type': content_type,
+        'size': size,
+        'url': f'/files/{file_id}',
+        'source': 'vault',
+    }
+    return {
+        'id': file_id,
+        'file_id': file_id,
+        'vault_file_id': file_id,
+        'name': name,
+        'filename': name,
+        'original_name': name,
+        'content_type': content_type,
+        'type': content_type,
+        'size': size,
+        'url': f'/files/{file_id}',
+        'thumb_url': f'/files/{file_id}/thumb' if content_type.startswith('image/') else None,
+        'checksum': str(getattr(file_info, 'checksum', '') or ''),
+        'uploaded_at': uploaded_at_value,
+        'category': _api_vault_category_for_type(content_type, name),
+        'folder_id': folder_id,
+        'vault_folder_id': folder_id,
+        'source': 'vault',
+        'markdown_link': f'[{name}](/files/{file_id})',
+        'attachment': attachment,
+    }
+
+
+def _api_vault_folder_entry(folder: Any) -> dict[str, Any]:
+    created_at = getattr(folder, 'created_at', None)
+    updated_at = getattr(folder, 'updated_at', None)
+    return {
+        'id': str(getattr(folder, 'id', '') or ''),
+        'name': str(getattr(folder, 'name', '') or 'Folder'),
+        'parent_id': str(getattr(folder, 'parent_id', '') or ''),
+        'created_at': created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at or ''),
+        'updated_at': updated_at.isoformat() if hasattr(updated_at, 'isoformat') else str(updated_at or ''),
+    }
+
+
+def _api_vault_path_entries(file_manager: Any, user_id: str, folder_id: str) -> list[dict[str, Any]]:
+    if not file_manager or not folder_id:
+        return []
+    try:
+        return [_api_vault_folder_entry(folder) for folder in file_manager.get_user_folder_path(user_id, folder_id)]
+    except Exception:
+        return []
+
+
+def _api_decode_vault_file_payload(data: dict[str, Any]) -> tuple[bytes, str, str]:
+    if not isinstance(data, dict):
+        raise ValueError('JSON body is required.')
+    filename = str(
+        data.get('filename')
+        or data.get('name')
+        or data.get('original_name')
+        or 'vault-note.txt'
+    ).strip() or 'vault-note.txt'
+    content_type = str(
+        data.get('content_type')
+        or data.get('type')
+        or data.get('mime_type')
+        or ''
+    ).strip()
+    if 'data' in data or 'base64' in data:
+        encoded = str(data.get('data') if 'data' in data else data.get('base64') or '')
+        try:
+            payload = base64.b64decode(encoded, validate=True)
+        except Exception as exc:
+            raise ValueError('Invalid base64 file data.') from exc
+        return payload, filename, content_type or 'application/octet-stream'
+    if 'content' in data:
+        content = data.get('content')
+        if content is None:
+            content = ''
+        if not isinstance(content, str):
+            raise ValueError('content must be a string.')
+        encoding = str(data.get('encoding') or 'utf-8').strip() or 'utf-8'
+        try:
+            payload = content.encode(encoding)
+        except LookupError as exc:
+            raise ValueError(f'Unsupported text encoding: {encoding}') from exc
+        return payload, filename, content_type or 'text/plain; charset=utf-8'
+    raise ValueError('Provide either text content or base64 data.')
+
+
+def _api_is_textual_file(filename: Any, content_type: Any) -> bool:
+    ctype = str(content_type or '').split(';', 1)[0].strip().lower()
+    name = str(filename or '').strip().lower()
+    if ctype.startswith('text/') or ctype in _API_VAULT_TEXT_CONTENT_TYPES:
+        return True
+    return any(name.endswith(ext) for ext in _API_VAULT_TEXT_EXTENSIONS)
+
+
+def _api_decode_text_bytes(raw: bytes, *, force: bool = False) -> tuple[str, str]:
+    for encoding in ('utf-8-sig', 'utf-8'):
+        try:
+            return raw.decode(encoding), encoding
+        except UnicodeDecodeError:
+            continue
+    if force:
+        return raw.decode('utf-8', errors='replace'), 'utf-8-replace'
+    raise ValueError('File is not valid UTF-8 text.')
+
+
+def _api_get_owned_vault_file(file_manager: Any, user_id: str, file_id: str) -> Any:
+    file_info = file_manager.get_file(str(file_id or '').strip()) if file_manager else None
+    if not file_info or str(getattr(file_info, 'uploaded_by', '') or '') != str(user_id or ''):
+        return None
+    return file_info
+
+
+def _api_vault_read_disk_slice(file_manager: Any, file_info: Any, *, offset: int, max_bytes: int) -> tuple[bytes, int, int]:
+    disk_path = file_manager._resolve_file_disk_path(file_info.file_path)
+    if not disk_path.exists():
+        raise FileNotFoundError('File bytes are not available on this node.')
+    total_size = int(disk_path.stat().st_size)
+    offset = max(0, min(int(offset or 0), total_size))
+    max_bytes = max(1, min(int(max_bytes or _API_VAULT_TEXT_PREVIEW_BYTES), _API_VAULT_TEXT_REPLACE_BYTES))
+    with disk_path.open('rb') as handle:
+        handle.seek(offset)
+        chunk = handle.read(max_bytes)
+    return chunk, total_size, offset
+
+
+def _api_attachment_file_id(attachment: dict[str, Any]) -> str:
+    file_id = str(
+        attachment.get('vault_file_id')
+        or attachment.get('file_id')
+        or attachment.get('id')
+        or ''
+    ).strip()
+    if not file_id:
+        url = str(attachment.get('url') or '').strip()
+        match = re.search(r'/files/([^/?#]+)', url)
+        if match:
+            file_id = match.group(1)
+    return file_id
 
 
 class ChannelAttachmentAuthorizationError(ValueError):
@@ -10747,6 +10959,553 @@ def create_api_blueprint() -> Blueprint:
 
         except Exception as e:
             logger.error(f"File upload failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/files', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def list_vault_files_api():
+        """List the authenticated user's local File Vault."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            user_id = g.api_key_info.user_id
+            limit = _api_int_param(request.args.get('limit'), default=60, minimum=1, maximum=200)
+            offset = _api_int_param(request.args.get('offset'), default=0, minimum=0, maximum=1_000_000)
+            query = str(request.args.get('q') or request.args.get('query') or '').strip()
+            category = str(request.args.get('category') or '').strip()
+            folder_id = str(request.args.get('folder_id') or '').strip()
+            if folder_id and not file_manager.get_user_folder(user_id, folder_id):
+                return jsonify({'error': 'Folder not found'}), 404
+            files = [
+                _api_vault_file_entry(info)
+                for info in file_manager.list_user_files(
+                    user_id,
+                    limit=limit,
+                    offset=offset,
+                    query=query,
+                    category=category,
+                    folder_id=folder_id,
+                )
+            ]
+            folders = [] if query else [
+                _api_vault_folder_entry(folder)
+                for folder in file_manager.list_user_folders(user_id, folder_id)
+            ]
+            return jsonify({
+                'success': True,
+                'files': files,
+                'folders': folders,
+                'path': _api_vault_path_entries(file_manager, user_id, folder_id),
+                'current_folder_id': folder_id,
+                'stats': file_manager.count_user_files(user_id, query=query),
+                'offset': offset,
+                'limit': limit,
+                'has_more': len(files) >= limit,
+            })
+        except Exception as e:
+            logger.error("Vault API list failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/files', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def create_vault_file_api():
+        """Create a Vault file from multipart bytes, base64 data, or text content."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            user_id = g.api_key_info.user_id
+            folder_id = ''
+            if 'file' in request.files:
+                upload = request.files['file']
+                if not upload or not upload.filename:
+                    return jsonify({'error': 'Empty file'}), 400
+                file_data = upload.read()
+                filename = upload.filename
+                content_type = upload.content_type or 'application/octet-stream'
+                folder_id = str(request.form.get('folder_id') or '').strip()
+            else:
+                data = request.get_json(silent=True) or {}
+                try:
+                    file_data, filename, content_type = _api_decode_vault_file_payload(data)
+                except ValueError as exc:
+                    return jsonify({'error': str(exc)}), 400
+                folder_id = str(data.get('folder_id') or '').strip()
+
+            if folder_id and not file_manager.get_user_folder(user_id, folder_id):
+                return jsonify({'error': 'Folder not found'}), 404
+            file_info = file_manager.save_file(file_data, filename, content_type, user_id)
+            if not file_info:
+                return jsonify({'error': 'File could not be saved. Check file type, size, and Vault storage permissions.'}), 400
+            if folder_id:
+                file_info = file_manager.move_user_file_to_folder(user_id, file_info.id, folder_id)
+            entry = _api_vault_file_entry(file_info)
+            return jsonify({
+                'success': True,
+                'file': entry,
+                'file_id': entry['id'],
+                'attachment': entry['attachment'],
+            }), 201
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as e:
+            logger.error("Vault API create failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/files/<file_id>', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def get_vault_file_api(file_id: str):
+        """Return metadata for a user-owned Vault file."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        file_info = _api_get_owned_vault_file(file_manager, g.api_key_info.user_id, file_id)
+        if not file_info:
+            return jsonify({'error': 'File not found in your Vault'}), 404
+        return jsonify({'success': True, 'file': _api_vault_file_entry(file_info)})
+
+    @api.route('/vault/files/<file_id>', methods=['DELETE'])
+    @require_auth(Permission.WRITE_FILES)
+    def delete_vault_file_api(file_id: str):
+        """Delete an unreferenced user-owned Vault file."""
+        db_manager, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            user_id = g.api_key_info.user_id
+            file_info = _api_get_owned_vault_file(file_manager, user_id, file_id)
+            if not file_info:
+                return jsonify({'error': 'File not found in your Vault'}), 404
+            try:
+                with db_manager.get_connection() as conn:
+                    avatar_ref = conn.execute(
+                        "SELECT id FROM users WHERE COALESCE(avatar_file_id, '') = ? LIMIT 1",
+                        (file_id,),
+                    ).fetchone()
+                if avatar_ref:
+                    return jsonify({
+                        'error': 'This file is used as a profile avatar. Change the avatar before removing the file.',
+                        'reason': 'profile_avatar_referenced',
+                    }), 409
+            except Exception:
+                pass
+            if file_manager.is_file_referenced(file_id):
+                return jsonify({
+                    'error': 'This file is attached to content. Delete or edit those posts/messages before removing the file.',
+                    'reason': 'file_referenced',
+                }), 409
+            if not file_manager.delete_file(file_id, user_id):
+                return jsonify({'error': 'Failed to delete file'}), 500
+            return jsonify({'success': True, 'file_id': file_id})
+        except Exception as e:
+            logger.error("Vault API delete failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/files/<file_id>/content', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def get_vault_file_content_api(file_id: str):
+        """Return bounded content from a user-owned Vault file."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            file_info = _api_get_owned_vault_file(file_manager, g.api_key_info.user_id, file_id)
+            if not file_info:
+                return jsonify({'error': 'File not found in your Vault'}), 404
+            mode = str(request.args.get('mode') or 'text').strip().lower()
+            force = str(request.args.get('force') or '').strip().lower() in {'1', 'true', 'yes'}
+            offset = _api_int_param(request.args.get('offset'), default=0, minimum=0, maximum=10 * 1024 * 1024 * 1024)
+            max_bytes = _api_int_param(
+                request.args.get('max_bytes') or request.args.get('limit'),
+                default=_API_VAULT_TEXT_PREVIEW_BYTES,
+                minimum=1,
+                maximum=_API_VAULT_TEXT_REPLACE_BYTES,
+            )
+            chunk, total_size, resolved_offset = _api_vault_read_disk_slice(
+                file_manager,
+                file_info,
+                offset=offset,
+                max_bytes=max_bytes,
+            )
+            next_offset = resolved_offset + len(chunk)
+            payload = {
+                'success': True,
+                'file': _api_vault_file_entry(file_info),
+                'offset': resolved_offset,
+                'bytes_returned': len(chunk),
+                'size': total_size,
+                'truncated': next_offset < total_size,
+                'next_offset': next_offset if next_offset < total_size else None,
+            }
+            if mode == 'base64':
+                payload.update({'encoding': 'base64', 'data': base64.b64encode(chunk).decode('ascii')})
+                return jsonify(payload)
+            if not force and not _api_is_textual_file(file_info.original_name, file_info.content_type):
+                return jsonify({
+                    'error': 'File is not recognized as text. Retry with mode=base64 or force=true.',
+                    'file': _api_vault_file_entry(file_info),
+                }), 415
+            try:
+                text, encoding = _api_decode_text_bytes(chunk, force=force)
+            except ValueError as exc:
+                return jsonify({'error': str(exc)}), 415
+            payload.update({'encoding': encoding, 'content': text})
+            return jsonify(payload)
+        except FileNotFoundError as exc:
+            return jsonify({'error': str(exc)}), 404
+        except Exception as e:
+            logger.error("Vault API content read failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/files/<file_id>/content', methods=['PATCH'])
+    @require_auth(Permission.WRITE_FILES)
+    def update_vault_file_content_api(file_id: str):
+        """Replace or copy-edit a user-owned Vault file."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            user_id = g.api_key_info.user_id
+            current_file = _api_get_owned_vault_file(file_manager, user_id, file_id)
+            if not current_file:
+                return jsonify({'error': 'File not found in your Vault'}), 404
+            data = request.get_json(silent=True) or {}
+            expected_checksum = str(data.get('if_match_checksum') or data.get('checksum') or '').strip()
+            if expected_checksum and expected_checksum != str(getattr(current_file, 'checksum', '') or ''):
+                return jsonify({
+                    'error': 'Vault file changed since your last read.',
+                    'reason': 'checksum_mismatch',
+                    'current_checksum': getattr(current_file, 'checksum', ''),
+                }), 409
+            try:
+                file_data, filename, content_type = _api_decode_vault_file_payload(data)
+            except ValueError as exc:
+                return jsonify({'error': str(exc)}), 400
+            if 'content' in data and len(file_data) > _API_VAULT_TEXT_REPLACE_BYTES:
+                return jsonify({
+                    'error': 'Text replacement is too large for this endpoint. Use base64 data or split the file.',
+                    'max_bytes': _API_VAULT_TEXT_REPLACE_BYTES,
+                }), 413
+            folder_id = str(data.get('folder_id') or getattr(current_file, 'vault_folder_id', '') or '').strip()
+            if folder_id and not file_manager.get_user_folder(user_id, folder_id):
+                return jsonify({'error': 'Folder not found'}), 404
+            create_copy = bool(data.get('create_copy') or data.get('copy'))
+            if create_copy:
+                copied = file_manager.save_file(file_data, filename, content_type, user_id)
+                if not copied:
+                    return jsonify({'error': 'Edited copy could not be saved.'}), 400
+                if folder_id:
+                    copied = file_manager.move_user_file_to_folder(user_id, copied.id, folder_id)
+                entry = _api_vault_file_entry(copied)
+                return jsonify({
+                    'success': True,
+                    'copied': True,
+                    'file': entry,
+                    'file_id': entry['id'],
+                    'attachment': entry['attachment'],
+                }), 201
+            updated = file_manager.replace_user_file_content(
+                user_id,
+                file_id,
+                file_data,
+                original_name=filename,
+                content_type=content_type,
+            )
+            if not updated:
+                return jsonify({'error': 'Vault file could not be updated. Check file type, size, and storage permissions.'}), 400
+            if folder_id and folder_id != str(getattr(updated, 'vault_folder_id', '') or ''):
+                updated = file_manager.move_user_file_to_folder(user_id, updated.id, folder_id)
+            entry = _api_vault_file_entry(updated)
+            return jsonify({
+                'success': True,
+                'file': entry,
+                'file_id': entry['id'],
+                'attachment': entry['attachment'],
+            })
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as e:
+            logger.error("Vault API content update failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/files/<file_id>/diff', methods=['POST'])
+    @require_auth(Permission.READ_FILES)
+    def diff_vault_file_api(file_id: str):
+        """Return a unified diff between a Vault text file and proposed content."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            file_info = _api_get_owned_vault_file(file_manager, g.api_key_info.user_id, file_id)
+            if not file_info:
+                return jsonify({'error': 'File not found in your Vault'}), 404
+            if not _api_is_textual_file(file_info.original_name, file_info.content_type):
+                return jsonify({'error': 'Diff is available only for text-like Vault files.'}), 415
+            if int(getattr(file_info, 'size', 0) or 0) > _API_VAULT_TEXT_REPLACE_BYTES:
+                return jsonify({
+                    'error': 'File is too large for inline diff. Read slices with /content and produce a focused summary instead.',
+                    'max_bytes': _API_VAULT_TEXT_REPLACE_BYTES,
+                }), 413
+            result = file_manager.get_file_data(file_id)
+            if not result:
+                return jsonify({'error': 'File bytes are not available on this node'}), 404
+            current_bytes, _ = result
+            data = request.get_json(silent=True) or {}
+            try:
+                proposed_bytes, proposed_name, _ = _api_decode_vault_file_payload(data)
+            except ValueError as exc:
+                return jsonify({'error': str(exc)}), 400
+            if len(proposed_bytes) > _API_VAULT_TEXT_REPLACE_BYTES:
+                return jsonify({
+                    'error': 'Proposed text is too large for inline diff.',
+                    'max_bytes': _API_VAULT_TEXT_REPLACE_BYTES,
+                }), 413
+            old_text, old_encoding = _api_decode_text_bytes(current_bytes)
+            new_text, new_encoding = _api_decode_text_bytes(proposed_bytes)
+            context_lines = _api_int_param(data.get('context_lines'), default=3, minimum=0, maximum=20)
+            diff_lines = list(difflib.unified_diff(
+                old_text.splitlines(keepends=True),
+                new_text.splitlines(keepends=True),
+                fromfile=str(file_info.original_name or file_id),
+                tofile=str(proposed_name or file_info.original_name or file_id),
+                n=context_lines,
+            ))
+            diff_text = ''.join(diff_lines)
+            truncated = False
+            if len(diff_text) > _API_VAULT_DIFF_MAX_CHARS:
+                diff_text = diff_text[:_API_VAULT_DIFF_MAX_CHARS] + '\n...[diff truncated]\n'
+                truncated = True
+            return jsonify({
+                'success': True,
+                'file': _api_vault_file_entry(file_info),
+                'diff': diff_text,
+                'line_count': len(diff_lines),
+                'truncated': truncated,
+                'old_encoding': old_encoding,
+                'new_encoding': new_encoding,
+                'old_checksum': getattr(file_info, 'checksum', ''),
+            })
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 415
+        except Exception as e:
+            logger.error("Vault API diff failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/files/<file_id>/folder', methods=['PATCH'])
+    @require_auth(Permission.WRITE_FILES)
+    def move_vault_file_api(file_id: str):
+        """Move a user-owned Vault file between logical folders."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            data = request.get_json(silent=True) or {}
+            updated = file_manager.move_user_file_to_folder(
+                g.api_key_info.user_id,
+                file_id,
+                str(data.get('folder_id') or '').strip(),
+            )
+            return jsonify({'success': True, 'file': _api_vault_file_entry(updated)})
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as e:
+            logger.error("Vault API move failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/folders', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def list_vault_folders_api():
+        """List logical Vault folders for the authenticated user."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        parent_id = str(request.args.get('parent_id') or request.args.get('folder_id') or '').strip()
+        if parent_id and not file_manager.get_user_folder(g.api_key_info.user_id, parent_id):
+            return jsonify({'error': 'Folder not found'}), 404
+        folders = [
+            _api_vault_folder_entry(folder)
+            for folder in file_manager.list_user_folders(g.api_key_info.user_id, parent_id)
+        ]
+        return jsonify({'success': True, 'folders': folders, 'parent_id': parent_id})
+
+    @api.route('/vault/folders', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def create_vault_folder_api():
+        """Create a logical folder inside the authenticated user's Vault."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            data = request.get_json(silent=True) or {}
+            folder = file_manager.create_user_folder(
+                g.api_key_info.user_id,
+                data.get('name'),
+                str(data.get('parent_id') or '').strip(),
+            )
+            return jsonify({'success': True, 'folder': _api_vault_folder_entry(folder)}), 201
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as e:
+            logger.error("Vault API folder create failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/folders/<folder_id>', methods=['PATCH'])
+    @require_auth(Permission.WRITE_FILES)
+    def rename_vault_folder_api(folder_id: str):
+        """Rename a logical Vault folder owned by the authenticated user."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            data = request.get_json(silent=True) or {}
+            folder = file_manager.rename_user_folder(g.api_key_info.user_id, folder_id, data.get('name'))
+            return jsonify({'success': True, 'folder': _api_vault_folder_entry(folder)})
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as e:
+            logger.error("Vault API folder rename failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/folders/<folder_id>', methods=['DELETE'])
+    @require_auth(Permission.WRITE_FILES)
+    def delete_vault_folder_api(folder_id: str):
+        """Delete an empty logical Vault folder owned by the authenticated user."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            file_manager.delete_user_folder(g.api_key_info.user_id, folder_id)
+            return jsonify({'success': True, 'folder_id': folder_id})
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as e:
+            logger.error("Vault API folder delete failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/save-attachment', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def save_attachment_to_vault_api():
+        """Copy an accessible attachment into the authenticated user's Vault."""
+        db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        if not getattr(g.api_key_info, 'has_permission', lambda _perm: False)(Permission.READ_FILES):
+            return jsonify({'error': 'read_files permission required to save an existing attachment'}), 403
+        try:
+            user_id = g.api_key_info.user_id
+            data = request.get_json(silent=True) or {}
+            attachment = data.get('attachment') if isinstance(data.get('attachment'), dict) else data
+            if not isinstance(attachment, dict):
+                return jsonify({'error': 'Invalid attachment payload'}), 400
+            folder_id = str(data.get('folder_id') or attachment.get('folder_id') or '').strip()
+            if folder_id and not file_manager.get_user_folder(user_id, folder_id):
+                return jsonify({'error': 'Folder not found'}), 404
+
+            file_id = _api_attachment_file_id(attachment)
+            if is_large_attachment_reference(attachment):
+                source_peer_id = get_attachment_source_peer_id(attachment)
+                origin_file_id = get_attachment_origin_file_id(attachment)
+                transfer = file_manager.get_remote_attachment_transfer(source_peer_id, origin_file_id) if source_peer_id and origin_file_id else None
+                local_file_id = str((transfer or {}).get('local_file_id') or '').strip()
+                if local_file_id and file_manager.get_file(local_file_id):
+                    file_id = local_file_id
+                elif source_peer_id and origin_file_id:
+                    if get_large_attachment_download_mode(db_manager) == LARGE_ATTACHMENT_DOWNLOAD_PAUSED:
+                        return jsonify({'error': 'Large attachment downloads are paused on this node'}), 409
+                    if not p2p_manager:
+                        return jsonify({'error': 'P2P manager unavailable'}), 503
+                    route_available = False
+                    route_check = getattr(p2p_manager, 'can_route_to_peer', None)
+                    if callable(route_check):
+                        try:
+                            route_available = route_check(source_peer_id) is True
+                        except Exception:
+                            route_available = False
+                    connection_manager = getattr(p2p_manager, 'connection_manager', None)
+                    is_connected = bool(connection_manager and connection_manager.is_connected(source_peer_id))
+                    supports_capability = getattr(p2p_manager, 'peer_supports_capability', None)
+                    if is_connected and callable(supports_capability) and not supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
+                        return jsonify({'error': 'Source peer does not support large attachment fetch'}), 409
+                    request_id = f"LAR{secrets.token_hex(8)}"
+                    file_manager.upsert_remote_attachment_transfer(
+                        origin_peer_id=source_peer_id,
+                        origin_file_id=origin_file_id,
+                        file_name=attachment.get('name'),
+                        content_type=attachment.get('type'),
+                        size=attachment.get('size'),
+                        checksum=attachment.get('checksum'),
+                        status='requested',
+                        last_request_id=request_id,
+                        error=None,
+                    )
+                    if is_connected or route_available:
+                        sent = p2p_manager.send_large_attachment_request(
+                            to_peer=source_peer_id,
+                            request_id=request_id,
+                            origin_file_id=origin_file_id,
+                            source_context={'save_to_vault': True},
+                        )
+                        if not sent:
+                            file_manager.upsert_remote_attachment_transfer(
+                                origin_peer_id=source_peer_id,
+                                origin_file_id=origin_file_id,
+                                status='error',
+                                error='request_send_failed',
+                            )
+                            return jsonify({'error': 'Failed to request remote attachment'}), 502
+                    pending_vault_saves = current_app.config.setdefault('PENDING_VAULT_ATTACHMENT_SAVES', {})
+                    pending_key = f'{source_peer_id}:{origin_file_id}'
+                    if isinstance(pending_vault_saves, dict):
+                        pending_vault_saves.setdefault(pending_key, []).append({
+                            'user_id': user_id,
+                            'folder_id': folder_id,
+                            'request_id': request_id,
+                            'requested_at': time.time(),
+                            'source': 'api',
+                        })
+                    return jsonify({
+                        'success': True,
+                        'queued': True,
+                        'request_id': request_id,
+                        'message': 'Attachment fetch queued. Canopy will save it to your Vault when the local copy arrives.',
+                    }), 202
+
+            if not file_id:
+                return jsonify({'error': 'Attachment file id is missing'}), 400
+            file_info = file_manager.get_file(file_id)
+            if not file_info:
+                return jsonify({'error': 'File is not available on this node yet'}), 404
+            owner_id = db_manager.get_instance_owner_user_id()
+            is_local_admin = (
+                bool(owner_id and owner_id == user_id)
+                and not _uploader_is_peer(db_manager, file_info.uploaded_by)
+            )
+            access = evaluate_file_access(
+                db_manager=db_manager,
+                file_id=file_id,
+                viewer_user_id=user_id,
+                file_uploaded_by=file_info.uploaded_by,
+                is_admin=is_local_admin,
+                trust_manager=trust_manager,
+                feed_manager=feed_manager,
+            )
+            if not access.allowed:
+                return jsonify({'error': 'Access denied', 'reason': access.reason}), 403
+            saved = file_manager.copy_file_to_user_vault(file_id, user_id, vault_folder_id=folder_id or None)
+            if not saved:
+                return jsonify({'error': 'Could not save attachment to Vault'}), 500
+            entry = _api_vault_file_entry(saved)
+            return jsonify({
+                'success': True,
+                'already_saved': str(getattr(file_info, 'uploaded_by', '') or '') == str(user_id),
+                'file': entry,
+                'file_id': entry['id'],
+                'attachment': entry['attachment'],
+                'message': 'Attachment saved to your File Vault.',
+            })
+        except Exception as e:
+            logger.error("Vault API save attachment failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/files/<file_id>', methods=['GET'])

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.101-blue" alt="Version 0.6.101">
+  <img src="https://img.shields.io/badge/version-0.6.102-blue" alt="Version 0.6.102">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -392,6 +392,10 @@ curl -s http://localhost:7770/api/v1/agents/me/heartbeat \
 # Catchup
 curl -s http://localhost:7770/api/v1/agents/me/catchup \
   -H "X-API-Key: YOUR_KEY"
+
+# Personal File Vault (requires read_files/write_files scopes)
+curl -s http://localhost:7770/api/v1/vault/files \
+  -H "X-API-Key: YOUR_KEY"
 ```
 
 MCP setup guide: [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md)
@@ -481,6 +485,21 @@ Canopy exposes a broad REST API under `/api/v1`. The tables below bring the high
 | POST | `/api/v1/agents/me/inbox/rebuild` | Rebuild inbox from source records |
 | GET | `/api/v1/agents/me/catchup` | Full catchup payload for agents |
 | GET | `/api/v1/agents/me/heartbeat` | Lightweight polling and workload hints |
+
+### File Vault And Attachments
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/vault/files` | List the authenticated user's local File Vault files and folders |
+| POST | `/api/v1/vault/files` | Create a Vault file from multipart upload, base64 bytes, or text content |
+| GET | `/api/v1/vault/files/<file_id>` | Get metadata for a user-owned Vault file |
+| GET | `/api/v1/vault/files/<file_id>/content` | Read a bounded file slice as text or base64 |
+| PATCH | `/api/v1/vault/files/<file_id>/content` | Replace a user-owned Vault file, optionally with `if_match_checksum` |
+| POST | `/api/v1/vault/files/<file_id>/diff` | Generate a unified diff against proposed text content |
+| PATCH | `/api/v1/vault/files/<file_id>/folder` | Move a user-owned Vault file to a logical folder |
+| DELETE | `/api/v1/vault/files/<file_id>` | Delete an unreferenced user-owned Vault file |
+| GET/POST/PATCH/DELETE | `/api/v1/vault/folders` | Manage user-owned Vault folders |
+| POST | `/api/v1/vault/save-attachment` | Copy an accessible attachment into the caller's Vault |
 
 ### Structured Workflow Objects
 

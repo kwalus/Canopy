@@ -29,7 +29,9 @@ if 'zeroconf' not in sys.modules:
 from canopy.core.canopy_ai import (
     CANOPY_LLM_CURRENT_INFO_GUIDE,
     CANOPY_LLM_MODEL_OPTIONS,
+    CANOPY_LLM_NO_WEB_SEARCH_CURRENT_INFO_GUIDE,
     CANOPY_LLM_POSTING_STRUCTURE_GUIDE,
+    DEFAULT_BEDROCK_LLM_MODEL,
     DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
     CanopyLLMManager,
 )
@@ -287,6 +289,81 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertEqual(context['credential_source'], 'instance')
         self.assertIn('Personal policy.', context['system_prompt'])
 
+    def test_bedrock_instance_fallback_can_use_environment_bearer_token(self) -> None:
+        with patch.dict(os.environ, {
+            'AWS_BEARER_TOKEN_BEDROCK': 'bedrock-env-token',
+            'AWS_REGION': 'us-east-1',
+        }, clear=False):
+            manager = CanopyLLMManager(self.db, 'test-secret')
+            settings = manager.save_instance_settings(
+                'admin-1',
+                provider='bedrock',
+                model=DEFAULT_BEDROCK_LLM_MODEL,
+                enabled=True,
+                web_search_enabled=True,
+                system_prompt='Use the shared Bedrock compose policy.',
+            )
+
+            self.assertTrue(settings['enabled'])
+            self.assertTrue(settings['api_key_configured'])
+            self.assertFalse(settings['key_saved'])
+            self.assertTrue(settings['environment_credentials_available'])
+
+            user_settings = manager.get_settings('user-without-key')
+            self.assertTrue(user_settings['instance_fallback_available'])
+            self.assertEqual(user_settings['instance_fallback_provider'], 'bedrock')
+
+            context = manager._prepare_expand_context('user-without-key', '@Canopy draft a useful current weather post')
+
+        self.assertEqual(context['provider'], 'bedrock')
+        self.assertEqual(context['api_key'], '')
+        self.assertEqual(context['model'], DEFAULT_BEDROCK_LLM_MODEL)
+        self.assertEqual(context['credential_source'], 'instance')
+        self.assertFalse(context['web_search_enabled'])
+        self.assertIn('Use the shared Bedrock compose policy.', context['system_prompt'])
+        self.assertIn(CANOPY_LLM_NO_WEB_SEARCH_CURRENT_INFO_GUIDE, context['system_prompt'])
+        self.assertNotIn('use the hosted web search tool', context['system_prompt'])
+
+    def test_bedrock_sigv4_environment_requires_region_even_with_endpoint(self) -> None:
+        with patch.dict(os.environ, {
+            'AWS_ACCESS_KEY_ID': 'AKIATEST',
+            'AWS_SECRET_ACCESS_KEY': 'secret-test',
+            'CANOPY_BEDROCK_RUNTIME_ENDPOINT': 'https://bedrock-runtime.us-west-2.amazonaws.com',
+        }, clear=True):
+            self.assertFalse(CanopyLLMManager._bedrock_environment_credentials_available())
+            with self.assertRaises(Exception) as ctx:
+                CanopyLLMManager._parse_bedrock_credentials('')
+        self.assertEqual(getattr(ctx.exception, 'reason', ''), 'missing_bedrock_region')
+
+    def test_bedrock_bare_api_key_secret_is_treated_as_bearer_token(self) -> None:
+        with patch.dict(os.environ, {'AWS_REGION': 'us-east-1'}, clear=True):
+            parsed = CanopyLLMManager._parse_bedrock_credentials('bedrock-raw-api-key')
+        self.assertEqual(parsed['bearer_token'], 'bedrock-raw-api-key')
+        self.assertEqual(parsed['region'], 'us-east-1')
+
+    def test_bedrock_personal_credentials_are_saved_and_used(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+
+        settings = manager.save_settings(
+            'user-1',
+            provider='bedrock',
+            model='amazon.nova-pro-v1:0',
+            enabled=True,
+            api_key='aws_bearer_token_bedrock=personal-bedrock-token;region=us-west-2',
+            web_search_enabled=True,
+            system_prompt='Personal Bedrock policy.',
+        )
+
+        self.assertTrue(settings['api_key_configured'])
+        self.assertEqual(settings['provider'], 'bedrock')
+        self.assertNotIn('api_key', settings)
+        context = manager._prepare_expand_context('user-1', '@Canopy post the latest lab update')
+        self.assertEqual(context['provider'], 'bedrock')
+        self.assertEqual(context['model'], 'amazon.nova-pro-v1:0')
+        self.assertIn('personal-bedrock-token', context['api_key'])
+        self.assertEqual(context['credential_source'], 'user')
+        self.assertFalse(context['web_search_enabled'])
+
     def test_canopy_trigger_detection_and_strip(self) -> None:
         self.assertTrue(CanopyLLMManager.has_canopy_trigger('@Canopy draft this'))
         self.assertTrue(CanopyLLMManager.has_canopy_trigger('please @canopy: draft this'))
@@ -411,6 +488,104 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertNotIn('tools', captured['payload'])
         self.assertNotIn('tool_choice', captured['payload'])
         self.assertEqual(captured['payload']['max_output_tokens'], 2600)
+
+    def test_bedrock_bearer_token_payload_uses_converse_api_without_sigv4(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        captured: dict[str, Any] = {}
+
+        class _Response:
+            def __enter__(self) -> '_Response':
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, size: int = -1) -> bytes:
+                return b'{"output":{"message":{"content":[{"text":"Bedrock bearer draft."}]}}}'
+
+        def _fake_urlopen(request: Any, timeout: float = 0) -> _Response:
+            captured['url'] = request.full_url
+            captured['payload'] = json.loads(request.data.decode('utf-8'))
+            captured['timeout'] = timeout
+            captured['authorization'] = request.get_header('Authorization')
+            return _Response()
+
+        with patch('canopy.core.canopy_ai.urlopen', side_effect=_fake_urlopen):
+            output = manager._call_bedrock(
+                credential_secret=json.dumps({
+                    'bedrock_api_key': 'bedrock-api-key',
+                    'region': 'us-west-2',
+                }),
+                model='amazon.nova-pro-v1:0',
+                system_prompt='Compose.',
+                prompt='Draft.',
+            )
+
+        self.assertEqual(output, 'Bedrock bearer draft.')
+        self.assertIn('/model/amazon.nova-pro-v1%3A0/converse', captured['url'])
+        self.assertEqual(captured['authorization'], 'Bearer bedrock-api-key')
+        self.assertEqual(captured['payload']['messages'][0]['role'], 'user')
+        self.assertEqual(captured['payload']['system'][0]['text'], 'Compose.')
+        self.assertEqual(captured['payload']['inferenceConfig']['maxTokens'], 2600)
+        self.assertEqual(captured['timeout'], 90)
+
+    def test_bedrock_sigv4_payload_is_signed_and_extracts_text(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        captured: dict[str, Any] = {}
+
+        class _Response:
+            def __enter__(self) -> '_Response':
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, size: int = -1) -> bytes:
+                return b'{"output":{"message":{"content":[{"text":"Bedrock signed draft."}]}}}'
+
+        def _fake_urlopen(request: Any, timeout: float = 0) -> _Response:
+            captured['url'] = request.full_url
+            captured['payload'] = json.loads(request.data.decode('utf-8'))
+            captured['authorization'] = request.get_header('Authorization')
+            captured['security_token'] = request.get_header('X-amz-security-token')
+            return _Response()
+
+        with patch('canopy.core.canopy_ai.urlopen', side_effect=_fake_urlopen):
+            output = manager._call_bedrock(
+                credential_secret='aws_access_key_id=AKIATEST;aws_secret_access_key=test-secret;aws_session_token=session-token;region=us-east-1',
+                model='anthropic.claude-3-5-sonnet-20240620-v1:0',
+                system_prompt='Compose.',
+                prompt='Draft.',
+            )
+
+        self.assertEqual(output, 'Bedrock signed draft.')
+        self.assertIn('/model/anthropic.claude-3-5-sonnet-20240620-v1%3A0/converse', captured['url'])
+        self.assertTrue(str(captured['authorization']).startswith('AWS4-HMAC-SHA256 Credential=AKIATEST/'))
+        self.assertIn('SignedHeaders=', captured['authorization'])
+        self.assertEqual(captured['security_token'], 'session-token')
+        self.assertEqual(captured['payload']['messages'][0]['content'][0]['text'], 'Draft.')
+
+    def test_bedrock_stream_falls_back_to_single_delta_for_review_flow(self) -> None:
+        with patch.dict(os.environ, {
+            'AWS_BEARER_TOKEN_BEDROCK': 'bedrock-env-token',
+            'AWS_REGION': 'us-east-1',
+        }, clear=False):
+            manager = CanopyLLMManager(self.db, 'test-secret')
+            manager.save_instance_settings(
+                'admin-1',
+                provider='bedrock',
+                model='amazon.nova-pro-v1:0',
+                enabled=True,
+                system_prompt='Shared Bedrock policy.',
+            )
+            with patch.object(manager, '_call_bedrock', return_value='Stream-compatible Bedrock draft.'):
+                events = list(manager.stream_expand_prompt('user-without-key', '@Canopy draft this'))
+
+        self.assertEqual(events[0], {'type': 'status', 'message': 'Generating draft with AWS Bedrock...'})
+        self.assertEqual(events[1], {'type': 'delta', 'delta': 'Stream-compatible Bedrock draft.'})
+        self.assertEqual(events[2]['type'], 'done')
+        self.assertEqual(events[2]['provider'], 'bedrock')
+        self.assertEqual(events[2]['credential_source'], 'instance')
 
     def test_openai_empty_tool_only_response_retries_with_final_instruction(self) -> None:
         manager = CanopyLLMManager(self.db, 'test-secret')

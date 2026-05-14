@@ -12,6 +12,7 @@ License: Apache 2.0
 
 import asyncio
 import base64
+import difflib
 import json
 import logging
 import os
@@ -57,6 +58,14 @@ from canopy.core.agent_heartbeat import (
     build_actionable_work_preview,
 )
 from canopy.core.inbox import AGENT_SETTABLE_STATUSES
+from canopy.core.large_attachments import (
+    LARGE_ATTACHMENT_CAPABILITY,
+    LARGE_ATTACHMENT_DOWNLOAD_PAUSED,
+    get_attachment_origin_file_id,
+    get_attachment_source_peer_id,
+    get_large_attachment_download_mode,
+    is_large_attachment_reference,
+)
 from canopy.security.api_keys import Permission
 
 # Set up logging
@@ -67,6 +76,133 @@ logger = logging.getLogger("canopy-mcp")
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
     """Typed-any wrapper for dynamic app component wiring."""
     return cast(tuple[Any, ...], get_app_components(app))
+
+
+_MCP_VAULT_TEXT_MAX_BYTES = 4 * 1024 * 1024
+_MCP_VAULT_TEXT_PREVIEW_BYTES = 1 * 1024 * 1024
+_MCP_VAULT_DIFF_MAX_CHARS = 240_000
+_MCP_VAULT_TEXT_EXTENSIONS = {
+    '.txt', '.md', '.markdown', '.json', '.yaml', '.yml', '.toml', '.ini',
+    '.cfg', '.conf', '.csv', '.tsv', '.html', '.htm', '.css', '.js', '.mjs',
+    '.cjs', '.ts', '.tsx', '.jsx', '.py', '.pyi', '.pyw', '.sh', '.bash',
+    '.zsh', '.fish', '.sql', '.xml', '.svg', '.tex', '.latex', '.bib',
+    '.rs', '.go', '.java', '.c', '.cc', '.cpp', '.h', '.hpp', '.cs', '.rb',
+    '.php', '.swift', '.kt', '.kts', '.r', '.jl', '.m', '.mm', '.lua',
+    '.pl', '.pm', '.dockerfile', '.env', '.log',
+}
+_MCP_VAULT_TEXT_TYPES = {
+    'application/json',
+    'application/xml',
+    'application/x-yaml',
+    'application/yaml',
+    'application/toml',
+    'application/javascript',
+    'application/ecmascript',
+    'application/sql',
+    'application/x-latex',
+    'image/svg+xml',
+}
+
+
+def _mcp_json(payload: Any) -> List[TextContent]:
+    return [TextContent(type="text", text=json.dumps(payload, indent=2, default=str))]
+
+
+def _mcp_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(parsed, maximum))
+
+
+def _mcp_vault_file_entry(file_info: Any) -> Dict[str, Any]:
+    file_id = str(getattr(file_info, 'id', '') or '')
+    name = str(getattr(file_info, 'original_name', '') or file_id or 'file')
+    content_type = str(getattr(file_info, 'content_type', '') or 'application/octet-stream')
+    size = int(getattr(file_info, 'size', 0) or 0)
+    uploaded_at = getattr(file_info, 'uploaded_at', None)
+    return {
+        'id': file_id,
+        'file_id': file_id,
+        'vault_file_id': file_id,
+        'name': name,
+        'filename': name,
+        'content_type': content_type,
+        'type': content_type,
+        'size': size,
+        'url': f'/files/{file_id}',
+        'checksum': str(getattr(file_info, 'checksum', '') or ''),
+        'folder_id': str(getattr(file_info, 'vault_folder_id', '') or ''),
+        'uploaded_at': uploaded_at.isoformat() if hasattr(uploaded_at, 'isoformat') else str(uploaded_at or ''),
+        'attachment': {
+            'id': file_id,
+            'file_id': file_id,
+            'vault_file_id': file_id,
+            'name': name,
+            'type': content_type,
+            'size': size,
+            'url': f'/files/{file_id}',
+            'source': 'vault',
+        },
+    }
+
+
+def _mcp_vault_folder_entry(folder: Any) -> Dict[str, Any]:
+    created_at = getattr(folder, 'created_at', None)
+    updated_at = getattr(folder, 'updated_at', None)
+    return {
+        'id': str(getattr(folder, 'id', '') or ''),
+        'name': str(getattr(folder, 'name', '') or ''),
+        'parent_id': str(getattr(folder, 'parent_id', '') or ''),
+        'created_at': created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at or ''),
+        'updated_at': updated_at.isoformat() if hasattr(updated_at, 'isoformat') else str(updated_at or ''),
+    }
+
+
+def _mcp_is_textual_file(filename: Any, content_type: Any) -> bool:
+    ctype = str(content_type or '').split(';', 1)[0].strip().lower()
+    name = str(filename or '').strip().lower()
+    return ctype.startswith('text/') or ctype in _MCP_VAULT_TEXT_TYPES or any(
+        name.endswith(ext) for ext in _MCP_VAULT_TEXT_EXTENSIONS
+    )
+
+
+def _mcp_decode_text(raw: bytes, *, force: bool = False) -> tuple[str, str]:
+    for encoding in ('utf-8-sig', 'utf-8'):
+        try:
+            return raw.decode(encoding), encoding
+        except UnicodeDecodeError:
+            continue
+    if force:
+        return raw.decode('utf-8', errors='replace'), 'utf-8-replace'
+    raise ValueError('File is not valid UTF-8 text')
+
+
+def _mcp_decode_vault_payload(args: Dict[str, Any]) -> tuple[bytes, str, str]:
+    file_path = str(args.get('file_path') or '').strip()
+    if file_path:
+        path = Path(file_path).expanduser()
+        if not path.exists() or not path.is_file():
+            raise ValueError(f'File not found: {file_path}')
+        return path.read_bytes(), str(args.get('filename') or path.name), str(args.get('content_type') or 'application/octet-stream')
+
+    filename = str(args.get('filename') or args.get('name') or 'vault-note.txt').strip() or 'vault-note.txt'
+    content_type = str(args.get('content_type') or args.get('type') or '').strip()
+    if 'data' in args or 'base64' in args:
+        encoded = str(args.get('data') if 'data' in args else args.get('base64') or '')
+        try:
+            return base64.b64decode(encoded, validate=True), filename, content_type or 'application/octet-stream'
+        except Exception as exc:
+            raise ValueError('Invalid base64 file data') from exc
+    if 'content' in args:
+        content = args.get('content')
+        if content is None:
+            content = ''
+        if not isinstance(content, str):
+            raise ValueError('content must be a string')
+        return content.encode('utf-8'), filename, content_type or 'text/plain; charset=utf-8'
+    raise ValueError('Provide file_path, text content, or base64 data')
 
 class CanopyMCPServer:
     """MCP Server for Canopy integration with proper API key authentication."""
@@ -756,6 +892,132 @@ class CanopyMCPServer:
                     }
                 ),
                 Tool(
+                    name="canopy_vault_list",
+                    description="List your local File Vault files and folders. Requires read_files.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "folder_id": {"type": "string", "description": "Optional folder ID; empty lists root files"},
+                            "query": {"type": "string", "description": "Optional filename/type search"},
+                            "category": {"type": "string", "description": "Optional images|videos|audio|documents|other"},
+                            "limit": {"type": "integer", "default": 60},
+                            "offset": {"type": "integer", "default": 0}
+                        }
+                    }
+                ),
+                Tool(
+                    name="canopy_vault_read_file",
+                    description="Read a bounded slice from a user-owned Vault file as text or base64. Requires read_files.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_id": {"type": "string", "description": "Vault file ID"},
+                            "mode": {"type": "string", "enum": ["text", "base64"], "default": "text"},
+                            "offset": {"type": "integer", "default": 0},
+                            "max_bytes": {"type": "integer", "default": 1048576},
+                            "force_text": {"type": "boolean", "default": False}
+                        },
+                        "required": ["file_id"]
+                    }
+                ),
+                Tool(
+                    name="canopy_vault_write_file",
+                    description="Create a file in your local File Vault from file_path, text content, or base64 data. Returns attachment metadata for sharing. Requires write_files.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string", "description": "Optional local path to import"},
+                            "content": {"type": "string", "description": "Optional UTF-8 text content"},
+                            "data": {"type": "string", "description": "Optional base64 bytes"},
+                            "filename": {"type": "string", "description": "Filename to store"},
+                            "content_type": {"type": "string", "description": "MIME type"},
+                            "folder_id": {"type": "string", "description": "Optional Vault folder"}
+                        }
+                    }
+                ),
+                Tool(
+                    name="canopy_vault_update_file",
+                    description="Replace an existing user-owned Vault file or create an edited copy. Requires write_files.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_id": {"type": "string", "description": "Vault file ID"},
+                            "file_path": {"type": "string", "description": "Optional local path to use as replacement"},
+                            "content": {"type": "string", "description": "Optional UTF-8 replacement text"},
+                            "data": {"type": "string", "description": "Optional base64 replacement bytes"},
+                            "filename": {"type": "string", "description": "Optional replacement filename"},
+                            "content_type": {"type": "string", "description": "Optional MIME type"},
+                            "if_match_checksum": {"type": "string", "description": "Optional optimistic concurrency checksum"},
+                            "folder_id": {"type": "string", "description": "Optional target folder"},
+                            "create_copy": {"type": "boolean", "default": False}
+                        },
+                        "required": ["file_id"]
+                    }
+                ),
+                Tool(
+                    name="canopy_vault_diff_file",
+                    description="Generate a unified diff between a text Vault file and proposed text/file content. Requires read_files.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_id": {"type": "string", "description": "Vault file ID"},
+                            "file_path": {"type": "string", "description": "Optional local file containing proposed content"},
+                            "content": {"type": "string", "description": "Optional proposed UTF-8 text"},
+                            "data": {"type": "string", "description": "Optional proposed base64 bytes"},
+                            "filename": {"type": "string", "description": "Optional proposed filename"},
+                            "context_lines": {"type": "integer", "default": 3}
+                        },
+                        "required": ["file_id"]
+                    }
+                ),
+                Tool(
+                    name="canopy_vault_move_file",
+                    description="Move a user-owned Vault file to another Vault folder. Requires write_files.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_id": {"type": "string"},
+                            "folder_id": {"type": "string", "description": "Destination folder ID, or empty for root"}
+                        },
+                        "required": ["file_id"]
+                    }
+                ),
+                Tool(
+                    name="canopy_vault_create_folder",
+                    description="Create a logical folder in your local File Vault. Requires write_files.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "parent_id": {"type": "string"}
+                        },
+                        "required": ["name"]
+                    }
+                ),
+                Tool(
+                    name="canopy_vault_delete_file",
+                    description="Delete an unreferenced user-owned Vault file. Requires write_files.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_id": {"type": "string"}
+                        },
+                        "required": ["file_id"]
+                    }
+                ),
+                Tool(
+                    name="canopy_vault_save_attachment",
+                    description="Copy an accessible local attachment/file ID into your Vault and return shareable attachment metadata. Requires read_files + write_files.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_id": {"type": "string", "description": "Source file/attachment ID"},
+                            "attachment": {"type": "object", "description": "Optional attachment object containing id/file_id/vault_file_id"},
+                            "folder_id": {"type": "string", "description": "Optional Vault folder"}
+                        }
+                    }
+                ),
+                Tool(
                     name="canopy_get_profile",
                     description="Get user profile information",
                     inputSchema={
@@ -1219,6 +1481,42 @@ class CanopyMCPServer:
                     if not self._check_permission(Permission.WRITE_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: write_files required")]
                     return await self._upload_file(arguments or {})
+                elif name == "canopy_vault_list":
+                    if not self._check_permission(Permission.READ_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: read_files required")]
+                    return await self._vault_list(arguments or {})
+                elif name == "canopy_vault_read_file":
+                    if not self._check_permission(Permission.READ_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: read_files required")]
+                    return await self._vault_read_file(arguments or {})
+                elif name == "canopy_vault_write_file":
+                    if not self._check_permission(Permission.WRITE_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: write_files required")]
+                    return await self._vault_write_file(arguments or {})
+                elif name == "canopy_vault_update_file":
+                    if not self._check_permission(Permission.WRITE_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: write_files required")]
+                    return await self._vault_update_file(arguments or {})
+                elif name == "canopy_vault_diff_file":
+                    if not self._check_permission(Permission.READ_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: read_files required")]
+                    return await self._vault_diff_file(arguments or {})
+                elif name == "canopy_vault_move_file":
+                    if not self._check_permission(Permission.WRITE_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: write_files required")]
+                    return await self._vault_move_file(arguments or {})
+                elif name == "canopy_vault_create_folder":
+                    if not self._check_permission(Permission.WRITE_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: write_files required")]
+                    return await self._vault_create_folder(arguments or {})
+                elif name == "canopy_vault_delete_file":
+                    if not self._check_permission(Permission.WRITE_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: write_files required")]
+                    return await self._vault_delete_file(arguments or {})
+                elif name == "canopy_vault_save_attachment":
+                    if not self._check_permission(Permission.WRITE_FILES) or not self._check_permission(Permission.READ_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: read_files and write_files required")]
+                    return await self._vault_save_attachment(arguments or {})
                 elif name == "canopy_get_profile":
                     # Profile reading doesn't require special permissions (users can see their own)
                     return await self._get_profile(arguments or {})
@@ -3677,6 +3975,409 @@ class CanopyMCPServer:
         except Exception as e:
             raise Exception(f"Failed to upload file: {str(e)}")
 
+    async def _vault_list(self, args: Dict[str, Any]) -> List[TextContent]:
+        """List authenticated user's File Vault."""
+        try:
+            from canopy.core.app import create_app
+
+            app = create_app()
+            with app.app_context():
+                (_, _, _, _, _, file_manager, _, _, _, _, _) = _get_app_components_any(app)
+                folder_id = str(args.get("folder_id") or "").strip()
+                if folder_id and not file_manager.get_user_folder(self.user_id, folder_id):
+                    return [TextContent(type="text", text="Error: Folder not found")]
+                limit = _mcp_int(args.get("limit"), 60, 1, 200)
+                offset = _mcp_int(args.get("offset"), 0, 0, 1_000_000)
+                query = str(args.get("query") or args.get("q") or "").strip()
+                category = str(args.get("category") or "").strip()
+                files = [
+                    _mcp_vault_file_entry(info)
+                    for info in file_manager.list_user_files(
+                        self.user_id,
+                        limit=limit,
+                        offset=offset,
+                        query=query,
+                        category=category,
+                        folder_id=folder_id,
+                    )
+                ]
+                folders = [] if query else [
+                    _mcp_vault_folder_entry(folder)
+                    for folder in file_manager.list_user_folders(self.user_id, folder_id)
+                ]
+                return _mcp_json({
+                    "success": True,
+                    "files": files,
+                    "folders": folders,
+                    "stats": file_manager.count_user_files(self.user_id, query=query),
+                    "folder_id": folder_id,
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": len(files) >= limit,
+                })
+        except Exception as e:
+            raise Exception(f"Failed to list Vault: {str(e)}")
+
+    async def _vault_read_file(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Read a bounded slice from a Vault file."""
+        try:
+            from canopy.core.app import create_app
+
+            file_id = str(args.get("file_id") or "").strip()
+            if not file_id:
+                return [TextContent(type="text", text="Error: file_id is required")]
+            app = create_app()
+            with app.app_context():
+                (_, _, _, _, _, file_manager, _, _, _, _, _) = _get_app_components_any(app)
+                file_info = file_manager.get_file(file_id)
+                if not file_info or str(getattr(file_info, 'uploaded_by', '') or '') != self.user_id:
+                    return [TextContent(type="text", text="Error: File not found in your Vault")]
+                path = file_manager._resolve_file_disk_path(file_info.file_path)
+                if not path.exists():
+                    return [TextContent(type="text", text="Error: File bytes are not available on this node")]
+                total_size = int(path.stat().st_size)
+                offset = _mcp_int(args.get("offset"), 0, 0, max(total_size, 1))
+                max_bytes = _mcp_int(args.get("max_bytes"), _MCP_VAULT_TEXT_PREVIEW_BYTES, 1, _MCP_VAULT_TEXT_MAX_BYTES)
+                with path.open('rb') as handle:
+                    handle.seek(offset)
+                    raw = handle.read(max_bytes)
+                mode = str(args.get("mode") or "text").strip().lower()
+                payload: Dict[str, Any] = {
+                    "success": True,
+                    "file": _mcp_vault_file_entry(file_info),
+                    "offset": offset,
+                    "bytes_returned": len(raw),
+                    "size": total_size,
+                    "truncated": offset + len(raw) < total_size,
+                    "next_offset": offset + len(raw) if offset + len(raw) < total_size else None,
+                }
+                if mode == "base64":
+                    payload.update({"encoding": "base64", "data": base64.b64encode(raw).decode("ascii")})
+                    return _mcp_json(payload)
+                force = bool(args.get("force_text") or args.get("force"))
+                if not force and not _mcp_is_textual_file(file_info.original_name, file_info.content_type):
+                    return [TextContent(type="text", text="Error: File is not recognized as text; retry with mode=base64 or force_text=true")]
+                text, encoding = _mcp_decode_text(raw, force=force)
+                payload.update({"encoding": encoding, "content": text})
+                return _mcp_json(payload)
+        except Exception as e:
+            raise Exception(f"Failed to read Vault file: {str(e)}")
+
+    async def _vault_write_file(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Create a File Vault object."""
+        try:
+            from canopy.core.app import create_app
+
+            file_data, filename, content_type = _mcp_decode_vault_payload(args)
+            folder_id = str(args.get("folder_id") or "").strip()
+            app = create_app()
+            with app.app_context():
+                (_, _, _, _, _, file_manager, _, _, _, _, _) = _get_app_components_any(app)
+                if folder_id and not file_manager.get_user_folder(self.user_id, folder_id):
+                    return [TextContent(type="text", text="Error: Folder not found")]
+                file_info = file_manager.save_file(file_data, filename, content_type, self.user_id)
+                if not file_info:
+                    return [TextContent(type="text", text="Error: File could not be saved")]
+                if folder_id:
+                    file_info = file_manager.move_user_file_to_folder(self.user_id, file_info.id, folder_id)
+                entry = _mcp_vault_file_entry(file_info)
+                return _mcp_json({"success": True, "file": entry, "file_id": entry["id"], "attachment": entry["attachment"]})
+        except Exception as e:
+            raise Exception(f"Failed to write Vault file: {str(e)}")
+
+    async def _vault_update_file(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Replace or copy-edit a File Vault object."""
+        try:
+            from canopy.core.app import create_app
+
+            file_id = str(args.get("file_id") or "").strip()
+            if not file_id:
+                return [TextContent(type="text", text="Error: file_id is required")]
+            file_data, filename, content_type = _mcp_decode_vault_payload(args)
+            folder_id = str(args.get("folder_id") or "").strip()
+            app = create_app()
+            with app.app_context():
+                (_, _, _, _, _, file_manager, _, _, _, _, _) = _get_app_components_any(app)
+                current = file_manager.get_file(file_id)
+                if not current or str(getattr(current, 'uploaded_by', '') or '') != self.user_id:
+                    return [TextContent(type="text", text="Error: File not found in your Vault")]
+                expected_checksum = str(args.get("if_match_checksum") or args.get("checksum") or "").strip()
+                if expected_checksum and expected_checksum != str(getattr(current, 'checksum', '') or ''):
+                    return _mcp_json({
+                        "success": False,
+                        "error": "checksum_mismatch",
+                        "current_checksum": getattr(current, 'checksum', ''),
+                    })
+                if folder_id and not file_manager.get_user_folder(self.user_id, folder_id):
+                    return [TextContent(type="text", text="Error: Folder not found")]
+                if bool(args.get("create_copy") or args.get("copy")):
+                    updated = file_manager.save_file(file_data, filename, content_type, self.user_id)
+                    if not updated:
+                        return [TextContent(type="text", text="Error: Edited copy could not be saved")]
+                    if folder_id:
+                        updated = file_manager.move_user_file_to_folder(self.user_id, updated.id, folder_id)
+                    entry = _mcp_vault_file_entry(updated)
+                    return _mcp_json({"success": True, "copied": True, "file": entry, "file_id": entry["id"], "attachment": entry["attachment"]})
+                updated = file_manager.replace_user_file_content(
+                    self.user_id,
+                    file_id,
+                    file_data,
+                    original_name=filename,
+                    content_type=content_type,
+                )
+                if not updated:
+                    return [TextContent(type="text", text="Error: Vault file could not be updated")]
+                if folder_id and folder_id != str(getattr(updated, 'vault_folder_id', '') or ''):
+                    updated = file_manager.move_user_file_to_folder(self.user_id, updated.id, folder_id)
+                entry = _mcp_vault_file_entry(updated)
+                return _mcp_json({"success": True, "file": entry, "file_id": entry["id"], "attachment": entry["attachment"]})
+        except Exception as e:
+            raise Exception(f"Failed to update Vault file: {str(e)}")
+
+    async def _vault_diff_file(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Diff a Vault text file against proposed content."""
+        try:
+            from canopy.core.app import create_app
+
+            file_id = str(args.get("file_id") or "").strip()
+            if not file_id:
+                return [TextContent(type="text", text="Error: file_id is required")]
+            proposed_bytes, proposed_name, _ = _mcp_decode_vault_payload(args)
+            app = create_app()
+            with app.app_context():
+                (_, _, _, _, _, file_manager, _, _, _, _, _) = _get_app_components_any(app)
+                current = file_manager.get_file(file_id)
+                if not current or str(getattr(current, 'uploaded_by', '') or '') != self.user_id:
+                    return [TextContent(type="text", text="Error: File not found in your Vault")]
+                if not _mcp_is_textual_file(current.original_name, current.content_type):
+                    return [TextContent(type="text", text="Error: Diff is only available for text-like Vault files")]
+                if int(getattr(current, 'size', 0) or 0) > _MCP_VAULT_TEXT_MAX_BYTES or len(proposed_bytes) > _MCP_VAULT_TEXT_MAX_BYTES:
+                    return [TextContent(type="text", text="Error: File too large for inline diff; read focused slices instead")]
+                result = file_manager.get_file_data(file_id)
+                if not result:
+                    return [TextContent(type="text", text="Error: File bytes are not available on this node")]
+                current_bytes, _ = result
+                old_text, old_encoding = _mcp_decode_text(current_bytes)
+                new_text, new_encoding = _mcp_decode_text(proposed_bytes)
+                context_lines = _mcp_int(args.get("context_lines"), 3, 0, 20)
+                diff_lines = list(difflib.unified_diff(
+                    old_text.splitlines(keepends=True),
+                    new_text.splitlines(keepends=True),
+                    fromfile=str(current.original_name or file_id),
+                    tofile=str(proposed_name or current.original_name or file_id),
+                    n=context_lines,
+                ))
+                diff_text = ''.join(diff_lines)
+                truncated = False
+                if len(diff_text) > _MCP_VAULT_DIFF_MAX_CHARS:
+                    diff_text = diff_text[:_MCP_VAULT_DIFF_MAX_CHARS] + "\n...[diff truncated]\n"
+                    truncated = True
+                return _mcp_json({
+                    "success": True,
+                    "file": _mcp_vault_file_entry(current),
+                    "diff": diff_text,
+                    "line_count": len(diff_lines),
+                    "truncated": truncated,
+                    "old_encoding": old_encoding,
+                    "new_encoding": new_encoding,
+                    "old_checksum": getattr(current, 'checksum', ''),
+                })
+        except Exception as e:
+            raise Exception(f"Failed to diff Vault file: {str(e)}")
+
+    async def _vault_move_file(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Move a Vault file to a folder."""
+        try:
+            from canopy.core.app import create_app
+
+            file_id = str(args.get("file_id") or "").strip()
+            if not file_id:
+                return [TextContent(type="text", text="Error: file_id is required")]
+            folder_id = str(args.get("folder_id") or "").strip()
+            app = create_app()
+            with app.app_context():
+                (_, _, _, _, _, file_manager, _, _, _, _, _) = _get_app_components_any(app)
+                updated = file_manager.move_user_file_to_folder(self.user_id, file_id, folder_id)
+                return _mcp_json({"success": True, "file": _mcp_vault_file_entry(updated)})
+        except Exception as e:
+            raise Exception(f"Failed to move Vault file: {str(e)}")
+
+    async def _vault_create_folder(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Create a File Vault folder."""
+        try:
+            from canopy.core.app import create_app
+
+            name = args.get("name")
+            if not name:
+                return [TextContent(type="text", text="Error: name is required")]
+            app = create_app()
+            with app.app_context():
+                (_, _, _, _, _, file_manager, _, _, _, _, _) = _get_app_components_any(app)
+                folder = file_manager.create_user_folder(self.user_id, name, str(args.get("parent_id") or "").strip())
+                return _mcp_json({"success": True, "folder": _mcp_vault_folder_entry(folder)})
+        except Exception as e:
+            raise Exception(f"Failed to create Vault folder: {str(e)}")
+
+    async def _vault_delete_file(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Delete an unreferenced user-owned Vault file."""
+        try:
+            from canopy.core.app import create_app
+
+            file_id = str(args.get("file_id") or "").strip()
+            if not file_id:
+                return [TextContent(type="text", text="Error: file_id is required")]
+            app = create_app()
+            with app.app_context():
+                (db_manager, _, _, _, _, file_manager, _, _, _, _, _) = _get_app_components_any(app)
+                current = file_manager.get_file(file_id)
+                if not current or str(getattr(current, 'uploaded_by', '') or '') != self.user_id:
+                    return [TextContent(type="text", text="Error: File not found in your Vault")]
+                try:
+                    with db_manager.get_connection() as conn:
+                        avatar_ref = conn.execute(
+                            "SELECT id FROM users WHERE COALESCE(avatar_file_id, '') = ? LIMIT 1",
+                            (file_id,),
+                        ).fetchone()
+                    if avatar_ref:
+                        return _mcp_json({
+                            "success": False,
+                            "error": "profile_avatar_referenced",
+                            "message": "This file is used as a profile avatar. Change the avatar before removing the file.",
+                        })
+                except Exception:
+                    pass
+                if file_manager.is_file_referenced(file_id):
+                    return _mcp_json({"success": False, "error": "file_referenced"})
+                if not file_manager.delete_file(file_id, self.user_id):
+                    return [TextContent(type="text", text="Error: Failed to delete file")]
+                return _mcp_json({"success": True, "file_id": file_id})
+        except Exception as e:
+            raise Exception(f"Failed to delete Vault file: {str(e)}")
+
+    async def _vault_save_attachment(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Copy an accessible local attachment/file into the user's Vault."""
+        try:
+            from canopy.core.app import create_app
+            from canopy.security.file_access import evaluate_file_access
+
+            attachment = args.get("attachment") if isinstance(args.get("attachment"), dict) else {}
+            file_id = str(
+                args.get("file_id")
+                or attachment.get("vault_file_id")
+                or attachment.get("file_id")
+                or attachment.get("id")
+                or ""
+            ).strip()
+            folder_id = str(args.get("folder_id") or attachment.get("folder_id") or "").strip()
+            app = create_app()
+            with app.app_context():
+                (db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, p2p_manager) = _get_app_components_any(app)
+                if folder_id and not file_manager.get_user_folder(self.user_id, folder_id):
+                    return [TextContent(type="text", text="Error: Folder not found")]
+                if is_large_attachment_reference(attachment):
+                    source_peer_id = get_attachment_source_peer_id(attachment)
+                    origin_file_id = get_attachment_origin_file_id(attachment)
+                    transfer = file_manager.get_remote_attachment_transfer(source_peer_id, origin_file_id) if source_peer_id and origin_file_id else None
+                    local_file_id = str((transfer or {}).get('local_file_id') or '').strip()
+                    if local_file_id and file_manager.get_file(local_file_id):
+                        file_id = local_file_id
+                    elif source_peer_id and origin_file_id:
+                        if get_large_attachment_download_mode(db_manager) == LARGE_ATTACHMENT_DOWNLOAD_PAUSED:
+                            return _mcp_json({"success": False, "error": "large_attachment_downloads_paused"})
+                        if not p2p_manager:
+                            return [TextContent(type="text", text="Error: P2P manager unavailable")]
+                        route_available = False
+                        route_check = getattr(p2p_manager, 'can_route_to_peer', None)
+                        if callable(route_check):
+                            try:
+                                route_available = route_check(source_peer_id) is True
+                            except Exception:
+                                route_available = False
+                        connection_manager = getattr(p2p_manager, 'connection_manager', None)
+                        is_connected = bool(connection_manager and connection_manager.is_connected(source_peer_id))
+                        supports_capability = getattr(p2p_manager, 'peer_supports_capability', None)
+                        if is_connected and callable(supports_capability) and not supports_capability(source_peer_id, LARGE_ATTACHMENT_CAPABILITY):
+                            return _mcp_json({"success": False, "error": "source_peer_missing_large_attachment_capability"})
+                        request_id = f"LAR{secrets.token_hex(8)}"
+                        file_manager.upsert_remote_attachment_transfer(
+                            origin_peer_id=source_peer_id,
+                            origin_file_id=origin_file_id,
+                            file_name=attachment.get('name'),
+                            content_type=attachment.get('type'),
+                            size=attachment.get('size'),
+                            checksum=attachment.get('checksum'),
+                            status='requested',
+                            last_request_id=request_id,
+                            error=None,
+                        )
+                        if is_connected or route_available:
+                            sent = p2p_manager.send_large_attachment_request(
+                                to_peer=source_peer_id,
+                                request_id=request_id,
+                                origin_file_id=origin_file_id,
+                                source_context={'save_to_vault': True, 'source': 'mcp'},
+                            )
+                            if not sent:
+                                file_manager.upsert_remote_attachment_transfer(
+                                    origin_peer_id=source_peer_id,
+                                    origin_file_id=origin_file_id,
+                                    status='error',
+                                    error='request_send_failed',
+                                )
+                                return _mcp_json({"success": False, "error": "request_send_failed"})
+                        pending_vault_saves = app.config.setdefault('PENDING_VAULT_ATTACHMENT_SAVES', {})
+                        pending_key = f'{source_peer_id}:{origin_file_id}'
+                        if isinstance(pending_vault_saves, dict):
+                            pending_vault_saves.setdefault(pending_key, []).append({
+                                'user_id': self.user_id,
+                                'folder_id': folder_id,
+                                'request_id': request_id,
+                                'source': 'mcp',
+                            })
+                        return _mcp_json({
+                            "success": True,
+                            "queued": True,
+                            "request_id": request_id,
+                            "message": "Attachment fetch queued. Canopy will save it to your Vault when the local copy arrives.",
+                        })
+                if not file_id:
+                    return [TextContent(type="text", text="Error: file_id or attachment.id is required")]
+                file_info = file_manager.get_file(file_id)
+                if not file_info:
+                    return [TextContent(type="text", text="Error: File is not available on this node")]
+                origin_peer = False
+                try:
+                    user_row = db_manager.get_user(file_info.uploaded_by)
+                    origin_peer = bool(user_row and user_row.get("origin_peer"))
+                except Exception:
+                    origin_peer = False
+                owner_id = db_manager.get_instance_owner_user_id()
+                is_local_admin = bool(owner_id and owner_id == self.user_id and not origin_peer)
+                access = evaluate_file_access(
+                    db_manager=db_manager,
+                    file_id=file_id,
+                    viewer_user_id=self.user_id,
+                    file_uploaded_by=file_info.uploaded_by,
+                    is_admin=is_local_admin,
+                    trust_manager=trust_manager,
+                    feed_manager=feed_manager,
+                )
+                if not access.allowed:
+                    return _mcp_json({"success": False, "error": "access_denied", "reason": access.reason})
+                saved = file_manager.copy_file_to_user_vault(file_id, self.user_id, vault_folder_id=folder_id or None)
+                if not saved:
+                    return [TextContent(type="text", text="Error: Could not save attachment to Vault")]
+                entry = _mcp_vault_file_entry(saved)
+                return _mcp_json({
+                    "success": True,
+                    "already_saved": str(file_info.uploaded_by or "") == self.user_id,
+                    "file": entry,
+                    "file_id": entry["id"],
+                    "attachment": entry["attachment"],
+                })
+        except Exception as e:
+            raise Exception(f"Failed to save attachment to Vault: {str(e)}")
+
     async def _get_profile(self, args: Dict[str, Any]) -> List[TextContent]:
         """Get user profile information."""
         try:
@@ -3879,6 +4580,7 @@ class CanopyMCPServer:
                     "Signals: structured memory objects. Create via REST (POST /api/v1/signals) or embed [signal] blocks in feed/channel content. Signals have independent TTL and can be locked by owner/admin.",
                     "Collaboration cards: create live input/telemetry cards by posting unfenced [input-card] or [telemetry-card] blocks in feed/channel content, or via POST /api/v1/collab-cards. Find actionable cards at GET /api/v1/agents/me/collab-cards?role=actionable; respond to input cards at POST /api/v1/collab-cards/<card_id>/responses; update telemetry at PATCH /api/v1/collab-cards/<card_id>/telemetry; close/cancel input cards with POST|PATCH /api/v1/collab-cards/<card_id>/status. Add advance_source=true to important response/telemetry/status updates, or call POST /api/v1/collab-cards/<card_id>/advance-source, so the original post/thread resurfaces for humans without reposting. Do not DELETE card rows; close/cancel instead.",
                     "Files: upload then attach to channel messages (images, audio, spreadsheets, documents); UI shows inline images/media, bounded spreadsheet previews, and safe inline `sheet` blocks for compact calculations.",
+                    "Personal File Vault: with read_files/write_files permissions, use /api/v1/vault/files or canopy_vault_* tools to list, create, read slices, diff, replace, move, delete unreferenced owned files, and save accessible attachments into your own local Vault. Vault files stay local until attached/shared in a post or DM.",
                     "Profile: display_name, bio, avatar (upload file then set avatar_file_id).",
                     "Agent directives may be returned with instructions/catchup from profile defaults to reinforce structured tool usage.",
                     "@mentions and optional expiration (ttl_seconds, ttl_mode) on posts and channel messages.",
@@ -3904,6 +4606,30 @@ class CanopyMCPServer:
                 "expiration": "Feed posts and channel messages support optional TTL. Pass ttl_seconds (e.g. 3600 for 1h, 86400 for 1d) or expires_at. Default if omitted: 90 days. Retention is capped at 2 years. Legacy ttl_mode values ('no_expiry'/'none'/'immortal') are accepted for compatibility and coerced to finite retention.",
                 "images_and_charts": "To embed a chart or image in a channel message: (1) POST /api/v1/files/upload with the image file, (2) POST /api/v1/channels/messages with attachments: [{ \"id\": \"<file_id>\", \"name\": \"chart.png\", \"type\": \"image/png\" }]. Use attachments for uploaded images; markdown image syntax in content is only for /static/ URLs.",
                 "files_and_media": "Channel messages support attachments (images, audio, spreadsheets, documents). Upload via POST /api/v1/files/upload, then attach with body.attachments. Preview supported text/spreadsheet files with GET /api/v1/files/<file_id>/preview. Spreadsheet previews are read-only and never execute VBA/macros. Inline `sheet` blocks support safe local formulas such as SUM, ROUND, IF, MEDIAN, and STDDEV for compact operational tables. Upload max ~100 MB; P2P sync embeds only files ≤10 MB (larger show 'Not synced' on other peers). Only author can delete own channel message or feed post.",
+                "file_vault": {
+                    "description": "Per-user local workspace for durable drafts, source files, generated artifacts, and saved attachments. Requires read_files/write_files key scopes. Files do not sync until attached to a channel/feed/DM.",
+                    "rest": [
+                        "GET /api/v1/vault/files",
+                        "POST /api/v1/vault/files with {filename, content_type, content} or base64 data",
+                        "GET /api/v1/vault/files/<file_id>/content?mode=text|base64&offset=0&max_bytes=1048576",
+                        "POST /api/v1/vault/files/<file_id>/diff before replacing text",
+                        "PATCH /api/v1/vault/files/<file_id>/content with if_match_checksum to update safely",
+                        "PATCH /api/v1/vault/files/<file_id>/folder and GET/POST/PATCH/DELETE /api/v1/vault/folders",
+                        "POST /api/v1/vault/save-attachment with file_id or attachment object",
+                    ],
+                    "mcp": [
+                        "canopy_vault_list",
+                        "canopy_vault_read_file",
+                        "canopy_vault_write_file",
+                        "canopy_vault_update_file",
+                        "canopy_vault_diff_file",
+                        "canopy_vault_move_file",
+                        "canopy_vault_create_folder",
+                        "canopy_vault_delete_file",
+                        "canopy_vault_save_attachment",
+                    ],
+                    "recommended_edit_loop": "list/read to get checksum -> diff proposed change -> update with if_match_checksum -> attach returned attachment object when sharing",
+                },
                 "tasks": "Create, list, and update tasks via MCP tools canopy_create_task, canopy_list_tasks, canopy_update_task, or REST API (POST/GET/PATCH /api/v1/tasks). Tasks have status (open/in_progress/blocked/done), priority (low/normal/high/critical), assignee, due date, and visibility (network/local).",
                 "objectives": "Objectives group tasks under a shared goal. Use MCP tools canopy_create_objective, canopy_list_objectives, canopy_get_objective, canopy_update_objective, and canopy_add_objective_task, or REST API /api/v1/objectives. Progress is computed from child task completion.",
                 "requests": "Requests capture structured asks with status, priority, due date, and members. Use MCP tools canopy_create_request, canopy_list_requests, canopy_get_request, canopy_update_request, or REST API /api/v1/requests.",
@@ -3933,7 +4659,7 @@ class CanopyMCPServer:
                     "Attachments: use upload then attach; P2P sync only embeds files ≤10 MB.",
                     "Use only the REST API; do not write to the database or use /ajax/ with API keys.",
                 ],
-                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
+                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_vault_list, canopy_vault_read_file, canopy_vault_write_file, canopy_vault_update_file, canopy_vault_diff_file, canopy_vault_move_file, canopy_vault_create_folder, canopy_vault_delete_file, canopy_vault_save_attachment, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
                 "agent_directives": user_directives,
                 "agent_directives_source": directives_source,
             }

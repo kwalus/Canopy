@@ -8013,8 +8013,9 @@
         .media-grid .mg-cell:hover img {
             transform: scale(1.03);
         }
-        /* Download overlay on hover */
-        .media-grid .mg-cell .mg-download {
+        /* Attachment action overlays on hover */
+        .media-grid .mg-cell .mg-download,
+        .media-grid .mg-cell .mg-save-vault {
             position: absolute;
             bottom: 6px;
             right: 6px;
@@ -8032,7 +8033,34 @@
             transition: opacity 0.2s;
             z-index: 2;
         }
-        .media-grid .mg-cell:hover .mg-download {
+        .media-grid .mg-cell .mg-save-vault {
+            bottom: 42px;
+            background: rgba(15, 118, 110, 0.82);
+        }
+        .media-grid .mg-cell:hover .mg-download,
+        .media-grid .mg-cell:hover .mg-save-vault,
+        .media-grid .mg-cell .mg-save-vault:focus-visible {
+            opacity: 1;
+        }
+        .attachment-save-vault-btn {
+            white-space: nowrap;
+        }
+        .dm-attachment-image {
+            position: relative;
+        }
+        .dm-attachment-image .attachment-save-vault-btn {
+            position: absolute;
+            right: 0.55rem;
+            top: 0.55rem;
+            opacity: 0;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+            background: rgba(15, 118, 110, 0.88);
+            color: #fff;
+            border-color: rgba(255,255,255,0.22);
+            box-shadow: 0 8px 22px rgba(0,0,0,0.2);
+        }
+        .dm-attachment-image:hover .attachment-save-vault-btn,
+        .dm-attachment-image .attachment-save-vault-btn:focus-visible {
             opacity: 1;
         }
         /* "+N more" overlay on last cell */
@@ -10904,6 +10932,7 @@
                 vaultFiles: {{ url_for('ui.ajax_vault_files')|tojson }},
                 vaultUpload: {{ url_for('ui.ajax_vault_upload')|tojson }},
                 vaultFolders: {{ url_for('ui.ajax_vault_create_folder')|tojson }},
+                vaultSaveAttachment: {{ url_for('ui.ajax_vault_save_attachment')|tojson }},
                 trustNetwork: {{ url_for('ui.trust_management')|tojson }},
                 connect: {{ url_for('ui.connect_page')|tojson }},
                 sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }},

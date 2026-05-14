@@ -317,6 +317,93 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
         self.file_manager.delete_user_folder('user-test', projects.id)
         self.assertEqual(self.file_manager.list_user_folders('user-test'), [])
 
+    def test_copy_file_to_user_vault_clones_accessible_attachment_into_user_scope(self) -> None:
+        self.conn.execute("INSERT INTO users (id) VALUES (?)", ('other-user',))
+        source = self.file_manager.save_file(
+            file_data=b"shared attachment body",
+            original_name='shared-report.txt',
+            content_type='text/plain',
+            uploaded_by='other-user',
+        )
+        self.assertIsNotNone(source)
+        assert source is not None
+
+        inbox = self.file_manager.create_user_folder('user-test', 'Saved Attachments')
+        copied = self.file_manager.copy_file_to_user_vault(
+            source.id,
+            'user-test',
+            vault_folder_id=inbox.id,
+        )
+
+        self.assertIsNotNone(copied)
+        assert copied is not None
+        self.assertNotEqual(copied.id, source.id)
+        self.assertEqual(copied.original_name, source.original_name)
+        self.assertEqual(copied.content_type, source.content_type)
+        self.assertEqual(copied.uploaded_by, 'user-test')
+        self.assertEqual(copied.vault_folder_id, inbox.id)
+        self.assertEqual(Path(copied.file_path).read_bytes(), b"shared attachment body")
+        self.assertEqual(copied.checksum, source.checksum)
+
+        folder_files = self.file_manager.list_user_files('user-test', folder_id=inbox.id, limit=10)
+        self.assertEqual([file.id for file in folder_files], [copied.id])
+        other_files = self.file_manager.list_user_files('other-user', limit=10)
+        self.assertEqual([file.id for file in other_files], [source.id])
+
+        same = self.file_manager.copy_file_to_user_vault(copied.id, 'user-test')
+        self.assertIsNotNone(same)
+        assert same is not None
+        self.assertEqual(same.id, copied.id)
+
+        archived = self.file_manager.create_user_folder('user-test', 'Archive')
+        moved = self.file_manager.copy_file_to_user_vault(
+            copied.id,
+            'user-test',
+            vault_folder_id=archived.id,
+        )
+        self.assertIsNotNone(moved)
+        assert moved is not None
+        self.assertEqual(moved.id, copied.id)
+        self.assertEqual(moved.vault_folder_id, archived.id)
+
+    def test_replace_user_file_content_preserves_id_and_updates_bytes(self) -> None:
+        original = self.file_manager.save_file(
+            file_data=b"# Draft\n\nold body\n",
+            original_name='agent-draft.md',
+            content_type='text/markdown',
+            uploaded_by='user-test',
+        )
+        self.assertIsNotNone(original)
+        assert original is not None
+        original_path = Path(original.file_path)
+
+        updated = self.file_manager.replace_user_file_content(
+            'user-test',
+            original.id,
+            b"# Draft\n\nnew body\n",
+            original_name='agent-draft.md',
+            content_type='text/markdown',
+        )
+
+        self.assertIsNotNone(updated)
+        assert updated is not None
+        self.assertEqual(updated.id, original.id)
+        self.assertEqual(updated.original_name, 'agent-draft.md')
+        self.assertNotEqual(updated.checksum, original.checksum)
+        self.assertEqual(Path(updated.file_path).read_bytes(), b"# Draft\n\nnew body\n")
+        self.assertEqual(self.file_manager.get_file_data(original.id)[0], b"# Draft\n\nnew body\n")  # type: ignore[index]
+        self.assertTrue(Path(updated.file_path).exists())
+        self.assertEqual(Path(updated.file_path), original_path)
+
+        denied = self.file_manager.replace_user_file_content(
+            'other-user',
+            original.id,
+            b"takeover",
+            original_name='agent-draft.md',
+            content_type='text/markdown',
+        )
+        self.assertIsNone(denied)
+
 
 if __name__ == '__main__':
     unittest.main()

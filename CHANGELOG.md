@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.102] - 2026-05-14
+
+### Added
+- **Agent-facing File Vault APIs and MCP tools** - agents with `read_files`/`write_files` scopes can now list their Vault, create files from text/base64/local paths, read bounded file slices, diff proposed text edits, replace owned files with checksum protection, move files into folders, delete unreferenced owned files, and save accessible attachments into their own local Vault.
+
+### Changed
+- **Canopy AI Compose can use AWS Bedrock** - profile and admin instance fallback settings now support Bedrock bearer/API keys, traditional AWS credentials, and server environment credentials through the Bedrock Converse API.
+
+### Fixed
+- **Vault save-to-attachment boundaries are consistent across UI, API, and MCP** - browser save-to-Vault no longer applies local admin bypass to peer-uploaded files, MCP save-to-Vault can queue remote-large attachments, and MCP Vault deletes now guard profile avatar references.
+- **Bedrock compose credential handling is safer** - SigV4 environment fallback requires a signing region, bare Bedrock API key secrets are accepted as bearer tokens when a region is configured, and Bedrock prompts no longer claim hosted web search is available.
+
 ## [0.6.101] - 2026-05-13
 
 ### Fixed

@@ -14889,6 +14889,29 @@ function resolveAttachmentLayoutHint(images) {
     return '';
 }
 
+function buildSaveToVaultButton(att, options = {}) {
+    if (!att || typeof att !== 'object') return '';
+    const payload = { ...att };
+    if (!payload.source_peer_id && payload.origin_peer) payload.source_peer_id = payload.origin_peer;
+    const hasLocalRef = !!(payload.url || payload.id || payload.file_id || payload.vault_file_id);
+    const hasRemoteRef = !!((payload.origin_file_id || payload.remote_file_id) && payload.source_peer_id);
+    if (!hasLocalRef && !hasRemoteRef) return '';
+    const label = options.label || 'Save to Vault';
+    const title = options.title || 'Save to File Vault';
+    const className = options.className || 'btn btn-sm btn-outline-secondary attachment-save-vault-btn';
+    const iconClass = options.iconOnly ? 'bi bi-folder-plus' : 'bi bi-folder-plus me-1';
+    const labelHtml = options.iconOnly ? '' : _escapeHtml(label);
+    const payloadAttr = _escapeAttr(JSON.stringify(payload));
+    return `<button type="button"
+                    class="${_escapeAttr(className)}"
+                    title="${_escapeAttr(title)}"
+                    aria-label="${_escapeAttr(title)}"
+                    data-vault-attachment="${payloadAttr}"
+                    onclick="event.stopPropagation(); saveAttachmentToVault(JSON.parse(this.dataset.vaultAttachment || '{}'), this)">
+                <i class="${iconClass}"></i>${labelHtml}
+            </button>`;
+}
+
 // Build a Facebook-style media grid for image attachments
 function buildMediaGrid(images, layoutHint = '') {
     if (!images || images.length === 0) return '';
@@ -14913,10 +14936,10 @@ function buildMediaGrid(images, layoutHint = '') {
             img && (img.large_attachment || img.storage_mode === 'remote_large' || ((img.origin_file_id || img.id || img.file_id) && img.source_peer_id))
         ) ? {
             origin_file_id: img.origin_file_id || img.id || img.file_id,
-            source_peer_id: img.source_peer_id,
-            name: img.name,
-            type: img.type,
-            size: img.size,
+	            source_peer_id: img.source_peer_id || img.origin_peer,
+	            name: img.name,
+	            type: img.type,
+	            size: img.size,
             checksum: img.checksum,
             large_attachment: true,
             storage_mode: img.storage_mode || 'remote_large'
@@ -14926,20 +14949,24 @@ function buildMediaGrid(images, layoutHint = '') {
             cells += `<div class="mg-cell"${sourceRefAttr} onclick="openLightbox(${i}, '${urlsAttr}')">
                 <img src="${thumbUrl}" alt="${(img.name || '').replace(/"/g, '&quot;')}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling&&this.nextElementSibling.classList.remove('d-none');">
                 <div class="mg-placeholder d-none small text-muted p-2">Image unavailable</div>
-                <a class="mg-download" href="${img.url}" download="${(img.name || 'image').replace(/"/g, '&quot;')}" title="Download full resolution" onclick="event.stopPropagation();">
-                    <i class="bi bi-download"></i>
-                </a>
-                ${isLast ? `<div class="mg-more-overlay">+${extraCount}</div>` : ''}
-            </div>`;
-        } else {
-            const remoteDownloadBtn = remotePayload
-                ? `<button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick='event.stopPropagation(); requestRemoteAttachmentDownload(${JSON.stringify(remotePayload)}, this)'><i class="bi bi-cloud-download"></i> Download</button>`
-                : '';
-            cells += `<div class="mg-cell mg-cell-unavailable d-flex align-items-center justify-content-center p-2"${sourceRefAttr} style="min-height:80px;background:var(--canopy-bg-tertiary, #f0f0f0);border-radius:8px;">
-                <span class="small text-muted text-center">${(img.name || 'Image').replace(/</g, '&lt;')}<br><span class="opacity-75">Not on this device yet — will appear when synced</span>${remoteDownloadBtn}</span>
-        </div>`;
-        }
-    }
+	                <a class="mg-download" href="${img.url}" download="${(img.name || 'image').replace(/"/g, '&quot;')}" title="Download full resolution" onclick="event.stopPropagation();">
+	                    <i class="bi bi-download"></i>
+	                </a>
+	                ${buildSaveToVaultButton(img, { className: 'mg-save-vault', iconOnly: true, title: 'Save image to File Vault' })}
+	                ${isLast ? `<div class="mg-more-overlay">+${extraCount}</div>` : ''}
+	            </div>`;
+	        } else {
+	            const remoteDownloadBtn = remotePayload
+	                ? `<button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick='event.stopPropagation(); requestRemoteAttachmentDownload(${JSON.stringify(remotePayload)}, this)'><i class="bi bi-cloud-download"></i> Download</button>`
+	                : '';
+	            const remoteVaultBtn = remotePayload
+	                ? buildSaveToVaultButton(remotePayload, { className: 'btn btn-sm btn-outline-secondary mt-2 attachment-save-vault-btn', title: 'Fetch and save image to File Vault' })
+	                : '';
+	            cells += `<div class="mg-cell mg-cell-unavailable d-flex align-items-center justify-content-center p-2"${sourceRefAttr} style="min-height:80px;background:var(--canopy-bg-tertiary, #f0f0f0);border-radius:8px;">
+	                <span class="small text-muted text-center">${(img.name || 'Image').replace(/</g, '&lt;')}<br><span class="opacity-75">Not on this device yet — will appear when synced</span>${remoteVaultBtn}${remoteDownloadBtn}</span>
+	        </div>`;
+	        }
+	    }
 
     const layoutAttr = normalizedLayout ? ` data-layout="${normalizedLayout}"` : '';
     return `<div class="media-grid" data-count="${count}"${layoutAttr}>${cells}</div>`;
@@ -15525,10 +15552,11 @@ function displayAttachments(attachments, sourceLayout) {
                         <button type="button" class="btn btn-sm btn-outline-success" onclick="openMediaDeckForManifestNode(this)">
                             <i class="bi bi-grid-1x2"></i> Open module
                         </button>
-                        ${escapedUrl ? `<a href="${escapedUrl}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>` : ''}
-                    </div>
-                </div>
-            </div>
+	                        ${escapedUrl ? buildSaveToVaultButton(att) : ''}
+	                        ${escapedUrl ? `<a href="${escapedUrl}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>` : ''}
+	                    </div>
+	                </div>
+	            </div>
         `;
     });
 
@@ -15552,9 +15580,9 @@ function displayAttachments(attachments, sourceLayout) {
         }
         const payload = {
             origin_file_id: att.origin_file_id || att.id || att.file_id,
-            source_peer_id: att.source_peer_id,
-            name: att.name,
-            type: att.type,
+	            source_peer_id: att.source_peer_id || att.origin_peer,
+	            name: att.name,
+	            type: att.type,
             size: att.size,
             checksum: att.checksum,
             large_attachment: true,
@@ -15562,23 +15590,24 @@ function displayAttachments(attachments, sourceLayout) {
         };
         return `<button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload(${JSON.stringify(payload)}, this)'><i class="bi bi-cloud-download"></i> Download</button>`;
     };
-    const notOnDeviceMsg = (att) => {
-        const remoteBtn = buildRemoteAttachmentDownloadBtn(att);
-        if (remoteBtn) {
-            return `<div class="d-flex align-items-center gap-2 ms-2">${remoteBtn}</div>`;
-        }
-        return '<span class="small text-muted" title="File will be available when it syncs to this device"><i class="bi bi-cloud-arrow-down me-1"></i>Not on this device yet — will appear when synced</span>';
-    };
+	    const notOnDeviceMsg = (att) => {
+	        const remoteBtn = buildRemoteAttachmentDownloadBtn(att);
+	        if (remoteBtn) {
+	            return `<div class="d-flex align-items-center gap-2 ms-2">${buildSaveToVaultButton(att, { title: 'Fetch and save to File Vault' })}${remoteBtn}</div>`;
+	        }
+	        return '<span class="small text-muted" title="File will be available when it syncs to this device"><i class="bi bi-cloud-arrow-down me-1"></i>Not on this device yet — will appear when synced</span>';
+	    };
     // Inline HTML5 audio player (works on Mac, Windows, Linux in all modern browsers)
     audioFiles.forEach(att => {
         const hasUrl = att.url && String(att.url).trim();
         const safeName = (att.name || 'file').replace(/</g, '&lt;').replace(/"/g, '&quot;');
         const escapedUrl = hasUrl ? String(att.url).replace(/"/g, '&quot;').replace(/'/g, "\\'") : '';
-        const downloadBtn = hasUrl
-            ? `<div class="d-flex align-items-center gap-2 ms-2">
-                    <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
-               </div>`
+	        const downloadBtn = hasUrl
+	            ? `<div class="d-flex align-items-center gap-2 ms-2">
+	                    ${buildSaveToVaultButton(att)}
+	                    <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>
+	                    <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
+	               </div>`
             : notOnDeviceMsg(att);
         const audioPlayer = hasUrl ? `<audio controls preload="metadata" class="mt-1 w-100" style="max-width:100%;"><source src="${att.url.replace(/"/g, '&quot;')}" type="${(att.type || 'audio/mpeg').replace(/"/g, '&quot;')}">Your browser does not support the audio element.</audio>` : '';
         html += `
@@ -15602,11 +15631,12 @@ function displayAttachments(attachments, sourceLayout) {
         const hasUrl = att.url && String(att.url).trim();
         const safeName = (att.name || 'video').replace(/</g, '&lt;').replace(/"/g, '&quot;');
         const escapedUrl = hasUrl ? String(att.url).replace(/"/g, '&quot;').replace(/'/g, "\\'") : '';
-        const downloadBtn = hasUrl
-            ? `<div class="d-flex align-items-center gap-2 ms-2">
-                    <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
-               </div>`
+	        const downloadBtn = hasUrl
+	            ? `<div class="d-flex align-items-center gap-2 ms-2">
+	                    ${buildSaveToVaultButton(att)}
+	                    <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>
+	                    <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
+	               </div>`
             : notOnDeviceMsg(att);
         const videoPlayer = hasUrl
             ? `<video controls preload="metadata" playsinline class="mt-2 w-100" style="max-width:100%;border-radius:10px;background:#000;">
@@ -15648,11 +15678,12 @@ function displayAttachments(attachments, sourceLayout) {
         if (previewable) {
             const previewId = 'file-preview-' + (++_previewIdCounter);
             const previewBtn = hasUrl ? `<button type="button" class="btn btn-sm btn-outline-secondary me-1" data-preview-toggle="${previewId}" data-preview-label="${previewLabels.collapsed}" data-preview-expanded-label="${previewLabels.expanded}" onclick="toggleAttachmentPreview('${previewId}', '/ajax/files/${encodeURIComponent(attachmentFileId)}/preview')"><i class="bi bi-eye me-1"></i><span class="preview-label">${previewLabels.collapsed}</span></button>` : '';
-            const downloadBtn = hasUrl ? `
-                <div class="d-flex align-items-center gap-2">
-                    <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i></a>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
-                </div>
+	            const downloadBtn = hasUrl ? `
+	                <div class="d-flex align-items-center gap-2">
+	                    ${buildSaveToVaultButton(att)}
+	                    <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i></a>
+	                    <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
+	                </div>
             ` : notOnDeviceMsg(att);
             html += `
                 <div class="attachment-item mb-2 p-2 border rounded"${buildAttachmentSourceRefAttr(att)}>
@@ -15670,11 +15701,12 @@ function displayAttachments(attachments, sourceLayout) {
                 </div>
             `;
         } else {
-            const downloadBtn = hasUrl ? `
-                <div class="d-flex align-items-center gap-2">
-                    <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
-                </div>
+	            const downloadBtn = hasUrl ? `
+	                <div class="d-flex align-items-center gap-2">
+	                    ${buildSaveToVaultButton(att)}
+	                    <a href="${att.url}" class="btn btn-sm btn-outline-primary" download="${safeName}"><i class="bi bi-download"></i> Download</a>
+	                    <button class="btn btn-sm btn-outline-secondary" onclick="openFileAccessInspector('${escapedUrl}')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
+	                </div>
             ` : notOnDeviceMsg(att);
             html += `
                 <div class="attachment-item mb-2 p-2 border rounded"${buildAttachmentSourceRefAttr(att)}>

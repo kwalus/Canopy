@@ -10,6 +10,7 @@ import logging
 import os
 import secrets
 import hashlib
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Any, BinaryIO
 from dataclasses import dataclass, asdict
@@ -908,6 +909,234 @@ class FileManager:
             
         except Exception as e:
             logger.error(f"Failed to save file {original_name}: {e}", exc_info=True)
+            return None
+
+    @log_performance('files')
+    def replace_user_file_content(
+        self,
+        user_id: str,
+        file_id: str,
+        file_data: bytes,
+        *,
+        original_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+    ) -> Optional[FileInfo]:
+        """Replace the bytes for an existing user-owned Vault file.
+
+        This keeps the stable file ID so existing drafts/tooling can continue
+        referencing the same Vault object while applying the same upload safety
+        checks used for new files.
+        """
+        user_id = str(user_id or '').strip()
+        file_id = str(file_id or '').strip()
+        if not user_id or not file_id:
+            return None
+
+        current = self.get_file(file_id)
+        if not current or str(current.uploaded_by or '') != user_id:
+            return None
+
+        try:
+            raw = bytes(file_data or b'')
+            name = original_name if original_name is not None else current.original_name
+            ctype = content_type if content_type is not None else current.content_type
+            name, ctype = self._normalize_incoming_metadata(
+                file_data=raw,
+                original_name=name or current.original_name or 'file',
+                content_type=ctype or current.content_type or 'application/octet-stream',
+            )
+
+            from ..security.file_validation import detect_zip_bomb, validate_file_upload
+
+            is_valid, error_msg, validated_type = validate_file_upload(
+                raw,
+                ctype,
+                name,
+                max_size_override=self.max_file_size,
+            )
+            if not is_valid:
+                logger.error("Vault file replacement rejected for %s: %s", file_id, error_msg)
+                return None
+            ctype = validated_type or ctype
+
+            is_safe_archive, archive_error = detect_zip_bomb(raw, ctype)
+            if not is_safe_archive:
+                logger.error("Vault archive replacement rejected for %s: %s", file_id, archive_error)
+                return None
+
+            file_extension = Path(name).suffix.lower()
+            stored_name = f"{file_id}{file_extension}"
+            category = self._get_file_category(ctype)
+            storage_root = self._select_storage_root(len(raw))
+            for folder in ("images", "videos", "documents", "audio", "other"):
+                (storage_root / folder).mkdir(parents=True, exist_ok=True)
+
+            target_path = (storage_root / category / stored_name).resolve()
+            storage_root_resolved = storage_root.resolve()
+            if not str(target_path).startswith(str(storage_root_resolved)):
+                logger.error("Path traversal guard blocked Vault replacement target: %s", target_path)
+                return None
+
+            checksum = self._calculate_checksum(raw)
+            tmp_path = target_path.with_name(f".{target_path.name}.tmp-{secrets.token_hex(4)}")
+            try:
+                tmp_path.write_bytes(raw)
+                os.replace(tmp_path, target_path)
+            finally:
+                try:
+                    if tmp_path.exists():
+                        tmp_path.unlink()
+                except Exception:
+                    pass
+
+            old_path = self._resolve_file_disk_path(current.file_path)
+            if old_path != target_path and old_path.exists():
+                try:
+                    old_thumb = self._thumb_path_for(old_path)
+                    old_path.unlink()
+                    if old_thumb.exists():
+                        old_thumb.unlink()
+                except Exception:
+                    logger.debug("Could not remove superseded Vault file path for %s", file_id, exc_info=True)
+
+            now = datetime.now(timezone.utc)
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE files
+                    SET original_name = ?, stored_name = ?, file_path = ?,
+                        content_type = ?, size = ?, checksum = ?, uploaded_at = ?
+                    WHERE id = ? AND uploaded_by = ?
+                    """,
+                    (
+                        name,
+                        stored_name,
+                        str(target_path),
+                        ctype,
+                        len(raw),
+                        checksum,
+                        now.isoformat(),
+                        file_id,
+                        user_id,
+                    ),
+                )
+                conn.commit()
+
+            if _PILLOW_AVAILABLE and ctype.startswith('image/'):
+                self._generate_thumbnail(raw, target_path, file_extension)
+
+            return self.get_file(file_id)
+        except Exception as e:
+            logger.error("Failed to replace Vault file %s for user %s: %s", file_id, user_id, e, exc_info=True)
+            return None
+
+    @log_performance('files')
+    def copy_file_to_user_vault(
+        self,
+        source_file_id: str,
+        uploaded_by: str,
+        *,
+        vault_folder_id: Optional[str] = None,
+    ) -> Optional[FileInfo]:
+        """Copy an existing local file into a user's Vault without a browser download."""
+        source_file_id = str(source_file_id or '').strip()
+        uploaded_by = str(uploaded_by or '').strip()
+        if not source_file_id or not uploaded_by:
+            return None
+
+        source = self.get_file(source_file_id)
+        if not source:
+            return None
+        if str(source.uploaded_by or '') == uploaded_by:
+            if vault_folder_id is not None:
+                try:
+                    return self.move_user_file_to_folder(uploaded_by, source.id, vault_folder_id)
+                except Exception:
+                    logger.debug("Could not move owned Vault file %s during save-to-vault", source.id, exc_info=True)
+            return source
+
+        try:
+            source_path = self._resolve_file_disk_path(source.file_path)
+            if not source_path.exists():
+                logger.warning("Cannot copy file %s to Vault because local data is unavailable", source_file_id)
+                return None
+
+            original_name, content_type = self._normalize_incoming_metadata(
+                file_data=b'',
+                original_name=source.original_name,
+                content_type=source.content_type,
+            )
+            file_id = f"F{secrets.token_hex(12)}"
+            file_extension = Path(original_name).suffix.lower()
+            stored_name = f"{file_id}{file_extension}"
+            category = self._get_file_category(content_type)
+            storage_root = self._select_storage_root(int(source.size or source_path.stat().st_size or 0))
+            for folder in ("images", "videos", "documents", "audio", "other"):
+                (storage_root / folder).mkdir(parents=True, exist_ok=True)
+            target_path = (storage_root / category / stored_name).resolve()
+            storage_root_resolved = storage_root.resolve()
+            if not str(target_path).startswith(str(storage_root_resolved)):
+                logger.error("Path traversal guard blocked Vault copy target: %s", target_path)
+                return None
+
+            with source_path.open('rb') as src, target_path.open('wb') as dst:
+                shutil.copyfileobj(src, dst, length=1024 * 1024)
+
+            size = target_path.stat().st_size
+            hasher = hashlib.sha256()
+            with target_path.open('rb') as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+                    hasher.update(chunk)
+            checksum = hasher.hexdigest()
+            now = datetime.now(timezone.utc)
+            file_info = FileInfo(
+                id=file_id,
+                original_name=original_name,
+                stored_name=stored_name,
+                file_path=str(target_path),
+                content_type=content_type,
+                size=size,
+                uploaded_by=uploaded_by,
+                uploaded_at=now,
+                url=f"/files/{file_id}",
+                checksum=checksum,
+                vault_folder_id=str(vault_folder_id or '').strip() or None,
+            )
+
+            with self.db.get_connection() as conn:
+                conn.execute("""
+                    INSERT INTO files (id, original_name, stored_name, file_path,
+                                     content_type, size, uploaded_by, checksum, vault_folder_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    file_info.id,
+                    file_info.original_name,
+                    file_info.stored_name,
+                    file_info.file_path,
+                    file_info.content_type,
+                    file_info.size,
+                    file_info.uploaded_by,
+                    file_info.checksum,
+                    file_info.vault_folder_id,
+                ))
+                conn.commit()
+
+            source_thumb = self._thumb_path_for(source_path)
+            if source_thumb.exists():
+                try:
+                    shutil.copy2(source_thumb, self._thumb_path_for(target_path))
+                except Exception:
+                    logger.debug("Could not copy thumbnail for Vault copy %s", file_id, exc_info=True)
+            elif _PILLOW_AVAILABLE and content_type.startswith('image/'):
+                try:
+                    self._generate_thumbnail(target_path.read_bytes(), target_path, file_extension)
+                except Exception:
+                    logger.debug("Could not generate thumbnail for Vault copy %s", file_id, exc_info=True)
+
+            logger.info("Copied file %s into user %s Vault as %s", source_file_id, uploaded_by, file_id)
+            return file_info
+        except Exception as e:
+            logger.error("Failed to copy file %s into Vault for user %s: %s", source_file_id, uploaded_by, e, exc_info=True)
             return None
 
     def get_remote_attachment_transfer(self, origin_peer_id: str,
