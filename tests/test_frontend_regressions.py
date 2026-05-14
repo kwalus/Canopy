@@ -72,6 +72,62 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("manager.save_instance_settings(", ui_routes)
         self.assertIn("@ui.route('/ajax/admin/canopy_llm/settings'", ui_routes)
 
+    def test_user_file_vault_ui_and_composer_picker_are_wired(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        vault_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'vault.html').read_text(encoding='utf-8')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        messages_composer = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_composer.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+        files_core = (ROOT / 'canopy' / 'core' / 'files.py').read_text(encoding='utf-8')
+
+        self.assertIn("href=\"{{ url_for('ui.vault_page') }}\"", base_template)
+        self.assertIn('File Vault', base_template)
+        self.assertIn('vaultFiles:', base_template)
+        self.assertIn('vaultUpload:', base_template)
+
+        self.assertIn('data-vault-page', vault_template)
+        self.assertIn('vault-dropzone', vault_template)
+        self.assertIn('CANOPY_VAULT_INITIAL', vault_template)
+        self.assertIn('Use the Vault button in a channel, feed, or DM composer', vault_template)
+
+        self.assertIn('CanopyVaultPicker', main_js)
+        self.assertIn('function initVaultPage()', main_js)
+        self.assertIn('normalizedAttachment', main_js)
+        self.assertIn('/ajax/vault/files', main_js)
+        self.assertIn('/ajax/vault/upload', main_js)
+        self.assertIn('aria-label="Search your File Vault"', main_js)
+        self.assertIn('requestSeq', main_js)
+        self.assertIn("modal.addEventListener('hidden.bs.modal'", main_js)
+
+        self.assertIn('openChannelVaultPicker', channels_template)
+        self.assertIn('addVaultFilesToChannelComposer', channels_template)
+        self.assertIn('openInlineChannelVaultPicker', channels_template)
+        self.assertIn('vault_file_id', channels_template)
+
+        self.assertIn('openFeedVaultPicker', feed_template)
+        self.assertIn('openCommentVaultPicker', feed_template)
+        self.assertIn('openInlinePostVaultPicker', feed_template)
+        self.assertIn('addVaultFilesToFeedComposer', feed_template)
+        self.assertIn('aria-label="Attach from File Vault"', feed_template)
+        self.assertIn("(error && (error.error || error.message)) || 'Failed to add comment'", feed_template)
+
+        self.assertIn('openMessageVaultPicker', messages_composer)
+        self.assertIn('aria-label="Attach from File Vault"', messages_composer)
+        self.assertIn('addVaultFilesToMessageComposer', messages_template)
+
+        self.assertIn("@ui.route('/vault')", ui_routes)
+        self.assertIn("@ui.route('/ajax/vault/files'", ui_routes)
+        self.assertIn("@ui.route('/ajax/vault/upload'", ui_routes)
+        self.assertIn("_process_composer_attachments(", ui_routes)
+        self.assertIn("_hydrate_existing_user_file_attachment", ui_routes)
+
+        self.assertIn('def list_user_files(', files_core)
+        self.assertIn('def count_user_files(', files_core)
+        self.assertIn('vault_file_id', files_core)
+
     def test_universal_collaboration_cards_render_in_feed_and_channels(self) -> None:
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')

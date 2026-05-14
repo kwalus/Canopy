@@ -201,6 +201,32 @@ class TestEvaluateFileAccessDenyByDefault(unittest.TestCase):
         self.assertTrue(result.evidences)
         self.assertTrue(result.evidences[0].can_view)
 
+    def test_private_channel_vault_file_reference_allows_member(self):
+        """Vault attachment metadata is treated as file evidence."""
+        result = evaluate_file_access(
+            db_manager=_make_db_manager(rows={
+                'channel_messages': [
+                    {
+                        'id': 'msg1',
+                        'channel_id': 'private-channel',
+                        'attachments': '[{"vault_file_id":"vault-file"}]',
+                        'content': '',
+                        'privacy_mode': 'private',
+                        'channel_type': 'private',
+                    }
+                ],
+                'channel_members': [{'member': 1}],
+            }),
+            file_id='vault-file',
+            viewer_user_id='member-user',
+            is_admin=False,
+        )
+
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.reason, 'channel-membership')
+        self.assertTrue(result.evidences)
+        self.assertTrue(result.evidences[0].can_view)
+
     def test_owner_grants(self):
         """File owner always gets access."""
         result = evaluate_file_access(

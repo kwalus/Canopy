@@ -275,6 +275,59 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         self.assertTrue(row['acknowledged_at'])
         self.assertEqual(row['status'], 'acknowledged')
 
+    def test_send_channel_message_accepts_owned_vault_file_reference(self) -> None:
+        vault_file = types.SimpleNamespace(
+            id='Fvault',
+            original_name='vault-report.pdf',
+            content_type='application/pdf',
+            size=321,
+            url='/files/Fvault',
+            uploaded_by='owner',
+        )
+        self.file_manager.get_file.return_value = vault_file
+        self.channel_manager.can_user_post_message.return_value = {'allowed': True}
+        sent_message = types.SimpleNamespace(
+            id='M-vault',
+            created_at=datetime.now(timezone.utc),
+            attachments=[{
+                'id': 'Fvault',
+                'name': 'vault-report.pdf',
+                'type': 'application/pdf',
+                'size': 321,
+                'url': '/files/Fvault',
+                'source': 'vault',
+            }],
+            source_layout=None,
+            source_reference=None,
+            repost_policy=None,
+            expires_at=None,
+            parent_message_id=None,
+        )
+        sent_message.to_dict = lambda: {
+            'id': 'M-vault',
+            'content': 'See vault file',
+            'attachments': sent_message.attachments,
+        }
+        self.channel_manager.send_message.return_value = sent_message
+
+        response = self.client.post(
+            '/ajax/send_channel_message',
+            json={
+                'channel_id': 'general',
+                'content': 'See vault file',
+                'attachments': [{'id': 'Fvault', 'source': 'vault'}],
+            },
+            headers={'X-CSRFToken': 'csrf-channel-delete'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        _, kwargs = self.channel_manager.send_message.call_args
+        self.assertEqual(kwargs['attachments'][0]['id'], 'Fvault')
+        self.assertEqual(kwargs['attachments'][0]['source'], 'vault')
+        self.file_manager.save_file.assert_not_called()
+
     def test_channel_messages_snapshot_refreshes_remote_stream_attachment_status(self) -> None:
         message = MagicMock()
         message.id = 'M-stream'

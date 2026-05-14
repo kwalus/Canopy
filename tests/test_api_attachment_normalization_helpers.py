@@ -23,17 +23,19 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.api.routes import (
+    ChannelAttachmentAuthorizationError,
     _is_generic_upload_metadata,
     _normalize_channel_attachments,
 )
 
 
 class _FakeFileInfo:
-    def __init__(self, file_id: str, name: str, ctype: str, size: int) -> None:
+    def __init__(self, file_id: str, name: str, ctype: str, size: int, uploaded_by: str = 'user-1') -> None:
         self.id = file_id
         self.original_name = name
         self.content_type = ctype
         self.size = size
+        self.uploaded_by = uploaded_by
 
 
 class _FakeFileManager:
@@ -41,6 +43,7 @@ class _FakeFileManager:
         self._items = {
             'F1': _FakeFileInfo('F1', 'report.md', 'text/markdown', 1234),
             'F2': _FakeFileInfo('F2', 'plot.pdf', 'application/pdf', 2048),
+            'F3': _FakeFileInfo('F3', 'private.txt', 'text/plain', 64, uploaded_by='other-user'),
         }
 
     def get_file(self, file_id: str):
@@ -91,6 +94,23 @@ class TestApiAttachmentNormalizationHelpers(unittest.TestCase):
             file_manager,
         )
         self.assertNotIn('layout_hint', normalized[0])
+
+    def test_attachment_normalization_enforces_owner_for_api_file_references(self) -> None:
+        file_manager = _FakeFileManager()
+        normalized = _normalize_channel_attachments(
+            [{'vault_file_id': 'F1'}],
+            file_manager,
+            owner_user_id='user-1',
+        )
+        self.assertEqual(normalized[0].get('id'), 'F1')
+        self.assertEqual(normalized[0].get('vault_file_id'), 'F1')
+
+        with self.assertRaises(ChannelAttachmentAuthorizationError):
+            _normalize_channel_attachments(
+                [{'vault_file_id': 'F3'}],
+                file_manager,
+                owner_user_id='user-1',
+            )
 
 
 if __name__ == '__main__':

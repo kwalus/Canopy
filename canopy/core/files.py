@@ -226,16 +226,18 @@ class FileManager:
     def _candidate_storage_roots(self) -> List[Path]:
         """Return plausible storage roots for backward-compatible file lookup."""
         roots: List[Path] = []
+        project_root = Path(getattr(self, '_project_root', Path.cwd()))
+        storage_path = Path(self.storage_path)
 
         def _add(path: Path) -> None:
-            p = path.expanduser()
+            p = Path(path).expanduser()
             if p not in roots:
                 roots.append(p)
 
-        _add(self.storage_path)
+        _add(storage_path)
 
         # Legacy shared locations (before strict per-device file roots).
-        _add(self._project_root / 'data' / 'files')
+        _add(project_root / 'data' / 'files')
         _add(Path.cwd() / 'data' / 'files')
 
         configured_large_root = resolve_large_attachment_store_root(
@@ -245,12 +247,12 @@ class FileManager:
             _add(configured_large_root)
 
         # If storage path is device-scoped (.../devices/<id>/files), add common alternates.
-        parts = list(self.storage_path.parts)
+        parts = list(storage_path.parts)
         if 'devices' in parts:
             idx = parts.index('devices')
             if idx + 2 < len(parts):
                 device_id = parts[idx + 1]
-                _add(self._project_root / 'data' / 'devices' / device_id / 'files')
+                _add(project_root / 'data' / 'devices' / device_id / 'files')
                 _add(Path.cwd() / 'data' / 'devices' / device_id / 'files')
                 _add(Path.home() / '.canopy' / 'data' / 'devices' / device_id / 'files')
 
@@ -268,8 +270,9 @@ class FileManager:
     def _resolve_file_disk_path(self, stored_path: str) -> Path:
         """Resolve a DB file_path to an on-disk file path with compatibility fallbacks."""
         normalized = str(stored_path or '').replace('\\', '/').strip()
+        storage_path = Path(self.storage_path)
         if not normalized:
-            return self.storage_path / '__missing__'
+            return storage_path / '__missing__'
 
         candidates: List[Path] = []
 
@@ -278,7 +281,7 @@ class FileManager:
                 candidates.append(path)
 
         storage_roots = self._candidate_storage_roots()
-        storage_prefix = str(self.storage_path).replace('\\', '/') + '/'
+        storage_prefix = str(storage_path).replace('\\', '/') + '/'
         path_obj = Path(normalized)
 
         if path_obj.is_absolute():
@@ -286,7 +289,7 @@ class FileManager:
 
         # Relative paths that begin with data/... should be rooted at project or current CWD.
         if normalized.startswith('data/'):
-            _add(self._project_root / normalized)
+            _add(project_root / normalized)
             _add(Path.cwd() / normalized)
 
         if normalized.startswith('data/files/'):
@@ -320,7 +323,7 @@ class FileManager:
                 return candidate
 
         # Return best-effort primary candidate for diagnostic logging.
-        return candidates[0] if candidates else (self.storage_path / normalized)
+        return candidates[0] if candidates else (storage_path / normalized)
     
     def _ensure_tables(self) -> None:
         """Ensure file-related database tables exist."""
@@ -1132,11 +1135,13 @@ class FileManager:
                 conn.execute("DELETE FROM files WHERE id = ?", (file_id,))
                 conn.commit()
             
-            # Delete from disk
+            # Delete from disk using the same resolver used for reads so legacy
+            # relative paths and migrated storage roots are cleaned up too.
             try:
-                if os.path.exists(file_info.file_path):
-                    os.remove(file_info.file_path)
-                    logger.info(f"File deleted from disk: {file_info.file_path}")
+                disk_path = self._resolve_file_disk_path(file_info.file_path)
+                if disk_path.exists():
+                    disk_path.unlink()
+                    logger.info(f"File deleted from disk: {disk_path}")
             except Exception as e:
                 logger.error(f"Failed to delete file from disk: {e}")
                 # Don't fail the whole operation if disk deletion fails
@@ -1164,7 +1169,7 @@ class FileManager:
                 # Channel message attachments (JSON list)
                 try:
                     query = "SELECT id, attachments FROM channel_messages WHERE attachments LIKE ?"
-                    params: List[Any] = [f'%\"id\":\"{file_id}\"%']
+                    params: List[Any] = [f'%{file_id}%']
                     if exclude_channel_message_id:
                         query += " AND id != ?"
                         params.append(exclude_channel_message_id)
@@ -1172,7 +1177,7 @@ class FileManager:
                     for row in rows:
                         try:
                             parsed = json.loads(row['attachments'] or '[]')
-                            if any(isinstance(att, dict) and att.get('id') == file_id for att in parsed):
+                            if any(self._attachment_references_file(att, file_id) for att in parsed):
                                 return True
                         except Exception:
                             continue
@@ -1182,7 +1187,7 @@ class FileManager:
                 # Feed post attachments (metadata JSON)
                 try:
                     query = "SELECT id, metadata FROM feed_posts WHERE metadata LIKE ?"
-                    params = [f'%\"id\":\"{file_id}\"%']
+                    params = [f'%{file_id}%']
                     if exclude_feed_post_id:
                         query += " AND id != ?"
                         params.append(exclude_feed_post_id)
@@ -1191,7 +1196,7 @@ class FileManager:
                         try:
                             meta = json.loads(row['metadata'] or '{}')
                             atts = (meta or {}).get('attachments') or []
-                            if any(isinstance(att, dict) and att.get('id') == file_id for att in atts):
+                            if any(self._attachment_references_file(att, file_id) for att in atts):
                                 return True
                         except Exception:
                             continue
@@ -1214,7 +1219,7 @@ class FileManager:
                 # Direct message attachments (metadata JSON)
                 try:
                     query = "SELECT id, metadata FROM messages WHERE metadata LIKE ?"
-                    params = [f'%\"id\":\"{file_id}\"%']
+                    params = [f'%{file_id}%']
                     if exclude_message_id:
                         query += " AND id != ?"
                         params.append(exclude_message_id)
@@ -1223,7 +1228,7 @@ class FileManager:
                         try:
                             meta = json.loads(row['metadata'] or '{}')
                             atts = (meta or {}).get('attachments') or []
-                            if any(isinstance(att, dict) and att.get('id') == file_id for att in atts):
+                            if any(self._attachment_references_file(att, file_id) for att in atts):
                                 return True
                         except Exception:
                             continue
@@ -1276,13 +1281,33 @@ class FileManager:
             logger.debug(f"File reference check failed for {file_id}: {e}")
             # Fail-safe: if in doubt, consider referenced
             return True
+
+    @staticmethod
+    def _attachment_references_file(attachment: Any, file_id: str) -> bool:
+        if not isinstance(attachment, dict):
+            return False
+        for key in ('id', 'file_id', 'vault_file_id', 'origin_file_id', 'remote_file_id'):
+            if str(attachment.get(key) or '').strip() == file_id:
+                return True
+        return False
     
-    def get_user_files(self, user_id: str, limit: int = 50) -> List[FileInfo]:
+    def list_user_files(
+        self,
+        user_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        query: Optional[str] = None,
+        category: Optional[str] = None,
+    ) -> List[FileInfo]:
         """Get files uploaded by a specific user.
         
         Args:
             user_id: User ID
             limit: Maximum number of files to return
+            offset: Number of matching files to skip
+            query: Optional filename/content-type search term
+            category: Optional category filter (image, video, audio, document, other)
             
         Returns:
             List of FileInfo objects
@@ -1290,15 +1315,102 @@ class FileManager:
         logger.debug(f"Getting files for user {user_id}")
         
         try:
+            limit = max(1, min(int(limit or 50), 500))
+            offset = max(0, int(offset or 0))
+            clauses = ["uploaded_by = ?"]
+            params: List[Any] = [user_id]
+
+            search = str(query or '').strip()
+            if search:
+                clauses.append("(LOWER(original_name) LIKE ? OR LOWER(content_type) LIKE ?)")
+                needle = f"%{search.lower()}%"
+                params.extend([needle, needle])
+
+            category_key = str(category or '').strip().lower()
+            if category_key in {'image', 'images'}:
+                clauses.append("content_type LIKE 'image/%'")
+            elif category_key in {'video', 'videos'}:
+                clauses.append("content_type LIKE 'video/%'")
+            elif category_key in {'audio'}:
+                clauses.append("content_type LIKE 'audio/%'")
+            elif category_key in {'document', 'documents', 'doc', 'docs'}:
+                clauses.append(
+                    "(content_type LIKE 'text/%' OR content_type IN ("
+                    "'application/pdf',"
+                    "'application/msword',"
+                    "'application/vnd.openxmlformats-officedocument.wordprocessingml.document',"
+                    "'application/vnd.ms-word.document.macroenabled.12',"
+                    "'application/vnd.openxmlformats-officedocument.wordprocessingml.template',"
+                    "'application/rtf',"
+                    "'text/rtf',"
+                    "'application/vnd.oasis.opendocument.text',"
+                    "'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',"
+                    "'application/vnd.ms-excel.sheet.macroenabled.12',"
+                    "'application/vnd.ms-excel',"
+                    "'application/vnd.ms-excel.sheet.binary.macroenabled.12',"
+                    "'application/vnd.oasis.opendocument.spreadsheet',"
+                    "'application/vnd.ms-powerpoint',"
+                    "'application/vnd.openxmlformats-officedocument.presentationml.presentation',"
+                    "'application/vnd.ms-powerpoint.presentation.macroenabled.12',"
+                    "'application/vnd.openxmlformats-officedocument.presentationml.slideshow',"
+                    "'application/vnd.openxmlformats-officedocument.presentationml.template',"
+                    "'application/vnd.oasis.opendocument.presentation',"
+                    "'message/rfc822',"
+                    "'application/vnd.ms-outlook',"
+                    "'application/vnd.apple.pages',"
+                    "'application/vnd.apple.numbers',"
+                    "'application/vnd.apple.keynote',"
+                    "'application/json',"
+                    "'application/xml'"
+                    "))"
+                )
+            elif category_key in {'other', 'archive', 'archives'}:
+                clauses.append(
+                    "content_type NOT LIKE 'image/%' "
+                    "AND content_type NOT LIKE 'video/%' "
+                    "AND content_type NOT LIKE 'audio/%' "
+                    "AND content_type NOT LIKE 'text/%' "
+                    "AND content_type NOT IN ("
+                    "'application/pdf',"
+                    "'application/msword',"
+                    "'application/vnd.openxmlformats-officedocument.wordprocessingml.document',"
+                    "'application/vnd.ms-word.document.macroenabled.12',"
+                    "'application/vnd.openxmlformats-officedocument.wordprocessingml.template',"
+                    "'application/rtf',"
+                    "'text/rtf',"
+                    "'application/vnd.oasis.opendocument.text',"
+                    "'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',"
+                    "'application/vnd.ms-excel.sheet.macroenabled.12',"
+                    "'application/vnd.ms-excel',"
+                    "'application/vnd.ms-excel.sheet.binary.macroenabled.12',"
+                    "'application/vnd.oasis.opendocument.spreadsheet',"
+                    "'application/vnd.ms-powerpoint',"
+                    "'application/vnd.openxmlformats-officedocument.presentationml.presentation',"
+                    "'application/vnd.ms-powerpoint.presentation.macroenabled.12',"
+                    "'application/vnd.openxmlformats-officedocument.presentationml.slideshow',"
+                    "'application/vnd.openxmlformats-officedocument.presentationml.template',"
+                    "'application/vnd.oasis.opendocument.presentation',"
+                    "'message/rfc822',"
+                    "'application/vnd.ms-outlook',"
+                    "'application/vnd.apple.pages',"
+                    "'application/vnd.apple.numbers',"
+                    "'application/vnd.apple.keynote',"
+                    "'application/json',"
+                    "'application/xml'"
+                    ")"
+                )
+
+            where_sql = " AND ".join(clauses)
+            params.extend([limit, offset])
             with self.db.get_connection() as conn:
-                cursor = conn.execute("""
+                cursor = conn.execute(f"""
                     SELECT id, original_name, stored_name, file_path, content_type, 
                            size, uploaded_by, uploaded_at, checksum
                     FROM files 
-                    WHERE uploaded_by = ?
+                    WHERE {where_sql}
                     ORDER BY uploaded_at DESC
-                    LIMIT ?
-                """, (user_id, limit))
+                    LIMIT ? OFFSET ?
+                """, params)
                 
                 files = []
                 for row in cursor.fetchall():
@@ -1321,6 +1433,90 @@ class FileManager:
         except Exception as e:
             logger.error(f"Failed to get files for user {user_id}: {e}", exc_info=True)
             return []
+
+    def count_user_files(self, user_id: str, *, query: Optional[str] = None) -> Dict[str, Any]:
+        """Return lightweight vault statistics for a user's local files."""
+        try:
+            clauses = ["uploaded_by = ?"]
+            params: List[Any] = [user_id]
+            search = str(query or '').strip()
+            if search:
+                clauses.append("(LOWER(original_name) LIKE ? OR LOWER(content_type) LIKE ?)")
+                needle = f"%{search.lower()}%"
+                params.extend([needle, needle])
+            where_sql = " AND ".join(clauses)
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    f"""
+                    SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes
+                    FROM files
+                    WHERE {where_sql}
+                    """,
+                    params,
+                ).fetchone()
+                by_kind_rows = conn.execute(
+                    f"""
+                    SELECT
+                        CASE
+                            WHEN content_type LIKE 'image/%' THEN 'images'
+                            WHEN content_type LIKE 'video/%' THEN 'videos'
+                            WHEN content_type LIKE 'audio/%' THEN 'audio'
+                            WHEN content_type LIKE 'text/%' OR content_type IN (
+                                'application/pdf',
+                                'application/msword',
+                                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                                'application/vnd.ms-word.document.macroenabled.12',
+                                'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+                                'application/rtf',
+                                'text/rtf',
+                                'application/vnd.oasis.opendocument.text',
+                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                'application/vnd.ms-excel.sheet.macroenabled.12',
+                                'application/vnd.ms-excel',
+                                'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+                                'application/vnd.oasis.opendocument.spreadsheet',
+                                'application/vnd.ms-powerpoint',
+                                'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                                'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+                                'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+                                'application/vnd.openxmlformats-officedocument.presentationml.template',
+                                'application/vnd.oasis.opendocument.presentation',
+                                'message/rfc822',
+                                'application/vnd.ms-outlook',
+                                'application/vnd.apple.pages',
+                                'application/vnd.apple.numbers',
+                                'application/vnd.apple.keynote',
+                                'application/json',
+                                'application/xml'
+                            ) THEN 'documents'
+                            ELSE 'other'
+                        END AS category,
+                        COUNT(*) AS count,
+                        COALESCE(SUM(size), 0) AS bytes
+                    FROM files
+                    WHERE {where_sql}
+                    GROUP BY category
+                    """,
+                    params,
+                ).fetchall()
+            return {
+                'count': int(row['count'] if row else 0),
+                'bytes': int(row['bytes'] if row else 0),
+                'by_category': {
+                    str(r['category']): {
+                        'count': int(r['count'] or 0),
+                        'bytes': int(r['bytes'] or 0),
+                    }
+                    for r in by_kind_rows
+                },
+            }
+        except Exception as e:
+            logger.error(f"Failed to count files for user {user_id}: {e}", exc_info=True)
+            return {'count': 0, 'bytes': 0, 'by_category': {}}
+
+    def get_user_files(self, user_id: str, limit: int = 50) -> List[FileInfo]:
+        """Backward-compatible wrapper for older callers."""
+        return self.list_user_files(user_id, limit=limit)
     
     def get_file_stats(self) -> Dict[str, Any]:
         """Get file storage statistics.

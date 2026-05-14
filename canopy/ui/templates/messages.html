@@ -2844,6 +2844,53 @@
         updateMessageFilePreview();
     }
 
+    function normalizeVaultAttachmentForMessage(file) {
+        const attachment = (file && file.attachment) ? file.attachment : (file || {});
+        const id = String(attachment.id || attachment.file_id || file?.id || '').trim();
+        if (!id) return null;
+        return {
+            id,
+            vault_file_id: id,
+            name: attachment.name || attachment.filename || file?.name || file?.filename || id,
+            type: attachment.type || attachment.content_type || file?.type || file?.content_type || 'application/octet-stream',
+            size: Number(attachment.size || file?.size || 0) || 0,
+            url: attachment.url || file?.url || `/files/${encodeURIComponent(id)}`,
+            source: 'vault'
+        };
+    }
+
+    function addVaultFilesToMessageComposer(files) {
+        const incoming = Array.isArray(files) ? files : [files];
+        let added = 0;
+        incoming.forEach((file) => {
+            const attachment = normalizeVaultAttachmentForMessage(file);
+            if (!attachment) return;
+            if (messageSelectedFiles.some(existing => String(existing.id || existing.vault_file_id || '') === attachment.id)) {
+                return;
+            }
+            messageSelectedFiles.push(attachment);
+            added += 1;
+        });
+        updateMessageFilePreview();
+        if (added && typeof showAlert === 'function') {
+            showAlert(`${added} vault file${added === 1 ? '' : 's'} attached.`, 'success');
+        }
+    }
+
+    function openMessageVaultPicker(anchor) {
+        if (!window.CanopyVaultPicker) {
+            showAlert('File Vault picker is unavailable on this page.', 'warning');
+            return;
+        }
+        window.CanopyVaultPicker.open({
+            anchor,
+            multiple: true,
+            title: 'Attach from File Vault',
+            actionLabel: 'Attach to DM',
+            onSelect: addVaultFilesToMessageComposer
+        });
+    }
+
     function setupMessagePasteHandler() {
         const messageInput = document.getElementById('messageContent');
         if (messageInput) {

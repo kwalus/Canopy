@@ -60,6 +60,7 @@ def _metadata_contains_file(metadata: Optional[Dict[str, Any]], file_id: str) ->
         if (
             (att.get('id') == file_id)
             or (att.get('file_id') == file_id)
+            or (att.get('vault_file_id') == file_id)
             or (att.get('origin_file_id') == file_id)
             or (att.get('remote_file_id') == file_id)
         ):
@@ -243,6 +244,7 @@ def evaluate_file_access(
                         if (
                             att.get('id') == file_id
                             or att.get('file_id') == file_id
+                            or att.get('vault_file_id') == file_id
                             or att.get('origin_file_id') == file_id
                             or att.get('remote_file_id') == file_id
                         ):

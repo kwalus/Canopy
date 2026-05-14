@@ -284,6 +284,9 @@
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('post-file-input').click()">
                     <i class="bi bi-paperclip"></i> Attach Files
                 </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openFeedVaultPicker(this)" title="Attach from File Vault" aria-label="Attach from File Vault">
+                    <i class="bi bi-folder2-open"></i> From Vault
+                </button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="feed-mention-builder-toggle"
                         onclick="toggleFeedMentionBuilder()">
                     <i class="bi bi-people"></i> Mention Team
@@ -1889,6 +1892,9 @@
                                                    onkeydown="handlePostCommentKeydown(event, '{{ post.id }}')">
                                             <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('comment-file-input-{{ post.id }}').click()" title="Attach files">
                                                 <i class="bi bi-paperclip"></i>
+                                            </button>
+                                            <button class="btn btn-outline-secondary btn-sm" onclick="openCommentVaultPicker('{{ post.id }}', this)" title="Attach from File Vault" aria-label="Attach from File Vault">
+                                                <i class="bi bi-folder2-open"></i>
                                             </button>
                                             <button class="btn btn-primary" onclick="addPostComment('{{ post.id }}')">
                                                 <i class="bi bi-send"></i>
@@ -7299,6 +7305,9 @@
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-post-add-files>
                         <i class="bi bi-paperclip"></i> Add Files
                     </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-post-add-vault title="Attach from File Vault" aria-label="Attach from File Vault">
+                        <i class="bi bi-folder2-open"></i> From Vault
+                    </button>
                 </div>
                 <div class="feed-inline-actions">
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-post-cancel>Cancel</button>
@@ -7357,6 +7366,10 @@
                 addInlinePostEditFiles(postId, files);
                 fileInput.value = '';
             });
+        }
+        const vaultBtn = panel.querySelector('[data-inline-post-add-vault]');
+        if (vaultBtn) {
+            vaultBtn.addEventListener('click', () => openInlinePostVaultPicker(postId, vaultBtn));
         }
 
         const cancelBtn = panel.querySelector('[data-inline-post-cancel]');
@@ -7439,6 +7452,40 @@
                 showAlert(`Failed to read file: ${file.name}`, 'danger');
             };
             reader.readAsDataURL(file);
+        });
+    }
+
+    function addVaultFilesToInlinePostEdit(postId, files) {
+        const state = getInlinePostEditState(postId);
+        const incoming = Array.isArray(files) ? files : [files];
+        let added = 0;
+        incoming.forEach((file) => {
+            const attachment = normalizeVaultAttachmentForPost(file);
+            if (!attachment) return;
+            if (state.newAttachments.some(existing => String(existing.id || existing.vault_file_id || '') === attachment.id)
+                || state.existingAttachments.some(existing => String(existing.id || existing.vault_file_id || '') === attachment.id)) {
+                return;
+            }
+            state.newAttachments.push(attachment);
+            added += 1;
+        });
+        renderInlinePostEditAttachments(postId);
+        if (added && typeof showAlert === 'function') {
+            showAlert(`${added} vault file${added === 1 ? '' : 's'} attached to edit.`, 'success');
+        }
+    }
+
+    function openInlinePostVaultPicker(postId, anchor) {
+        if (!window.CanopyVaultPicker) {
+            showAlert('File Vault picker is unavailable on this page.', 'warning');
+            return;
+        }
+        window.CanopyVaultPicker.open({
+            anchor,
+            multiple: true,
+            title: 'Attach from File Vault',
+            actionLabel: 'Attach to edit',
+            onSelect: (files) => addVaultFilesToInlinePostEdit(postId, files)
         });
     }
 
@@ -7895,6 +7942,9 @@
                             <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('comment-file-input-${postId}').click()" title="Attach files">
                                 <i class="bi bi-paperclip"></i>
                             </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="openCommentVaultPicker('${postId}', this)" title="Attach from File Vault" aria-label="Attach from File Vault">
+                                <i class="bi bi-folder2-open"></i>
+                            </button>
                             <button class="btn btn-outline-primary" onclick="addPostComment('${postId}')">
                                 <i class="bi bi-send"></i>
                             </button>
@@ -7989,7 +8039,7 @@
         })
         .catch(error => {
             console.error('Error adding comment:', error);
-            showAlert('Failed to add comment', 'danger');
+            showAlert((error && (error.error || error.message)) || 'Failed to add comment', 'danger');
         });
     }
     
@@ -8632,6 +8682,88 @@
     function removePostFile(index) {
         selectedPostFiles.splice(index, 1);
         updatePostFilePreview();
+    }
+
+    function normalizeVaultAttachmentForPost(file) {
+        const attachment = (file && file.attachment) ? file.attachment : (file || {});
+        const id = String(attachment.id || attachment.file_id || file?.id || '').trim();
+        if (!id) return null;
+        return {
+            id,
+            vault_file_id: id,
+            name: attachment.name || attachment.filename || file?.name || file?.filename || id,
+            type: attachment.type || attachment.content_type || file?.type || file?.content_type || 'application/octet-stream',
+            size: Number(attachment.size || file?.size || 0) || 0,
+            url: attachment.url || file?.url || `/files/${encodeURIComponent(id)}`,
+            source: 'vault'
+        };
+    }
+
+    function addVaultFilesToFeedComposer(files) {
+        const incoming = Array.isArray(files) ? files : [files];
+        let added = 0;
+        incoming.forEach((file) => {
+            const attachment = normalizeVaultAttachmentForPost(file);
+            if (!attachment) return;
+            if (selectedPostFiles.some(existing => String(existing.id || existing.vault_file_id || '') === attachment.id)) {
+                return;
+            }
+            selectedPostFiles.push(attachment);
+            added += 1;
+        });
+        updatePostFilePreview();
+        if (added && typeof showAlert === 'function') {
+            showAlert(`${added} vault file${added === 1 ? '' : 's'} attached.`, 'success');
+        }
+    }
+
+    function openFeedVaultPicker(anchor) {
+        if (!window.CanopyVaultPicker) {
+            showAlert('File Vault picker is unavailable on this page.', 'warning');
+            return;
+        }
+        window.CanopyVaultPicker.open({
+            anchor,
+            multiple: true,
+            title: 'Attach from File Vault',
+            actionLabel: 'Attach to post',
+            onSelect: addVaultFilesToFeedComposer
+        });
+    }
+
+    function addVaultFilesToCommentComposer(postId, files) {
+        const incoming = Array.isArray(files) ? files : [files];
+        if (!commentFiles[postId]) {
+            commentFiles[postId] = [];
+        }
+        let added = 0;
+        incoming.forEach((file) => {
+            const attachment = normalizeVaultAttachmentForPost(file);
+            if (!attachment) return;
+            if (commentFiles[postId].some(existing => String(existing.id || existing.vault_file_id || '') === attachment.id)) {
+                return;
+            }
+            commentFiles[postId].push(attachment);
+            added += 1;
+        });
+        updateCommentFilePreview(postId);
+        if (added && typeof showAlert === 'function') {
+            showAlert(`${added} vault file${added === 1 ? '' : 's'} attached to comment.`, 'success');
+        }
+    }
+
+    function openCommentVaultPicker(postId, anchor) {
+        if (!window.CanopyVaultPicker) {
+            showAlert('File Vault picker is unavailable on this page.', 'warning');
+            return;
+        }
+        window.CanopyVaultPicker.open({
+            anchor,
+            multiple: true,
+            title: 'Attach from File Vault',
+            actionLabel: 'Attach to comment',
+            onSelect: (files) => addVaultFilesToCommentComposer(postId, files)
+        });
     }
     
     function getPostFileIcon(type, name = '') {

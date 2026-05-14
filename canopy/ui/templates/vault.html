@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+
+{% block title %}File Vault - Canopy{% endblock %}
+
+{% block extra_css %}
+<style>
+    .vault-shell {
+        min-height: calc(100vh - 96px);
+        padding: clamp(1rem, 2vw, 1.75rem);
+        background:
+            radial-gradient(circle at 12% 10%, color-mix(in srgb, var(--canopy-primary) 18%, transparent), transparent 34%),
+            radial-gradient(circle at 88% 8%, color-mix(in srgb, var(--canopy-accent) 16%, transparent), transparent 32%),
+            var(--canopy-gradient-bg);
+    }
+    .vault-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.8fr);
+        gap: 1rem;
+        align-items: stretch;
+        margin-bottom: 1rem;
+    }
+    .vault-panel {
+        border: 1px solid var(--canopy-border);
+        border-radius: 24px;
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-bg-card) 92%, transparent), color-mix(in srgb, var(--canopy-bg-secondary) 88%, transparent));
+        box-shadow: 0 24px 50px var(--canopy-shadow);
+        overflow: hidden;
+    }
+    .vault-intro {
+        padding: clamp(1.25rem, 2vw, 2rem);
+        position: relative;
+    }
+    .vault-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        color: var(--canopy-secondary);
+        font-weight: 800;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        font-size: 0.76rem;
+        margin-bottom: 0.75rem;
+    }
+    .vault-title {
+        margin: 0;
+        font-size: clamp(2rem, 5vw, 4rem);
+        line-height: 0.95;
+        letter-spacing: -0.06em;
+        color: var(--canopy-text-primary);
+    }
+    .vault-subtitle {
+        max-width: 760px;
+        margin: 1rem 0 0;
+        color: var(--canopy-text-secondary);
+        font-size: 1.02rem;
+    }
+    .vault-rule-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin-top: 1.2rem;
+    }
+    .vault-rule {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.46rem 0.68rem;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 80%, transparent);
+        border: 1px solid var(--canopy-border);
+        color: var(--canopy-text-secondary);
+        font-size: 0.86rem;
+    }
+    .vault-dropzone {
+        display: grid;
+        align-content: center;
+        gap: 0.8rem;
+        min-height: 100%;
+        padding: 1.2rem;
+        border: 1px dashed color-mix(in srgb, var(--canopy-primary) 48%, var(--canopy-border));
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 13%, transparent), color-mix(in srgb, var(--canopy-accent) 9%, transparent));
+        cursor: pointer;
+        transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    }
+    .vault-dropzone:hover,
+    .vault-dropzone.is-dragging {
+        transform: translateY(-1px);
+        border-color: var(--canopy-secondary);
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 20%, transparent), color-mix(in srgb, var(--canopy-accent) 13%, transparent));
+    }
+    .vault-drop-icon {
+        width: 58px;
+        height: 58px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 18px;
+        background: var(--canopy-gradient-secondary);
+        color: #fff;
+        font-size: 1.7rem;
+        box-shadow: 0 18px 35px color-mix(in srgb, var(--canopy-primary) 30%, transparent);
+    }
+    .vault-drop-title {
+        color: var(--canopy-text-primary);
+        font-weight: 850;
+        font-size: 1.08rem;
+    }
+    .vault-drop-copy {
+        color: var(--canopy-text-secondary);
+        font-size: 0.9rem;
+    }
+    .vault-toolbar {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) auto;
+        gap: 0.85rem;
+        align-items: center;
+        padding: 0.9rem;
+        margin-bottom: 1rem;
+    }
+    .vault-search-wrap {
+        position: relative;
+    }
+    .vault-search-wrap i {
+        position: absolute;
+        left: 0.9rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--canopy-text-muted);
+    }
+    .vault-search {
+        padding-left: 2.45rem;
+        min-height: 46px;
+        border-radius: 16px;
+        border-color: var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 85%, transparent);
+        color: var(--canopy-text-primary);
+    }
+    .vault-filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        justify-content: flex-end;
+    }
+    .vault-filter {
+        border: 1px solid var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
+        color: var(--canopy-text-secondary);
+        border-radius: 999px;
+        padding: 0.44rem 0.75rem;
+        font-weight: 700;
+        font-size: 0.84rem;
+    }
+    .vault-filter.active {
+        background: var(--canopy-gradient-primary);
+        border-color: transparent;
+        color: #fff;
+    }
+    .vault-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.8rem;
+        margin-bottom: 1rem;
+    }
+    .vault-stat {
+        padding: 0.9rem;
+        border: 1px solid var(--canopy-border);
+        border-radius: 18px;
+        background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+    }
+    .vault-stat-label {
+        color: var(--canopy-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+        font-size: 0.68rem;
+        font-weight: 850;
+    }
+    .vault-stat-value {
+        color: var(--canopy-text-primary);
+        font-weight: 900;
+        font-size: 1.28rem;
+        margin-top: 0.15rem;
+    }
+    .vault-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+        gap: 0.85rem;
+    }
+    .vault-card {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        min-height: 220px;
+        border: 1px solid var(--canopy-border);
+        border-radius: 20px;
+        background:
+            linear-gradient(160deg, color-mix(in srgb, var(--canopy-bg-card) 92%, transparent), color-mix(in srgb, var(--canopy-bg-secondary) 88%, transparent));
+        overflow: hidden;
+        box-shadow: 0 14px 30px color-mix(in srgb, var(--canopy-shadow) 70%, transparent);
+    }
+    .vault-card-preview {
+        height: 104px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+            radial-gradient(circle at 20% 18%, color-mix(in srgb, var(--canopy-primary) 22%, transparent), transparent 34%),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
+        color: var(--canopy-secondary);
+        font-size: 2.1rem;
+        overflow: hidden;
+    }
+    .vault-card-preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+    .vault-card-body {
+        padding: 0.85rem;
+        min-width: 0;
+    }
+    .vault-file-name {
+        color: var(--canopy-text-primary);
+        font-weight: 850;
+        line-height: 1.18;
+        word-break: break-word;
+    }
+    .vault-file-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin-top: 0.55rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.8rem;
+    }
+    .vault-file-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        border-radius: 999px;
+        padding: 0.25rem 0.45rem;
+        border: 1px solid var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 80%, transparent);
+    }
+    .vault-card-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        padding: 0.8rem;
+        border-top: 1px solid var(--canopy-border);
+    }
+    .vault-empty {
+        display: none;
+        padding: 2.2rem;
+        text-align: center;
+        color: var(--canopy-text-secondary);
+    }
+    .vault-empty i {
+        color: var(--canopy-secondary);
+        font-size: 2.4rem;
+    }
+    @media (max-width: 900px) {
+        .vault-hero,
+        .vault-toolbar {
+            grid-template-columns: 1fr;
+        }
+        .vault-filter-row {
+            justify-content: flex-start;
+        }
+        .vault-stats {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+    }
+    @media (max-width: 560px) {
+        .vault-shell {
+            padding: 0.75rem;
+        }
+        .vault-stats {
+            grid-template-columns: 1fr;
+        }
+        .vault-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="vault-shell" data-vault-page>
+    <section class="vault-hero">
+        <div class="vault-panel vault-intro">
+            <div class="vault-kicker"><i class="bi bi-folder2-open"></i> Private local file vault</div>
+            <h1 class="vault-title">Stage files before you share them.</h1>
+            <p class="vault-subtitle">
+                Keep reference PDFs, images, source files, and working documents in your own local vault.
+                Nothing is shared to a channel, DM, or agent until you attach it from a composer.
+            </p>
+            <div class="vault-rule-row">
+                <span class="vault-rule"><i class="bi bi-person-lock"></i> Owner-only by default</span>
+                <span class="vault-rule"><i class="bi bi-paperclip"></i> Insert from composers</span>
+                <span class="vault-rule"><i class="bi bi-hdd-network"></i> Local to this instance</span>
+                <span class="vault-rule"><i class="bi bi-cpu"></i> Digest-ready later</span>
+            </div>
+        </div>
+        <div class="vault-panel vault-dropzone" id="vault-dropzone" role="button" tabindex="0" aria-label="Upload files to your vault">
+            <span class="vault-drop-icon"><i class="bi bi-cloud-arrow-up"></i></span>
+            <span class="vault-drop-title">Drop files here or click to upload</span>
+            <span class="vault-drop-copy">Uses the same validation and file-type support as Canopy attachments.</span>
+        </div>
+        <input type="file" id="vault-upload-input" multiple hidden
+               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
+    </section>
+
+    <section class="vault-panel vault-toolbar" aria-label="Vault tools">
+        <div class="vault-search-wrap">
+            <i class="bi bi-search"></i>
+            <input class="form-control vault-search" id="vault-search" type="search" placeholder="Search your vault by file name or type">
+        </div>
+        <div class="vault-filter-row" aria-label="File filters">
+            <button class="vault-filter active" type="button" data-vault-filter="">All</button>
+            <button class="vault-filter" type="button" data-vault-filter="documents">Docs</button>
+            <button class="vault-filter" type="button" data-vault-filter="images">Images</button>
+            <button class="vault-filter" type="button" data-vault-filter="video">Video</button>
+            <button class="vault-filter" type="button" data-vault-filter="audio">Audio</button>
+            <button class="vault-filter" type="button" data-vault-filter="other">Other</button>
+        </div>
+    </section>
+
+    <section class="vault-stats" aria-label="Vault summary">
+        <div class="vault-stat">
+            <div class="vault-stat-label">Files</div>
+            <div class="vault-stat-value" id="vault-stat-count">{{ vault_stats.count|default(0) }}</div>
+        </div>
+        <div class="vault-stat">
+            <div class="vault-stat-label">Storage</div>
+            <div class="vault-stat-value" id="vault-stat-bytes">0 B</div>
+        </div>
+        <div class="vault-stat">
+            <div class="vault-stat-label">Documents</div>
+            <div class="vault-stat-value" id="vault-stat-docs">0</div>
+        </div>
+        <div class="vault-stat">
+            <div class="vault-stat-label">Media</div>
+            <div class="vault-stat-value" id="vault-stat-media">0</div>
+        </div>
+    </section>
+
+    <section class="vault-panel p-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+            <div>
+                <h2 class="h5 mb-1" style="color: var(--canopy-text-primary);">Your files</h2>
+                <div class="small text-muted">Use the Vault button in a channel, feed, or DM composer to attach these files.</div>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-refresh-btn">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+        <div class="vault-grid" id="vault-grid" aria-live="polite"></div>
+        <div class="vault-empty" id="vault-empty">
+            <i class="bi bi-folder2-open d-block mb-2"></i>
+            <strong>No files here yet.</strong>
+            <div>Upload files above, then attach them from any composer when you are ready to share.</div>
+        </div>
+        <div class="text-center mt-3">
+            <button class="btn btn-outline-secondary" type="button" id="vault-load-more" hidden>
+                <i class="bi bi-chevron-down"></i> Load more
+            </button>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    window.CANOPY_VAULT_INITIAL = {
+        files: {{ vault_files|tojson }},
+        stats: {{ vault_stats|tojson }},
+    };
+</script>
+{% endblock %}

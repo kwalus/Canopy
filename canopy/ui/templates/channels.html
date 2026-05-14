@@ -4911,6 +4911,13 @@
                                 <i class="bi bi-paperclip"></i>
                             </button>
                             <button type="button"
+                                    class="btn btn-outline-secondary"
+                                    onclick="openChannelVaultPicker(this)"
+                                    aria-label="Attach from File Vault"
+                                    title="Attach from File Vault">
+                                <i class="bi bi-folder2-open"></i>
+                            </button>
+                            <button type="button"
                                     class="btn btn-outline-secondary canopy-inline-emoji-trigger"
                                     id="emoji-toggle-btn"
                                     data-canopy-emoji-target="#message-input"
@@ -4939,6 +4946,11 @@
                                     <i class="bi bi-three-dots"></i>
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-composer-more-toggle">
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="openChannelVaultPicker(this)">
+                                            <i class="bi bi-folder2-open me-2"></i>Attach from File Vault
+                                        </button>
+                                    </li>
                                     <li>
                                         <button type="button" class="dropdown-item" onclick="toggleChannelMentionBuilder()">
                                             <i class="bi bi-people me-2"></i>Team mention builder
@@ -18459,6 +18471,54 @@ function removeFile(index) {
     updateFilePreview();
 }
 
+function normalizeVaultAttachmentForComposer(file) {
+    const attachment = (file && file.attachment) ? file.attachment : (file || {});
+    const id = String(attachment.id || attachment.file_id || file?.id || '').trim();
+    if (!id) return null;
+    return {
+        id,
+        vault_file_id: id,
+        name: attachment.name || attachment.filename || file?.name || file?.filename || id,
+        type: attachment.type || attachment.content_type || file?.type || file?.content_type || 'application/octet-stream',
+        size: Number(attachment.size || file?.size || 0) || 0,
+        url: attachment.url || file?.url || `/files/${encodeURIComponent(id)}`,
+        source: 'vault'
+    };
+}
+
+function addVaultFilesToChannelComposer(files) {
+    const incoming = Array.isArray(files) ? files : [files];
+    let added = 0;
+    incoming.forEach((file) => {
+        const attachment = normalizeVaultAttachmentForComposer(file);
+        if (!attachment) return;
+        if (selectedFiles.some(existing => String(existing.id || existing.vault_file_id || '') === attachment.id)) {
+            return;
+        }
+        selectedFiles.push(attachment);
+        added += 1;
+    });
+    updateFilePreview();
+    syncChannelComposerAvailability();
+    if (added && typeof showAlert === 'function') {
+        showAlert(`${added} vault file${added === 1 ? '' : 's'} attached.`, 'success');
+    }
+}
+
+function openChannelVaultPicker(anchor) {
+    if (!window.CanopyVaultPicker) {
+        showAlert('File Vault picker is unavailable on this page.', 'warning');
+        return;
+    }
+    window.CanopyVaultPicker.open({
+        anchor,
+        multiple: true,
+        title: 'Attach from File Vault',
+        actionLabel: 'Attach to message',
+        onSelect: addVaultFilesToChannelComposer
+    });
+}
+
 // ---- Channel message editing ----
 function editChannelMessage(messageId) {
     const msg = channelMessageCache[messageId];
@@ -18544,6 +18604,9 @@ function beginInlineChannelMessageEdit(message) {
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-add-files>
                     <i class="bi bi-paperclip"></i> Add Files
                 </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-add-vault title="Attach from File Vault" aria-label="Attach from File Vault">
+                    <i class="bi bi-folder2-open"></i> From Vault
+                </button>
             </div>
             <div class="inline-edit-actions">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-cancel>Cancel</button>
@@ -18584,6 +18647,10 @@ function beginInlineChannelMessageEdit(message) {
             addInlineChannelEditFiles(messageId, files);
             input.value = '';
         });
+    }
+    const vaultBtn = panel.querySelector('[data-inline-add-vault]');
+    if (vaultBtn) {
+        vaultBtn.addEventListener('click', () => openInlineChannelVaultPicker(messageId, vaultBtn));
     }
 
     const cancelBtn = panel.querySelector('[data-inline-cancel]');
@@ -18676,6 +18743,40 @@ function addInlineChannelEditFiles(messageId, files) {
     });
 }
 
+function addVaultFilesToInlineChannelEdit(messageId, files) {
+    const state = getChannelInlineEditState(messageId);
+    const incoming = Array.isArray(files) ? files : [files];
+    let added = 0;
+    incoming.forEach((file) => {
+        const attachment = normalizeVaultAttachmentForComposer(file);
+        if (!attachment) return;
+        if (state.newAttachments.some(existing => String(existing.id || existing.vault_file_id || '') === attachment.id)
+            || state.existingAttachments.some(existing => String(existing.id || existing.vault_file_id || '') === attachment.id)) {
+            return;
+        }
+        state.newAttachments.push(attachment);
+        added += 1;
+    });
+    renderInlineChannelEditAttachments(messageId);
+    if (added && typeof showAlert === 'function') {
+        showAlert(`${added} vault file${added === 1 ? '' : 's'} attached to edit.`, 'success');
+    }
+}
+
+function openInlineChannelVaultPicker(messageId, anchor) {
+    if (!window.CanopyVaultPicker) {
+        showAlert('File Vault picker is unavailable on this page.', 'warning');
+        return;
+    }
+    window.CanopyVaultPicker.open({
+        anchor,
+        multiple: true,
+        title: 'Attach from File Vault',
+        actionLabel: 'Attach to edit',
+        onSelect: (files) => addVaultFilesToInlineChannelEdit(messageId, files)
+    });
+}
+
 function removeInlineChannelEditFile(messageId, index) {
     const state = getChannelInlineEditState(messageId);
     state.newAttachments.splice(index, 1);
@@ -18697,9 +18798,11 @@ function setInlineChannelEditSaving(messageId, saving) {
     const saveBtn = panel.querySelector('[data-inline-save]');
     const cancelBtn = panel.querySelector('[data-inline-cancel]');
     const addBtn = panel.querySelector('[data-inline-add-files]');
+    const vaultBtn = panel.querySelector('[data-inline-add-vault]');
     if (textarea) textarea.disabled = !!saving;
     if (cancelBtn) cancelBtn.disabled = !!saving;
     if (addBtn) addBtn.disabled = !!saving;
+    if (vaultBtn) vaultBtn.disabled = !!saving;
     if (saveBtn) {
         if (saving) {
             saveBtn.dataset.originalHtml = saveBtn.innerHTML;

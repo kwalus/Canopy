@@ -2069,6 +2069,139 @@ def create_ui_blueprint() -> Blueprint:
         """Get current user ID from the authenticated session."""
         return session.get('user_id', 'local_user')
 
+    def _vault_category_for_type(content_type: str, filename: str = '') -> str:
+        ctype = str(content_type or '').strip().lower()
+        lower_name = str(filename or '').strip().lower()
+        if ctype.startswith('image/'):
+            return 'images'
+        if ctype.startswith('video/'):
+            return 'videos'
+        if ctype.startswith('audio/'):
+            return 'audio'
+        document_exts = (
+            '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
+            '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.pot', '.potx', '.odp',
+            '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods', '.csv', '.tsv',
+            '.txt', '.md', '.markdown', '.json', '.xml', '.html', '.css',
+            '.py', '.pyi', '.pyw', '.js', '.ts', '.sh', '.toml', '.yaml', '.yml',
+            '.tex', '.eml', '.msg', '.pages', '.numbers', '.key',
+        )
+        if ctype.startswith('text/') or lower_name.endswith(document_exts):
+            return 'documents'
+        if any(token in ctype for token in ('pdf', 'document', 'spreadsheet', 'presentation', 'excel', 'word', 'powerpoint', 'json', 'xml')):
+            return 'documents'
+        return 'other'
+
+    def _file_info_to_vault_entry(file_info: Any) -> dict[str, Any]:
+        uploaded_at = getattr(file_info, 'uploaded_at', None)
+        if hasattr(uploaded_at, 'isoformat'):
+            uploaded_at_value = uploaded_at.isoformat()
+        else:
+            uploaded_at_value = str(uploaded_at or '')
+        file_id = str(getattr(file_info, 'id', '') or '')
+        name = str(getattr(file_info, 'original_name', '') or file_id or 'file')
+        content_type = str(getattr(file_info, 'content_type', '') or 'application/octet-stream')
+        size = int(getattr(file_info, 'size', 0) or 0)
+        category = _vault_category_for_type(content_type, name)
+        entry = {
+            'id': file_id,
+            'name': name,
+            'filename': name,
+            'type': content_type,
+            'content_type': content_type,
+            'size': size,
+            'url': f'/files/{file_id}',
+            'thumb_url': f'/files/{file_id}/thumb' if content_type.startswith('image/') else None,
+            'uploaded_at': uploaded_at_value,
+            'category': category,
+            'source': 'vault',
+            'digest_status': 'not_indexed',
+            'markdown_link': f'[{name}](/files/{file_id})',
+            'attachment': {
+                'id': file_id,
+                'name': name,
+                'type': content_type,
+                'size': size,
+                'url': f'/files/{file_id}',
+                'source': 'vault',
+            },
+        }
+        return entry
+
+    def _save_inline_composer_attachment(file_manager: Any, attachment: dict[str, Any], user_id: str) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+        """Persist one base64 composer attachment and return normalized metadata."""
+        try:
+            file_data = base64.b64decode(attachment.get('data') or '')
+            file_info = file_manager.save_file(
+                file_data,
+                attachment.get('name') or attachment.get('filename') or 'attachment',
+                attachment.get('type') or attachment.get('content_type') or 'application/octet-stream',
+                user_id,
+            )
+            if not file_info:
+                return None, str(attachment.get('name') or attachment.get('filename') or 'attachment')
+            return {
+                'id': file_info.id,
+                'name': file_info.original_name,
+                'type': file_info.content_type,
+                'size': file_info.size,
+                'url': file_info.url,
+            }, None
+        except Exception as e:
+            logger.error(f"Failed to process attachment {attachment.get('name', 'unknown')}: {e}")
+            return None, str(attachment.get('name') or attachment.get('filename') or 'attachment')
+
+    def _hydrate_existing_user_file_attachment(file_manager: Any, attachment: dict[str, Any], user_id: str) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+        """Use an already-uploaded owner file as a composer attachment."""
+        file_id = str(
+            attachment.get('vault_file_id')
+            or attachment.get('existing_file_id')
+            or attachment.get('file_id')
+            or attachment.get('id')
+            or ''
+        ).strip()
+        if not file_id:
+            return None, str(attachment.get('name') or attachment.get('filename') or 'attachment')
+        try:
+            file_info = file_manager.get_file(file_id)
+        except Exception as e:
+            logger.error(f"Failed to resolve vault attachment {file_id}: {e}")
+            file_info = None
+        if not file_info:
+            return None, str(attachment.get('name') or file_id)
+        if str(getattr(file_info, 'uploaded_by', '') or '') != str(user_id):
+            logger.warning("User %s attempted to attach non-owned vault file %s", user_id, file_id)
+            return None, str(getattr(file_info, 'original_name', '') or file_id)
+        return {
+            'id': file_info.id,
+            'name': file_info.original_name,
+            'type': file_info.content_type,
+            'size': file_info.size,
+            'url': file_info.url,
+            'source': 'vault',
+        }, None
+
+    def _process_composer_attachments(file_manager: Any, raw_attachments: Any, user_id: str) -> tuple[list[dict[str, Any]], list[str]]:
+        """Accept fresh base64 uploads or owner-owned Vault file references."""
+        processed: list[dict[str, Any]] = []
+        failed: list[str] = []
+        if not isinstance(raw_attachments, list):
+            return processed, failed
+        for attachment in raw_attachments:
+            if not isinstance(attachment, dict):
+                failed.append('attachment')
+                continue
+            has_inline_data = bool(attachment.get('data'))
+            if has_inline_data:
+                item, err_name = _save_inline_composer_attachment(file_manager, attachment, user_id)
+            else:
+                item, err_name = _hydrate_existing_user_file_attachment(file_manager, attachment, user_id)
+            if item:
+                processed.append(item)
+            elif err_name:
+                failed.append(err_name)
+        return processed, failed
+
     def _is_admin():
         """True if the current session user is the instance owner (first registered user)."""
         if not _is_authenticated():
@@ -6115,6 +6248,172 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Messages error: {e}", exc_info=True)
             flash('Error loading messages', 'error')
             return render_template('error.html', error=str(e))
+
+    @ui.route('/vault')
+    @require_login
+    def vault_page():
+        """Private local file vault for the current user."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            initial_files = [
+                _file_info_to_vault_entry(info)
+                for info in file_manager.list_user_files(user_id, limit=48)
+            ] if file_manager else []
+            stats = file_manager.count_user_files(user_id) if file_manager else {'count': 0, 'bytes': 0, 'by_category': {}}
+            return render_template(
+                'vault.html',
+                vault_files=initial_files,
+                vault_stats=stats,
+            )
+        except Exception as e:
+            logger.error(f"Vault page error: {e}", exc_info=True)
+            flash('Error loading file vault', 'error')
+            return render_template('error.html', error=str(e))
+
+    @ui.route('/ajax/vault/files', methods=['GET'])
+    @require_login
+    def ajax_vault_files():
+        """List current user's private local vault files."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            limit = max(1, min(int(request.args.get('limit', 60) or 60), 200))
+            offset = max(0, int(request.args.get('offset', 0) or 0))
+            query = str(request.args.get('q') or request.args.get('query') or '').strip()
+            category = str(request.args.get('category') or '').strip()
+            files = [
+                _file_info_to_vault_entry(info)
+                for info in file_manager.list_user_files(
+                    user_id,
+                    limit=limit,
+                    offset=offset,
+                    query=query,
+                    category=category,
+                )
+            ]
+            stats = file_manager.count_user_files(user_id, query=query)
+            return jsonify({
+                'success': True,
+                'files': files,
+                'stats': stats,
+                'offset': offset,
+                'limit': limit,
+                'has_more': len(files) >= limit,
+            })
+        except Exception as e:
+            logger.error(f"Vault list error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/vault/upload', methods=['POST'])
+    @require_login
+    def ajax_vault_upload():
+        """Upload one or more files into the current user's private local vault."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+
+            uploads = list(request.files.getlist('files') or [])
+            single = request.files.get('file')
+            if single and single not in uploads:
+                uploads.append(single)
+            uploads = [upload for upload in uploads if upload and upload.filename]
+            if not uploads:
+                return jsonify({'success': False, 'error': 'Choose at least one file to upload'}), 400
+
+            from ..security.file_validation import detect_zip_bomb, validate_file_upload
+
+            max_size = current_app.config.get('MAX_FILE_SIZE', 104857600)
+            saved: list[dict[str, Any]] = []
+            failed: list[dict[str, str]] = []
+            for upload in uploads:
+                original_name = upload.filename or 'upload'
+                content_type = upload.content_type or 'application/octet-stream'
+                try:
+                    file_data = upload.read()
+                    original_name, content_type = file_manager.normalize_upload_metadata(
+                        file_data=file_data,
+                        original_name=original_name,
+                        content_type=content_type,
+                    )
+                    is_valid, error_msg, validated_type = validate_file_upload(
+                        file_data,
+                        content_type,
+                        original_name,
+                        max_size_override=max_size,
+                    )
+                    if not is_valid:
+                        failed.append({'name': original_name, 'error': error_msg})
+                        continue
+                    content_type = validated_type or content_type
+                    is_safe, bomb_msg = detect_zip_bomb(file_data, content_type)
+                    if not is_safe:
+                        failed.append({'name': original_name, 'error': bomb_msg})
+                        continue
+                    file_info = file_manager.save_file(file_data, original_name, content_type, user_id)
+                    if file_info:
+                        saved.append(_file_info_to_vault_entry(file_info))
+                    else:
+                        failed.append({'name': original_name, 'error': 'Failed to save file'})
+                except Exception as upload_err:
+                    logger.error(f"Vault upload failed for {original_name}: {upload_err}", exc_info=True)
+                    failed.append({'name': original_name, 'error': 'Upload failed'})
+
+            status = 201 if saved else 400
+            return jsonify({
+                'success': bool(saved),
+                'files': saved,
+                'failed': failed,
+            }), status
+        except Exception as e:
+            logger.error(f"Vault upload error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/vault/files/<file_id>', methods=['DELETE'])
+    @require_login
+    def ajax_vault_delete_file(file_id: str):
+        """Delete an unshared current-user vault file."""
+        try:
+            db_manager, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            file_info = file_manager.get_file(file_id)
+            if not file_info:
+                return jsonify({'success': False, 'error': 'File not found'}), 404
+            is_owner = str(getattr(file_info, 'uploaded_by', '') or '') == str(user_id)
+            if not is_owner:
+                return jsonify({'success': False, 'error': 'You can only delete your own vault files'}), 403
+            try:
+                with db_manager.get_connection() as conn:
+                    avatar_ref = conn.execute(
+                        "SELECT id FROM users WHERE COALESCE(avatar_file_id, '') = ? LIMIT 1",
+                        (file_id,),
+                    ).fetchone()
+                if avatar_ref:
+                    return jsonify({
+                        'success': False,
+                        'error': 'This file is used as a profile avatar. Change the avatar before removing the file.',
+                        'reason': 'profile_avatar_referenced',
+                    }), 409
+            except Exception:
+                pass
+            if file_manager.is_file_referenced(file_id):
+                return jsonify({
+                    'success': False,
+                    'error': 'This file is already attached to content. Delete or edit those posts/messages before removing the file.',
+                    'reason': 'file_referenced',
+                }), 409
+            if not file_manager.delete_file(file_id, user_id):
+                return jsonify({'success': False, 'error': 'Failed to delete file'}), 500
+            return jsonify({'success': True, 'file_id': file_id})
+        except Exception as e:
+            logger.error(f"Vault delete error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
     @ui.route('/ajax/messages/thread_snapshot', methods=['GET'])
     @require_login
@@ -10305,34 +10604,11 @@ def create_ui_blueprint() -> Blueprint:
             if not content and not file_attachments:
                 return jsonify({'error': 'Message content or attachments required'}), 400
             
-            # Process file attachments if any
-            processed_attachments = []
-            failed_attachments = []
-            for attachment in file_attachments:
-                try:
-                    # Attachment should contain file data as base64
-                    file_data = base64.b64decode(attachment['data'])
-                    file_info = file_manager.save_file(
-                        file_data, 
-                        attachment['name'], 
-                        attachment['type'], 
-                        user_id
-                    )
-                    
-                    if file_info:
-                        processed_attachments.append({
-                            'id': file_info.id,
-                            'name': file_info.original_name,
-                            'type': file_info.content_type,
-                            'size': file_info.size,
-                            'url': file_info.url
-                        })
-                    else:
-                        failed_attachments.append(str(attachment.get('name') or 'attachment'))
-                except Exception as e:
-                    logger.error(f"Failed to process attachment {attachment.get('name', 'unknown')}: {e}")
-                    failed_attachments.append(str(attachment.get('name') or 'attachment'))
-                    continue
+            processed_attachments, failed_attachments = _process_composer_attachments(
+                file_manager,
+                file_attachments,
+                user_id,
+            )
 
             if failed_attachments:
                 failed_names = ', '.join(failed_attachments[:3])
@@ -14192,30 +14468,21 @@ def create_ui_blueprint() -> Blueprint:
                     'structured_validation': structured_validation,
                 }), 400
             
-            # Process file attachments if any (same as channel messages)
-            processed_attachments = []
-            for attachment in file_attachments:
-                try:
-                    # Attachment should contain file data as base64
-                    file_data = base64.b64decode(attachment['data'])
-                    file_info = file_manager.save_file(
-                        file_data, 
-                        attachment['name'], 
-                        attachment['type'], 
-                        user_id
+            processed_attachments, failed_attachments = _process_composer_attachments(
+                file_manager,
+                file_attachments,
+                user_id,
+            )
+            if failed_attachments:
+                failed_names = ', '.join(failed_attachments[:3])
+                if len(failed_attachments) > 3:
+                    failed_names += f' and {len(failed_attachments) - 3} more'
+                return jsonify({
+                    'error': (
+                        f"Attachment upload failed for {failed_names}. "
+                        "The post was not shared so files are not silently dropped."
                     )
-                    
-                    if file_info:
-                        processed_attachments.append({
-                            'id': file_info.id,
-                            'name': file_info.original_name,
-                            'type': file_info.content_type,
-                            'size': file_info.size,
-                            'url': file_info.url
-                        })
-                except Exception as e:
-                    logger.error(f"Failed to process attachment {attachment.get('name', 'unknown')}: {e}")
-                    continue
+                }), 400
             
             # Create feed post using FeedManager
             from ..core.feed import PostType, PostVisibility
@@ -14844,30 +15111,16 @@ def create_ui_blueprint() -> Blueprint:
                 if lock_reason:
                     return jsonify({'error': lock_reason}), 400
             
-            # Process new file attachments if any
-            processed_new_attachments = []
-            for attachment in new_attachments:
-                try:
-                    # Attachment should contain file data as base64
-                    file_data = base64.b64decode(attachment['data'])
-                    file_info = file_manager.save_file(
-                        file_data, 
-                        attachment['name'], 
-                        attachment['type'], 
-                        user_id
-                    )
-                    
-                    if file_info:
-                        processed_new_attachments.append({
-                            'id': file_info.id,
-                            'name': file_info.original_name,
-                            'type': file_info.content_type,
-                            'size': file_info.size,
-                            'url': file_info.url
-                        })
-                except Exception as e:
-                    logger.error(f"Failed to process new attachment {attachment.get('name', 'unknown')}: {e}")
-                    continue
+            processed_new_attachments, failed_new_attachments = _process_composer_attachments(
+                file_manager,
+                new_attachments,
+                user_id,
+            )
+            if failed_new_attachments:
+                failed_names = ', '.join(failed_new_attachments[:3])
+                if len(failed_new_attachments) > 3:
+                    failed_names += f' and {len(failed_new_attachments) - 3} more'
+                return jsonify({'error': f'Attachment upload failed for {failed_names}.'}), 400
             
             # Combine existing metadata with new data so we don't drop origin fields
             base_metadata = existing_post.metadata or {}
@@ -15538,30 +15791,21 @@ def create_ui_blueprint() -> Blueprint:
             if not content and not attachments:
                 return jsonify({'error': 'Comment content or attachments required'}), 400
             
-            # Process file attachments if any
-            processed_attachments = []
-            for attachment in attachments:
-                try:
-                    # Attachment should contain file data as base64
-                    file_data = base64.b64decode(attachment['data'])
-                    file_info = file_manager.save_file(
-                        file_data, 
-                        attachment['name'], 
-                        attachment['type'], 
-                        user_id
+            processed_attachments, failed_attachments = _process_composer_attachments(
+                file_manager,
+                attachments,
+                user_id,
+            )
+            if failed_attachments:
+                failed_names = ', '.join(failed_attachments[:3])
+                if len(failed_attachments) > 3:
+                    failed_names += f' and {len(failed_attachments) - 3} more'
+                return jsonify({
+                    'error': (
+                        f"Attachment upload failed for {failed_names}. "
+                        "The comment was not sent so files are not silently dropped."
                     )
-                    
-                    if file_info:
-                        processed_attachments.append({
-                            'id': file_info.id,
-                            'name': file_info.original_name,
-                            'type': file_info.content_type,
-                            'size': file_info.size,
-                            'url': file_info.url
-                        })
-                except Exception as e:
-                    logger.error(f"Failed to process comment attachment {attachment.get('name', 'unknown')}: {e}")
-                    continue
+                }), 400
             
             # Add attachment URLs to content if there are images
             if processed_attachments:
@@ -16170,28 +16414,16 @@ def create_ui_blueprint() -> Blueprint:
             if row['sender_id'] != user_id:
                 return jsonify({'error': 'You can only edit your own messages'}), 403
 
-            # Process new file attachments
-            processed_new_attachments = []
-            for attachment in new_attachments:
-                try:
-                    file_data = base64.b64decode(attachment['data'])
-                    file_info = file_manager.save_file(
-                        file_data,
-                        attachment['name'],
-                        attachment['type'],
-                        user_id
-                    )
-                    if file_info:
-                        processed_new_attachments.append({
-                            'id': file_info.id,
-                            'name': file_info.original_name,
-                            'type': file_info.content_type,
-                            'size': file_info.size,
-                            'url': file_info.url
-                        })
-                except Exception as e:
-                    logger.error(f"Failed to process new attachment {attachment.get('name', 'unknown')}: {e}")
-                    continue
+            processed_new_attachments, failed_new_attachments = _process_composer_attachments(
+                file_manager,
+                new_attachments,
+                user_id,
+            )
+            if failed_new_attachments:
+                failed_names = ', '.join(failed_new_attachments[:3])
+                if len(failed_new_attachments) > 3:
+                    failed_names += f' and {len(failed_new_attachments) - 3} more'
+                return jsonify({'error': f'Attachment upload failed for {failed_names}.'}), 400
 
             existing_meta = {}
             if row['metadata']:
@@ -18307,34 +18539,11 @@ def create_ui_blueprint() -> Blueprint:
                 if sec_error:
                     return jsonify({'error': sec_error}), 400
             
-            # Process file attachments if any
-            processed_attachments = []
-            failed_attachments = []
-            for attachment in file_attachments:
-                try:
-                    # Attachment should contain file data as base64
-                    file_data = base64.b64decode(attachment['data'])
-                    file_info = file_manager.save_file(
-                        file_data, 
-                        attachment['name'], 
-                        attachment['type'], 
-                        user_id
-                    )
-                    
-                    if file_info:
-                        processed_attachments.append({
-                            'id': file_info.id,
-                            'name': file_info.original_name,
-                            'type': file_info.content_type,
-                            'size': file_info.size,
-                            'url': file_info.url
-                        })
-                    else:
-                        failed_attachments.append(str(attachment.get('name') or 'attachment'))
-                except Exception as e:
-                    logger.error(f"Failed to process attachment {attachment.get('name', 'unknown')}: {e}")
-                    failed_attachments.append(str(attachment.get('name') or 'attachment'))
-                    continue
+            processed_attachments, failed_attachments = _process_composer_attachments(
+                file_manager,
+                file_attachments,
+                user_id,
+            )
 
             if failed_attachments:
                 failed_names = ', '.join(failed_attachments[:3])
@@ -19508,28 +19717,16 @@ def create_ui_blueprint() -> Blueprint:
                 if lock_reason:
                     return jsonify({'error': lock_reason}), 400
 
-            # Process new file attachments
-            processed_new_attachments = []
-            for attachment in new_attachments:
-                try:
-                    file_data = base64.b64decode(attachment['data'])
-                    file_info = file_manager.save_file(
-                        file_data,
-                        attachment['name'],
-                        attachment['type'],
-                        user_id
-                    )
-                    if file_info:
-                        processed_new_attachments.append({
-                            'id': file_info.id,
-                            'name': file_info.original_name,
-                            'type': file_info.content_type,
-                            'size': file_info.size,
-                            'url': file_info.url
-                        })
-                except Exception as e:
-                    logger.error(f"Failed to process new attachment {attachment.get('name', 'unknown')}: {e}")
-                    continue
+            processed_new_attachments, failed_new_attachments = _process_composer_attachments(
+                file_manager,
+                new_attachments,
+                user_id,
+            )
+            if failed_new_attachments:
+                failed_names = ', '.join(failed_new_attachments[:3])
+                if len(failed_new_attachments) > 3:
+                    failed_names += f' and {len(failed_new_attachments) - 3} more'
+                return jsonify({'error': f'Attachment upload failed for {failed_names}.'}), 400
 
             # Merge existing attachments (from request or DB) with new
             if attachments is None:

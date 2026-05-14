@@ -563,7 +563,16 @@ def _sanitize_stream_proxy_segment_name(value: Any) -> str:
     return candidate
 
 
-def _normalize_channel_attachments(raw_attachments: Any, file_manager: Any) -> list[dict[str, Any]]:
+class ChannelAttachmentAuthorizationError(ValueError):
+    """Raised when an API client references a file it is not allowed to attach."""
+
+
+def _normalize_channel_attachments(
+    raw_attachments: Any,
+    file_manager: Any,
+    *,
+    owner_user_id: Optional[str] = None,
+) -> list[dict[str, Any]]:
     """Canonicalize attachment payloads and hydrate metadata from file_id when possible."""
     if not isinstance(raw_attachments, list):
         return []
@@ -594,10 +603,12 @@ def _normalize_channel_attachments(raw_attachments: Any, file_manager: Any) -> l
         if alias_type:
             att['type'] = str(alias_type)
 
-        file_id = str(att.get('id') or att.get('file_id') or '').strip()
+        file_id = str(att.get('id') or att.get('file_id') or att.get('vault_file_id') or '').strip()
         if file_id:
             att['id'] = file_id
             att.setdefault('file_id', file_id)
+            if att.get('vault_file_id'):
+                att['vault_file_id'] = file_id
             try:
                 if file_manager:
                     file_info = file_manager.get_file(file_id)
@@ -606,6 +617,8 @@ def _normalize_channel_attachments(raw_attachments: Any, file_manager: Any) -> l
             except Exception:
                 file_info = None
             if file_info:
+                if owner_user_id and str(file_info.uploaded_by or '') != str(owner_user_id):
+                    raise ChannelAttachmentAuthorizationError('You can only attach files from your own Vault.')
                 if not att.get('name') or str(att.get('name')).strip().lower() in _GENERIC_UPLOAD_FILENAMES:
                     att['name'] = file_info.original_name
                 if not att.get('type') or str(att.get('type')).strip().lower() in _GENERIC_UPLOAD_CONTENT_TYPES:
@@ -10233,7 +10246,14 @@ def create_api_blueprint() -> Blueprint:
                         final_attachments = []
                 final_attachments = _normalize_channel_attachments(final_attachments, file_manager)
             else:
-                final_attachments = _normalize_channel_attachments(attachments, file_manager)
+                try:
+                    final_attachments = _normalize_channel_attachments(
+                        attachments,
+                        file_manager,
+                        owner_user_id=g.api_key_info.user_id,
+                    )
+                except ChannelAttachmentAuthorizationError as exc:
+                    return jsonify({'error': str(exc)}), 403
             final_source_layout = normalize_source_layout(data.get('source_layout'))
             if final_source_layout is None and row['source_layout']:
                 try:
@@ -11712,7 +11732,14 @@ def create_api_blueprint() -> Blueprint:
             
             content = data.get('content', '').strip()
             channel_id = data.get('channel_id')
-            attachments = _normalize_channel_attachments(data.get('attachments', []), file_manager)
+            try:
+                attachments = _normalize_channel_attachments(
+                    data.get('attachments', []),
+                    file_manager,
+                    owner_user_id=g.api_key_info.user_id,
+                )
+            except ChannelAttachmentAuthorizationError as exc:
+                return jsonify({'error': str(exc)}), 403
             parent_message_id = data.get('parent_message_id')
             security = data.get('security')
             from ..core.source_layout import normalize_source_layout

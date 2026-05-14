@@ -10340,6 +10340,13 @@
                                 <span class="sidebar-nav-text">Bookmarks</span>
                             </span>
                         </a>
+                        <a class="nav-link {% if request.endpoint == 'ui.vault_page' %}active{% endif %}"
+                           href="{{ url_for('ui.vault_page') }}" data-title="File Vault">
+                            <span class="sidebar-nav-label">
+                                <i class="bi bi-folder2-open"></i>
+                                <span class="sidebar-nav-text">File Vault</span>
+                            </span>
+                        </a>
                         {% if is_admin is defined and is_admin %}
                         <a class="nav-link {% if request.endpoint in ['ui.meshes_home', 'ui.meshspace_create', 'ui.meshspace_detail'] %}active{% endif %}"
                            href="{{ url_for('ui.meshes_home') }}" data-title="Meshes">
@@ -10893,6 +10900,9 @@
                 feed: {{ url_for('ui.feed')|tojson }},
                 channels: {{ url_for('ui.channels')|tojson }},
                 messages: {{ url_for('ui.messages')|tojson }},
+                vault: {{ url_for('ui.vault_page')|tojson }},
+                vaultFiles: {{ url_for('ui.ajax_vault_files')|tojson }},
+                vaultUpload: {{ url_for('ui.ajax_vault_upload')|tojson }},
                 trustNetwork: {{ url_for('ui.trust_management')|tojson }},
                 connect: {{ url_for('ui.connect_page')|tojson }},
                 sidebarAttentionSummary: {{ url_for('ui.ajax_sidebar_attention_summary')|tojson }},

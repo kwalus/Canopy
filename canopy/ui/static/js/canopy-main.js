@@ -232,6 +232,707 @@
             };
         })(window);
 
+        (function initCanopyVault(global) {
+            const DEFAULT_LIMIT = 80;
+            const CATEGORY_LABELS = {
+                images: 'Images',
+                videos: 'Video',
+                video: 'Video',
+                audio: 'Audio',
+                documents: 'Docs',
+                document: 'Docs',
+                other: 'Other'
+            };
+
+            function vaultUrls() {
+                const urls = (global.CANOPY_VARS && global.CANOPY_VARS.urls) || {};
+                return {
+                    files: urls.vaultFiles || '/ajax/vault/files',
+                    upload: urls.vaultUpload || '/ajax/vault/upload',
+                    page: urls.vault || '/vault'
+                };
+            }
+
+            function vaultEscape(value) {
+                return typeof canopyEscapeHtml === 'function' ? canopyEscapeHtml(value) : String(value == null ? '' : value)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function formatBytes(bytes) {
+                const value = Number(bytes || 0);
+                if (!Number.isFinite(value) || value <= 0) return '0 B';
+                const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+                let size = value;
+                let unitIndex = 0;
+                while (size >= 1024 && unitIndex < units.length - 1) {
+                    size /= 1024;
+                    unitIndex += 1;
+                }
+                const precision = size >= 10 || unitIndex === 0 ? 0 : 1;
+                return `${size.toFixed(precision)} ${units[unitIndex]}`;
+            }
+
+            function fileIcon(file) {
+                const type = String((file && (file.type || file.content_type)) || '').toLowerCase();
+                const name = String((file && (file.name || file.filename)) || '').toLowerCase();
+                if (type.startsWith('image/')) return 'bi-file-earmark-image';
+                if (type.startsWith('video/')) return 'bi-file-earmark-play';
+                if (type.startsWith('audio/')) return 'bi-file-earmark-music';
+                if (type.includes('pdf') || name.endsWith('.pdf')) return 'bi-file-earmark-pdf';
+                if (type.includes('spreadsheet') || type.includes('excel') || /\.(csv|tsv|xls|xlsx|xlsm|xlsb|ods|numbers)$/.test(name)) return 'bi-file-earmark-spreadsheet';
+                if (type.includes('presentation') || type.includes('powerpoint') || /\.(ppt|pptx|pptm|pps|ppsx|pot|potx|odp|key)$/.test(name)) return 'bi-file-earmark-slides';
+                if (type.includes('word') || /\.(doc|docx|docm|odt|rtf|pages)$/.test(name)) return 'bi-file-earmark-richtext';
+                if (/\.(zip|tar|gz|tgz|bz2|xz|7z|rar)$/.test(name)) return 'bi-file-earmark-zip';
+                if (/\.(py|js|ts|json|xml|html|css|sh|toml|yaml|yml|md|tex)$/.test(name)) return 'bi-file-earmark-code';
+                return 'bi-file-earmark';
+            }
+
+            function normalizedAttachment(file) {
+                const source = (file && file.attachment) ? file.attachment : (file || {});
+                const id = String(source.id || source.file_id || file?.id || '').trim();
+                if (!id) return null;
+                return {
+                    id,
+                    vault_file_id: id,
+                    name: source.name || source.filename || file?.name || file?.filename || id,
+                    type: source.type || source.content_type || file?.type || file?.content_type || 'application/octet-stream',
+                    size: Number(source.size || file?.size || 0) || 0,
+                    url: source.url || file?.url || `/files/${encodeURIComponent(id)}`,
+                    source: 'vault'
+                };
+            }
+
+            function renderVaultPreview(file) {
+                const type = String((file && (file.type || file.content_type)) || '').toLowerCase();
+                const thumb = file && (file.thumb_url || (type.startsWith('image/') ? file.url : ''));
+                if (thumb && type.startsWith('image/')) {
+                    return `<img src="${vaultEscape(thumb)}" alt="${vaultEscape(file.name || 'File preview')}" loading="lazy">`;
+                }
+                return `<i class="bi ${fileIcon(file)}"></i>`;
+            }
+
+            async function copyText(text, label) {
+                try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(text);
+                    } else {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.style.position = 'fixed';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        ta.remove();
+                    }
+                    if (typeof showAlert === 'function') showAlert(`${label || 'Text'} copied.`, 'success');
+                    return true;
+                } catch (_) {
+                    if (typeof showAlert === 'function') showAlert('Could not copy to clipboard.', 'warning');
+                    return false;
+                }
+            }
+
+            async function fetchVaultFiles({ q = '', category = '', offset = 0, limit = DEFAULT_LIMIT } = {}) {
+                const urls = vaultUrls();
+                const params = new URLSearchParams();
+                params.set('limit', String(limit));
+                params.set('offset', String(offset));
+                if (q) params.set('q', q);
+                if (category) params.set('category', category);
+                return apiCall(`${urls.files}?${params.toString()}`);
+            }
+
+            function ensureVaultStyle() {
+                if (document.getElementById('canopy-vault-picker-style')) return;
+                const style = document.createElement('style');
+                style.id = 'canopy-vault-picker-style';
+                style.textContent = `
+                    .canopy-vault-picker .modal-content {
+                        border: 1px solid var(--canopy-border);
+                        border-radius: 24px;
+                        background:
+                            radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--canopy-primary) 16%, transparent), transparent 34%),
+                            linear-gradient(135deg, color-mix(in srgb, var(--canopy-bg-card) 96%, transparent), var(--canopy-bg-secondary));
+                        color: var(--canopy-text-primary);
+                        box-shadow: 0 28px 70px rgba(0,0,0,0.38);
+                    }
+                    .canopy-vault-picker .modal-header,
+                    .canopy-vault-picker .modal-footer {
+                        border-color: var(--canopy-border);
+                    }
+                    .canopy-vault-picker-search {
+                        display: grid;
+                        grid-template-columns: minmax(0, 1fr) auto;
+                        gap: 0.6rem;
+                        align-items: center;
+                        margin-bottom: 0.75rem;
+                    }
+                    .canopy-vault-picker-search .form-control {
+                        border-radius: 14px;
+                        background: color-mix(in srgb, var(--canopy-bg-secondary) 86%, transparent);
+                        border-color: var(--canopy-border);
+                        color: var(--canopy-text-primary);
+                    }
+                    .canopy-vault-picker-filters {
+                        display: flex;
+                        gap: 0.4rem;
+                        flex-wrap: wrap;
+                        margin-bottom: 0.75rem;
+                    }
+                    .canopy-vault-picker-filter {
+                        border: 1px solid var(--canopy-border);
+                        border-radius: 999px;
+                        background: color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
+                        color: var(--canopy-text-secondary);
+                        padding: 0.35rem 0.65rem;
+                        font-weight: 750;
+                        font-size: 0.8rem;
+                    }
+                    .canopy-vault-picker-filter.active {
+                        background: var(--canopy-gradient-primary);
+                        color: #fff;
+                        border-color: transparent;
+                    }
+                    .canopy-vault-picker-grid {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+                        gap: 0.65rem;
+                        max-height: min(56vh, 560px);
+                        overflow: auto;
+                        padding-right: 0.2rem;
+                    }
+                    .canopy-vault-picker-file {
+                        display: grid;
+                        grid-template-columns: 52px minmax(0, 1fr);
+                        gap: 0.62rem;
+                        align-items: center;
+                        width: 100%;
+                        min-width: 0;
+                        text-align: left;
+                        border: 1px solid var(--canopy-border);
+                        border-radius: 16px;
+                        padding: 0.58rem;
+                        background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+                        color: var(--canopy-text-primary);
+                    }
+                    .canopy-vault-picker-file:hover,
+                    .canopy-vault-picker-file.is-selected {
+                        border-color: color-mix(in srgb, var(--canopy-primary) 70%, var(--canopy-border));
+                        background: color-mix(in srgb, var(--canopy-primary) 14%, var(--canopy-bg-card));
+                    }
+                    .canopy-vault-picker-thumb {
+                        width: 52px;
+                        height: 52px;
+                        border-radius: 13px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        overflow: hidden;
+                        color: var(--canopy-secondary);
+                        background: color-mix(in srgb, var(--canopy-bg-tertiary) 86%, transparent);
+                        font-size: 1.4rem;
+                    }
+                    .canopy-vault-picker-thumb img {
+                        width: 100%;
+                        height: 100%;
+                        object-fit: cover;
+                    }
+                    .canopy-vault-picker-name {
+                        font-weight: 850;
+                        line-height: 1.15;
+                        overflow: hidden;
+                        display: -webkit-box;
+                        -webkit-line-clamp: 2;
+                        -webkit-box-orient: vertical;
+                    }
+                    .canopy-vault-picker-meta {
+                        color: var(--canopy-text-muted);
+                        font-size: 0.76rem;
+                        margin-top: 0.22rem;
+                    }
+                    .canopy-vault-picker-empty {
+                        border: 1px dashed var(--canopy-border);
+                        border-radius: 18px;
+                        padding: 1.4rem;
+                        text-align: center;
+                        color: var(--canopy-text-secondary);
+                    }
+                    @media (max-width: 560px) {
+                        .canopy-vault-picker-search {
+                            grid-template-columns: 1fr;
+                        }
+                        .canopy-vault-picker-grid {
+                            grid-template-columns: 1fr;
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            function ensurePickerModal() {
+                ensureVaultStyle();
+                let modal = document.getElementById('canopy-vault-picker-modal');
+                if (modal) return modal;
+                modal = document.createElement('div');
+                modal.className = 'modal fade canopy-vault-picker';
+                modal.id = 'canopy-vault-picker-modal';
+                modal.tabIndex = -1;
+                modal.setAttribute('aria-labelledby', 'canopy-vault-picker-title');
+                modal.setAttribute('aria-hidden', 'true');
+                modal.innerHTML = `
+                    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <div>
+                                    <h5 class="modal-title" id="canopy-vault-picker-title">Attach from File Vault</h5>
+                                    <div class="text-muted small" data-vault-picker-subtitle>Private files become shared only when this composer sends them.</div>
+                                </div>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="canopy-vault-picker-search">
+                                    <input class="form-control" type="search" data-vault-picker-search placeholder="Search your vault" aria-label="Search your File Vault">
+                                    <a class="btn btn-outline-secondary" data-vault-picker-open-page href="${vaultEscape(vaultUrls().page)}">
+                                        <i class="bi bi-folder2-open"></i> Open Vault
+                                    </a>
+                                </div>
+                                <div class="canopy-vault-picker-filters" data-vault-picker-filters>
+                                    <button type="button" class="canopy-vault-picker-filter active" data-vault-picker-category="">All</button>
+                                    <button type="button" class="canopy-vault-picker-filter" data-vault-picker-category="documents">Docs</button>
+                                    <button type="button" class="canopy-vault-picker-filter" data-vault-picker-category="images">Images</button>
+                                    <button type="button" class="canopy-vault-picker-filter" data-vault-picker-category="video">Video</button>
+                                    <button type="button" class="canopy-vault-picker-filter" data-vault-picker-category="audio">Audio</button>
+                                    <button type="button" class="canopy-vault-picker-filter" data-vault-picker-category="other">Other</button>
+                                </div>
+                                <div class="canopy-vault-picker-grid" data-vault-picker-grid></div>
+                                <div class="canopy-vault-picker-empty" data-vault-picker-empty hidden>
+                                    <i class="bi bi-folder2-open d-block fs-2 mb-2"></i>
+                                    <strong>No vault files found.</strong>
+                                    <div>Open the Vault to upload files, then return to this composer.</div>
+                                </div>
+                            </div>
+                            <div class="modal-footer d-flex justify-content-between flex-wrap gap-2">
+                                <div class="text-muted small" data-vault-picker-count>0 selected</div>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <button type="button" class="btn btn-primary" data-vault-picker-confirm disabled>
+                                        <i class="bi bi-paperclip"></i> Attach
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                return modal;
+            }
+
+            const pickerState = {
+                files: [],
+                selected: new Map(),
+                onSelect: null,
+                multiple: true,
+                query: '',
+                category: '',
+                actionLabel: 'Attach',
+                title: 'Attach from File Vault',
+                loading: false,
+                timer: null,
+                requestSeq: 0
+            };
+
+            function selectedFilesArray() {
+                return Array.from(pickerState.selected.values()).map(file => normalizedAttachment(file)).filter(Boolean);
+            }
+
+            function updatePickerSelectionUi(modal) {
+                const count = pickerState.selected.size;
+                const countEl = modal.querySelector('[data-vault-picker-count]');
+                const confirm = modal.querySelector('[data-vault-picker-confirm]');
+                if (countEl) countEl.textContent = count ? `${count} selected` : 'No files selected';
+                if (confirm) {
+                    confirm.disabled = count === 0;
+                    confirm.innerHTML = `<i class="bi bi-paperclip"></i> ${vaultEscape(pickerState.actionLabel || 'Attach')}${count > 1 ? ` (${count})` : ''}`;
+                }
+                modal.querySelectorAll('[data-vault-picker-file]').forEach((btn) => {
+                    const id = btn.getAttribute('data-vault-picker-file') || '';
+                    btn.classList.toggle('is-selected', pickerState.selected.has(id));
+                    btn.setAttribute('aria-pressed', pickerState.selected.has(id) ? 'true' : 'false');
+                });
+            }
+
+            function renderPickerFiles(modal) {
+                const grid = modal.querySelector('[data-vault-picker-grid]');
+                const empty = modal.querySelector('[data-vault-picker-empty]');
+                if (!grid || !empty) return;
+                if (!pickerState.files.length) {
+                    grid.innerHTML = '';
+                    empty.hidden = false;
+                    updatePickerSelectionUi(modal);
+                    return;
+                }
+                empty.hidden = true;
+                grid.innerHTML = pickerState.files.map((file) => {
+                    const id = vaultEscape(file.id || '');
+                    const name = vaultEscape(file.name || file.filename || 'File');
+                    const type = vaultEscape(CATEGORY_LABELS[file.category] || file.category || file.type || 'File');
+                    const size = vaultEscape(formatBytes(file.size));
+                    const selected = pickerState.selected.has(String(file.id || '')) ? ' is-selected' : '';
+                    return `
+                        <button type="button" class="canopy-vault-picker-file${selected}" data-vault-picker-file="${id}" aria-pressed="${selected ? 'true' : 'false'}">
+                            <span class="canopy-vault-picker-thumb">${renderVaultPreview(file)}</span>
+                            <span class="min-w-0">
+                                <span class="canopy-vault-picker-name">${name}</span>
+                                <span class="canopy-vault-picker-meta">${type} · ${size}</span>
+                            </span>
+                        </button>
+                    `;
+                }).join('');
+                updatePickerSelectionUi(modal);
+            }
+
+            async function loadPickerFiles(modal) {
+                const requestSeq = pickerState.requestSeq + 1;
+                pickerState.requestSeq = requestSeq;
+                pickerState.loading = true;
+                const query = pickerState.query;
+                const category = pickerState.category;
+                const grid = modal.querySelector('[data-vault-picker-grid]');
+                if (grid) {
+                    grid.innerHTML = '<div class="canopy-vault-picker-empty"><span class="spinner-border spinner-border-sm me-2"></span>Loading vault files...</div>';
+                }
+                try {
+                    const data = await fetchVaultFiles({
+                        q: query,
+                        category,
+                        limit: DEFAULT_LIMIT
+                    });
+                    if (requestSeq !== pickerState.requestSeq) return;
+                    pickerState.files = Array.isArray(data.files) ? data.files : [];
+                    renderPickerFiles(modal);
+                } catch (error) {
+                    if (requestSeq !== pickerState.requestSeq) return;
+                    console.error('Vault picker load failed:', error);
+                    if (typeof showAlert === 'function') showAlert(error.error || 'Could not load File Vault.', 'danger');
+                    pickerState.files = [];
+                    renderPickerFiles(modal);
+                } finally {
+                    if (requestSeq === pickerState.requestSeq) {
+                        pickerState.loading = false;
+                    }
+                }
+            }
+
+            function bindPickerModal(modal) {
+                if (modal.dataset.vaultPickerBound === '1') return;
+                modal.dataset.vaultPickerBound = '1';
+                const search = modal.querySelector('[data-vault-picker-search]');
+                if (search) {
+                    search.addEventListener('input', () => {
+                        clearTimeout(pickerState.timer);
+                        pickerState.timer = global.setTimeout(() => {
+                            pickerState.query = search.value.trim();
+                            loadPickerFiles(modal);
+                        }, 180);
+                    });
+                }
+                modal.addEventListener('click', (event) => {
+                    const filter = event.target.closest('[data-vault-picker-category]');
+                    if (filter && modal.contains(filter)) {
+                        pickerState.category = filter.getAttribute('data-vault-picker-category') || '';
+                        modal.querySelectorAll('[data-vault-picker-category]').forEach(btn => {
+                            btn.classList.toggle('active', btn === filter);
+                        });
+                        loadPickerFiles(modal);
+                        return;
+                    }
+                    const item = event.target.closest('[data-vault-picker-file]');
+                    if (item && modal.contains(item)) {
+                        const id = item.getAttribute('data-vault-picker-file') || '';
+                        const file = pickerState.files.find(candidate => String(candidate.id || '') === id);
+                        if (!file) return;
+                        if (!pickerState.multiple) {
+                            pickerState.selected.clear();
+                            pickerState.selected.set(id, file);
+                        } else if (pickerState.selected.has(id)) {
+                            pickerState.selected.delete(id);
+                        } else {
+                            pickerState.selected.set(id, file);
+                        }
+                        updatePickerSelectionUi(modal);
+                    }
+                });
+                const confirm = modal.querySelector('[data-vault-picker-confirm]');
+                if (confirm) {
+                    confirm.addEventListener('click', () => {
+                        const selected = selectedFilesArray();
+                        if (!selected.length) return;
+                        if (typeof pickerState.onSelect === 'function') {
+                            pickerState.onSelect(selected);
+                        }
+                        const instance = bootstrap.Modal.getOrCreateInstance(modal);
+                        instance.hide();
+                    });
+                }
+                modal.addEventListener('hidden.bs.modal', () => {
+                    pickerState.selected.clear();
+                    pickerState.onSelect = null;
+                    updatePickerSelectionUi(modal);
+                });
+            }
+
+            function openPicker(options = {}) {
+                const modal = ensurePickerModal();
+                bindPickerModal(modal);
+                pickerState.files = [];
+                pickerState.selected.clear();
+                pickerState.onSelect = typeof options.onSelect === 'function' ? options.onSelect : null;
+                pickerState.multiple = options.multiple !== false;
+                pickerState.query = '';
+                pickerState.category = '';
+                pickerState.actionLabel = options.actionLabel || 'Attach';
+                pickerState.title = options.title || 'Attach from File Vault';
+                const titleEl = modal.querySelector('#canopy-vault-picker-title');
+                const search = modal.querySelector('[data-vault-picker-search]');
+                if (titleEl) titleEl.textContent = pickerState.title;
+                if (search) search.value = '';
+                modal.querySelectorAll('[data-vault-picker-category]').forEach((btn) => {
+                    btn.classList.toggle('active', !btn.getAttribute('data-vault-picker-category'));
+                });
+                updatePickerSelectionUi(modal);
+                bootstrap.Modal.getOrCreateInstance(modal).show(options.anchor || null);
+                loadPickerFiles(modal);
+            }
+
+            function renderVaultPageCard(file) {
+                const id = vaultEscape(file.id || '');
+                const name = vaultEscape(file.name || file.filename || 'File');
+                const type = vaultEscape(CATEGORY_LABELS[file.category] || file.category || file.type || 'File');
+                const size = vaultEscape(formatBytes(file.size));
+                const uploaded = vaultEscape(formatTimestamp(file.uploaded_at || ''));
+                const url = vaultEscape(file.url || `/files/${encodeURIComponent(file.id || '')}`);
+                return `
+                    <article class="vault-card" data-vault-file-id="${id}">
+                        <div class="vault-card-preview">${renderVaultPreview(file)}</div>
+                        <div class="vault-card-body">
+                            <div class="vault-file-name">${name}</div>
+                            <div class="vault-file-meta">
+                                <span class="vault-file-pill"><i class="bi ${fileIcon(file)}"></i>${type}</span>
+                                <span class="vault-file-pill">${size}</span>
+                                <span class="vault-file-pill">${uploaded || 'Recently'}</span>
+                            </div>
+                        </div>
+                        <div class="vault-card-actions">
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-action="copy" data-vault-id="${id}">
+                                <i class="bi bi-markdown"></i> Copy link
+                            </button>
+                            <a class="btn btn-sm btn-outline-secondary" href="${url}" target="_blank" rel="noopener">
+                                <i class="bi bi-box-arrow-up-right"></i> Open
+                            </a>
+                            <button class="btn btn-sm btn-outline-danger ms-auto" type="button" data-vault-action="delete" data-vault-id="${id}">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </article>
+                `;
+            }
+
+            function initVaultPage() {
+                const page = document.querySelector('[data-vault-page]');
+                if (!page) return;
+                const state = {
+                    files: Array.isArray(global.CANOPY_VAULT_INITIAL?.files) ? global.CANOPY_VAULT_INITIAL.files.slice() : [],
+                    stats: global.CANOPY_VAULT_INITIAL?.stats || {},
+                    query: '',
+                    category: '',
+                    offset: 0,
+                    limit: 48,
+                    loading: false,
+                    timer: null
+                };
+                const grid = document.getElementById('vault-grid');
+                const empty = document.getElementById('vault-empty');
+                const search = document.getElementById('vault-search');
+                const loadMore = document.getElementById('vault-load-more');
+                const uploadInput = document.getElementById('vault-upload-input');
+                const dropzone = document.getElementById('vault-dropzone');
+
+                function updateStats(stats) {
+                    const safeStats = stats || {};
+                    const byCategory = safeStats.by_category || {};
+                    const docs = Number(byCategory.documents?.count || 0);
+                    const media = Number(byCategory.images?.count || 0)
+                        + Number(byCategory.videos?.count || 0)
+                        + Number(byCategory.video?.count || 0)
+                        + Number(byCategory.audio?.count || 0);
+                    const countEl = document.getElementById('vault-stat-count');
+                    const bytesEl = document.getElementById('vault-stat-bytes');
+                    const docsEl = document.getElementById('vault-stat-docs');
+                    const mediaEl = document.getElementById('vault-stat-media');
+                    if (countEl) countEl.textContent = String(safeStats.count || 0);
+                    if (bytesEl) bytesEl.textContent = formatBytes(safeStats.bytes || 0);
+                    if (docsEl) docsEl.textContent = String(docs);
+                    if (mediaEl) mediaEl.textContent = String(media);
+                }
+
+                function render() {
+                    if (!grid || !empty) return;
+                    if (!state.files.length) {
+                        grid.innerHTML = '';
+                        empty.style.display = 'block';
+                    } else {
+                        empty.style.display = 'none';
+                        grid.innerHTML = state.files.map(renderVaultPageCard).join('');
+                    }
+                    updateStats(state.stats);
+                    if (loadMore) {
+                        loadMore.hidden = !(state.files.length && state.files.length % state.limit === 0);
+                    }
+                }
+
+                async function loadFiles({ append = false } = {}) {
+                    if (state.loading) return;
+                    state.loading = true;
+                    if (loadMore) {
+                        loadMore.disabled = true;
+                        loadMore.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Loading...';
+                    }
+                    try {
+                        const offset = append ? state.files.length : 0;
+                        const data = await fetchVaultFiles({
+                            q: state.query,
+                            category: state.category,
+                            offset,
+                            limit: state.limit
+                        });
+                        const nextFiles = Array.isArray(data.files) ? data.files : [];
+                        state.files = append ? state.files.concat(nextFiles) : nextFiles;
+                        state.stats = data.stats || state.stats || {};
+                        render();
+                    } catch (error) {
+                        console.error('Vault load failed:', error);
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not load vault files.', 'danger');
+                    } finally {
+                        state.loading = false;
+                        if (loadMore) {
+                            loadMore.disabled = false;
+                            loadMore.innerHTML = '<i class="bi bi-chevron-down"></i> Load more';
+                        }
+                    }
+                }
+
+                async function uploadFiles(fileList) {
+                    const files = Array.from(fileList || []).filter(Boolean);
+                    if (!files.length) return;
+                    const form = new FormData();
+                    files.forEach(file => form.append('files', file, file.name || 'upload'));
+                    if (dropzone) dropzone.classList.add('is-dragging');
+                    try {
+                        const data = await apiCall(vaultUrls().upload, {
+                            method: 'POST',
+                            body: form
+                        });
+                        const saved = Array.isArray(data.files) ? data.files.length : 0;
+                        const failed = Array.isArray(data.failed) ? data.failed.length : 0;
+                        if (saved && typeof showAlert === 'function') {
+                            showAlert(`${saved} file${saved === 1 ? '' : 's'} added to your vault${failed ? `; ${failed} failed` : ''}.`, failed ? 'warning' : 'success');
+                        }
+                        if (uploadInput) uploadInput.value = '';
+                        await loadFiles({ append: false });
+                    } catch (error) {
+                        console.error('Vault upload failed:', error);
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Upload failed.', 'danger');
+                    } finally {
+                        if (dropzone) dropzone.classList.remove('is-dragging');
+                    }
+                }
+
+                render();
+                if (search) {
+                    search.addEventListener('input', () => {
+                        clearTimeout(state.timer);
+                        state.timer = global.setTimeout(() => {
+                            state.query = search.value.trim();
+                            loadFiles({ append: false });
+                        }, 180);
+                    });
+                }
+                page.querySelectorAll('[data-vault-filter]').forEach((btn) => {
+                    btn.addEventListener('click', () => {
+                        state.category = btn.getAttribute('data-vault-filter') || '';
+                        page.querySelectorAll('[data-vault-filter]').forEach((other) => {
+                            other.classList.toggle('active', other === btn);
+                        });
+                        loadFiles({ append: false });
+                    });
+                });
+                const refreshBtn = document.getElementById('vault-refresh-btn');
+                if (refreshBtn) refreshBtn.addEventListener('click', () => loadFiles({ append: false }));
+                if (loadMore) loadMore.addEventListener('click', () => loadFiles({ append: true }));
+                if (dropzone && uploadInput) {
+                    dropzone.addEventListener('click', () => uploadInput.click());
+                    dropzone.addEventListener('keydown', (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            uploadInput.click();
+                        }
+                    });
+                    uploadInput.addEventListener('change', () => uploadFiles(uploadInput.files));
+                    ['dragenter', 'dragover'].forEach((eventName) => {
+                        dropzone.addEventListener(eventName, (event) => {
+                            event.preventDefault();
+                            dropzone.classList.add('is-dragging');
+                        });
+                    });
+                    ['dragleave', 'drop'].forEach((eventName) => {
+                        dropzone.addEventListener(eventName, (event) => {
+                            event.preventDefault();
+                            if (eventName === 'drop') uploadFiles(event.dataTransfer && event.dataTransfer.files);
+                            dropzone.classList.remove('is-dragging');
+                        });
+                    });
+                }
+                if (grid) {
+                    grid.addEventListener('click', async (event) => {
+                        const actionBtn = event.target.closest('[data-vault-action]');
+                        if (!actionBtn || !grid.contains(actionBtn)) return;
+                        const id = actionBtn.getAttribute('data-vault-id') || '';
+                        const file = state.files.find(candidate => String(candidate.id || '') === id);
+                        const action = actionBtn.getAttribute('data-vault-action') || '';
+                        if (!file) return;
+                        if (action === 'copy') {
+                            await copyText(file.markdown_link || `[${file.name || id}](/files/${id})`, 'Vault link');
+                        } else if (action === 'delete') {
+                            const ok = global.confirm(`Delete "${file.name || id}" from your local vault? This is only allowed before it is attached to content.`);
+                            if (!ok) return;
+                            try {
+                                await apiCall(`/ajax/vault/files/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                                state.files = state.files.filter(candidate => String(candidate.id || '') !== id);
+                                if (typeof showAlert === 'function') showAlert('Vault file deleted.', 'success');
+                                await loadFiles({ append: false });
+                            } catch (error) {
+                                if (typeof showAlert === 'function') showAlert(error.error || 'Could not delete vault file.', 'warning');
+                            }
+                        }
+                    });
+                }
+            }
+
+            global.CanopyVaultPicker = {
+                open: openPicker,
+                fetchFiles: fetchVaultFiles,
+                formatBytes,
+                normalizedAttachment
+            };
+
+            document.addEventListener('DOMContentLoaded', initVaultPage);
+        })(window);
+
         (function initCanopyDmRecipientDisclosure(global) {
             function parseRecipients(raw) {
                 if (!raw) return [];

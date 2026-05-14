@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import io
+import json
 from pathlib import Path
 
 # Ensure repository root is importable when running tests directly.
@@ -51,6 +52,9 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY)")
         self.conn.execute("INSERT INTO users (id) VALUES (?)", ('user-test',))
+        self.conn.execute("CREATE TABLE channel_messages (id TEXT PRIMARY KEY, attachments TEXT, content TEXT)")
+        self.conn.execute("CREATE TABLE feed_posts (id TEXT PRIMARY KEY, metadata TEXT, content TEXT)")
+        self.conn.execute("CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT, content TEXT)")
         self.conn.commit()
 
         self.file_manager = FileManager(_FakeDbManager(self.conn), str(self.storage_root))
@@ -180,6 +184,60 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
         thumb_bytes, _ = thumb
         opened = Image.open(io.BytesIO(thumb_bytes))
         self.assertGreater(opened.size[1], opened.size[0])
+
+    def test_user_file_vault_lists_searches_and_counts_owned_files(self) -> None:
+        self.conn.execute("INSERT INTO users (id) VALUES (?)", ('other-user',))
+        report = self.file_manager.save_file(
+            file_data=b"%PDF-1.5\nvault report\n",
+            original_name='vault-report.pdf',
+            content_type='application/pdf',
+            uploaded_by='user-test',
+        )
+        image = self.file_manager.save_file(
+            file_data=(
+                b'\x89PNG\r\n\x1a\n'
+                b'\x00\x00\x00\rIHDR'
+                b'\x00\x00\x00\x01\x00\x00\x00\x01'
+                b'\x08\x02\x00\x00\x00\x90wS\xde'
+                b'\x00\x00\x00\x00IEND\xaeB`\x82'
+            ),
+            original_name='diagram.png',
+            content_type='image/png',
+            uploaded_by='user-test',
+        )
+        other = self.file_manager.save_file(
+            file_data=b"not yours",
+            original_name='private-other.txt',
+            content_type='text/plain',
+            uploaded_by='other-user',
+        )
+        self.assertIsNotNone(report)
+        self.assertIsNotNone(image)
+        self.assertIsNotNone(other)
+
+        all_files = self.file_manager.list_user_files('user-test', limit=10)
+        self.assertEqual({f.original_name for f in all_files}, {'vault-report.pdf', 'diagram.png'})
+
+        searched = self.file_manager.list_user_files('user-test', query='report', limit=10)
+        self.assertEqual([f.original_name for f in searched], ['vault-report.pdf'])
+
+        images = self.file_manager.list_user_files('user-test', category='images', limit=10)
+        self.assertEqual([f.original_name for f in images], ['diagram.png'])
+
+        stats = self.file_manager.count_user_files('user-test')
+        self.assertEqual(stats['count'], 2)
+        self.assertEqual(stats['by_category']['documents']['count'], 1)
+        self.assertEqual(stats['by_category']['images']['count'], 1)
+
+    def test_vault_file_id_counts_as_existing_reference(self) -> None:
+        file_id = 'Fvaultref001'
+        self.conn.execute(
+            "INSERT INTO channel_messages (id, attachments, content) VALUES (?, ?, ?)",
+            ('M-vault', json.dumps([{'vault_file_id': file_id, 'name': 'vault.pdf'}]), ''),
+        )
+        self.conn.commit()
+
+        self.assertTrue(self.file_manager.is_file_referenced(file_id))
 
 
 if __name__ == '__main__':

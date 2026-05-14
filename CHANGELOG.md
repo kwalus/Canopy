@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.94] - 2026-05-13
+
+### Added
+- **User File Vault V1 adds private reusable uploads** - signed-in users now have a File Vault page with drag/drop upload, search, category filters, stats, file cards, copy/open/delete actions, and load-more controls.
+- **Composers can attach existing Vault files** - channel messages, feed posts, feed comments, DMs, and inline edit surfaces expose From Vault actions through a shared picker without making Vault files agent-readable or mesh-visible by default.
+
+### Fixed
+- **Vault attachment boundaries now match across UI and API paths** - channel API attachment normalization rejects local file IDs owned by another user, while access/reference checks recognize `vault_file_id` metadata and Vault deletes clean up resolved on-disk files.
+- **Vault picker behavior is more robust and accessible** - picker searches keep the latest request result, modal state is cleared after dismissal, File Vault buttons expose accessible labels, and comment attachment failures surface server errors.
+
 ## [0.6.93] - 2026-05-13
 
 ### Added
