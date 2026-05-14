@@ -10108,6 +10108,15 @@ def create_ui_blueprint() -> Blueprint:
                     'updated_at': None,
                     'updated_by': None,
                 }
+            backup_manager = current_app.config.get('BACKUP_MANAGER')
+            if backup_manager and hasattr(backup_manager, 'get_status'):
+                try:
+                    backup_status = backup_manager.get_status()
+                except Exception as backup_status_err:
+                    logger.warning("Failed to load instance backup status: %s", backup_status_err)
+                    backup_status = {'success': False, 'error': str(backup_status_err), 'settings': {}, 'backups': []}
+            else:
+                backup_status = {'success': False, 'error': 'Backup manager unavailable', 'settings': {}, 'backups': []}
 
             return render_template('admin.html',
                                  users=users,
@@ -10130,6 +10139,7 @@ def create_ui_blueprint() -> Blueprint:
                                  cross_peer_same_name_groups=cross_peer_same_name_groups,
                                  transport_security_admin=transport_security_admin,
                                  instance_llm_settings=instance_llm_settings,
+                                 backup_status=backup_status,
                                  directive_presets=_agent_directive_presets_payload(),
                                  directive_max_length=MAX_AGENT_DIRECTIVES_LENGTH,
                                  user_id=get_current_user())
@@ -22324,6 +22334,81 @@ def create_ui_blueprint() -> Blueprint:
         resp = jsonify({'success': True, 'landing': page})
         resp.set_cookie('canopy_landing', page, max_age=365 * 24 * 3600, samesite='Lax')
         return resp
+
+    def _get_backup_manager_or_response() -> tuple[Any, Optional[Any]]:
+        manager = current_app.config.get('BACKUP_MANAGER')
+        if not manager:
+            return None, (jsonify({'error': 'Instance backup manager is unavailable on this node'}), 503)
+        return manager, None
+
+    @ui.route('/ajax/admin/backups/status', methods=['GET'])
+    @require_admin
+    def ajax_admin_backups_status():
+        """AJAX: Return automatic instance backup status and recent snapshots."""
+        manager, error_response = _get_backup_manager_or_response()
+        if error_response:
+            return error_response
+        try:
+            return jsonify(manager.get_status())
+        except Exception as e:
+            logger.error("Backup status error: %s", e, exc_info=True)
+            return jsonify({'error': 'Could not load backup status'}), 500
+
+    @ui.route('/ajax/admin/backups/settings', methods=['POST'])
+    @require_admin
+    def ajax_admin_backups_settings():
+        """AJAX: Save automatic instance backup settings."""
+        manager, error_response = _get_backup_manager_or_response()
+        if error_response:
+            return error_response
+        try:
+            payload = request.get_json(silent=True) or {}
+            settings = manager.save_settings(payload)
+            return jsonify({
+                'success': True,
+                'message': 'Backup settings saved.',
+                'settings': settings,
+                'status': manager.get_status(),
+            })
+        except Exception as e:
+            logger.error("Backup settings save error: %s", e, exc_info=True)
+            return jsonify({'error': str(e) or 'Could not save backup settings'}), 400
+
+    @ui.route('/ajax/admin/backups/run', methods=['POST'])
+    @require_admin
+    def ajax_admin_backups_run():
+        """AJAX: Run a manual instance backup now."""
+        manager, error_response = _get_backup_manager_or_response()
+        if error_response:
+            return error_response
+        try:
+            result = manager.run_backup(trigger='manual')
+            status_code = 200 if result.get('success') else (409 if result.get('running') else 500)
+            return jsonify(result), status_code
+        except Exception as e:
+            logger.error("Manual backup run error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': str(e) or 'Could not run backup'}), 500
+
+    @ui.route('/ajax/admin/backups/download/<path:backup_name>', methods=['GET'])
+    @require_admin
+    def ajax_admin_backups_download(backup_name: str):
+        """AJAX: Download a previously generated instance backup ZIP."""
+        manager, error_response = _get_backup_manager_or_response()
+        if error_response:
+            return error_response
+        try:
+            backup_path = manager.resolve_backup_path(backup_name)
+            if not backup_path:
+                return jsonify({'error': 'Backup not found'}), 404
+            return send_file(
+                str(backup_path),
+                mimetype='application/zip',
+                as_attachment=True,
+                download_name=backup_path.name,
+            )
+        except Exception as e:
+            logger.error("Backup download error: %s", e, exc_info=True)
+            return jsonify({'error': 'Could not download backup'}), 500
 
     # Database management AJAX endpoints for Settings page
     @ui.route('/ajax/database_cleanup', methods=['POST'])

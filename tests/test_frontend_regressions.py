@@ -82,6 +82,39 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("manager.save_instance_settings(", ui_routes)
         self.assertIn("@ui.route('/ajax/admin/canopy_llm/settings'", ui_routes)
 
+    def test_admin_exposes_instance_backup_controls(self) -> None:
+        admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
+        ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+        app_core = (ROOT / 'canopy' / 'core' / 'app.py').read_text(encoding='utf-8')
+        backups_core = (ROOT / 'canopy' / 'core' / 'backups.py').read_text(encoding='utf-8')
+
+        self.assertIn('Automatic Instance Backups', admin_template)
+        self.assertIn('backup-enabled', admin_template)
+        self.assertIn('backup-root', admin_template)
+        self.assertIn('backup-interval-hours', admin_template)
+        self.assertIn('backup-retention-count', admin_template)
+        self.assertIn('backup-include-files', admin_template)
+        self.assertIn('backup-include-large-attachments', admin_template)
+        self.assertIn('function saveBackupSettings()', admin_template)
+        self.assertIn('function runBackupNow()', admin_template)
+        self.assertIn('function downloadLatestBackup()', admin_template)
+        self.assertIn('/ajax/admin/backups/status', admin_template)
+        self.assertIn('/ajax/admin/backups/settings', admin_template)
+        self.assertIn('/ajax/admin/backups/run', admin_template)
+        self.assertIn('/ajax/admin/backups/download/', admin_template)
+
+        self.assertIn("@ui.route('/ajax/admin/backups/status'", ui_routes)
+        self.assertIn("@ui.route('/ajax/admin/backups/settings'", ui_routes)
+        self.assertIn("@ui.route('/ajax/admin/backups/run'", ui_routes)
+        self.assertIn("@ui.route('/ajax/admin/backups/download/<path:backup_name>'", ui_routes)
+        self.assertIn("backup_status=backup_status", ui_routes)
+        self.assertIn('BACKUP_MANAGER', app_core)
+        self.assertIn('BackupManager', app_core)
+        self.assertIn('class BackupManager', backups_core)
+        self.assertIn('manifest.json', backups_core)
+        self.assertIn('database/canopy.db', backups_core)
+        self.assertIn('include_large_attachments', backups_core)
+
     def test_user_file_vault_ui_and_composer_picker_are_wired(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         vault_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'vault.html').read_text(encoding='utf-8')
@@ -2392,7 +2425,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.79', api_ref)
+        self.assertIn('0.6.104', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

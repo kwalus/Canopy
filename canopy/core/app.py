@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Optional, cast
 
 from .config import Config
+from .backups import BackupManager
 from .database import DatabaseManager
 from .logging_config import setup_logging
 from .files import FileManager
@@ -322,6 +323,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
         file_manager = FileManager(db_manager, files_dir)
         app.config['FILE_MANAGER'] = file_manager
         logger.info("File manager initialized successfully")
+
+        logger.info("Initializing instance backup manager...")
+        backup_manager = BackupManager(db_manager, file_manager, config)
+        app.config['BACKUP_MANAGER'] = backup_manager
+        logger.info("Instance backup manager initialized successfully")
 
         logger.info("Initializing interaction manager...")
         interaction_manager = InteractionManager(db_manager)
@@ -8428,6 +8434,10 @@ def create_app(config: Optional[Config] = None) -> Flask:
             logger.info(f"TTL maintenance loop started (interval={interval}s)")
 
         _start_maintenance_loop()
+        try:
+            backup_manager.start()
+        except Exception as backup_start_err:
+            logger.warning("Instance backup scheduler failed to start: %s", backup_start_err)
 
         logger.info("All core components initialized successfully")
         
@@ -8679,6 +8689,12 @@ def register_shutdown_handlers(app: Flask) -> None:
             meshspace_registry = app.config.get('MESHSPACE_REGISTRY_MANAGER')
             canopy_config = app.config.get('CANOPY_CONFIG')
             p2p_manager = app.config.get('P2P_MANAGER')
+            backup_manager = app.config.get('BACKUP_MANAGER')
+            if backup_manager and hasattr(backup_manager, 'stop'):
+                try:
+                    backup_manager.stop()
+                except Exception as backup_stop_err:
+                    logger.warning("Instance backup scheduler shutdown failed: %s", backup_stop_err)
             if meshspace_registry and canopy_config:
                 peer_id = None
                 try:

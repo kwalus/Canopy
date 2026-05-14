@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.104] - 2026-05-14
+
+### Added
+- **Automatic local instance backups** - admins can configure scheduled ZIP snapshots from the Admin data panel, including SQLite database snapshots, user files/File Vault storage, node recovery metadata, retention pruning, manual run/download controls, and an optional external large-attachment store pass. Backup artifacts are local-only, ignored by Git, and excluded from recursive file snapshots when the backup folder sits inside Canopy file storage.
+
+### Changed
+- **Public-release documentation cleanup** - README, API reference, MCP quick start, agent onboarding, mentions, and the private release audit now reflect the current `0.6.104` File Vault, MCP Vault tooling, Bedrock compose, Vault-link hydration, and automatic-backup surface.
+
 ## [0.6.103] - 2026-05-14
 
 ### Changed

@@ -109,6 +109,121 @@
     margin-top: 0.25rem;
 }
 
+.backup-shell {
+    border: 1px solid rgba(60, 214, 178, 0.26);
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 12% 0%, rgba(48, 214, 177, 0.18), transparent 28%),
+        linear-gradient(145deg, rgba(9, 24, 42, 0.94), rgba(11, 20, 38, 0.9));
+    padding: 1rem;
+    box-shadow: 0 20px 46px rgba(3, 9, 24, 0.34);
+}
+
+.backup-topline {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+
+.backup-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid rgba(122, 151, 215, 0.24);
+    background: rgba(10, 22, 38, 0.72);
+    color: #d9e7ff;
+    font-size: 0.76rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.backup-status-pill.enabled {
+    border-color: rgba(64, 220, 164, 0.45);
+    color: #8df5d0;
+    background: rgba(19, 112, 87, 0.18);
+}
+
+.backup-status-pill.paused {
+    border-color: rgba(250, 204, 21, 0.42);
+    color: #fde68a;
+    background: rgba(113, 80, 13, 0.2);
+}
+
+.backup-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+    gap: 0.65rem;
+    margin: 0.9rem 0;
+}
+
+.backup-kpi {
+    border: 1px solid rgba(122, 151, 215, 0.22);
+    border-radius: 14px;
+    padding: 0.72rem 0.78rem;
+    background: rgba(11, 23, 41, 0.72);
+}
+
+.backup-kpi-label {
+    font-size: 0.66rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #8ea3c0;
+    margin-bottom: 0.22rem;
+}
+
+.backup-kpi-value {
+    font-size: 0.98rem;
+    font-weight: 750;
+    color: #eef5ff;
+    word-break: break-word;
+}
+
+.backup-settings-panel,
+.backup-list-panel,
+.manual-db-panel {
+    border: 1px solid rgba(122, 151, 215, 0.2);
+    border-radius: 16px;
+    background: rgba(8, 18, 32, 0.58);
+    padding: 0.9rem;
+}
+
+.backup-list {
+    display: grid;
+    gap: 0.55rem;
+    max-height: 260px;
+    overflow: auto;
+    padding-right: 0.15rem;
+}
+
+.backup-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+    border: 1px solid rgba(122, 151, 215, 0.18);
+    border-radius: 12px;
+    background: rgba(13, 27, 48, 0.74);
+    padding: 0.6rem 0.7rem;
+}
+
+.backup-list-item code {
+    color: #e5f0ff;
+    word-break: break-all;
+}
+
+.backup-security-note {
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    background: rgba(120, 71, 8, 0.16);
+    color: #ffe9b3;
+    border-radius: 14px;
+    padding: 0.72rem 0.85rem;
+}
+
 .workspace-event-counts {
     display: flex;
     flex-wrap: wrap;
@@ -2632,45 +2747,184 @@
     </div>
 </div>
 
+{% set backup = backup_status if backup_status is defined and backup_status else {} %}
+{% set backup_settings = backup.get('settings', {}) if backup else {} %}
+{% set recent_backups = backup.get('backups', []) if backup else [] %}
 <div class="card mb-4 admin-section-data">
     <div class="card-header">
-        <h5 class="mb-0"><i class="bi bi-tools"></i> Data Operations</h5>
+        <h5 class="mb-0"><i class="bi bi-shield-check"></i> Data Operations & Backups</h5>
     </div>
     <div class="card-body">
         <p class="text-muted small mb-3">
-            Instance-wide maintenance and destructive operations belong here, not in personal settings.
+            Protect this node's local database, uploaded files, Vault files, and recovery metadata with local admin-controlled snapshots.
         </p>
-        <div class="row g-3">
-            <div class="col-md-3">
-                <div class="d-grid">
-                    <button class="btn btn-outline-warning" id="cleanup-db-btn" onclick="cleanupDatabase()">
-                        <i class="bi bi-trash"></i> Cleanup Database
+
+        <div class="backup-shell mb-3" id="backup-panel">
+            <div class="backup-topline">
+                <div>
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                        <h6 class="mb-0">Automatic Instance Backups</h6>
+                        <span class="backup-status-pill {{ 'enabled' if backup_settings.get('enabled') else 'paused' }}" id="backup-status-pill">
+                            <i class="bi {{ 'bi-check-circle' if backup_settings.get('enabled') else 'bi-pause-circle' }}"></i>
+                            {{ 'Enabled' if backup_settings.get('enabled') else 'Paused' }}
+                        </span>
+                    </div>
+                    <div class="text-muted small mt-1">
+                        ZIP snapshots are stored locally; they are not published to the mesh.
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-success btn-sm" id="backup-run-btn" onclick="runBackupNow()">
+                        <i class="bi bi-lightning-charge"></i> Run Backup Now
                     </button>
-                    <small class="text-muted mt-1">Remove old messages and expired data</small>
+                    <button class="btn btn-outline-info btn-sm" id="backup-download-latest-btn" onclick="downloadLatestBackup()" {% if not recent_backups %}disabled{% endif %}>
+                        <i class="bi bi-download"></i> Download Latest
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" id="backup-refresh-btn" onclick="loadBackupStatus()">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="d-grid">
-                    <button class="btn btn-outline-info" id="export-data-btn" onclick="exportData()">
-                        <i class="bi bi-download"></i> Export Data
-                    </button>
-                    <small class="text-muted mt-1">Download the local database for backup</small>
+
+            <div class="backup-kpi-grid">
+                <div class="backup-kpi">
+                    <div class="backup-kpi-label">Last Backup</div>
+                    <div class="backup-kpi-value" id="backup-last-success">{{ backup.get('last_success_at') or 'Never' }}</div>
+                </div>
+                <div class="backup-kpi">
+                    <div class="backup-kpi-label">Next Scheduled</div>
+                    <div class="backup-kpi-value" id="backup-next-due">{{ backup.get('next_due_at') or 'Paused' }}</div>
+                </div>
+                <div class="backup-kpi">
+                    <div class="backup-kpi-label">Snapshots</div>
+                    <div class="backup-kpi-value" id="backup-count">{{ backup.get('backup_count', 0) }}</div>
+                </div>
+                <div class="backup-kpi">
+                    <div class="backup-kpi-label">Storage Used</div>
+                    <div class="backup-kpi-value" id="backup-storage-used">-</div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="d-grid">
-                    <button class="btn btn-outline-danger" id="import-data-btn" onclick="openImportDataPicker()">
-                        <i class="bi bi-upload"></i> Import Data
-                    </button>
-                    <small class="text-muted mt-1">Replace the local database from a backup file</small>
+
+            <div class="row g-3">
+                <div class="col-xl-7">
+                    <div class="backup-settings-panel h-100">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <div>
+                                <div class="fw-semibold">Schedule & Scope</div>
+                                <div class="text-muted small">Keep retention conservative unless this node has a large backup disk.</div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="backup-save-settings-btn" onclick="saveBackupSettings()">
+                                <i class="bi bi-check2"></i> Save Settings
+                            </button>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-12">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="backup-enabled" {% if backup_settings.get('enabled') %}checked{% endif %}>
+                                    <label class="form-check-label" for="backup-enabled">Enable scheduled automatic backups</label>
+                                </div>
+                            </div>
+                            <div class="col-md-8">
+                                <label for="backup-root" class="form-label">Backup Folder</label>
+                                <input type="text" class="form-control" id="backup-root" value="{{ backup_settings.get('backup_root', '') }}" placeholder="/path/to/canopy-backups">
+                            </div>
+                            <div class="col-md-2">
+                                <label for="backup-interval-hours" class="form-label">Every</label>
+                                <input type="number" min="1" max="720" step="1" class="form-control" id="backup-interval-hours" value="{{ backup_settings.get('interval_hours', 24) }}">
+                                <small class="text-muted">hours</small>
+                            </div>
+                            <div class="col-md-2">
+                                <label for="backup-retention-count" class="form-label">Keep</label>
+                                <input type="number" min="1" max="60" step="1" class="form-control" id="backup-retention-count" value="{{ backup_settings.get('retention_count', 5) }}">
+                                <small class="text-muted">snapshots</small>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="backup-include-files" {% if backup_settings.get('include_files', True) %}checked{% endif %}>
+                                    <label class="form-check-label" for="backup-include-files">Include user files and File Vault storage</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="backup-include-large-attachments" {% if backup_settings.get('include_large_attachments') %}checked{% endif %}>
+                                    <label class="form-check-label" for="backup-include-large-attachments">Include external large-attachment store</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="backup-security-note small mt-3">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            Backup ZIPs may contain private messages, Vault files, API-key metadata, peer identity, and recovery secrets. Store them on encrypted storage and restrict filesystem access.
+                        </div>
+                        <div id="backup-settings-status" class="small text-muted mt-2"></div>
+                    </div>
+                </div>
+                <div class="col-xl-5">
+                    <div class="backup-list-panel h-100">
+                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                            <div>
+                                <div class="fw-semibold">Recent Snapshots</div>
+                                <div class="text-muted small" id="backup-root-display">{{ backup_settings.get('backup_root', '') }}</div>
+                            </div>
+                        </div>
+                        <div id="backup-list" class="backup-list">
+                            {% if recent_backups %}
+                                {% for item in recent_backups %}
+                                    <div class="backup-list-item" data-backup-name="{{ item.get('name') }}">
+                                        <div>
+                                            <code>{{ item.get('name') }}</code>
+                                            <div class="text-muted small">{{ item.get('created_at') }} · {{ item.get('size_bytes', 0) }} bytes</div>
+                                        </div>
+                                        <button class="btn btn-outline-info btn-sm" onclick='downloadBackup({{ item.get("name")|tojson }})'>
+                                            <i class="bi bi-download"></i>
+                                        </button>
+                                    </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="text-muted small">No instance backup snapshots yet.</div>
+                            {% endif %}
+                        </div>
+                    </div>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="d-grid">
-                    <button class="btn btn-outline-danger" id="reset-system-btn" onclick="resetSystem()">
-                        <i class="bi bi-arrow-clockwise"></i> Reset System
-                    </button>
-                    <small class="text-muted mt-1">Clear all local Canopy data and start fresh</small>
+        </div>
+
+        <div class="manual-db-panel">
+            <h6 class="mb-2">Manual Database Operations</h6>
+            <p class="text-muted small mb-3">
+                These tools remain database-only and are useful for emergency migration or destructive maintenance.
+            </p>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="d-grid">
+                        <button class="btn btn-outline-warning" id="cleanup-db-btn" onclick="cleanupDatabase()">
+                            <i class="bi bi-trash"></i> Cleanup Database
+                        </button>
+                        <small class="text-muted mt-1">Remove old messages and expired data</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="d-grid">
+                        <button class="btn btn-outline-info" id="export-data-btn" onclick="exportData()">
+                            <i class="bi bi-download"></i> Export DB
+                        </button>
+                        <small class="text-muted mt-1">Download database only</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="d-grid">
+                        <button class="btn btn-outline-danger" id="import-data-btn" onclick="openImportDataPicker()">
+                            <i class="bi bi-upload"></i> Import DB
+                        </button>
+                        <small class="text-muted mt-1">Replace database from a .db file</small>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="d-grid">
+                        <button class="btn btn-outline-danger" id="reset-system-btn" onclick="resetSystem()">
+                            <i class="bi bi-arrow-clockwise"></i> Reset System
+                        </button>
+                        <small class="text-muted mt-1">Clear all local Canopy data and start fresh</small>
+                    </div>
                 </div>
             </div>
         </div>
@@ -3736,6 +3990,186 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         });
     }
 
+    let latestBackupName = '';
+
+    function formatBackupBytes(bytes) {
+        const value = Number(bytes || 0);
+        if (!Number.isFinite(value) || value <= 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = value;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex += 1;
+        }
+        return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+    }
+
+    function formatBackupDate(value) {
+        if (!value) return 'Never';
+        if (String(value).toLowerCase() === 'due now') return 'Due now';
+        const dt = new Date(value);
+        if (Number.isNaN(dt.getTime())) return String(value);
+        return dt.toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+        });
+    }
+
+    function escapeBackupHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, ch => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+        }[ch]));
+    }
+
+    function renderBackupStatus(payload) {
+        if (!payload || !payload.settings) return;
+        const settings = payload.settings || {};
+        const enabled = !!settings.enabled;
+        const pill = document.getElementById('backup-status-pill');
+        if (pill) {
+            pill.classList.toggle('enabled', enabled);
+            pill.classList.toggle('paused', !enabled);
+            pill.innerHTML = `<i class="bi ${enabled ? 'bi-check-circle' : 'bi-pause-circle'}"></i> ${enabled ? 'Enabled' : 'Paused'}`;
+        }
+
+        const enabledInput = document.getElementById('backup-enabled');
+        const rootInput = document.getElementById('backup-root');
+        const intervalInput = document.getElementById('backup-interval-hours');
+        const retentionInput = document.getElementById('backup-retention-count');
+        const includeFilesInput = document.getElementById('backup-include-files');
+        const includeLargeInput = document.getElementById('backup-include-large-attachments');
+        if (enabledInput) enabledInput.checked = enabled;
+        if (rootInput) rootInput.value = settings.backup_root || '';
+        if (intervalInput) intervalInput.value = settings.interval_hours || 24;
+        if (retentionInput) retentionInput.value = settings.retention_count || 5;
+        if (includeFilesInput) includeFilesInput.checked = settings.include_files !== false;
+        if (includeLargeInput) includeLargeInput.checked = !!settings.include_large_attachments;
+
+        const lastSuccess = document.getElementById('backup-last-success');
+        const nextDue = document.getElementById('backup-next-due');
+        const backupCount = document.getElementById('backup-count');
+        const storageUsed = document.getElementById('backup-storage-used');
+        const rootDisplay = document.getElementById('backup-root-display');
+        if (lastSuccess) lastSuccess.textContent = formatBackupDate(payload.last_success_at);
+        if (nextDue) nextDue.textContent = enabled ? formatBackupDate(payload.next_due_at) : 'Paused';
+        if (backupCount) backupCount.textContent = String(payload.backup_count || 0);
+        if (storageUsed) storageUsed.textContent = formatBackupBytes(payload.backup_root_size_bytes);
+        if (rootDisplay) rootDisplay.textContent = settings.backup_root || '';
+
+        const backups = Array.isArray(payload.backups) ? payload.backups : [];
+        latestBackupName = backups.length ? String(backups[0].name || '') : '';
+        const latestBtn = document.getElementById('backup-download-latest-btn');
+        if (latestBtn) latestBtn.disabled = !latestBackupName;
+        const list = document.getElementById('backup-list');
+        if (list) {
+            if (!backups.length) {
+                list.innerHTML = '<div class="text-muted small">No instance backup snapshots yet.</div>';
+            } else {
+                list.innerHTML = backups.map(item => {
+                    const name = String(item.name || '');
+                    const safeName = escapeBackupHtml(name);
+                    return `
+                        <div class="backup-list-item" data-backup-name="${safeName}">
+                            <div>
+                                <code>${safeName}</code>
+                                <div class="text-muted small">${formatBackupDate(item.created_at)} · ${formatBackupBytes(item.size_bytes)}</div>
+                            </div>
+                            <button class="btn btn-outline-info btn-sm" data-backup-download="${safeName}">
+                                <i class="bi bi-download"></i>
+                            </button>
+                        </div>
+                    `;
+                }).join('');
+                list.querySelectorAll('[data-backup-download]').forEach(btn => {
+                    btn.addEventListener('click', () => downloadBackup(btn.getAttribute('data-backup-download') || ''));
+                });
+            }
+        }
+        const statusLine = document.getElementById('backup-settings-status');
+        if (statusLine && payload.last_error) {
+            statusLine.textContent = `Last error: ${payload.last_error}`;
+            statusLine.classList.remove('text-muted', 'text-success');
+            statusLine.classList.add('text-danger');
+        }
+    }
+
+    async function loadBackupStatus() {
+        try {
+            const { ok, data } = await api('GET', '/ajax/admin/backups/status');
+            if (!ok) throw new Error(data.error || data.message || 'Could not load backup status');
+            renderBackupStatus(data);
+        } catch (err) {
+            const statusLine = document.getElementById('backup-settings-status');
+            if (statusLine) {
+                statusLine.textContent = 'Backup status unavailable: ' + extractErrorMessage(err, 'Unknown error');
+                statusLine.classList.remove('text-muted', 'text-success');
+                statusLine.classList.add('text-danger');
+            }
+        }
+    }
+
+    async function saveBackupSettings() {
+        const payload = {
+            enabled: !!document.getElementById('backup-enabled')?.checked,
+            backup_root: document.getElementById('backup-root')?.value || '',
+            interval_hours: Number(document.getElementById('backup-interval-hours')?.value || 24),
+            retention_count: Number(document.getElementById('backup-retention-count')?.value || 5),
+            include_files: document.getElementById('backup-include-files')?.checked !== false,
+            include_large_attachments: !!document.getElementById('backup-include-large-attachments')?.checked,
+        };
+        setButtonBusy('backup-save-settings-btn', true, '<i class="bi bi-hourglass-split"></i> Saving...');
+        try {
+            const { ok, data } = await api('POST', '/ajax/admin/backups/settings', payload);
+            if (!ok || !data.success) throw new Error(data.error || data.message || 'Could not save backup settings');
+            renderBackupStatus(data.status || { settings: data.settings, backups: [] });
+            showAlert(data.message || 'Backup settings saved.', 'success');
+            const statusLine = document.getElementById('backup-settings-status');
+            if (statusLine) {
+                statusLine.textContent = 'Backup settings saved.';
+                statusLine.classList.remove('text-danger', 'text-muted');
+                statusLine.classList.add('text-success');
+            }
+        } catch (err) {
+            showAlert('Backup settings failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+        } finally {
+            setButtonBusy('backup-save-settings-btn', false);
+        }
+    }
+
+    async function runBackupNow() {
+        setButtonBusy('backup-run-btn', true, '<i class="bi bi-hourglass-split"></i> Backing up...');
+        try {
+            const { ok, status, data } = await api('POST', '/ajax/admin/backups/run', {});
+            if (!ok || !data.success) {
+                const prefix = status === 409 ? 'Backup already running' : 'Backup failed';
+                throw new Error(data.error || data.message || prefix);
+            }
+            showAlert(`Backup created: ${data.backup_name || 'snapshot'}`, 'success');
+            await loadBackupStatus();
+        } catch (err) {
+            showAlert('Backup failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+        } finally {
+            setButtonBusy('backup-run-btn', false);
+        }
+    }
+
+    function downloadBackup(name) {
+        const cleanName = String(name || '').trim();
+        if (!cleanName) return;
+        window.location.href = `/ajax/admin/backups/download/${encodeURIComponent(cleanName)}`;
+    }
+
+    function downloadLatestBackup() {
+        if (latestBackupName) downloadBackup(latestBackupName);
+    }
+
     async function cleanupDatabase() {
         if (!confirm('This will remove old messages and expired data older than 30 days.\n\nYour recent messages and data will be preserved. Continue?')) return;
         setButtonBusy('cleanup-db-btn', true, '<i class="bi bi-hourglass-split"></i> Cleaning...');
@@ -4157,6 +4591,11 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     window.exportData = exportData;
     window.openImportDataPicker = openImportDataPicker;
     window.resetSystem = resetSystem;
+    window.loadBackupStatus = loadBackupStatus;
+    window.saveBackupSettings = saveBackupSettings;
+    window.runBackupNow = runBackupNow;
+    window.downloadBackup = downloadBackup;
+    window.downloadLatestBackup = downloadLatestBackup;
     window.updateRelayPolicy = updateRelayPolicy;
     window.saveLargeAttachmentSettings = saveLargeAttachmentSettings;
 
@@ -4167,6 +4606,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             if (file) importDatabaseFile(file);
         });
     }
+    loadBackupStatus();
     loadRelayStatus();
     bindTransportSecurityAdmin();
 

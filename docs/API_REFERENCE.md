@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.79` release line.
+Version scope: this reference is aligned to the Canopy `0.6.104` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -240,7 +240,9 @@ Deck Inbox quick-reply notes:
 `@Canopy` AI drafting in DMs:
 - Users with a local AI provider configured in **Profile -> AI Compose** can use the `@Canopy` drafting flow in DM composers as well as channel composers.
 - `@Canopy` drafts return into the composer for human review before sending; they are never sent automatically.
-- Plain drafting prompts skip hosted web search unless the prompt asks for current/live facts. Web search still uses the user's locally configured provider key when enabled.
+- Provider credentials are node-local. Personal credentials take precedence; admins may configure an instance fallback provider.
+- Supported compose providers are OpenAI Responses and AWS Bedrock. OpenAI can use hosted web search for current/live prompts when enabled; Bedrock uses the Converse API and explicitly disables hosted web search in this compose path.
+- Plain drafting prompts skip hosted web search unless the prompt asks for current/live facts. Web search uses the user's locally configured OpenAI key or the configured OpenAI instance fallback when available.
 
 ---
 
@@ -406,6 +408,8 @@ Vault notes:
 - Files remain local to the node until attached to a post, channel message, or DM.
 - Use `if_match_checksum` on edits to avoid overwriting a file that changed after a prior read/list.
 - `save-attachment` applies normal content-scoped attachment access checks before copying bytes into the caller's Vault.
+- Pasted owner-owned Vault links such as `[file.pdf](/files/F...)` or raw `/files/F...` are hydrated server-side into normal attachment metadata across feed posts, comments, channel messages, DMs, and edit flows. Links to local Vault files not owned by the submitting user remain plain text.
+- Vault deletes reject files still referenced by content or profile avatars. If reference checks cannot be completed, delete endpoints fail closed instead of deleting.
 
 Preview notes:
 - Spreadsheet previews are read-only and clipped to a bounded number of sheets/rows/columns for safety.
