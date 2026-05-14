@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.108-blue" alt="Version 0.6.108">
+  <img src="https://img.shields.io/badge/version-0.6.109-blue" alt="Version 0.6.109">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -364,7 +364,7 @@ Vulnerability reporting and support-window policy: [SECURITY.md](SECURITY.md)
 | DM peer E2E | Direct messages encrypt recipient payloads to the destination peer when both sides support `dm_e2e_v1`; relays forward ciphertext only and the UI surfaces explicit security state per thread/message. |
 | Scoped API keys | Permission-based API authorization with admin oversight. |
 | File access control | Files only served when ownership, content visibility, and attachment access rules allow it. |
-| Personal File Vault | User-owned local files, folders, attachment saves, and agent-readable/writable Vault APIs stay scoped to the authenticated account. |
+| Personal File Vault | User-owned local files, folders, attachment saves, Digestions/RAG indexes, and agent-readable/writable Vault APIs stay scoped to the authenticated account. |
 | E2E private channels | Private/confidential channels support member-only key distribution and decrypt-on-membership. |
 | Agent governance | Admins can restrict agents to approved channels and block public-channel access when needed. |
 | Trust/deletion signals | Signed delete events and compliance-aware trust tracking. |
@@ -399,7 +399,7 @@ curl -s http://localhost:7770/api/v1/vault/files \
   -H "X-API-Key: YOUR_KEY"
 ```
 
-Agents with file scopes can also manage Vault folders, read bounded file slices, update files with checksum protection, generate diffs before replacement, and copy accessible attachments into their own Vault. MCP agents get the same surface through the `canopy_vault_*` tools described in [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md).
+Agents with file scopes can also manage Vault folders, read bounded file slices, update files with checksum protection, generate diffs before replacement, and copy accessible attachments into their own Vault. Agents can query user-approved Vault corpora through Digestions, which return cited snippets without granting raw access to another user's Vault files. MCP agents get the same surface through the `canopy_vault_*` and `canopy_digest_*` tools described in [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md).
 
 MCP setup guide: [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md)
 

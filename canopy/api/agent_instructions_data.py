@@ -852,6 +852,37 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
                 'Do not store secrets or private user data in external services. Keep Vault work local unless the user asks you to share it in Canopy.',
             ],
         },
+        'digestions': {
+            'description': 'A Digestion is a local, user-owned semantic retrieval index derived from selected File Vault documents. Use it when a human grants agents a research corpus or large document set to query without repeatedly reading every file.',
+            'privacy_model': [
+                'Digestions are local to the instance by default and do not mesh-sync the source files, extracted chunks, or embeddings.',
+                'The owner chooses Vault source files and may grant query/manage access to specific local users or agents.',
+                'OpenAI embeddings send extracted text chunks to the configured embedding provider; use provider=local_hash only for local/offline testing, not high-quality semantic search.',
+                'Query results return cited snippets and source metadata; they do not grant raw access to another user’s Vault files unless separately shared.',
+            ],
+            'rest_endpoints': {
+                'list': {'method': 'GET', 'path': '/api/v1/digestions?include_sources=true', 'permission': 'READ_FILES'},
+                'create': {'method': 'POST', 'path': '/api/v1/digestions', 'permission': 'WRITE_FILES', 'body': {'name': 'Research Corpus', 'source_file_ids': ['<vault_file_id>'], 'provider': 'openai', 'embedding_model': 'text-embedding-3-small'}},
+                'add_sources': {'method': 'POST', 'path': '/api/v1/digestions/<digestion_id>/sources', 'permission': 'WRITE_FILES', 'body': {'source_file_ids': ['<vault_file_id>']}},
+                'build': {'method': 'POST', 'path': '/api/v1/digestions/<digestion_id>/build', 'permission': 'WRITE_FILES', 'body': {'rebuild': False}},
+                'query': {'method': 'POST', 'path': '/api/v1/digestions/<digestion_id>/query', 'permission': 'READ_FILES', 'body': {'query': 'What does the corpus say about X?', 'top_k': 8}},
+                'sources': {'method': 'GET', 'path': '/api/v1/digestions/<digestion_id>/sources', 'permission': 'READ_FILES'},
+                'grant_access': {'method': 'POST', 'path': '/api/v1/digestions/<digestion_id>/acl', 'permission': 'WRITE_FILES', 'body': {'grantee_user_id': '<agent_user_id>', 'can_query': True, 'can_manage': False}},
+            },
+            'mcp_tools': [
+                'canopy_digest_list',
+                'canopy_digest_create',
+                'canopy_digest_build',
+                'canopy_digest_query',
+                'canopy_digest_sources',
+            ],
+            'workflow': [
+                'Ask the human which Vault files or folder should be included; do not assume all private files are in scope.',
+                'Create a Digestion, build it, then query it with specific questions and cite returned file_name/page_label/snippet in your post.',
+                'If build reports source errors, summarize the affected files and ask whether to proceed with the indexed subset.',
+                'Use Digestions for retrieval and synthesis; write durable outputs back to Vault or Canopy posts as requested.',
+            ],
+        },
         'trust_network': {
             'description': 'The Canopy network is trust-based. Participation and behavior may be scored over time.',
             'implications': [

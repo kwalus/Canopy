@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.109] - 2026-05-14
+
+### Added
+- **File Vault Digestions** - users can turn selected Vault documents into local, permissioned semantic retrieval indexes, build/query them from the Vault page, expose cited snippets through REST and MCP tools, and grant query access without sharing raw Vault files. PDF extraction is supported through the new optional `pypdf` dependency.
+
+### Changed
+- **Digestion sharing keeps source metadata separate from retrieval** - query ACLs can return cited snippets without exposing the full source list unless source-metadata access is explicitly granted.
+- **Digestion creation and query controls are mobile-friendly** - the Vault UI now uses inline naming/query forms instead of browser prompt dialogs.
+
 ## [0.6.108] - 2026-05-14
 
 ### Changed

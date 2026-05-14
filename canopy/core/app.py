@@ -25,6 +25,7 @@ from .backups import BackupManager
 from .database import DatabaseManager
 from .logging_config import setup_logging
 from .files import FileManager
+from .digestions import DigestionManager
 from .interactions import InteractionManager
 from .profile import ProfileManager, build_local_peer_hint_payload
 from .feed import FeedManager
@@ -323,6 +324,11 @@ def create_app(config: Optional[Config] = None) -> Flask:
         file_manager = FileManager(db_manager, files_dir)
         app.config['FILE_MANAGER'] = file_manager
         logger.info("File manager initialized successfully")
+
+        logger.info("Initializing digestion manager...")
+        digestion_manager = DigestionManager(db_manager, file_manager, config)
+        app.config['DIGESTION_MANAGER'] = digestion_manager
+        logger.info("Digestion manager initialized successfully")
 
         logger.info("Initializing instance backup manager...")
         backup_manager = BackupManager(db_manager, file_manager, config)

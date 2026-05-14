@@ -82,6 +82,7 @@ from ..core.events import (
     EVENT_MENTION_CREATED,
 )
 from ..core.file_preview import build_file_preview
+from ..core.digestions import DigestionError
 from ..core.messaging import (
     build_dm_security_summary,
     build_dm_preview,
@@ -6377,6 +6378,7 @@ def create_ui_blueprint() -> Blueprint:
         """Private local file vault for the current user."""
         try:
             _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            digestion_manager = current_app.config.get('DIGESTION_MANAGER')
             user_id = get_current_user()
             current_folder_id = ''
             initial_files = [
@@ -6388,6 +6390,7 @@ def create_ui_blueprint() -> Blueprint:
                 for folder in file_manager.list_user_folders(user_id, current_folder_id)
             ] if file_manager else []
             stats = file_manager.count_user_files(user_id) if file_manager else {'count': 0, 'bytes': 0, 'by_category': {}}
+            digestions = digestion_manager.list_digestions(user_id, include_sources=True) if digestion_manager else []
             return render_template(
                 'vault.html',
                 vault_files=initial_files,
@@ -6395,6 +6398,7 @@ def create_ui_blueprint() -> Blueprint:
                 vault_path=[],
                 vault_current_folder_id=current_folder_id,
                 vault_stats=stats,
+                vault_digestions=digestions,
             )
         except Exception as e:
             logger.error(f"Vault page error: {e}", exc_info=True)
@@ -6447,6 +6451,103 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Vault list error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    def _ajax_digestion_error(exc: DigestionError):
+        return jsonify({
+            'success': False,
+            'error': str(exc),
+            'reason': getattr(exc, 'reason', 'digestion_error'),
+        }), int(getattr(exc, 'status_code', 400) or 400)
+
+    @ui.route('/ajax/digestions', methods=['GET'])
+    @require_login
+    def ajax_digestions():
+        """List current user's accessible local Digestions."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            include_sources = str(request.args.get('include_sources') or '1').strip().lower() not in {'0', 'false', 'no'}
+            items = manager.list_digestions(get_current_user(), include_sources=include_sources)
+            return jsonify({'success': True, 'digestions': items, 'count': len(items)})
+        except Exception as e:
+            logger.error("Digestion UI list error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load Digestions'}), 500
+
+    @ui.route('/ajax/digestions', methods=['POST'])
+    @require_login
+    def ajax_create_digestion():
+        """Create a Digestion from selected Vault files."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        source_file_ids = data.get('source_file_ids') or data.get('file_ids') or []
+        if isinstance(source_file_ids, str):
+            source_file_ids = [source_file_ids]
+        try:
+            item = manager.create_digestion(
+                get_current_user(),
+                name=data.get('name') or data.get('title') or '',
+                description=data.get('description') or '',
+                purpose=data.get('purpose') or '',
+                source_file_ids=source_file_ids if isinstance(source_file_ids, list) else [],
+                provider=data.get('provider'),
+                embedding_model=data.get('embedding_model') or data.get('model'),
+                embedding_dimensions=data.get('embedding_dimensions') or data.get('dimensions'),
+                chunk_size=max(240, min(int(data.get('chunk_size') or 1800), 8000)),
+                chunk_overlap=max(0, min(int(data.get('chunk_overlap') or 220), 2000)),
+                settings=data.get('settings') if isinstance(data.get('settings'), dict) else {},
+            )
+            return jsonify({'success': True, 'digestion': item, 'digestion_id': item.get('id')}), 201
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI create error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not create Digestion'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/build', methods=['POST'])
+    @require_login
+    def ajax_build_digestion(digestion_id: str):
+        """Build a Digestion index."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.build_digestion(
+                digestion_id,
+                get_current_user(),
+                rebuild=bool(data.get('rebuild', False)),
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI build error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not build Digestion'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/query', methods=['POST'])
+    @require_login
+    def ajax_query_digestion(digestion_id: str):
+        """Query a Digestion from the web UI."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            top_k = max(1, min(int(data.get('top_k') or 5), 12))
+            return jsonify(manager.query(
+                digestion_id,
+                get_current_user(),
+                str(data.get('query') or data.get('q') or ''),
+                top_k=top_k,
+                include_snippets=True,
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI query error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not query Digestion'}), 500
 
     @ui.route('/ajax/workspace_search', methods=['GET'])
     @require_login

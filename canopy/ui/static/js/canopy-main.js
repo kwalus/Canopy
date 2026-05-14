@@ -253,6 +253,7 @@
 	                    upload: urls.vaultUpload || '/ajax/vault/upload',
 	                    folders: urls.vaultFolders || '/ajax/vault/folders',
 	                    saveAttachment: urls.vaultSaveAttachment || '/ajax/vault/save_attachment',
+	                    digestions: urls.digestions || '/ajax/digestions',
 	                    page: urls.vault || '/vault'
 	                };
 	            }
@@ -951,6 +952,7 @@
                 const state = {
                     files: Array.isArray(global.CANOPY_VAULT_INITIAL?.files) ? global.CANOPY_VAULT_INITIAL.files.slice() : [],
                     folders: Array.isArray(global.CANOPY_VAULT_INITIAL?.folders) ? global.CANOPY_VAULT_INITIAL.folders.slice() : [],
+                    digestions: Array.isArray(global.CANOPY_VAULT_INITIAL?.digestions) ? global.CANOPY_VAULT_INITIAL.digestions.slice() : [],
                     path: Array.isArray(global.CANOPY_VAULT_INITIAL?.path) ? global.CANOPY_VAULT_INITIAL.path.slice() : [],
                     currentFolderId: String(global.CANOPY_VAULT_INITIAL?.currentFolderId || ''),
                     stats: global.CANOPY_VAULT_INITIAL?.stats || {},
@@ -980,7 +982,13 @@
                 const selectionCount = document.getElementById('vault-selection-count');
                 const selectionOpen = document.getElementById('vault-selection-open');
                 const selectionCopy = document.getElementById('vault-selection-copy');
+                const selectionDigest = document.getElementById('vault-selection-digest');
                 const selectionClear = document.getElementById('vault-selection-clear');
+                const digestionCreateForm = document.getElementById('vault-digestion-create-form');
+                const digestionCreateName = document.getElementById('vault-digestion-create-name');
+                const digestionCreateCancel = document.getElementById('vault-digestion-create-cancel');
+                const digestionList = document.getElementById('vault-digestion-list');
+                const digestionRefresh = document.getElementById('vault-digestion-refresh');
 
                 function vaultFileUrl(file) {
                     return String(file && (file.url || `/files/${encodeURIComponent(file.id || '')}`) || '');
@@ -1002,13 +1010,40 @@
                     return state.files.filter(file => state.selectedIds.has(String(file.id || '')));
                 }
 
+                function defaultDigestionName(selected) {
+                    if (selected.length === 1) {
+                        return `${selected[0].name || 'Vault file'} Digestion`;
+                    }
+                    return `Vault Digestion (${selected.length} files)`;
+                }
+
+                function showDigestionCreateForm() {
+                    const selected = selectedVaultFiles();
+                    if (!digestionCreateForm || !digestionCreateName || !selected.length) return;
+                    digestionCreateForm.hidden = false;
+                    digestionCreateForm.classList.add('is-visible');
+                    digestionCreateName.value = defaultDigestionName(selected);
+                    global.setTimeout(() => {
+                        digestionCreateName.focus();
+                        digestionCreateName.select();
+                    }, 0);
+                }
+
+                function hideDigestionCreateForm() {
+                    if (!digestionCreateForm) return;
+                    digestionCreateForm.classList.remove('is-visible');
+                    digestionCreateForm.hidden = true;
+                }
+
                 function updateSelectionUi() {
                     const selected = selectedVaultFiles();
                     if (selectionBar) selectionBar.hidden = selected.length === 0;
                     if (selectionCount) selectionCount.textContent = `${selected.length} selected`;
                     if (selectionOpen) selectionOpen.disabled = selected.length === 0;
                     if (selectionCopy) selectionCopy.disabled = selected.length === 0;
+                    if (selectionDigest) selectionDigest.disabled = selected.length === 0;
                     if (selectionClear) selectionClear.disabled = selected.length === 0;
+                    if (!selected.length) hideDigestionCreateForm();
                     if (grid) {
                         grid.querySelectorAll('[data-vault-file-id]').forEach((card) => {
                             const id = card.getAttribute('data-vault-file-id') || '';
@@ -1055,6 +1090,181 @@
                     if (mediaEl) mediaEl.textContent = String(media);
                 }
 
+                function digestionStatusLabel(digestion) {
+                    const status = String(digestion && digestion.status || 'draft').replace(/_/g, ' ');
+                    return status.charAt(0).toUpperCase() + status.slice(1);
+                }
+
+                function vaultCssEscape(value) {
+                    if (global.CSS && typeof global.CSS.escape === 'function') return global.CSS.escape(String(value || ''));
+                    return String(value || '').replace(/["\\]/g, '\\$&');
+                }
+
+                function renderDigestionCard(digestion) {
+                    const id = vaultEscape(digestion.id || '');
+                    const name = vaultEscape(digestion.name || 'Untitled Digestion');
+                    const status = vaultEscape(digestionStatusLabel(digestion));
+                    const stats = digestion.stats || {};
+                    const chunks = Number(stats.chunks || 0);
+                    const sourceCount = Array.isArray(digestion.sources) ? digestion.sources.length : 0;
+                    const provider = vaultEscape(digestion.provider || 'local');
+                    return `
+                        <article class="vault-digestion-card" data-vault-digestion-id="${id}">
+                            <div class="vault-digestion-card-title">${name}</div>
+                            <div class="vault-digestion-meta">
+                                <span class="vault-digestion-pill"><i class="bi bi-activity"></i>${status}</span>
+                                <span class="vault-digestion-pill"><i class="bi bi-files"></i>${sourceCount} source${sourceCount === 1 ? '' : 's'}</span>
+                                <span class="vault-digestion-pill"><i class="bi bi-braces"></i>${chunks} chunks</span>
+                                <span class="vault-digestion-pill"><i class="bi bi-cpu"></i>${provider}</span>
+                            </div>
+                            <div class="vault-digestion-actions">
+                                <button class="btn btn-sm btn-primary" type="button" data-vault-digestion-action="build" data-vault-digestion-id="${id}">
+                                    <i class="bi bi-hammer"></i> Build
+                                </button>
+                            </div>
+                            <form class="vault-digestion-query" data-vault-digestion-query-form="${id}">
+                                <input class="form-control form-control-sm"
+                                       type="search"
+                                       data-vault-digestion-query="${id}"
+                                       placeholder="Ask this Digestion..."
+                                       aria-label="Query ${name}">
+                                <button class="btn btn-sm btn-outline-secondary" type="submit">
+                                    <i class="bi bi-search"></i> Query
+                                </button>
+                            </form>
+                            <div class="vault-digestion-results" data-vault-digestion-results="${id}"></div>
+                        </article>
+                    `;
+                }
+
+                function renderDigestions() {
+                    if (!digestionList) return;
+                    if (!state.digestions.length) {
+                        digestionList.innerHTML = `
+                            <div class="vault-digestion-card">
+                                <div class="vault-digestion-card-title">No Digestions yet</div>
+                                <div class="vault-digestion-meta">
+                                    Select files below, then choose <strong>New Digestion</strong> to build a queryable research corpus.
+                                </div>
+                            </div>
+                        `;
+                        return;
+                    }
+                    digestionList.innerHTML = state.digestions.map(renderDigestionCard).join('');
+                }
+
+                async function loadDigestions() {
+                    if (!digestionList) return;
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}?include_sources=1`);
+                        state.digestions = Array.isArray(data.digestions) ? data.digestions : [];
+                        renderDigestions();
+                    } catch (error) {
+                        console.error('Digestion load failed:', error);
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not load Digestions.', 'warning');
+                    }
+                }
+
+                async function createDigestionFromSelection() {
+                    const selected = selectedVaultFiles();
+                    if (!selected.length) return;
+                    const name = String(digestionCreateName && digestionCreateName.value || defaultDigestionName(selected)).trim();
+                    if (!name) {
+                        if (digestionCreateName) digestionCreateName.focus();
+                        return;
+                    }
+                    if (selectionDigest) selectionDigest.disabled = true;
+                    try {
+                        const data = await apiCall(vaultUrls().digestions, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                name: name.trim(),
+                                source_file_ids: selected.map(file => file.id).filter(Boolean)
+                            })
+                        });
+                        if (typeof showAlert === 'function') {
+                            showAlert('Digestion created. Build it when you are ready to index the selected files.', 'success');
+                        }
+                        hideDigestionCreateForm();
+                        if (data.digestion) {
+                            state.digestions.unshift(data.digestion);
+                            renderDigestions();
+                        } else {
+                            await loadDigestions();
+                        }
+                    } catch (error) {
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not create Digestion.', 'danger');
+                    } finally {
+                        if (selectionDigest) selectionDigest.disabled = selectedVaultFiles().length === 0;
+                    }
+                }
+
+                async function buildDigestion(digestionId, button) {
+                    if (!digestionId) return;
+                    const original = button ? button.innerHTML : '';
+                    if (button) {
+                        button.disabled = true;
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Building';
+                    }
+                    try {
+                        const result = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/build`, {
+                            method: 'POST',
+                            body: JSON.stringify({ rebuild: false })
+                        });
+                        if (typeof showAlert === 'function') {
+                            showAlert(result.success ? 'Digestion built.' : 'Digestion build completed with issues.', result.success ? 'success' : 'warning');
+                        }
+                        await loadDigestions();
+                    } catch (error) {
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not build Digestion.', 'danger');
+                    } finally {
+                        if (button) {
+                            button.disabled = false;
+                            button.innerHTML = original;
+                        }
+                    }
+                }
+
+                async function queryDigestion(digestionId, queryText = '') {
+                    if (!digestionId) return;
+                    const query = String(
+                        queryText
+                        || document.querySelector(`[data-vault-digestion-query="${vaultCssEscape(digestionId)}"]`)?.value
+                        || ''
+                    );
+                    if (!query || !query.trim()) return;
+                    const resultsEl = document.querySelector(`[data-vault-digestion-results="${vaultCssEscape(digestionId)}"]`);
+                    if (resultsEl) {
+                        resultsEl.classList.add('is-visible');
+                        resultsEl.innerHTML = '<div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Searching...</div>';
+                    }
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/query`, {
+                            method: 'POST',
+                            body: JSON.stringify({ query: query.trim(), top_k: 5 })
+                        });
+                        const results = Array.isArray(data.results) ? data.results : [];
+                        if (resultsEl) {
+                            resultsEl.classList.add('is-visible');
+                            resultsEl.innerHTML = results.length
+                                ? results.map((item) => `
+                                    <div class="vault-digestion-result">
+                                        <strong>${vaultEscape(item.file_name || item.file_id || 'Source')}</strong>
+                                        ${item.page_label ? `<span class="text-muted"> ${vaultEscape(item.page_label)}</span>` : ''}
+                                        <div>${vaultEscape(item.snippet || '').slice(0, 900)}</div>
+                                    </div>
+                                `).join('')
+                                : '<div class="small text-muted">No matching snippets found.</div>';
+                        }
+                    } catch (error) {
+                        if (resultsEl) {
+                            resultsEl.classList.add('is-visible');
+                            resultsEl.innerHTML = `<div class="small text-danger">${vaultEscape(error.error || 'Could not query Digestion.')}</div>`;
+                        }
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not query Digestion.', 'danger');
+                    }
+                }
+
                 function render() {
                     if (!grid || !empty) return;
                     const visibleIds = new Set(state.files.map(file => String(file.id || '')).filter(Boolean));
@@ -1072,6 +1282,7 @@
                     applyVaultViewMode();
                     updateSelectionUi();
                     updateStats(state.stats);
+                    renderDigestions();
                     if (breadcrumb) {
                         const crumbs = [
                             `<button class="vault-crumb${state.currentFolderId ? '' : ' active'}" type="button" data-vault-folder-target=""><i class="bi bi-house-door me-1"></i>Vault Home</button>`
@@ -1324,6 +1535,40 @@
                         const links = selectedVaultFiles().map(file => file.markdown_link || `[${file.name || file.id}](/files/${file.id})`);
                         if (!links.length) return;
                         await copyText(links.join('\n'), 'Vault links');
+                    });
+                }
+                if (selectionDigest) {
+                    selectionDigest.addEventListener('click', showDigestionCreateForm);
+                }
+                if (digestionCreateCancel) {
+                    digestionCreateCancel.addEventListener('click', hideDigestionCreateForm);
+                }
+                if (digestionCreateForm) {
+                    digestionCreateForm.addEventListener('submit', (event) => {
+                        event.preventDefault();
+                        createDigestionFromSelection();
+                    });
+                }
+                if (digestionRefresh) {
+                    digestionRefresh.addEventListener('click', loadDigestions);
+                }
+                if (digestionList) {
+                    digestionList.addEventListener('click', (event) => {
+                        const actionBtn = event.target.closest('[data-vault-digestion-action]');
+                        if (!actionBtn || !digestionList.contains(actionBtn)) return;
+                        const digestionId = actionBtn.getAttribute('data-vault-digestion-id') || '';
+                        const action = actionBtn.getAttribute('data-vault-digestion-action') || '';
+                        if (action === 'build') {
+                            buildDigestion(digestionId, actionBtn);
+                        }
+                    });
+                    digestionList.addEventListener('submit', (event) => {
+                        const form = event.target.closest('[data-vault-digestion-query-form]');
+                        if (!form || !digestionList.contains(form)) return;
+                        event.preventDefault();
+                        const digestionId = form.getAttribute('data-vault-digestion-query-form') || '';
+                        const input = form.querySelector('[data-vault-digestion-query]');
+                        queryDigestion(digestionId, input ? input.value : '');
                     });
                 }
                 if (selectionClear) {

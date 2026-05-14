@@ -81,6 +81,7 @@ from ..core.agent_event_subscriptions import (
     set_agent_event_subscriptions,
 )
 from ..core.file_preview import build_file_preview
+from ..core.digestions import DigestionError
 from ..core.large_attachments import (
     LARGE_ATTACHMENT_CAPABILITY,
     LARGE_ATTACHMENT_DOWNLOAD_PAUSED,
@@ -10959,6 +10960,191 @@ def create_api_blueprint() -> Blueprint:
 
         except Exception as e:
             logger.error(f"File upload failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    def _api_get_digestion_manager() -> Any:
+        return current_app.config.get('DIGESTION_MANAGER')
+
+    def _api_digestion_error(exc: DigestionError):
+        return jsonify({
+            'success': False,
+            'error': str(exc),
+            'reason': getattr(exc, 'reason', 'digestion_error'),
+        }), int(getattr(exc, 'status_code', 400) or 400)
+
+    @api.route('/digestions', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def list_digestions_api():
+        """List Digestions accessible to the authenticated user."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            include_sources = str(request.args.get('include_sources') or '').strip().lower() in {'1', 'true', 'yes'}
+            items = manager.list_digestions(g.api_key_info.user_id, include_sources=include_sources)
+            return jsonify({'success': True, 'digestions': items, 'count': len(items)})
+        except Exception as e:
+            logger.error("Digestion API list failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def create_digestion_api():
+        """Create a local Digestion over selected user-owned Vault files."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            source_file_ids = data.get('source_file_ids') or data.get('file_ids') or []
+            if isinstance(source_file_ids, str):
+                source_file_ids = [source_file_ids]
+            item = manager.create_digestion(
+                g.api_key_info.user_id,
+                name=data.get('name') or data.get('title') or '',
+                description=data.get('description') or '',
+                purpose=data.get('purpose') or '',
+                source_file_ids=source_file_ids if isinstance(source_file_ids, list) else [],
+                provider=data.get('provider'),
+                embedding_model=data.get('embedding_model') or data.get('model'),
+                embedding_dimensions=data.get('embedding_dimensions') or data.get('dimensions'),
+                chunk_size=_api_int_param(data.get('chunk_size'), default=1800, minimum=240, maximum=8000),
+                chunk_overlap=_api_int_param(data.get('chunk_overlap'), default=220, minimum=0, maximum=2000),
+                settings=data.get('settings') if isinstance(data.get('settings'), dict) else {},
+            )
+            status_code = 201
+            if bool(data.get('auto_build') or data.get('build_now')):
+                build_result = manager.build_digestion(item['id'], g.api_key_info.user_id, rebuild=True)
+                item = manager.get_digestion(item['id'], user_id=g.api_key_info.user_id) or item
+                item['build_result'] = build_result
+            return jsonify({'success': True, 'digestion': item, 'digestion_id': item.get('id')}), status_code
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API create failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def get_digestion_api(digestion_id: str):
+        """Return Digestion metadata, source status, and stats."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        item = manager.get_digestion(digestion_id, user_id=g.api_key_info.user_id)
+        if not item:
+            return jsonify({'error': 'Digestion not found or not shared with this key'}), 404
+        return jsonify({'success': True, 'digestion': item})
+
+    @api.route('/digestions/<digestion_id>/sources', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def list_digestion_sources_api(digestion_id: str):
+        """List source metadata for an accessible Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify({
+                'success': True,
+                'digestion_id': digestion_id,
+                'sources': manager.list_sources(digestion_id, user_id=g.api_key_info.user_id),
+            })
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API sources failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/sources', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def add_digestion_sources_api(digestion_id: str):
+        """Add user-owned Vault files to a Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        source_file_ids = data.get('source_file_ids') or data.get('file_ids') or data.get('file_id') or []
+        if isinstance(source_file_ids, str):
+            source_file_ids = [source_file_ids]
+        try:
+            result = manager.add_sources(
+                digestion_id,
+                g.api_key_info.user_id,
+                source_file_ids if isinstance(source_file_ids, list) else [],
+            )
+            return jsonify(result)
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API add sources failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/build', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def build_digestion_api(digestion_id: str):
+        """Synchronously build or rebuild a Digestion index."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            result = manager.build_digestion(
+                digestion_id,
+                g.api_key_info.user_id,
+                rebuild=bool(data.get('rebuild', False)),
+            )
+            return jsonify(result)
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API build failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/query', methods=['POST'])
+    @require_auth(Permission.READ_FILES)
+    def query_digestion_api(digestion_id: str):
+        """Query a Digestion and return cited source chunks."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            result = manager.query(
+                digestion_id,
+                g.api_key_info.user_id,
+                str(data.get('query') or data.get('q') or ''),
+                top_k=_api_int_param(data.get('top_k') or data.get('limit'), default=8, minimum=1, maximum=20),
+                include_snippets=not bool(data.get('metadata_only')),
+            )
+            return jsonify(result)
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API query failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/acl', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def grant_digestion_access_api(digestion_id: str):
+        """Grant query/manage access to another local user or agent."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            result = manager.grant_access(
+                digestion_id,
+                g.api_key_info.user_id,
+                str(data.get('grantee_user_id') or data.get('user_id') or ''),
+                can_query=bool(data.get('can_query', True)),
+                can_manage=bool(data.get('can_manage', False)),
+                can_read_sources=bool(data.get('can_read_sources', False)),
+            )
+            return jsonify(result)
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API ACL failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/vault/files', methods=['GET'])
