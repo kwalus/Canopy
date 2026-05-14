@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.98] - 2026-05-13
+
+### Fixed
+- **Vault multi-file uploads now avoid brittle batched multipart requests** - drag/drop and multi-select still accept several files at once, but the browser uploads them one file at a time with per-file success and failure reporting.
+
 ## [0.6.97] - 2026-05-13
 
 ### Changed

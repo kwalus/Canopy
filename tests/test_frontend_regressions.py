@@ -105,6 +105,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('showNewFolderForm', main_js)
         self.assertNotIn("global.prompt('New folder name'", main_js)
         self.assertIn('summarizeVaultUploadError', main_js)
+        self.assertIn('for (const file of files)', main_js)
+        self.assertIn("form.append('file', file", main_js)
         self.assertIn('data-vault-folder-drop', main_js)
         self.assertIn('folder_id', main_js)
         self.assertIn('normalizedAttachment', main_js)

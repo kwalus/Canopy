@@ -939,19 +939,46 @@
                 async function uploadFiles(fileList) {
                     const files = Array.from(fileList || []).filter(Boolean);
                     if (!files.length) return;
-                    const form = new FormData();
-                    files.forEach(file => form.append('files', file, file.name || 'upload'));
-                    form.append('folder_id', state.currentFolderId || '');
+                    const savedFiles = [];
+                    const failedFiles = [];
                     if (dropzone) dropzone.classList.add('is-dragging');
                     try {
-                        const data = await apiCall(vaultUrls().upload, {
-                            method: 'POST',
-                            body: form
-                        });
-                        const saved = Array.isArray(data.files) ? data.files.length : 0;
-                        const failed = Array.isArray(data.failed) ? data.failed.length : 0;
-                        if (saved && typeof showAlert === 'function') {
-                            showAlert(`${saved} file${saved === 1 ? '' : 's'} added to your vault${failed ? `; ${failed} failed` : ''}.`, failed ? 'warning' : 'success');
+                        for (const file of files) {
+                            const form = new FormData();
+                            form.append('file', file, file.name || 'upload');
+                            form.append('folder_id', state.currentFolderId || '');
+                            try {
+                                const data = await apiCall(vaultUrls().upload, {
+                                    method: 'POST',
+                                    body: form
+                                });
+                                const nextSaved = Array.isArray(data.files) ? data.files : [];
+                                const nextFailed = Array.isArray(data.failed) ? data.failed : [];
+                                savedFiles.push(...nextSaved);
+                                if (nextFailed.length) {
+                                    failedFiles.push(...nextFailed);
+                                } else if (!nextSaved.length) {
+                                    failedFiles.push({
+                                        name: file.name || 'upload',
+                                        error: data.error || data.message || 'Upload failed',
+                                    });
+                                }
+                            } catch (error) {
+                                failedFiles.push({
+                                    name: file.name || 'upload',
+                                    error: summarizeVaultUploadError(error),
+                                });
+                            }
+                        }
+                        const saved = savedFiles.length;
+                        const failed = failedFiles.length;
+                        if (typeof showAlert === 'function') {
+                            if (saved) {
+                                showAlert(`${saved} file${saved === 1 ? '' : 's'} added to your vault${failed ? `; ${failed} failed` : ''}.`, failed ? 'warning' : 'success');
+                            } else if (failed) {
+                                const first = failedFiles[0] || {};
+                                showAlert(`${first.name || 'Upload'}: ${first.error || 'Upload failed.'}`, 'danger');
+                            }
                         }
                         if (uploadInput) uploadInput.value = '';
                         await loadFiles({ append: false });
