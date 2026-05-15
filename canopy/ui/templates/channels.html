@@ -2075,15 +2075,18 @@
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 70%, var(--canopy-primary) 30%) !important;
         color: var(--canopy-text-primary) !important;
     }
+    .channel-thread-filter-toggle,
     .channel-human-filter-toggle {
         position: relative;
     }
+    .channel-thread-filter-toggle.is-active,
     .channel-human-filter-toggle.is-active {
         border-color: rgba(52, 211, 153, 0.72) !important;
         color: #bbf7d0 !important;
         background: linear-gradient(135deg, rgba(16, 185, 129, 0.24), rgba(45, 212, 191, 0.12)) !important;
         box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.16), 0 10px 24px rgba(16, 185, 129, 0.12) !important;
     }
+    .channel-thread-filter-toggle.is-active::after,
     .channel-human-filter-toggle.is-active::after {
         content: "";
         position: absolute;
@@ -2236,6 +2239,7 @@
         background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.96));
         box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
     }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-thread-filter-toggle.is-active,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-human-filter-toggle.is-active {
         color: #065f46 !important;
         background: linear-gradient(135deg, rgba(209, 250, 229, 0.96), rgba(236, 253, 245, 0.86)) !important;
@@ -4661,6 +4665,15 @@
                                 <i class="bi bi-person-check" id="channel-human-filter-icon"></i>
                                 <span class="channel-header-tool-label" id="channel-human-filter-label">Humans</span>
                             </button>
+                            <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-thread-filter-toggle channel-unread-filter-toggle"
+                                    id="channel-unread-filter-toggle"
+                                    onclick="toggleChannelUnreadThreadFilter()"
+                                    title="Show only threads with unread or new posts"
+                                    aria-label="Show only threads with unread or new posts"
+                                    aria-pressed="false">
+                                <i class="bi bi-lightning-charge" id="channel-unread-filter-icon"></i>
+                                <span class="channel-header-tool-label" id="channel-unread-filter-label">New</span>
+                            </button>
                         </div>
                         <div class="channel-header-search">
                             <div class="input-group input-group-sm" id="channel-search-bar">
@@ -4790,6 +4803,11 @@
                                     <li>
                                         <button type="button" class="dropdown-item" id="channel-human-filter-menu-btn" onclick="toggleChannelHumanThreadFilter()">
                                             <i class="bi bi-person-check me-2"></i><span id="channel-human-filter-menu-label">Hide agent-only threads</span>
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" id="channel-unread-filter-menu-btn" onclick="toggleChannelUnreadThreadFilter()">
+                                            <i class="bi bi-lightning-charge me-2"></i><span id="channel-unread-filter-menu-label">Show unread/new threads</span>
                                         </button>
                                     </li>
                                     <li>
@@ -7633,6 +7651,7 @@ const CHANNEL_GROUP_ORDER_STORAGE_KEY = `canopy.channel_group_order.v1.${current
 const CHANNEL_GROUP_CHANNEL_ORDER_STORAGE_KEY = `canopy.channel_group_channel_order.v1.${currentUserId || 'anon'}`;
 const CHANNEL_GROUP_DEFS_STORAGE_KEY = `canopy.channel_group_defs.v1.${currentUserId || 'anon'}`;
 const CHANNEL_HUMAN_THREAD_FILTER_STORAGE_KEY = `canopy.channel_human_threads.v1.${currentUserId || 'anon'}`;
+const CHANNEL_UNREAD_THREAD_FILTER_STORAGE_KEY = `canopy.channel_unread_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_ORG_PALETTE = [
     { color: '#2dd4bf', label: 'Canopy teal' },
     { color: '#60a5fa', label: 'Signal blue' },
@@ -7658,8 +7677,11 @@ let channelSortIndexCounter = 0;
 const channelMessageRenderInFlight = new Set();
 const channelLikeInFlight = new Set();
 let channelHumanThreadFilterById = {};
+let channelUnreadThreadFilterById = {};
+let channelReadBaselineById = {};
 let currentChannelMessagesSnapshot = [];
 let currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
+let currentChannelUnreadFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
 const CHANNEL_FILE_ALLOWED_MIME_PREFIXES = ['image/', 'video/', 'audio/'];
 const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
     'application/pdf',
@@ -8026,9 +8048,35 @@ function saveChannelHumanThreadFilterState() {
     } catch (_) {}
 }
 
+function loadChannelUnreadThreadFilterState() {
+    channelUnreadThreadFilterById = {};
+    try {
+        const raw = localStorage.getItem(CHANNEL_UNREAD_THREAD_FILTER_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+        Object.entries(parsed).forEach(([channelId, enabled]) => {
+            const normalized = String(channelId || '').trim();
+            if (normalized && enabled === true) channelUnreadThreadFilterById[normalized] = true;
+        });
+    } catch (_) {
+        channelUnreadThreadFilterById = {};
+    }
+}
+
+function saveChannelUnreadThreadFilterState() {
+    try {
+        localStorage.setItem(CHANNEL_UNREAD_THREAD_FILTER_STORAGE_KEY, JSON.stringify(channelUnreadThreadFilterById));
+    } catch (_) {}
+}
+
 function isChannelHumanThreadFilterEnabled(channelId = currentChannelId) {
     const normalized = String(channelId || '').trim();
     return !!(normalized && channelHumanThreadFilterById[normalized]);
+}
+
+function isChannelUnreadThreadFilterEnabled(channelId = currentChannelId) {
+    const normalized = String(channelId || '').trim();
+    return !!(normalized && channelUnreadThreadFilterById[normalized]);
 }
 
 function setChannelHumanThreadFilter(channelId, enabled) {
@@ -8040,6 +8088,38 @@ function setChannelHumanThreadFilter(channelId, enabled) {
         delete channelHumanThreadFilterById[normalized];
     }
     saveChannelHumanThreadFilterState();
+}
+
+function setChannelUnreadThreadFilter(channelId, enabled) {
+    const normalized = String(channelId || '').trim();
+    if (!normalized) return;
+    if (enabled) {
+        channelUnreadThreadFilterById[normalized] = true;
+    } else {
+        delete channelUnreadThreadFilterById[normalized];
+    }
+    saveChannelUnreadThreadFilterState();
+}
+
+function parseChannelReadBoundary(rawValue) {
+    return parseChannelMessageTimestamp(rawValue);
+}
+
+function updateChannelReadBaseline(channelId, previousLastReadAt) {
+    const normalized = String(channelId || '').trim();
+    if (!normalized) return;
+    if (previousLastReadAt === undefined) return;
+    channelReadBaselineById[normalized] = String(previousLastReadAt || '').trim();
+}
+
+function getChannelUnreadThreadBaselineMs(channelId = currentChannelId) {
+    const normalized = String(channelId || '').trim();
+    if (!normalized) return 0;
+    return parseChannelReadBoundary(channelReadBaselineById[normalized] || '');
+}
+
+function hasChannelUnreadThreadBaseline(channelId = currentChannelId) {
+    return getChannelUnreadThreadBaselineMs(channelId) > 0;
 }
 
 function normalizeChannelAuthorAccountType(value) {
@@ -8082,6 +8162,49 @@ function filterChannelThreadsForHumanParticipants(rootMessages, repliesByRoot, u
     return { roots, hiddenThreads, hiddenMessages };
 }
 
+function getChannelThreadMaxActivityTime(rootMessage, replies) {
+    const participants = [rootMessage].concat(Array.isArray(replies) ? replies : []);
+    return participants.reduce((maxTime, message) => {
+        const activityTime = getChannelMessageActivitySortTime(message);
+        return Math.max(maxTime, activityTime);
+    }, 0);
+}
+
+function channelThreadHasUnreadOrNewActivity(rootMessage, replies) {
+    const baselineMs = getChannelUnreadThreadBaselineMs();
+    if (!baselineMs) return true;
+    return getChannelThreadMaxActivityTime(rootMessage, replies) > baselineMs;
+}
+
+function filterChannelThreadsForUnreadActivity(rootMessages, repliesByRoot) {
+    if (!isChannelUnreadThreadFilterEnabled()) {
+        currentChannelUnreadFilterStats = {
+            hiddenThreads: 0,
+            hiddenMessages: 0,
+            visibleThreads: (rootMessages || []).length,
+        };
+        return {
+            roots: rootMessages || [],
+            hiddenThreads: 0,
+            hiddenMessages: 0,
+            visibleThreads: (rootMessages || []).length,
+        };
+    }
+    let hiddenThreads = 0;
+    let hiddenMessages = 0;
+    const roots = (rootMessages || []).filter((root) => {
+        const replies = (repliesByRoot && repliesByRoot[root.id]) || [];
+        const keep = channelThreadHasUnreadOrNewActivity(root, replies);
+        if (!keep) {
+            hiddenThreads += 1;
+            hiddenMessages += 1 + replies.length;
+        }
+        return keep;
+    });
+    currentChannelUnreadFilterStats = { hiddenThreads, hiddenMessages, visibleThreads: roots.length };
+    return { roots, hiddenThreads, hiddenMessages, visibleThreads: roots.length };
+}
+
 function updateChannelHumanThreadFilterUI() {
     const enabled = isChannelHumanThreadFilterEnabled();
     const toggle = document.getElementById('channel-human-filter-toggle');
@@ -8105,28 +8228,75 @@ function updateChannelHumanThreadFilterUI() {
     }
 }
 
+function updateChannelUnreadThreadFilterUI() {
+    const enabled = isChannelUnreadThreadFilterEnabled();
+    const toggle = document.getElementById('channel-unread-filter-toggle');
+    const icon = document.getElementById('channel-unread-filter-icon');
+    const label = document.getElementById('channel-unread-filter-label');
+    const menuLabel = document.getElementById('channel-unread-filter-menu-label');
+    if (toggle) {
+        toggle.classList.toggle('is-active', enabled);
+        toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        toggle.title = enabled ? 'Show all loaded threads' : 'Show only threads with unread or new posts';
+        toggle.setAttribute('aria-label', enabled ? 'Show all loaded threads' : 'Show only threads with unread or new posts');
+    }
+    if (icon) {
+        icon.className = enabled ? 'bi bi-lightning-charge-fill' : 'bi bi-lightning-charge';
+    }
+    if (label) {
+        label.textContent = enabled ? 'New only' : 'New';
+    }
+    if (menuLabel) {
+        menuLabel.textContent = enabled ? 'Show all loaded threads' : 'Show unread/new threads';
+    }
+}
+
 function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterStats) {
     const banner = document.getElementById('channel-human-filter-banner');
     if (!banner) return;
-    if (!isChannelHumanThreadFilterEnabled()) {
+    const humanEnabled = isChannelHumanThreadFilterEnabled();
+    const unreadEnabled = isChannelUnreadThreadFilterEnabled();
+    if (!humanEnabled && !unreadEnabled) {
         banner.classList.add('d-none');
         banner.innerHTML = '';
         return;
     }
     const hiddenThreads = Math.max(0, parseInt(stats && stats.hiddenThreads, 10) || 0);
     const hiddenMessages = Math.max(0, parseInt(stats && stats.hiddenMessages, 10) || 0);
+    const unreadHiddenThreads = Math.max(0, parseInt(currentChannelUnreadFilterStats && currentChannelUnreadFilterStats.hiddenThreads, 10) || 0);
+    const unreadHiddenMessages = Math.max(0, parseInt(currentChannelUnreadFilterStats && currentChannelUnreadFilterStats.hiddenMessages, 10) || 0);
     const threadLabel = hiddenThreads === 1 ? 'thread' : 'threads';
     const messageLabel = hiddenMessages === 1 ? 'message' : 'messages';
-    const detail = hiddenThreads > 0
-        ? `${hiddenThreads} agent-only ${threadLabel} hidden (${hiddenMessages} ${messageLabel}).`
-        : 'No agent-only threads hidden in the loaded window.';
+    const unreadThreadLabel = unreadHiddenThreads === 1 ? 'thread' : 'threads';
+    const unreadMessageLabel = unreadHiddenMessages === 1 ? 'message' : 'messages';
+    const details = [];
+    if (humanEnabled) {
+        details.push(hiddenThreads > 0
+            ? `${hiddenThreads} agent-only ${threadLabel} hidden (${hiddenMessages} ${messageLabel}).`
+            : 'No agent-only threads hidden in the loaded window.');
+    }
+    if (unreadEnabled) {
+        if (!hasChannelUnreadThreadBaseline()) {
+            details.push('No prior read marker yet; all loaded threads are shown.');
+        } else {
+            details.push(unreadHiddenThreads > 0
+                ? `${unreadHiddenThreads} already-read ${unreadThreadLabel} hidden (${unreadHiddenMessages} ${unreadMessageLabel}).`
+                : 'Only unread/new threads are shown.');
+        }
+    }
+    const chips = [
+        humanEnabled ? '<span class="filter-pill"><i class="bi bi-person-fill-check"></i> Human threads</span>' : '',
+        unreadEnabled ? '<span class="filter-pill"><i class="bi bi-lightning-charge-fill"></i> New/unread threads</span>' : '',
+    ].filter(Boolean).join('');
+    const actions = [
+        humanEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelHumanThreadFilter(false)">Show agents</button>' : '',
+        unreadEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelUnreadThreadFilter(false)">Show read</button>' : '',
+    ].filter(Boolean).join('');
     banner.innerHTML = `
         <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
-            <span class="filter-pill"><i class="bi bi-person-fill-check"></i> Human threads</span>
-            <span class="filter-detail">${escapeHtml(detail)}</span>
-            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" onclick="toggleChannelHumanThreadFilter(false)">
-                Show all
-            </button>
+            <span class="d-inline-flex flex-wrap gap-1">${chips}</span>
+            <span class="filter-detail">${escapeHtml(details.join(' '))}</span>
+            <span class="d-inline-flex gap-1 ms-auto">${actions}</span>
         </div>`;
     banner.classList.remove('d-none');
 }
@@ -8141,6 +8311,25 @@ function toggleChannelHumanThreadFilter(forceEnabled) {
         : !isChannelHumanThreadFilterEnabled();
     setChannelHumanThreadFilter(currentChannelId, nextEnabled);
     updateChannelHumanThreadFilterUI();
+    if (Array.isArray(currentChannelMessagesSnapshot) && currentChannelMessagesSnapshot.length) {
+        displayMessages(currentChannelMessagesSnapshot, { forceScroll: false, ignoreSignature: true });
+    } else if (currentChannelId) {
+        loadChannelMessages(currentChannelId, { forceScroll: false });
+    } else {
+        updateChannelHumanThreadFilterBanner();
+    }
+}
+
+function toggleChannelUnreadThreadFilter(forceEnabled) {
+    if (!currentChannelId) {
+        showAlert('Select a channel before filtering new threads.', 'warning');
+        return;
+    }
+    const nextEnabled = typeof forceEnabled === 'boolean'
+        ? forceEnabled
+        : !isChannelUnreadThreadFilterEnabled();
+    setChannelUnreadThreadFilter(currentChannelId, nextEnabled);
+    updateChannelUnreadThreadFilterUI();
     if (Array.isArray(currentChannelMessagesSnapshot) && currentChannelMessagesSnapshot.length) {
         displayMessages(currentChannelMessagesSnapshot, { forceScroll: false, ignoreSignature: true });
     } else if (currentChannelId) {
@@ -9742,12 +9931,14 @@ function selectChannel(channelId, channelName, options = {}) {
     pendingChannelMessages = null;
     currentChannelMessagesSnapshot = [];
     currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
+    currentChannelUnreadFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
     oldestLoadedMessageId = null;
     loadingOlderMessages = false;
     noMoreOlderMessages = false;
     clearNewMessagesBanner();
     syncChannelRemovalBanner();
     updateChannelHumanThreadFilterUI();
+    updateChannelUnreadThreadFilterUI();
     updateChannelHumanThreadFilterBanner();
     refreshChannelMentionBuilderForChannel(channelId);
     
@@ -10584,6 +10775,9 @@ function loadChannelMessages(channelId, options = {}) {
             if (data.warning) {
                 console.warn('Channel messages warning:', data.warning);
             }
+            if (Object.prototype.hasOwnProperty.call(data || {}, 'previous_last_read_at')) {
+                updateChannelReadBaseline(requestedChannelId, data.previous_last_read_at);
+            }
             if (data.messages && data.messages.length > 0) {
                 // Keep render failures separate from API failures — outer .catch is only for fetch/auth errors.
                 return displayMessages(data.messages, { forceScroll: !!options.forceScroll })
@@ -10609,6 +10803,7 @@ function loadChannelMessages(channelId, options = {}) {
             const hint = data.warning ? ` <small class="d-block mt-2 text-muted">${escapeHtml(String(data.warning).slice(0, 120))}</small>` : '';
             currentChannelMessagesSnapshot = [];
             currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
+            currentChannelUnreadFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
             updateChannelHumanThreadFilterBanner();
             messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet' + hint + '</div>';
             if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
@@ -10721,6 +10916,7 @@ function displayMessages(messages, options = {}) {
     
     if (messages.length === 0) {
         currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
+        currentChannelUnreadFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
         updateChannelHumanThreadFilterBanner();
         messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet</div>';
         return;
@@ -10771,10 +10967,11 @@ function displayMessages(messages, options = {}) {
             });
             window.mentionDisplayMap = map;
             let html = '';
-            const filteredView = filterChannelThreadsForHumanParticipants(rootMessages, repliesByRoot, userInfo);
-            let hiddenThreads = filteredView.hiddenThreads || 0;
-            let hiddenMessages = filteredView.hiddenMessages || 0;
-            const visibleRootMessages = filteredView.roots || [];
+            const humanFilteredView = filterChannelThreadsForHumanParticipants(rootMessages, repliesByRoot, userInfo);
+            const unreadFilteredView = filterChannelThreadsForUnreadActivity(humanFilteredView.roots || [], repliesByRoot);
+            let humanHiddenThreads = humanFilteredView.hiddenThreads || 0;
+            let humanHiddenMessages = humanFilteredView.hiddenMessages || 0;
+            const visibleRootMessages = unreadFilteredView.roots || [];
 
             visibleRootMessages.forEach(message => {
                 html += renderMessage(message, userInfo, replyMetaById[message.id] || false);
@@ -10798,14 +10995,19 @@ function displayMessages(messages, options = {}) {
                 if (isChannelHumanThreadFilterEnabled()) {
                     const keepOrphanThread = replies.some((message) => message && !isChannelMessageAuthorAgent(message, userInfo));
                     if (!keepOrphanThread) {
-                        hiddenThreads += 1;
-                        hiddenMessages += replies.length;
+                        humanHiddenThreads += 1;
+                        humanHiddenMessages += replies.length;
                         return;
                     }
                 }
+                if (isChannelUnreadThreadFilterEnabled() && !channelThreadHasUnreadOrNewActivity(replies[0], replies.slice(1))) {
+                    currentChannelUnreadFilterStats.hiddenThreads += 1;
+                    currentChannelUnreadFilterStats.hiddenMessages += replies.length;
+                    return;
+                }
                 replies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
             });
-            currentChannelHumanFilterStats = { hiddenThreads, hiddenMessages };
+            currentChannelHumanFilterStats = { hiddenThreads: humanHiddenThreads, hiddenMessages: humanHiddenMessages };
             updateChannelHumanThreadFilterBanner(currentChannelHumanFilterStats);
 
             // Prepend "Load older" banner if there may be more messages
@@ -10815,11 +11017,19 @@ function displayMessages(messages, options = {}) {
 		                    <i class="bi bi-arrow-up me-1"></i>Load older messages
 		                </button>
 		            </div>`;
-            if (!html && isChannelHumanThreadFilterEnabled()) {
+            const unreadFilterHasBaseline = isChannelUnreadThreadFilterEnabled() && hasChannelUnreadThreadBaseline();
+            if (!html && (isChannelHumanThreadFilterEnabled() || isChannelUnreadThreadFilterEnabled())) {
+                const emptyTitle = unreadFilterHasBaseline && isChannelHumanThreadFilterEnabled()
+                    ? 'No new human-involved threads in this loaded window.'
+                    : (unreadFilterHasBaseline ? 'No unread or new threads in this loaded window.' : 'No human-involved threads in this loaded window.');
+                const emptyActions = [
+                    isChannelUnreadThreadFilterEnabled() ? '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="toggleChannelUnreadThreadFilter(false)">turn off New</button>' : '',
+                    isChannelHumanThreadFilterEnabled() ? '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="toggleChannelHumanThreadFilter(false)">show agent-only threads</button>' : '',
+                ].filter(Boolean).join(' or ');
                 html = `<div class="text-center text-muted p-4">
                     <div class="mb-2"><i class="bi bi-person-fill-check fs-4"></i></div>
-                    <div class="fw-semibold">No human-involved threads in this loaded window.</div>
-                    <div class="small mt-1">Use <button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="toggleChannelHumanThreadFilter(false)">Show all</button> to restore agent-only chatter.</div>
+                    <div class="fw-semibold">${escapeHtml(emptyTitle)}</div>
+                    <div class="small mt-1">Use ${emptyActions} to broaden the feed.</div>
                 </div>`;
             }
             messagesContainer.innerHTML = olderBanner + html;
@@ -13600,6 +13810,12 @@ function appendNewMessages(allMessages) {
         if (m && m.id) channelMessageCache[m.id] = m;
     });
 
+    // The unread/new filter may need to reveal an entire previously hidden thread
+    // when a new reply lands, so prefer the full renderer over partial DOM splices.
+    if (isChannelUnreadThreadFilterEnabled()) {
+        return false;
+    }
+
     // Find which message IDs are already rendered in the DOM
     const existingIds = new Set();
     messagesContainer.querySelectorAll('.message-item[data-message-id]').forEach(el => {
@@ -13968,10 +14184,17 @@ function loadOlderMessages() {
                     hiddenThreads: currentChannelHumanFilterStats.hiddenThreads || 0,
                     hiddenMessages: currentChannelHumanFilterStats.hiddenMessages || 0,
                 };
-                const filteredOlderView = filterChannelThreadsForHumanParticipants(roots, replies, userInfo);
-                let hiddenThreads = priorHumanFilterStats.hiddenThreads + (filteredOlderView.hiddenThreads || 0);
-                let hiddenMessages = priorHumanFilterStats.hiddenMessages + (filteredOlderView.hiddenMessages || 0);
-                (filteredOlderView.roots || []).forEach(m => {
+                const priorUnreadFilterStats = {
+                    hiddenThreads: currentChannelUnreadFilterStats.hiddenThreads || 0,
+                    hiddenMessages: currentChannelUnreadFilterStats.hiddenMessages || 0,
+                };
+                const humanOlderView = filterChannelThreadsForHumanParticipants(roots, replies, userInfo);
+                const unreadOlderView = filterChannelThreadsForUnreadActivity(humanOlderView.roots || [], replies);
+                let humanHiddenThreads = priorHumanFilterStats.hiddenThreads + (humanOlderView.hiddenThreads || 0);
+                let humanHiddenMessages = priorHumanFilterStats.hiddenMessages + (humanOlderView.hiddenMessages || 0);
+                let unreadHiddenThreads = priorUnreadFilterStats.hiddenThreads + (unreadOlderView.hiddenThreads || 0);
+                let unreadHiddenMessages = priorUnreadFilterStats.hiddenMessages + (unreadOlderView.hiddenMessages || 0);
+                (unreadOlderView.roots || []).forEach(m => {
                     html += renderMessage(m, userInfo, replyMetaById[m.id] || false);
                     const reps = replies[m.id];
                     if (reps) reps.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
@@ -13982,17 +14205,25 @@ function loadOlderMessages() {
                     if (isChannelHumanThreadFilterEnabled()) {
                         const keepOrphanThread = orphanReplies.some((message) => message && !isChannelMessageAuthorAgent(message, userInfo));
                         if (!keepOrphanThread) {
-                            hiddenThreads += 1;
-                            hiddenMessages += orphanReplies.length;
+                            humanHiddenThreads += 1;
+                            humanHiddenMessages += orphanReplies.length;
                             return;
                         }
                     }
+                    if (isChannelUnreadThreadFilterEnabled() && !channelThreadHasUnreadOrNewActivity(orphanReplies[0], orphanReplies.slice(1))) {
+                        unreadHiddenThreads += 1;
+                        unreadHiddenMessages += orphanReplies.length;
+                        return;
+                    }
                     orphanReplies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
                 });
-                if (isChannelHumanThreadFilterEnabled()) {
-                    currentChannelHumanFilterStats = { hiddenThreads, hiddenMessages };
-                    updateChannelHumanThreadFilterBanner(currentChannelHumanFilterStats);
-                }
+                currentChannelHumanFilterStats = { hiddenThreads: humanHiddenThreads, hiddenMessages: humanHiddenMessages };
+                currentChannelUnreadFilterStats = {
+                    hiddenThreads: unreadHiddenThreads,
+                    hiddenMessages: unreadHiddenMessages,
+                    visibleThreads: (unreadOlderView.roots || []).length,
+                };
+                updateChannelHumanThreadFilterBanner(currentChannelHumanFilterStats);
 
                 const scrollContainer = document.getElementById('messages-container');
                 const prevHeight = scrollContainer ? scrollContainer.scrollHeight : 0;
@@ -21160,7 +21391,9 @@ document.addEventListener('DOMContentLoaded', function() {
         loadPinnedChannelIds();
         loadChannelOrgState();
         loadChannelHumanThreadFilterState();
+        loadChannelUnreadThreadFilterState();
         updateChannelHumanThreadFilterUI();
+        updateChannelUnreadThreadFilterUI();
         updateChannelHumanThreadFilterBanner();
         bindChannelItemHandlers();
         bindChannelQuickActionHandlers();

@@ -7228,6 +7228,31 @@ class ChannelManager:
             logger.warning(f"Failed to mark channel {channel_id} as read for {user_id}: {e}")
             return False
 
+    def get_channel_last_read_at(self, channel_id: str, user_id: str) -> Optional[datetime]:
+        """Return a user's last_read_at for a channel without mutating read state."""
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT last_read_at
+                    FROM channel_members
+                    WHERE channel_id = ? AND user_id = ?
+                    LIMIT 1
+                    """,
+                    (channel_id, user_id),
+                ).fetchone()
+            if not row:
+                return None
+            return self._parse_datetime(row['last_read_at'])
+        except Exception as e:
+            logger.debug(
+                "Failed to fetch channel last_read_at for channel=%s user=%s: %s",
+                channel_id,
+                user_id,
+                e,
+            )
+            return None
+
     def is_channel_admin(self, channel_id: str, user_id: str) -> bool:
         """Check if a user is an admin (or creator) of a channel."""
         role = self.get_member_role(channel_id, user_id)

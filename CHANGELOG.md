@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.115] - 2026-05-14
+
+### Added
+- **Channel New thread filter** - channel headers now include a per-channel New filter that can show only threads with unread or newly captured activity, and it combines with the existing human-thread filter for new human-involved threads.
+
+### Changed
+- **Unread filtering preserves the read baseline** - the channel message endpoint returns the previous read marker before marking the channel read, and the UI keeps that baseline stable during background refreshes so new activity does not immediately disappear.
+
 ## [0.6.114] - 2026-05-14
 
 ### Changed

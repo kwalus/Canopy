@@ -17750,6 +17750,13 @@ def create_ui_blueprint() -> Blueprint:
                         'reason': access.get('reason'),
                     }), 403
                 return jsonify({'error': 'You are not a member of this channel'}), 403
+            # Capture the pre-open read boundary before marking read so the UI can
+            # still offer an "unread/new threads" view inside long active feeds.
+            previous_last_read_at = None
+            try:
+                previous_last_read_at = channel_manager.get_channel_last_read_at(channel_id, user_id)
+            except Exception:
+                previous_last_read_at = None
             # Mark channel as read now that the user is viewing it.
             marked_read = channel_manager.mark_channel_read(channel_id, user_id) is True
             if marked_read:
@@ -18553,6 +18560,7 @@ def create_ui_blueprint() -> Blueprint:
                 'channel_id': channel_id,
                 'count': len(messages_data),
                 'marked_read': marked_read,
+                'previous_last_read_at': previous_last_read_at.isoformat() if previous_last_read_at else None,
                 'acknowledged_mentions': acknowledged_mentions,
                 'workspace_event_cursor': workspace_event_cursor,
                 'focus_message_id': focus_message_id or None,
