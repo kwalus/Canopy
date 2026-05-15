@@ -904,18 +904,40 @@ class DigestionManager:
         sources: list[dict[str, Any]] = []
         if access.get("can_read_sources"):
             sources = self.list_sources(digestion.id, user_id=actor_user_id)
+        digestion_payload = digestion.to_dict(access=access)
+        digestion_payload["access_subject_user_id"] = actor_user_id
+        digestion_payload["access_scope"] = "exporting_user"
         return {
             "kind": "canopy_digestion_package_v1",
             "generated_at": self._now(),
-            "digestion": digestion.to_dict(access=access),
+            "digestion": digestion_payload,
             "stats": self.stats(digestion.id),
             "agent_reference": self.agent_reference(digestion.id, actor_user_id),
+            "access_subject": {
+                "user_id": actor_user_id,
+                "scope": "exporting_user",
+                "access": access,
+                "recipient_live_query_implied": False,
+            },
+            "live_query_access": {
+                "package_access_reflects": "exporting_user",
+                "recipient_live_query_implied": False,
+                "recipient_query_requires_acl": True,
+                "acl_endpoint": f"POST /api/v1/digestions/{digestion.id}/acl",
+                "acl_body_template": {
+                    "grantee_user_id": "<recipient_local_user_id>",
+                    "can_query": True,
+                    "can_read_sources": False,
+                    "can_manage": False,
+                },
+            },
             "sources_included": bool(sources),
             "sources": sources,
             "outputs": outputs,
             "reuse_guidance": [
                 "Attach this package to a post, DM, task, or agent request when you want another consumer to understand what the Digestion is.",
-                "Grant Digestion ACL access separately when a local agent or user should query the live index. In the Vault UI, use Share access on the Digestion card; via API use POST /api/v1/digestions/<digestion_id>/acl.",
+                "The access/can_query values in this package describe only the exporting user/API key, not the recipient.",
+                "Grant Digestion ACL access separately when a local agent or user should query the live index. In the Vault UI, use Share access on the Digestion card and paste the recipient's exact local user_id if needed; via API use POST /api/v1/digestions/<digestion_id>/acl.",
                 "Exported packages are snapshots; the live Digestion may continue to change as files are added and rebuilt.",
             ],
         }

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.129] - 2026-05-15
+
+### Changed
+- **File Vault opens previewable files inline by default** - clicking supported Vault files now opens an inline preview panel with explicit Open in new tab, Download, and Close actions while unsupported files keep the new-tab fallback.
+- **Vault inline previews stay on local file routes** - preview/open URLs now prefer Canopy's authenticated `/files/<id>` path and reject external fallback URLs from malformed file metadata.
+- **Digestion packages explain ACL scope more clearly** - package access fields now state that `can_query` reflects the exporting user, not the recipient, and include live-query ACL guidance for exact recipient user IDs.
+- **Digestion Share access supports exact local user IDs** - owners can paste a `user_...` ID directly, see that ID in result/chip labels, and let backend validation enforce local eligibility.
+
 ## [0.6.128] - 2026-05-15
 
 ### Changed

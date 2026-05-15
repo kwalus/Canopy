@@ -1724,19 +1724,21 @@
                 `;
             }
 
-            function renderVaultPageCard(file, selected = false) {
-                const id = vaultEscape(file.id || '');
-                const name = vaultEscape(file.name || file.filename || 'File');
-                const type = vaultEscape(CATEGORY_LABELS[file.category] || file.category || file.type || 'File');
-                const size = vaultEscape(formatBytes(file.size));
-                const uploaded = vaultEscape(formatTimestamp(file.uploaded_at || ''));
-                const url = vaultEscape(file.url || `/files/${encodeURIComponent(file.id || '')}`);
-                const isInFolder = !!String(file.folder_id || '').trim();
-                return `
-                    <article class="vault-card${selected ? ' is-selected' : ''}" data-vault-file-id="${id}" data-vault-open-url="${url}" draggable="true" role="button" tabindex="0" aria-label="Open ${name}">
-                        <label class="vault-select-wrap" title="Select ${name}" aria-label="Select ${name}">
-                            <input class="vault-select-box" type="checkbox" data-vault-select-file="${id}" ${selected ? 'checked' : ''}>
-                        </label>
+	            function renderVaultPageCard(file, selected = false) {
+	                const id = vaultEscape(file.id || '');
+	                const name = vaultEscape(file.name || file.filename || 'File');
+	                const type = vaultEscape(CATEGORY_LABELS[file.category] || file.category || file.type || 'File');
+	                const size = vaultEscape(formatBytes(file.size));
+	                const uploaded = vaultEscape(formatTimestamp(file.uploaded_at || ''));
+	                const url = vaultEscape(file.url || `/files/${encodeURIComponent(file.id || '')}`);
+	                const isInFolder = !!String(file.folder_id || '').trim();
+	                const previewable = isVaultInlinePreviewable(file);
+	                const actionLabel = previewable ? 'Preview' : 'Open';
+	                return `
+	                    <article class="vault-card${selected ? ' is-selected' : ''}" data-vault-file-id="${id}" data-vault-open-url="${url}" data-vault-previewable="${previewable ? 'true' : 'false'}" draggable="true" role="button" tabindex="0" aria-label="${actionLabel} ${name}">
+	                        <label class="vault-select-wrap" title="Select ${name}" aria-label="Select ${name}">
+	                            <input class="vault-select-box" type="checkbox" data-vault-select-file="${id}" ${selected ? 'checked' : ''}>
+	                        </label>
                         <div class="vault-card-preview">${renderVaultPreview(file)}</div>
                         <div class="vault-card-body">
                             <div class="vault-file-name">${name}</div>
@@ -1748,12 +1750,12 @@
                             </div>
                         </div>
                         <div class="vault-card-actions">
-                            <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-action="copy" data-vault-id="${id}">
-                                <i class="bi bi-markdown"></i> <span>Copy link</span>
-                            </button>
-                            <a class="btn btn-sm btn-outline-secondary" href="${url}" target="_blank" rel="noopener">
-                                <i class="bi bi-box-arrow-up-right"></i> <span>Open</span>
-                            </a>
+	                            <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-action="copy" data-vault-id="${id}">
+	                                <i class="bi bi-markdown"></i> <span>Copy link</span>
+	                            </button>
+	                            <a class="btn btn-sm btn-outline-secondary" href="${url}" target="_blank" rel="noopener" title="Open ${name} in a new tab">
+	                                <i class="bi bi-box-arrow-up-right"></i> <span>New tab</span>
+	                            </a>
                             ${isInFolder ? `
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-action="move-root" data-vault-id="${id}">
                                     <i class="bi bi-house-door"></i> <span>Move Home</span>
@@ -1792,10 +1794,11 @@
 	                    loading: false,
 	                    timer: null,
 	                    viewMode: readVaultViewMode(),
-		                    selectedIds: new Set(),
-		                    shareTimers: new Map(),
-		                    shareUsers: new Map(),
-		                    shareActiveIndex: new Map()
+			                    selectedIds: new Set(),
+			                    shareTimers: new Map(),
+			                    shareUsers: new Map(),
+			                    shareActiveIndex: new Map(),
+			                    previewFileId: ''
 	                };
                 const grid = document.getElementById('vault-grid');
                 const empty = document.getElementById('vault-empty');
@@ -1818,26 +1821,212 @@
                 const selectionClear = document.getElementById('vault-selection-clear');
                 const digestionCreateForm = document.getElementById('vault-digestion-create-form');
                 const digestionCreateName = document.getElementById('vault-digestion-create-name');
-                const digestionCreatePurpose = document.getElementById('vault-digestion-create-purpose');
-                const digestionCreateCancel = document.getElementById('vault-digestion-create-cancel');
-                const digestionList = document.getElementById('vault-digestion-list');
-                const digestionRefresh = document.getElementById('vault-digestion-refresh');
+	                const digestionCreatePurpose = document.getElementById('vault-digestion-create-purpose');
+	                const digestionCreateCancel = document.getElementById('vault-digestion-create-cancel');
+	                const digestionList = document.getElementById('vault-digestion-list');
+	                const digestionRefresh = document.getElementById('vault-digestion-refresh');
+	                const inlinePreviewPanel = document.getElementById('vault-inline-preview-panel');
+	                const inlinePreviewTitle = document.getElementById('vault-inline-preview-title');
+	                const inlinePreviewMeta = document.getElementById('vault-inline-preview-meta');
+	                const inlinePreviewBody = document.getElementById('vault-inline-preview-body');
+	                const inlinePreviewOpen = document.getElementById('vault-inline-preview-open');
+	                const inlinePreviewDownload = document.getElementById('vault-inline-preview-download');
+	                const inlinePreviewClose = document.getElementById('vault-inline-preview-close');
 
-                function vaultFileUrl(file) {
-                    return String(file && (file.url || `/files/${encodeURIComponent(file.id || '')}`) || '');
-                }
+	                function vaultFileUrl(file) {
+	                    const id = String(file && file.id || '').trim();
+	                    if (id) return `/files/${encodeURIComponent(id)}`;
+	                    const raw = String(file && file.url || '').trim();
+	                    if (!raw) return '';
+	                    try {
+	                        const parsed = new URL(raw, global.location.origin);
+	                        if (parsed.origin === global.location.origin) {
+	                            return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+	                        }
+	                    } catch (_) {}
+	                    return '';
+	                }
 
-                function openVaultFile(file) {
-                    const url = vaultFileUrl(file);
-                    if (!url) return;
-                    const opened = global.open(url, '_blank');
+	                function vaultFileName(file) {
+	                    return String(file && (file.name || file.filename || file.original_name || file.id) || 'Vault file');
+	                }
+
+	                function vaultFileContentType(file) {
+	                    return String(file && (file.type || file.content_type || file.mime_type) || '').toLowerCase();
+	                }
+
+	                function vaultFileExtension(file) {
+	                    const raw = vaultFileName(file).split('?')[0].split('#')[0];
+	                    const dot = raw.lastIndexOf('.');
+	                    return dot >= 0 ? raw.slice(dot).toLowerCase() : '';
+	                }
+
+	                function isVaultImageFile(file) {
+	                    const type = vaultFileContentType(file);
+	                    const category = String(file && file.category || '').toLowerCase();
+	                    const ext = vaultFileExtension(file);
+	                    return type.startsWith('image/') || category === 'images' || ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.tif', '.tiff', '.heic', '.heif'].includes(ext);
+	                }
+
+	                function isVaultVideoFile(file) {
+	                    const type = vaultFileContentType(file);
+	                    const category = String(file && file.category || '').toLowerCase();
+	                    const ext = vaultFileExtension(file);
+	                    return type.startsWith('video/') || category === 'video' || category === 'videos' || ['.mp4', '.m4v', '.mov', '.webm', '.ogv'].includes(ext);
+	                }
+
+	                function isVaultAudioFile(file) {
+	                    const type = vaultFileContentType(file);
+	                    const category = String(file && file.category || '').toLowerCase();
+	                    const ext = vaultFileExtension(file);
+	                    return type.startsWith('audio/') || category === 'audio' || ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.flac', '.webm'].includes(ext);
+	                }
+
+	                function vaultFilePreviewUrl(file) {
+	                    const id = String(file && file.id || '').trim();
+	                    return id ? `/ajax/files/${encodeURIComponent(id)}/preview` : '';
+	                }
+
+	                function isVaultInlinePreviewable(file) {
+	                    const name = vaultFileName(file);
+	                    const type = vaultFileContentType(file);
+	                    if (isVaultImageFile(file) || isVaultVideoFile(file) || isVaultAudioFile(file)) return true;
+	                    const detectors = [
+	                        global.canopyIsPdfPreviewable,
+	                        global.canopyIsMarkdownPreviewable,
+	                        global.canopyIsSpreadsheetPreviewable,
+	                        global.canopyIsDocumentPreviewable,
+	                        global.canopyIsTextPreviewable,
+	                    ];
+	                    return detectors.some(fn => typeof fn === 'function' && fn(name, type));
+	                }
+
+	                function setVaultPreviewCardState(fileId) {
+	                    if (!grid) return;
+	                    const selectedId = String(fileId || '');
+	                    grid.querySelectorAll('[data-vault-file-id]').forEach((card) => {
+	                        const id = card.getAttribute('data-vault-file-id') || '';
+	                        card.classList.toggle('is-previewing', !!selectedId && id === selectedId);
+	                    });
+	                }
+
+	                function closeVaultInlinePreview() {
+	                    state.previewFileId = '';
+	                    if (inlinePreviewPanel) inlinePreviewPanel.hidden = true;
+	                    if (inlinePreviewBody) {
+	                        inlinePreviewBody.innerHTML = '';
+	                        delete inlinePreviewBody.dataset.loadedFileId;
+	                    }
+	                    setVaultPreviewCardState('');
+	                }
+
+	                function vaultInlinePreviewMeta(file) {
+	                    const bits = [];
+	                    const category = CATEGORY_LABELS[file && file.category] || (file && file.category) || vaultFileContentType(file) || 'File';
+	                    if (category) bits.push(category);
+	                    bits.push(formatBytes(file && file.size));
+	                    if (file && file.uploaded_at) bits.push(formatTimestamp(file.uploaded_at));
+	                    return bits.filter(Boolean).join(' · ');
+	                }
+
+	                function renderVaultInlineMediaPreview(file) {
+	                    const url = vaultEscape(vaultFileUrl(file));
+	                    const name = vaultEscape(vaultFileName(file));
+	                    if (isVaultImageFile(file)) {
+	                        return `<img class="vault-inline-preview-media" src="${url}" alt="${name}" loading="lazy">`;
+	                    }
+	                    if (isVaultVideoFile(file)) {
+	                        return `<video class="vault-inline-preview-media" src="${url}" controls playsinline preload="metadata"></video>`;
+	                    }
+	                    if (isVaultAudioFile(file)) {
+	                        return `<audio class="vault-inline-preview-audio" src="${url}" controls preload="metadata"></audio>`;
+	                    }
+	                    return '';
+	                }
+
+	                function renderVaultInlinePdfPreview(file) {
+	                    if (typeof global.renderPdfAttachmentPreviewHtml === 'function') {
+	                        return global.renderPdfAttachmentPreviewHtml(vaultFileUrl(file), vaultFileName(file));
+	                    }
+	                    return `<div class="vault-inline-preview-message">PDF preview is not available on this page. Use Open in new tab.</div>`;
+	                }
+
+	                async function previewVaultFileInline(file) {
+	                    const id = String(file && file.id || '').trim();
+	                    if (!id || !inlinePreviewPanel || !inlinePreviewBody) {
+	                        openVaultFileInNewTab(file);
+	                        return;
+	                    }
+	                    if (!isVaultInlinePreviewable(file)) {
+	                        openVaultFileInNewTab(file);
+	                        return;
+	                    }
+
+	                    const url = vaultFileUrl(file);
+	                    const name = vaultFileName(file);
+	                    state.previewFileId = id;
+	                    if (inlinePreviewTitle) inlinePreviewTitle.textContent = name;
+	                    if (inlinePreviewMeta) inlinePreviewMeta.textContent = vaultInlinePreviewMeta(file);
+	                    if (inlinePreviewOpen) inlinePreviewOpen.href = url || '#';
+	                    if (inlinePreviewDownload) {
+	                        inlinePreviewDownload.href = url || '#';
+	                        inlinePreviewDownload.setAttribute('download', name);
+	                    }
+	                    inlinePreviewPanel.hidden = false;
+	                    setVaultPreviewCardState(id);
+
+	                    const type = vaultFileContentType(file);
+	                    const mediaHtml = renderVaultInlineMediaPreview(file);
+	                    if (mediaHtml) {
+	                        inlinePreviewBody.dataset.loadedFileId = id;
+	                        inlinePreviewBody.innerHTML = mediaHtml;
+	                        inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	                        return;
+	                    }
+	                    if (typeof global.canopyIsPdfPreviewable === 'function' && global.canopyIsPdfPreviewable(name, type)) {
+	                        inlinePreviewBody.dataset.loadedFileId = id;
+	                        inlinePreviewBody.innerHTML = renderVaultInlinePdfPreview(file);
+	                        inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	                        return;
+	                    }
+
+	                    inlinePreviewBody.innerHTML = '<div class="vault-inline-preview-message"><span class="spinner-border spinner-border-sm me-1"></span>Loading preview...</div>';
+	                    inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	                    try {
+	                        const payload = await apiCall(vaultFilePreviewUrl(file));
+	                        if (state.previewFileId !== id) return;
+	                        const previewId = `vault-preview-${id.replace(/[^A-Za-z0-9_-]/g, '-')}`;
+	                        if (typeof global.renderFilePreviewPayloadHtml === 'function') {
+	                            inlinePreviewBody.dataset.loadedFileId = id;
+	                            inlinePreviewBody.innerHTML = `<div id="${vaultEscape(previewId)}">${global.renderFilePreviewPayloadHtml(previewId, payload || {})}</div>`;
+	                        } else {
+	                            inlinePreviewBody.innerHTML = '<div class="vault-inline-preview-message">Preview renderer is not available. Use Open in new tab.</div>';
+	                        }
+	                    } catch (error) {
+	                        if (state.previewFileId !== id) return;
+	                        inlinePreviewBody.innerHTML = `<div class="vault-inline-preview-message text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${vaultEscape(error.error || error.message || 'Could not load preview.')}</div>`;
+	                    }
+	                }
+
+	                function openVaultFileInNewTab(file) {
+	                    const url = vaultFileUrl(file);
+	                    if (!url) return;
+	                    const opened = global.open(url, '_blank');
                     if (opened) {
                         try { opened.opener = null; } catch (_) {}
                     }
                     if (!opened) {
-                        global.location.href = url;
-                    }
-                }
+	                        global.location.href = url;
+	                    }
+	                }
+
+	                function openVaultFile(file) {
+	                    if (isVaultInlinePreviewable(file)) {
+	                        previewVaultFileInline(file);
+	                        return;
+	                    }
+	                    openVaultFileInNewTab(file);
+	                }
 
                 function selectedVaultFiles() {
                     return state.files.filter(file => state.selectedIds.has(String(file.id || '')));
@@ -1880,13 +2069,14 @@
                     if (selectionDigest) selectionDigest.disabled = selected.length === 0;
                     if (selectionClear) selectionClear.disabled = selected.length === 0;
                     if (!selected.length) hideDigestionCreateForm();
-                    if (grid) {
-                        grid.querySelectorAll('[data-vault-file-id]').forEach((card) => {
-                            const id = card.getAttribute('data-vault-file-id') || '';
-                            card.classList.toggle('is-selected', state.selectedIds.has(id));
-                        });
-                    }
-                }
+	                    if (grid) {
+	                        grid.querySelectorAll('[data-vault-file-id]').forEach((card) => {
+	                            const id = card.getAttribute('data-vault-file-id') || '';
+	                            card.classList.toggle('is-selected', state.selectedIds.has(id));
+	                        });
+	                        setVaultPreviewCardState(state.previewFileId);
+	                    }
+	                }
 
                 function applyVaultViewMode() {
                     if (!grid) return;
@@ -2372,9 +2562,25 @@
 		                    return String(value || '').replace(/^@+/, '').trim();
 		                }
 
-		                function digestionShareSearchKey(value) {
-		                    return digestionShareSearchValue(value).toLowerCase();
-		                }
+			                function digestionShareSearchKey(value) {
+			                    return digestionShareSearchValue(value).toLowerCase();
+			                }
+
+			                function digestionShareDirectUserIdCandidate(value) {
+			                    const candidate = digestionShareSearchValue(value);
+			                    return /^user_[A-Za-z0-9_-]{6,}$/.test(candidate) ? candidate : '';
+			                }
+
+			                function digestionShareIdentitySubLabel(user) {
+			                    const normalized = normalizeDigestionShareUser(user);
+			                    if (!normalized) return '';
+			                    const userId = String(normalized.user_id || '').trim();
+			                    const base = userSubLabel(normalized);
+			                    const parts = [];
+			                    if (base && base !== userId) parts.push(base);
+			                    if (userId) parts.push(`id ${userId}`);
+			                    return parts.join(' · ');
+			                }
 
 		                function digestionShareResultButtons(form) {
 		                    return Array.from((form || document).querySelectorAll('[data-vault-digestion-share-user-id]'));
@@ -2426,7 +2632,7 @@
 		                    }
 		                    resultsEl.innerHTML = safeUsers.map((user, index) => {
 		                        const label = userLabel(user);
-		                        const subLabel = userSubLabel(user) || user.user_id;
+			                        const subLabel = digestionShareIdentitySubLabel(user) || user.user_id;
 		                        const avatar = user.avatar_url
 		                            ? `<img src="${vaultEscape(user.avatar_url)}" alt="">`
 		                            : `<span>${vaultEscape(label.slice(0, 2).toUpperCase())}</span>`;
@@ -2490,7 +2696,7 @@
 		                    const hiddenInput = form.querySelector('[data-vault-digestion-share-grantee]');
 		                    const resultsEl = form.querySelector('[data-vault-digestion-share-results]');
 		                    const label = userLabel(normalized);
-		                    const subLabel = userSubLabel(normalized);
+			                    const subLabel = digestionShareIdentitySubLabel(normalized);
 		                    form.dataset.granteeUserId = normalized.user_id;
 		                    form.dataset.granteeUserLabel = label;
 		                    if (hiddenInput) hiddenInput.value = normalized.user_id;
@@ -2517,14 +2723,27 @@
 		                    return setDigestionShareSelected(form, userFromDigestionShareButton(button));
 		                }
 
-		                function maybeSelectTypedDigestionShareUser(form) {
-		                    if (!form) return false;
-		                    const digestionId = String(form.getAttribute('data-vault-digestion-share') || '');
-		                    const input = form.querySelector('[data-vault-digestion-share-search]');
-		                    const typed = digestionShareSearchKey(input && input.value);
-		                    if (!typed) return false;
-		                    const users = state.shareUsers.get(digestionId) || [];
-		                    const matches = users.filter((user) => {
+			                function maybeSelectTypedDigestionShareUser(form) {
+			                    if (!form) return false;
+			                    const digestionId = String(form.getAttribute('data-vault-digestion-share') || '');
+			                    const input = form.querySelector('[data-vault-digestion-share-search]');
+			                    const typed = digestionShareSearchKey(input && input.value);
+			                    if (!typed) return false;
+			                    const directUserId = digestionShareDirectUserIdCandidate(input && input.value);
+			                    if (directUserId) {
+			                        const selected = setDigestionShareSelected(form, {
+			                            user_id: directUserId,
+			                            username: directUserId,
+			                            display_name: directUserId,
+			                            account_type: 'local user id',
+			                        });
+			                        if (selected) {
+			                            setDigestionShareStatus(form, 'Will grant exact local user ID if it exists on this node.', 'muted');
+			                        }
+			                        return selected;
+			                    }
+			                    const users = state.shareUsers.get(digestionId) || [];
+			                    const matches = users.filter((user) => {
 		                        const values = [
 		                            userLabel(user),
 		                            user.username,
@@ -2571,13 +2790,29 @@
 		                    if (!input) return;
 		                    const digestionId = input.getAttribute('data-vault-digestion-share-search') || '';
 		                    const form = digestionShareForm(digestionId);
-		                    if (form) {
-		                        const selectedLabel = digestionShareSearchKey(form.dataset.granteeUserLabel || '');
-		                        const typed = digestionShareSearchKey(input.value);
-		                        if (!selectedLabel || typed !== selectedLabel) {
-		                            resetDigestionShareSelection(form, { keepInput: true });
-		                        }
-		                    }
+			                    if (form) {
+			                        const selectedLabel = digestionShareSearchKey(form.dataset.granteeUserLabel || '');
+			                        const typed = digestionShareSearchKey(input.value);
+			                        if (!selectedLabel || typed !== selectedLabel) {
+			                            resetDigestionShareSelection(form, { keepInput: true });
+			                        }
+			                        const directUserId = digestionShareDirectUserIdCandidate(input.value);
+			                        if (directUserId) {
+			                            setDigestionShareSelected(form, {
+			                                user_id: directUserId,
+			                                username: directUserId,
+			                                display_name: directUserId,
+			                                account_type: 'local user id',
+			                            });
+			                            setDigestionShareStatus(form, 'Will grant exact local user ID if it exists on this node.', 'muted');
+			                            const resultsEl = form.querySelector('[data-vault-digestion-share-results]');
+			                            if (resultsEl) {
+			                                resultsEl.hidden = true;
+			                                resultsEl.innerHTML = '';
+			                            }
+			                            return;
+			                        }
+			                    }
 		                    clearTimeout(state.shareTimers.get(digestionId));
 		                    state.shareTimers.set(digestionId, global.setTimeout(() => {
 		                        searchDigestionShareUsers(digestionId, input.value, { showAll: !digestionShareSearchValue(input.value) });
@@ -2632,12 +2867,14 @@
 
 		                async function grantDigestionAccess(form) {
 		                    if (!form) return;
-		                    const digestionId = form.getAttribute('data-vault-digestion-share') || '';
-		                    if (!form.dataset.granteeUserId) maybeSelectTypedDigestionShareUser(form);
-		                    const hiddenInput = form.querySelector('[data-vault-digestion-share-grantee]');
-		                    const granteeUserId = String(
-		                        (hiddenInput && hiddenInput.value) || form.dataset.granteeUserId || ''
-		                    ).trim();
+			                    const digestionId = form.getAttribute('data-vault-digestion-share') || '';
+			                    if (!form.dataset.granteeUserId) maybeSelectTypedDigestionShareUser(form);
+			                    const hiddenInput = form.querySelector('[data-vault-digestion-share-grantee]');
+			                    const input = form.querySelector('[data-vault-digestion-share-search]');
+			                    const directUserId = digestionShareDirectUserIdCandidate(input && input.value);
+			                    const granteeUserId = String(
+			                        (hiddenInput && hiddenInput.value) || form.dataset.granteeUserId || directUserId || ''
+			                    ).trim();
 		                    if (!digestionId || !granteeUserId) {
 		                        setDigestionShareStatus(form, 'Choose a user or agent before granting access.', 'warning');
 		                        return;
@@ -2735,10 +2972,13 @@
                 function render() {
                     if (!grid || !empty) return;
                     const visibleIds = new Set(state.files.map(file => String(file.id || '')).filter(Boolean));
-                    state.selectedIds.forEach((id) => {
-                        if (!visibleIds.has(id)) state.selectedIds.delete(id);
-                    });
-                    if (!state.files.length && !state.folders.length) {
+	                    state.selectedIds.forEach((id) => {
+	                        if (!visibleIds.has(id)) state.selectedIds.delete(id);
+	                    });
+	                    if (state.previewFileId && !visibleIds.has(state.previewFileId)) {
+	                        closeVaultInlinePreview();
+	                    }
+	                    if (!state.files.length && !state.folders.length) {
                         grid.innerHTML = '';
                         empty.style.display = 'block';
                     } else {
@@ -3220,13 +3460,16 @@
                         queryDigestion(digestionId, input ? input.value : '');
                     });
                 }
-                if (selectionClear) {
-                    selectionClear.addEventListener('click', () => {
-                        state.selectedIds.clear();
-                        render();
-                    });
-                }
-                if (dropzone && uploadInput) {
+	                if (selectionClear) {
+	                    selectionClear.addEventListener('click', () => {
+	                        state.selectedIds.clear();
+	                        render();
+	                    });
+	                }
+	                if (inlinePreviewClose) {
+	                    inlinePreviewClose.addEventListener('click', closeVaultInlinePreview);
+	                }
+	                if (dropzone && uploadInput) {
                     let externalDragDepth = 0;
                     dropzone.addEventListener('keydown', (event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
@@ -7917,8 +8160,10 @@
                 window.canopyIsTextPreviewable = canopyIsTextPreviewable;
                 window.canopyIsMarkdownPreviewable = canopyIsMarkdownPreviewable;
                 window.canopyDetectCodeLanguage = canopyDetectCodeLanguage;
-                window.canopyHighlightCodeLine = canopyHighlightCodeLine;
-                window.copyCodePreviewText = copyCodePreviewText;
+	                window.canopyHighlightCodeLine = canopyHighlightCodeLine;
+	                window.renderFilePreviewPayloadHtml = renderFilePreviewPayloadHtml;
+	                window.renderPdfAttachmentPreviewHtml = renderPdfAttachmentPreviewHtml;
+	                window.copyCodePreviewText = copyCodePreviewText;
                 window.copyFilePreviewText = copyFilePreviewText;
                 window.toggleFilePreviewRaw = toggleFilePreviewRaw;
                 window.canopyAttachmentPreviewLabels = canopyAttachmentPreviewLabels;

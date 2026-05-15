@@ -327,6 +327,12 @@
         cursor: grabbing;
         opacity: 0.55;
     }
+    .vault-card.is-previewing {
+        border-color: color-mix(in srgb, var(--canopy-secondary) 70%, var(--canopy-border));
+        box-shadow:
+            0 0 0 2px color-mix(in srgb, var(--canopy-secondary) 24%, transparent),
+            0 18px 34px color-mix(in srgb, var(--canopy-shadow) 72%, transparent);
+    }
     .vault-drag-help {
         color: var(--canopy-text-muted);
         font-size: 0.76rem;
@@ -533,6 +539,12 @@
         background: color-mix(in srgb, var(--canopy-success) 16%, transparent);
         color: var(--canopy-text-primary);
         font-size: 0.78rem;
+    }
+    .vault-digestion-share-selected span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     .vault-digestion-share-selected button {
         border: 0;
@@ -763,6 +775,83 @@
     .vault-file-location.is-visible {
         display: inline-flex;
     }
+    .vault-inline-preview-panel {
+        margin-bottom: 1rem;
+        border-color: color-mix(in srgb, var(--canopy-secondary) 34%, var(--canopy-border));
+    }
+    .vault-inline-preview-panel[hidden] {
+        display: none !important;
+    }
+    .vault-inline-preview-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.8rem;
+        padding: 0.95rem 1rem;
+        border-bottom: 1px solid var(--canopy-border);
+        background:
+            radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--canopy-secondary) 18%, transparent), transparent 32%),
+            color-mix(in srgb, var(--canopy-bg-card) 86%, transparent);
+    }
+    .vault-inline-preview-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        color: var(--canopy-secondary);
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        margin-bottom: 0.25rem;
+    }
+    .vault-inline-preview-title {
+        margin: 0;
+        color: var(--canopy-text-primary);
+        font-size: 1.1rem;
+        font-weight: 900;
+        word-break: break-word;
+    }
+    .vault-inline-preview-meta {
+        margin-top: 0.25rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.82rem;
+    }
+    .vault-inline-preview-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.45rem;
+    }
+    .vault-inline-preview-body {
+        padding: 1rem;
+        max-height: min(76vh, 860px);
+        overflow: auto;
+        background:
+            linear-gradient(180deg, color-mix(in srgb, var(--canopy-bg-secondary) 72%, transparent), color-mix(in srgb, var(--canopy-bg-card) 88%, transparent));
+    }
+    .vault-inline-preview-body .file-preview-container {
+        margin: 0;
+    }
+    .vault-inline-preview-media {
+        display: block;
+        width: 100%;
+        max-height: min(70vh, 760px);
+        object-fit: contain;
+        border: 1px solid var(--canopy-border);
+        border-radius: 18px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
+    }
+    .vault-inline-preview-audio {
+        width: min(100%, 760px);
+    }
+    .vault-inline-preview-message {
+        padding: 1rem;
+        border: 1px dashed var(--canopy-border);
+        border-radius: 16px;
+        color: var(--canopy-text-secondary);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+    }
     .vault-grid.view-list {
         grid-template-columns: 1fr;
     }
@@ -911,6 +1000,12 @@
             flex: 1 1 0;
             justify-content: center;
         }
+        .vault-inline-preview-head {
+            display: grid;
+        }
+        .vault-inline-preview-actions {
+            justify-content: flex-start;
+        }
     }
 </style>
 {% endblock %}
@@ -1040,15 +1135,15 @@
                 </button>
             </div>
         </div>
-        <div class="vault-selection-bar" id="vault-selection-bar" hidden>
+	        <div class="vault-selection-bar" id="vault-selection-bar" hidden>
             <div>
                 <strong id="vault-selection-count">0 selected</strong>
                 <span class="text-muted small ms-1">Collect Vault links without opening each file.</span>
             </div>
             <div class="vault-selection-actions">
-                <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-selection-open">
-                    <i class="bi bi-box-arrow-up-right"></i> Open first
-                </button>
+	                <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-selection-open">
+	                    <i class="bi bi-eye"></i> Preview first
+	                </button>
                 <button class="btn btn-sm btn-primary" type="button" id="vault-selection-copy">
                     <i class="bi bi-markdown"></i> Copy links
                 </button>
@@ -1077,10 +1172,31 @@
                     <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-digestion-create-cancel">
                         Cancel
                     </button>
-                </form>
-            </div>
-        </div>
-        <div class="vault-grid" id="vault-grid" aria-live="polite"></div>
+	                </form>
+	            </div>
+	        </div>
+	        <section class="vault-inline-preview-panel" id="vault-inline-preview-panel" hidden aria-live="polite" aria-label="Vault file preview">
+	            <div class="vault-inline-preview-head">
+	                <div>
+	                    <div class="vault-inline-preview-kicker"><i class="bi bi-eye"></i> Vault preview</div>
+	                    <h3 class="vault-inline-preview-title" id="vault-inline-preview-title">Select a file</h3>
+	                    <div class="vault-inline-preview-meta" id="vault-inline-preview-meta"></div>
+	                </div>
+	                <div class="vault-inline-preview-actions">
+	                    <a class="btn btn-sm btn-outline-secondary" id="vault-inline-preview-open" href="#" target="_blank" rel="noopener">
+	                        <i class="bi bi-box-arrow-up-right"></i> Open in new tab
+	                    </a>
+	                    <a class="btn btn-sm btn-outline-secondary" id="vault-inline-preview-download" href="#" download>
+	                        <i class="bi bi-download"></i> Download
+	                    </a>
+	                    <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-inline-preview-close">
+	                        <i class="bi bi-x-lg"></i> Close
+	                    </button>
+	                </div>
+	            </div>
+	            <div class="vault-inline-preview-body" id="vault-inline-preview-body"></div>
+	        </section>
+	        <div class="vault-grid" id="vault-grid" aria-live="polite"></div>
         <div class="vault-empty" id="vault-empty">
             <i class="bi bi-folder2-open d-block mb-2"></i>
             <strong>No files here yet.</strong>

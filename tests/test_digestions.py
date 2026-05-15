@@ -256,6 +256,14 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(package['kind'], 'canopy_digestion_package_v1')
         self.assertTrue(package['sources_included'])
         self.assertIn('agent_reference', package)
+        self.assertEqual(package['digestion']['access_subject_user_id'], 'owner-user')
+        self.assertEqual(package['digestion']['access_scope'], 'exporting_user')
+        self.assertEqual(package['access_subject']['user_id'], 'owner-user')
+        self.assertTrue(package['access_subject']['access']['can_query'])
+        self.assertFalse(package['access_subject']['recipient_live_query_implied'])
+        self.assertEqual(package['live_query_access']['package_access_reflects'], 'exporting_user')
+        self.assertFalse(package['live_query_access']['recipient_live_query_implied'])
+        self.assertTrue(package['live_query_access']['recipient_query_requires_acl'])
         self.assertTrue({'manifest', 'human_brief', 'agent_context'}.issubset(
             {item['output_kind'] for item in package['outputs']}
         ))
@@ -404,6 +412,11 @@ class TestDigestions(unittest.TestCase):
                 headers={'X-API-Key': 'reader-key'},
             )
             self.assertEqual(blocked_query.status_code, 403)
+            blocked_get = client.get(
+                f'/api/v1/digestions/{digestion_id}',
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(blocked_get.status_code, 404)
 
             grant_response = client.post(
                 f'/api/v1/digestions/{digestion_id}/acl',
@@ -448,6 +461,14 @@ class TestDigestions(unittest.TestCase):
             self.assertTrue(payload['success'])
             self.assertGreaterEqual(payload['result_count'], 1)
             self.assertEqual(payload['results'][0]['file_name'], 'api-corpus.txt')
+
+            shared_get = client.get(
+                f'/api/v1/digestions/{digestion_id}',
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(shared_get.status_code, 200)
+            shared_payload = shared_get.get_json() or {}
+            self.assertTrue(shared_payload['digestion']['access']['can_query'])
 
             sources_response = client.get(
                 f'/api/v1/digestions/{digestion_id}/sources',
