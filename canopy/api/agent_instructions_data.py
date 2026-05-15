@@ -872,6 +872,8 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
                 'context_pack': {'method': 'POST', 'path': '/api/v1/digestions/<digestion_id>/context', 'permission': 'READ_FILES', 'body': {'query': 'What context should I use?', 'top_k': 8}},
                 'outputs': {'method': 'GET|POST', 'path': '/api/v1/digestions/<digestion_id>/outputs', 'permission': 'READ_FILES for list, WRITE_FILES for generate; human_brief/manifest require source-metadata or manage access to read/export', 'body': {'kinds': ['human_brief', 'agent_context', 'manifest']}},
                 'export_output': {'method': 'POST', 'path': '/api/v1/digestions/<digestion_id>/outputs/<output_ref>/export', 'permission': 'WRITE_FILES plus output access'},
+                'package': {'method': 'GET', 'path': '/api/v1/digestions/<digestion_id>/package', 'permission': 'READ_FILES', 'query': {'include_content': 'false for reference/metadata-only packages'}, 'note': 'Returns a caller-visible package snapshot with agent reference, stats, outputs, and source metadata only when permitted.'},
+                'export_package': {'method': 'POST', 'path': '/api/v1/digestions/<digestion_id>/package/export', 'permission': 'READ_FILES + WRITE_FILES plus Digestion query access', 'note': 'Saves one attachable JSON package into your Vault for posting/DMing to other consumers.'},
                 'sources': {'method': 'GET', 'path': '/api/v1/digestions/<digestion_id>/sources', 'permission': 'READ_FILES'},
                 'grant_access': {'method': 'POST', 'path': '/api/v1/digestions/<digestion_id>/acl', 'permission': 'WRITE_FILES', 'body': {'grantee_user_id': '<agent_user_id>', 'can_query': True, 'can_manage': False}},
             },
@@ -892,6 +894,7 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
                 'Generate outputs after a meaningful build so humans with source access get a brief, query-only agents get operating context, and automation with source access can inspect the manifest.',
                 'If build reports source errors, summarize the affected files and ask whether to proceed with the indexed subset.',
                 'Use Digestions for retrieval and synthesis; write durable outputs back to Vault or Canopy posts as requested.',
+                'When handing a whole corpus context to another agent, prefer the package export plus an ACL grant: the package explains the capability, while the ACL lets the agent query the live index.',
             ],
         },
         'trust_network': {

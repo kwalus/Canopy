@@ -11242,6 +11242,41 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API output export failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/package', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def digestion_package_api(digestion_id: str):
+        """Return a whole-Digestion package snapshot for agent reuse."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            include_content = str(request.args.get('include_content', 'true') or '').strip().lower() not in {'0', 'false', 'no'}
+            package = manager.package_payload(digestion_id, g.api_key_info.user_id, include_content=include_content)
+            return jsonify({'success': True, 'digestion_id': digestion_id, 'package': package})
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API package failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/package/export', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def digestion_package_export_api(digestion_id: str):
+        """Export a whole-Digestion package snapshot into the caller's Vault."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        key_info = getattr(g, 'api_key_info', None)
+        if key_info is None or not key_info.has_permission(Permission.READ_FILES):
+            return jsonify({'error': 'Invalid or insufficient permissions'}), 403
+        try:
+            return jsonify(manager.export_package_to_vault(digestion_id, g.api_key_info.user_id))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API package export failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/acl', methods=['POST'])
     @require_auth(Permission.WRITE_FILES)
     def grant_digestion_access_api(digestion_id: str):

@@ -91,6 +91,20 @@
         background:
             linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 20%, transparent), color-mix(in srgb, var(--canopy-accent) 13%, transparent));
     }
+    .vault-dropzone.is-uploading {
+        cursor: progress;
+        border-style: solid;
+        box-shadow:
+            0 0 0 3px color-mix(in srgb, var(--canopy-primary) 16%, transparent),
+            0 24px 50px var(--canopy-shadow);
+    }
+    .vault-dropzone.is-uploading .vault-drop-icon {
+        animation: vaultUploadPulse 0.95s ease-in-out infinite alternate;
+    }
+    @keyframes vaultUploadPulse {
+        from { transform: translateY(0) scale(1); }
+        to { transform: translateY(-2px) scale(1.04); }
+    }
     .vault-drop-icon {
         width: 58px;
         height: 58px;
@@ -474,9 +488,18 @@
         gap: 0.5rem;
         margin-bottom: 0.35rem;
     }
+    .vault-digestion-output-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
     .vault-digestion-output-title {
         color: var(--canopy-text-primary);
         font-weight: 850;
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
     .vault-grid {
         display: grid;

@@ -6702,6 +6702,38 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI output export error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not export Digestion output'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/package', methods=['GET'])
+    @require_login
+    def ajax_digestion_package(digestion_id: str):
+        """Return a reusable whole-Digestion package snapshot."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            include_content = str(request.args.get('include_content', 'true') or '').strip().lower() not in {'0', 'false', 'no'}
+            package = manager.package_payload(digestion_id, get_current_user(), include_content=include_content)
+            return jsonify({'success': True, 'digestion_id': digestion_id, 'package': package})
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI package error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load Digestion package'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/package/export', methods=['POST'])
+    @require_login
+    def ajax_digestion_package_export(digestion_id: str):
+        """Export a whole-Digestion package snapshot into the current user's Vault."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.export_package_to_vault(digestion_id, get_current_user()))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI package export error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not export Digestion package'}), 500
+
     @ui.route('/ajax/workspace_search', methods=['GET'])
     @require_login
     def ajax_workspace_search():

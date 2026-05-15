@@ -1933,6 +1933,58 @@
                     return String(value || '').replace(/["\\]/g, '\\$&');
                 }
 
+                function isVaultFileDragEvent(event) {
+                    const types = Array.from((event && event.dataTransfer && event.dataTransfer.types) || []);
+                    return types.includes(VAULT_FILE_DRAG_TYPE);
+                }
+
+                function findDigestion(digestionId) {
+                    const wanted = String(digestionId || '');
+                    return state.digestions.find(item => String(item.id || '') === wanted) || null;
+                }
+
+                function digestionAgentReferenceText(digestion) {
+                    const item = digestion || {};
+                    const stats = item.stats || {};
+                    const sources = Array.isArray(item.sources) ? item.sources.length : 0;
+                    const id = String(item.id || '').trim();
+                    return [
+                        'Canopy Digestion Reference',
+                        `Name: ${item.name || 'Untitled Digestion'}`,
+                        `Digestion ID: ${id}`,
+                        `Purpose: ${item.purpose || item.description || 'Reusable permissioned context corpus.'}`,
+                        `Status: ${digestionStatusLabel(item)}`,
+                        `Sources visible here: ${sources}`,
+                        `Indexed chunks: ${Number(stats.chunks || 0)}`,
+                        `Token estimate: ${Number(stats.token_estimate || 0)}`,
+                        '',
+                        'Agent/API use:',
+                        `- Query: POST /api/v1/digestions/${id}/query with {"query":"...","top_k":8}`,
+                        `- Context pack: POST /api/v1/digestions/${id}/context with {"query":"...","top_k":8}`,
+                        `- Outputs: GET /api/v1/digestions/${id}/outputs`,
+                        '- MCP tools: canopy_digest_query, canopy_digest_context, canopy_digest_outputs',
+                        '',
+                        'Boundary: query access returns cited snippets and does not grant raw File Vault access. Ask the owner/admin to grant Digestion ACL access if a tool receives access_denied.',
+                    ].join('\n');
+                }
+
+                function digestionOutputReferenceText(digestionId, outputKind, title) {
+                    const digestion = findDigestion(digestionId) || {};
+                    const id = String(digestionId || '').trim();
+                    const kind = String(outputKind || '').trim() || 'output';
+                    return [
+                        'Canopy Digestion Output Reference',
+                        `Digestion: ${digestion.name || id}`,
+                        `Digestion ID: ${id}`,
+                        `Output: ${title || kind}`,
+                        `Output ref: ${kind}`,
+                        '',
+                        `Fetch: GET /api/v1/digestions/${id}/outputs/${encodeURIComponent(kind)}`,
+                        `Export to Vault: POST /api/v1/digestions/${id}/outputs/${encodeURIComponent(kind)}/export`,
+                        'MCP: canopy_digest_outputs with {"digestion_id":"<id>","include_content":true} or {"export_output_ref":"<kind>"}',
+                    ].join('\n');
+                }
+
                 function renderDigestionCard(digestion) {
                     const id = vaultEscape(digestion.id || '');
                     const name = vaultEscape(digestion.name || 'Untitled Digestion');
@@ -1964,6 +2016,12 @@
                                 </button>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="outputs" data-vault-digestion-id="${id}">
                                     <i class="bi bi-journal-richtext"></i> Outputs
+                                </button>
+                                <button class="btn btn-sm btn-outline-primary" type="button" data-vault-digestion-action="export-package" data-vault-digestion-id="${id}">
+                                    <i class="bi bi-box-arrow-up-right"></i> Package
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="copy-agent-ref" data-vault-digestion-id="${id}">
+                                    <i class="bi bi-clipboard"></i> Agent ref
                                 </button>
                             </div>
                             <form class="vault-digestion-query" data-vault-digestion-query-form="${id}">
@@ -2106,13 +2164,23 @@
                                 <div class="vault-digestion-output">
                                     <div class="vault-digestion-output-head">
                                         <div class="vault-digestion-output-title">${vaultEscape(output.title || output.output_kind || 'Output')}</div>
-                                        <button class="btn btn-sm btn-outline-primary"
-                                                type="button"
-                                                data-vault-digestion-action="export-output"
-                                                data-vault-digestion-id="${vaultEscape(digestionId)}"
-                                                data-vault-output-ref="${vaultEscape(output.id || output.output_kind || '')}">
-                                            <i class="bi bi-save"></i> Vault
-                                        </button>
+                                        <div class="vault-digestion-output-actions">
+                                            <button class="btn btn-sm btn-outline-secondary"
+                                                    type="button"
+                                                    data-vault-digestion-action="copy-output-ref"
+                                                    data-vault-digestion-id="${vaultEscape(digestionId)}"
+                                                    data-vault-output-kind="${vaultEscape(output.output_kind || output.id || '')}"
+                                                    data-vault-output-title="${vaultEscape(output.title || output.output_kind || 'Output')}">
+                                                <i class="bi bi-clipboard"></i> Ref
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-primary"
+                                                    type="button"
+                                                    data-vault-digestion-action="export-output"
+                                                    data-vault-digestion-id="${vaultEscape(digestionId)}"
+                                                    data-vault-output-ref="${vaultEscape(output.id || output.output_kind || '')}">
+                                                <i class="bi bi-save"></i> Vault
+                                            </button>
+                                        </div>
                                     </div>
                                     <div>${vaultEscape(output.preview || '').slice(0, 420)}</div>
                                 </div>
@@ -2145,7 +2213,12 @@
                             const name = data.file && (data.file.original_name || data.file.id) || 'Digestion output';
                             showAlert(`${name} saved to Vault.`, 'success');
                         }
-                        await loadVaultFiles({ reset: true });
+                        loadFiles({ append: false }).catch((refreshError) => {
+                            console.warn('Vault refresh after Digestion output export failed:', refreshError);
+                            if (typeof showAlert === 'function') {
+                                showAlert('Saved to Vault, but the file list did not refresh. Use Refresh if it is not visible yet.', 'warning');
+                            }
+                        });
                     } catch (error) {
                         if (typeof showAlert === 'function') showAlert(error.error || 'Could not export Digestion output.', 'danger');
                     } finally {
@@ -2154,6 +2227,51 @@
                             button.innerHTML = original;
                         }
                     }
+                }
+
+                async function exportDigestionPackage(digestionId, button) {
+                    if (!digestionId) return;
+                    const original = button ? button.innerHTML : '';
+                    if (button) {
+                        button.disabled = true;
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Packaging';
+                    }
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/package/export`, {
+                            method: 'POST',
+                            body: JSON.stringify({})
+                        });
+                        if (typeof showAlert === 'function') {
+                            const name = data.file && (data.file.original_name || data.file.id) || 'Digestion package';
+                            showAlert(`${name} saved to Vault. Attach it to a post or DM when you want to hand the whole package to an agent.`, 'success');
+                        }
+                        loadFiles({ append: false }).catch((refreshError) => {
+                            console.warn('Vault refresh after Digestion package export failed:', refreshError);
+                            if (typeof showAlert === 'function') {
+                                showAlert('Package saved to Vault, but the file list did not refresh. Use Refresh if it is not visible yet.', 'warning');
+                            }
+                        });
+                    } catch (error) {
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not export Digestion package.', 'danger');
+                    } finally {
+                        if (button) {
+                            button.disabled = false;
+                            button.innerHTML = original;
+                        }
+                    }
+                }
+
+                async function copyDigestionAgentReference(digestionId) {
+                    const digestion = findDigestion(digestionId);
+                    if (!digestion) {
+                        if (typeof showAlert === 'function') showAlert('Could not find this Digestion in the current list.', 'warning');
+                        return;
+                    }
+                    await copyText(digestionAgentReferenceText(digestion), 'Digestion agent reference');
+                }
+
+                async function copyDigestionOutputReference(digestionId, outputKind, title) {
+                    await copyText(digestionOutputReferenceText(digestionId, outputKind, title), 'Digestion output reference');
                 }
 
                 async function queryDigestion(digestionId, queryText = '') {
@@ -2254,11 +2372,90 @@
                     return message || 'Upload failed.';
                 }
 
+                function dataTransferHasExternalFiles(dataTransfer) {
+                    if (!dataTransfer) return false;
+                    const types = Array.from(dataTransfer.types || []);
+                    if (types.includes(VAULT_FILE_DRAG_TYPE)) return false;
+                    if (types.includes('Files')) return true;
+                    return Array.from(dataTransfer.items || []).some(item => item && item.kind === 'file');
+                }
+
+                function readDirectoryEntries(directoryReader) {
+                    return new Promise((resolve, reject) => {
+                        directoryReader.readEntries(resolve, reject);
+                    });
+                }
+
+                function entryFile(entry) {
+                    return new Promise((resolve, reject) => {
+                        entry.file(resolve, reject);
+                    });
+                }
+
+                async function filesFromEntry(entry, droppedItems = []) {
+                    if (!entry) return droppedItems;
+                    if (entry.isFile) {
+                        try {
+                            const file = await entryFile(entry);
+                            if (file) droppedItems.push(file);
+                        } catch (error) {
+                            droppedItems.push({
+                                __vaultDropError: true,
+                                name: entry.name || 'Dropped file',
+                                error: summarizeVaultUploadError(error),
+                            });
+                        }
+                        return droppedItems;
+                    }
+                    if (!entry.isDirectory) return droppedItems;
+                    const reader = entry.createReader && entry.createReader();
+                    if (!reader) return droppedItems;
+                    try {
+                        let batch = [];
+                        do {
+                            batch = await readDirectoryEntries(reader);
+                            for (const child of batch) {
+                                await filesFromEntry(child, droppedItems);
+                            }
+                        } while (batch.length);
+                    } catch (error) {
+                        droppedItems.push({
+                            __vaultDropError: true,
+                            name: entry.name || 'Dropped folder',
+                            error: 'Could not read this dropped folder.',
+                        });
+                    }
+                    return droppedItems;
+                }
+
+                async function filesFromDataTransfer(dataTransfer) {
+                    const items = Array.from((dataTransfer && dataTransfer.items) || []);
+                    const dropped = [];
+                    if (items.length) {
+                        for (const item of items) {
+                            if (!item || item.kind !== 'file') continue;
+                            const entry = typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null;
+                            if (entry) {
+                                await filesFromEntry(entry, dropped);
+                                continue;
+                            }
+                            const file = typeof item.getAsFile === 'function' ? item.getAsFile() : null;
+                            if (file) dropped.push(file);
+                        }
+                    }
+                    if (!dropped.length && dataTransfer && dataTransfer.files) {
+                        dropped.push(...Array.from(dataTransfer.files || []));
+                    }
+                    return dropped.filter((item) => (item && item.__vaultDropError) || (item && item.name));
+                }
+
                 async function prepareVaultUploadFile(file) {
                     if (!file || typeof file.arrayBuffer !== 'function') return file;
                     try {
-                        const bytes = await file.arrayBuffer();
-                        return new Blob([bytes], { type: file.type || 'application/octet-stream' });
+                        const size = Number(file.size || 0) || 0;
+                        const probe = size > 0 && typeof file.slice === 'function' ? file.slice(0, Math.min(size, 1)) : file;
+                        await probe.arrayBuffer();
+                        return file;
                     } catch (error) {
                         const err = new Error(summarizeVaultUploadError(error));
                         err.name = error && error.name ? error.name : 'FileReadError';
@@ -2336,38 +2533,66 @@
                 }
 
                 async function uploadFiles(fileList) {
-                    const files = Array.from(fileList || []).filter(Boolean);
-                    if (!files.length) return;
+                    const incoming = Array.from(fileList || []).filter(Boolean);
+                    const files = incoming.filter(file => !(file && file.__vaultDropError));
+                    const preflightFailures = incoming
+                        .filter(file => file && file.__vaultDropError)
+                        .map(file => ({
+                            name: file.name || 'Dropped item',
+                            error: file.error || 'Could not read dropped item.',
+                        }));
+                    if (!files.length && !preflightFailures.length) return;
                     const savedFiles = [];
-                    const failedFiles = [];
-                    if (dropzone) dropzone.classList.add('is-dragging');
+                    const failedFiles = preflightFailures.slice();
+                    if (!files.length) {
+                        if (typeof showAlert === 'function') {
+                            const first = failedFiles[0] || {};
+                            showAlert(`${first.name || 'Upload'}: ${first.error || 'No readable files were dropped.'}`, 'danger');
+                        }
+                        return;
+                    }
+                    if (dropzone) {
+                        dropzone.classList.add('is-dragging', 'is-uploading');
+                        dropzone.setAttribute('aria-busy', 'true');
+                    }
                     try {
+                        const form = new FormData();
+                        form.append('folder_id', state.currentFolderId || '');
                         for (const file of files) {
-                            const form = new FormData();
                             try {
                                 const uploadFile = await prepareVaultUploadFile(file);
-                                form.append('file', uploadFile, file.name || 'upload');
-                                form.append('folder_id', state.currentFolderId || '');
-                                const data = await apiCall(vaultUrls().upload, {
-                                    method: 'POST',
-                                    body: form
-                                });
-                                const nextSaved = Array.isArray(data.files) ? data.files : [];
-                                const nextFailed = Array.isArray(data.failed) ? data.failed : [];
-                                savedFiles.push(...nextSaved);
-                                if (nextFailed.length) {
-                                    failedFiles.push(...nextFailed);
-                                } else if (!nextSaved.length) {
-                                    failedFiles.push({
-                                        name: file.name || 'upload',
-                                        error: data.error || data.message || 'Upload failed',
-                                    });
-                                }
+                                form.append('files', uploadFile, file.name || 'upload');
                             } catch (error) {
                                 failedFiles.push({
                                     name: file.name || 'upload',
                                     error: summarizeVaultUploadError(error),
                                 });
+                            }
+                        }
+                        if (form.getAll('files').length) {
+                            try {
+                                const data = await apiCall(vaultUrls().upload, {
+                                    method: 'POST',
+                                    body: form
+                                });
+                                savedFiles.push(...(Array.isArray(data.files) ? data.files : []));
+                                failedFiles.push(...(Array.isArray(data.failed) ? data.failed : []));
+                                if (!savedFiles.length && !failedFiles.length) {
+                                    failedFiles.push({
+                                        name: 'Upload',
+                                        error: data.error || data.message || 'Upload failed',
+                                    });
+                                }
+                            } catch (error) {
+                                const serverFailures = Array.isArray(error && error.failed) ? error.failed : [];
+                                if (serverFailures.length) {
+                                    failedFiles.push(...serverFailures);
+                                } else {
+                                    failedFiles.push({
+                                        name: files.length === 1 ? (files[0].name || 'Upload') : `${files.length} files`,
+                                        error: summarizeVaultUploadError(error),
+                                    });
+                                }
                             }
                         }
                         const saved = savedFiles.length;
@@ -2381,12 +2606,17 @@
                             }
                         }
                         if (uploadInput) uploadInput.value = '';
-                        await loadFiles({ append: false });
+                        if (saved) {
+                            await loadFiles({ append: false });
+                        }
                     } catch (error) {
                         console.error('Vault upload failed:', error);
                         if (typeof showAlert === 'function') showAlert(summarizeVaultUploadError(error), 'danger');
                     } finally {
-                        if (dropzone) dropzone.classList.remove('is-dragging');
+                        if (dropzone) {
+                            dropzone.classList.remove('is-dragging', 'is-uploading');
+                            dropzone.removeAttribute('aria-busy');
+                        }
                     }
                 }
 
@@ -2495,6 +2725,16 @@
                             buildDigestion(digestionId, actionBtn);
                         } else if (action === 'outputs') {
                             loadDigestionOutputs(digestionId, actionBtn);
+                        } else if (action === 'export-package') {
+                            exportDigestionPackage(digestionId, actionBtn);
+                        } else if (action === 'copy-agent-ref') {
+                            copyDigestionAgentReference(digestionId);
+                        } else if (action === 'copy-output-ref') {
+                            copyDigestionOutputReference(
+                                digestionId,
+                                actionBtn.getAttribute('data-vault-output-kind') || '',
+                                actionBtn.getAttribute('data-vault-output-title') || '',
+                            );
                         } else if (action === 'export-output') {
                             exportDigestionOutput(
                                 digestionId,
@@ -2519,6 +2759,7 @@
                     });
                 }
                 if (dropzone && uploadInput) {
+                    let externalDragDepth = 0;
                     dropzone.addEventListener('keydown', (event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                             event.preventDefault();
@@ -2529,17 +2770,41 @@
                     ['dragenter', 'dragover'].forEach((eventName) => {
                         dropzone.addEventListener(eventName, (event) => {
                             if (isVaultFileDragEvent(event)) return;
+                            if (!dataTransferHasExternalFiles(event.dataTransfer)) return;
                             event.preventDefault();
+                            event.stopPropagation();
+                            if (eventName === 'dragenter') externalDragDepth += 1;
+                            if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
                             dropzone.classList.add('is-dragging');
                         });
                     });
-                    ['dragleave', 'drop'].forEach((eventName) => {
-                        dropzone.addEventListener(eventName, (event) => {
-                            if (isVaultFileDragEvent(event)) return;
-                            event.preventDefault();
-                            if (eventName === 'drop') uploadFiles(event.dataTransfer && event.dataTransfer.files);
+                    dropzone.addEventListener('dragleave', (event) => {
+                        if (isVaultFileDragEvent(event)) return;
+                        if (!dataTransferHasExternalFiles(event.dataTransfer)) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        externalDragDepth = Math.max(0, externalDragDepth - 1);
+                        const related = event.relatedTarget;
+                        if (externalDragDepth === 0 || !related || !dropzone.contains(related)) {
                             dropzone.classList.remove('is-dragging');
-                        });
+                            externalDragDepth = 0;
+                        }
+                    });
+                    dropzone.addEventListener('drop', async (event) => {
+                        if (isVaultFileDragEvent(event)) return;
+                        if (!dataTransferHasExternalFiles(event.dataTransfer)) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        externalDragDepth = 0;
+                        dropzone.classList.remove('is-dragging');
+                        const droppedFiles = await filesFromDataTransfer(event.dataTransfer);
+                        if (!droppedFiles.length) {
+                            if (typeof showAlert === 'function') {
+                                showAlert('No readable files were found in that drop. Try selecting the files directly.', 'warning');
+                            }
+                            return;
+                        }
+                        await uploadFiles(droppedFiles);
                     });
                 }
                 if (grid) {
@@ -9780,7 +10045,7 @@
 
             function isVaultFileDragEvent(event) {
                 const types = Array.from((event && event.dataTransfer && event.dataTransfer.types) || []);
-                return types.includes(VAULT_FILE_DRAG_TYPE);
+                return types.includes('application/x-canopy-vault-file-id');
             }
 
         function openCircleModal(circleId) {

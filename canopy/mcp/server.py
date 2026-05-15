@@ -1134,7 +1134,8 @@ class CanopyMCPServer:
                             "generate": {"type": "boolean", "default": False},
                             "include_content": {"type": "boolean", "default": False},
                             "kinds": {"type": "array", "items": {"type": "string"}},
-                            "export_output_ref": {"type": "string", "description": "Optional output id or kind to export to Vault"}
+                            "export_output_ref": {"type": "string", "description": "Optional output id or kind to export to Vault"},
+                            "export_package": {"type": "boolean", "default": False, "description": "Export a whole-Digestion package snapshot to Vault"}
                         },
                         "required": ["digestion_id"]
                     }
@@ -1679,7 +1680,7 @@ class CanopyMCPServer:
                 elif name == "canopy_digest_outputs":
                     if not self._check_permission(Permission.READ_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: read_files required")]
-                    if (arguments or {}).get("generate") or (arguments or {}).get("export_output_ref"):
+                    if (arguments or {}).get("generate") or (arguments or {}).get("export_output_ref") or (arguments or {}).get("export_package"):
                         if not self._check_permission(Permission.WRITE_FILES):
                             return [TextContent(type="text", text="Error: Permission denied: write_files required for generate/export")]
                     return await self._digest_outputs(arguments or {})
@@ -4723,6 +4724,8 @@ class CanopyMCPServer:
                 export_ref = str(args.get("export_output_ref") or "").strip()
                 if export_ref:
                     return _mcp_json(manager.export_output_to_vault(digestion_id, self.user_id, export_ref))
+                if bool(args.get("export_package")):
+                    return _mcp_json(manager.export_package_to_vault(digestion_id, self.user_id))
                 if bool(args.get("generate")):
                     kinds = args.get("kinds") or args.get("output_kinds") or []
                     if isinstance(kinds, str):
@@ -4966,7 +4969,7 @@ class CanopyMCPServer:
                     "Collaboration cards: create live input/telemetry cards by posting unfenced [input-card] or [telemetry-card] blocks in feed/channel content, or via POST /api/v1/collab-cards. Find actionable cards at GET /api/v1/agents/me/collab-cards?role=actionable; respond to input cards at POST /api/v1/collab-cards/<card_id>/responses; update telemetry at PATCH /api/v1/collab-cards/<card_id>/telemetry; close/cancel input cards with POST|PATCH /api/v1/collab-cards/<card_id>/status. Add advance_source=true to important response/telemetry/status updates, or call POST /api/v1/collab-cards/<card_id>/advance-source, so the original post/thread resurfaces for humans without reposting. Do not DELETE card rows; close/cancel instead.",
                     "Files: upload then attach to channel messages (images, audio, spreadsheets, documents); UI shows inline images/media, bounded spreadsheet previews, and safe inline `sheet` blocks for compact calculations.",
                     "Personal File Vault: with read_files/write_files permissions, use /api/v1/vault/files or canopy_vault_* tools to list, create, read slices, diff, replace, move, delete unreferenced owned files, and save accessible attachments into your own local Vault. Vault files stay local until attached/shared in a post or DM.",
-                    "Digestions: with read_files/write_files permissions, create local semantic indexes over approved Vault files or normalized inline materials, build them, query cited snippets, request prompt-ready context packs, and generate reusable outputs via /api/v1/digestions or canopy_digest_* tools. Digestions do not mesh-sync source files, normalized materials, vectors, or outputs by default.",
+                    "Digestions: with read_files/write_files permissions, create local semantic indexes over approved Vault files or normalized inline materials, build them, query cited snippets, request prompt-ready context packs, generate reusable outputs, and export whole package snapshots via /api/v1/digestions or canopy_digest_* tools. Digestions do not mesh-sync source files, normalized materials, vectors, or outputs by default.",
                     "Profile: display_name, bio, avatar (upload file then set avatar_file_id).",
                     "Agent directives may be returned with instructions/catchup from profile defaults to reinforce structured tool usage.",
                     "@mentions and optional expiration (ttl_seconds, ttl_mode) on posts and channel messages.",

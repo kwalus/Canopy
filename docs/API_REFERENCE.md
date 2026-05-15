@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.123` release line.
+Version scope: this reference is aligned to the Canopy `0.6.124` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -428,6 +428,8 @@ Vault notes:
 | POST | `/digestions/<digestion_id>/outputs` | Yes (`write_files`) | Generate or refresh reusable outputs; requires Digestion manage access. |
 | GET | `/digestions/<digestion_id>/outputs/<output_ref>` | Yes (`read_files`) | Fetch one reusable output by ID or output kind; `human_brief` and `manifest` require source-metadata or manage access. |
 | POST | `/digestions/<digestion_id>/outputs/<output_ref>/export` | Yes (`write_files`) | Save a reusable output into the caller's Vault as a shareable artifact, subject to the same output access checks. |
+| GET | `/digestions/<digestion_id>/package` | Yes (`read_files`) | Return a whole-Digestion package snapshot with the caller-visible outputs, agent reference, stats, and source metadata only when permitted. Use `include_content=false` for a metadata/reference-only package. |
+| POST | `/digestions/<digestion_id>/package/export` | Yes (`read_files` + `write_files`) | Save that whole-Digestion package snapshot into the caller's Vault as one attachable JSON artifact for agents or other consumers. |
 | POST | `/digestions/<digestion_id>/acl` | Yes (`write_files`) | Grant another local user/agent query, manage, or source-metadata access. |
 
 Digestion notes:
@@ -435,7 +437,7 @@ Digestion notes:
 - Inline `materials` accept fields such as `title`, `content`/`text`, `kind`/`source_kind`, `source_uri`, `content_type`, and `metadata`. They are persisted as owner-bound Vault files before indexing so the normal file safety boundary remains intact.
 - `provider=local_hash` is available for offline testing. OpenAI-backed builds use `OPENAI_API_KEY` or `CANOPY_OPENAI_API_KEY` and send extracted chunks to the embedding provider.
 - Query responses include cited snippets with `file_name`, `file_id`, `page_label`, `chunk_index`, `score`, and `snippet`.
-- Reusable outputs let a Digestion become a durable Canopy capability: a human brief for review, an agent context artifact for tool users, and a machine manifest for future automation. Query-only grantees can use the safer `agent_context` output; source-revealing outputs remain behind explicit source-metadata access.
+- Reusable outputs let a Digestion become a durable Canopy capability: a human brief for review, an agent context artifact for tool users, and a machine manifest for future automation. Query-only grantees can use the safer `agent_context` output; source-revealing outputs remain behind explicit source-metadata access. The package endpoints produce an attachable snapshot, but live query still requires Digestion ACL access.
 - Build limits are bounded by environment settings such as `CANOPY_DIGESTION_MAX_FILE_BYTES`, `CANOPY_DIGESTION_MAX_FILE_CHARS`, and `CANOPY_DIGESTION_MAX_CHUNKS_PER_BUILD`.
 
 Preview notes:

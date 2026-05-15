@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.124] - 2026-05-15
+
+### Changed
+- **Digestion packages are easier to reuse** - generated outputs can be exported reliably to Vault, whole Digestion package snapshots can be saved as attachable JSON artifacts, and users can copy agent-ready Digestion or output references from the Vault UI.
+- **Digestion package APIs are tighter** - package snapshots respect the existing output/source ACL boundary, support content-light reads with `include_content=false`, and REST package export now requires both read-files and write-files permissions.
+- **Vault batch upload feels like a file manager** - multi-file picker uploads, multi-file drops, and browser-supported folder drops now use the server's plural upload path with clear partial-success reporting and upload busy state.
+- **Vault upload preflight is safer for large files** - dropped files are probed for readability without loading entire large files into memory before submitting the batch.
+
 ## [0.6.123] - 2026-05-15
 
 ### Changed

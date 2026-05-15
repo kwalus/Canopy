@@ -238,6 +238,22 @@ class TestDigestions(unittest.TestCase):
 
         self.assertTrue(exported['success'])
         self.assertTrue(exported['file']['original_name'].endswith('-human_brief.md'))
+        self.assertEqual(exported['agent_reference']['digestion_id'], digestion['id'])
+
+        package = self.digestion_manager.package_payload(digestion['id'], 'owner-user')
+        self.assertEqual(package['kind'], 'canopy_digestion_package_v1')
+        self.assertTrue(package['sources_included'])
+        self.assertIn('agent_reference', package)
+        self.assertTrue({'manifest', 'human_brief', 'agent_context'}.issubset(
+            {item['output_kind'] for item in package['outputs']}
+        ))
+        self.assertTrue(any('content' in item for item in package['outputs']))
+        light_package = self.digestion_manager.package_payload(digestion['id'], 'owner-user', include_content=False)
+        self.assertFalse(any('content' in item for item in light_package['outputs']))
+
+        exported_package = self.digestion_manager.export_package_to_vault(digestion['id'], 'owner-user')
+        self.assertTrue(exported_package['success'])
+        self.assertTrue(exported_package['file']['original_name'].endswith('-canopy-digestion-package.json'))
 
     def test_query_only_users_cannot_read_source_revealing_outputs(self) -> None:
         source = self._save_text(
@@ -255,6 +271,9 @@ class TestDigestions(unittest.TestCase):
 
         reader_outputs = self.digestion_manager.list_outputs(digestion['id'], 'reader-user', include_content=True)
         self.assertEqual({output['output_kind'] for output in reader_outputs}, {'agent_context'})
+        reader_package = self.digestion_manager.package_payload(digestion['id'], 'reader-user')
+        self.assertFalse(reader_package['sources_included'])
+        self.assertEqual({output['output_kind'] for output in reader_package['outputs']}, {'agent_context'})
         with self.assertRaisesRegex(Exception, 'Source metadata access'):
             self.digestion_manager.get_output(digestion['id'], 'reader-user', 'manifest')
         with self.assertRaisesRegex(Exception, 'Source metadata access'):
@@ -447,6 +466,21 @@ class TestDigestions(unittest.TestCase):
             )
             self.assertEqual(export_response.status_code, 200)
             self.assertTrue(export_response.get_json()['success'])
+
+            package_response = client.get(
+                f'/api/v1/digestions/{digestion_id}/package',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(package_response.status_code, 200)
+            self.assertEqual(package_response.get_json()['package']['kind'], 'canopy_digestion_package_v1')
+
+            package_export_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/package/export',
+                json={},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(package_export_response.status_code, 200)
+            self.assertTrue(package_export_response.get_json()['success'])
 
 
 if __name__ == '__main__':

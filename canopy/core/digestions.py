@@ -803,13 +803,97 @@ class DigestionManager:
     def export_output_to_vault(self, digestion_id: str, actor_user_id: str, output_ref: str) -> dict[str, Any]:
         digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
         output = self.get_output(digestion.id, actor_user_id, output_ref)
-        ext = ".json" if output.get("content_type") == "application/json" else ".md"
+        content_type = str(output.get("content_type") or "text/markdown").split(";", 1)[0].strip().lower()
+        ext = ".json" if content_type == "application/json" else ".md"
+        save_type = "application/json" if content_type == "application/json" else "text/markdown"
         filename = f"{self._slugify(digestion.name or 'digestion')}-{output.get('output_kind') or 'output'}{ext}"
         content = str(output.get("content") or "").encode("utf-8")
-        file_info = self.file_manager.save_file(content, filename, str(output.get("content_type") or "text/markdown"), actor_user_id)
+        file_info = self.file_manager.save_file(content, filename, save_type, actor_user_id)
         if not file_info:
             raise DigestionError("Could not export Digestion output to Vault.", status_code=500, reason="output_export_failed")
-        return {"success": True, "digestion_id": digestion.id, "output": output, "file": file_info.to_dict()}
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "output": output,
+            "file": file_info.to_dict(),
+            "agent_reference": self.agent_reference(digestion.id, actor_user_id),
+        }
+
+    def agent_reference(self, digestion_id: str, actor_user_id: str) -> dict[str, Any]:
+        """Return a compact, copyable reference agents can use without raw Vault access."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
+        stats = self.stats(digestion.id)
+        return {
+            "kind": "canopy_digestion_reference_v1",
+            "digestion_id": digestion.id,
+            "name": digestion.name,
+            "purpose": digestion.purpose or digestion.description,
+            "status": digestion.status,
+            "provider": digestion.provider,
+            "embedding_model": digestion.embedding_model,
+            "stats": stats,
+            "api": {
+                "query": f"POST /api/v1/digestions/{digestion.id}/query",
+                "context": f"POST /api/v1/digestions/{digestion.id}/context",
+                "outputs": f"GET /api/v1/digestions/{digestion.id}/outputs",
+            },
+            "mcp": {
+                "query": "canopy_digest_query",
+                "context": "canopy_digest_context",
+                "outputs": "canopy_digest_outputs",
+            },
+            "note": (
+                "Use this Digestion as a permissioned retrieval capability. "
+                "Query access returns cited snippets; it does not grant raw File Vault access."
+            ),
+        }
+
+    def package_payload(self, digestion_id: str, actor_user_id: str, *, include_content: bool = True) -> dict[str, Any]:
+        """Build a reusable machine package for humans or agents to attach/share."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
+        access = self._access_for(digestion, actor_user_id)
+        outputs = self.list_outputs(digestion.id, actor_user_id, include_content=include_content)
+        if not outputs and access.get("can_manage"):
+            try:
+                self.generate_outputs(digestion.id, actor_user_id)
+                outputs = self.list_outputs(digestion.id, actor_user_id, include_content=include_content)
+            except DigestionError:
+                outputs = []
+        sources: list[dict[str, Any]] = []
+        if access.get("can_read_sources") or access.get("can_manage"):
+            sources = self.list_sources(digestion.id, user_id=actor_user_id)
+        return {
+            "kind": "canopy_digestion_package_v1",
+            "generated_at": self._now(),
+            "digestion": digestion.to_dict(access=access),
+            "stats": self.stats(digestion.id),
+            "agent_reference": self.agent_reference(digestion.id, actor_user_id),
+            "sources_included": bool(sources),
+            "sources": sources,
+            "outputs": outputs,
+            "reuse_guidance": [
+                "Attach this package to a post, DM, task, or agent request when you want another consumer to understand what the Digestion is.",
+                "Grant Digestion ACL access separately when a local agent or user should query the live index.",
+                "Exported packages are snapshots; the live Digestion may continue to change as files are added and rebuilt.",
+            ],
+        }
+
+    def export_package_to_vault(self, digestion_id: str, actor_user_id: str) -> dict[str, Any]:
+        """Save a whole Digestion package into the caller's Vault as one artifact."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
+        package = self.package_payload(digestion.id, actor_user_id)
+        filename = f"{self._slugify(digestion.name or 'digestion')}-canopy-digestion-package.json"
+        content = json.dumps(package, indent=2, sort_keys=True).encode("utf-8")
+        file_info = self.file_manager.save_file(content, filename, "application/json", actor_user_id)
+        if not file_info:
+            raise DigestionError("Could not export Digestion package to Vault.", status_code=500, reason="package_export_failed")
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "package": package,
+            "file": file_info.to_dict(),
+            "agent_reference": package.get("agent_reference") or self.agent_reference(digestion.id, actor_user_id),
+        }
 
     def context_pack(
         self,
