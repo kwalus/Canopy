@@ -84,6 +84,10 @@ class TestDigestions(unittest.TestCase):
         self.conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, avatar_file_id TEXT, origin_peer TEXT, username TEXT)")
         for user_id in ('owner-user', 'reader-user', 'other-user'):
             self.conn.execute("INSERT INTO users (id, username) VALUES (?, ?)", (user_id, user_id))
+        self.conn.execute(
+            "INSERT INTO users (id, username, origin_peer) VALUES (?, ?, ?)",
+            ('remote-user', 'remote-user', 'peer-remote'),
+        )
         self.conn.execute("CREATE TABLE channel_messages (id TEXT PRIMARY KEY, attachments TEXT, content TEXT)")
         self.conn.execute("CREATE TABLE feed_posts (id TEXT PRIMARY KEY, metadata TEXT, content TEXT)")
         self.conn.execute("CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT, content TEXT)")
@@ -171,7 +175,15 @@ class TestDigestions(unittest.TestCase):
             provider='local_hash',
         )
         self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
-        self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
+        grant = self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
+        self.assertTrue(grant['success'])
+        self.assertTrue(grant['can_query'])
+        self.assertFalse(grant['can_read_sources'])
+        self.assertEqual(grant['grantee']['username'], 'reader-user')
+        with self.assertRaisesRegex(Exception, 'Grantee user not found'):
+            self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'missing-user', can_query=True)
+        with self.assertRaisesRegex(Exception, 'local users or agents'):
+            self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'remote-user', can_query=True)
 
         reader_items = self.digestion_manager.list_digestions('reader-user')
         self.assertEqual(len(reader_items), 1)
@@ -284,6 +296,21 @@ class TestDigestions(unittest.TestCase):
             'owner-user',
             'reader-user',
             can_query=True,
+            can_manage=True,
+            can_read_sources=False,
+        )
+        managed_outputs = self.digestion_manager.list_outputs(digestion['id'], 'reader-user', include_content=True)
+        self.assertEqual({output['output_kind'] for output in managed_outputs}, {'agent_context'})
+        managed_package = self.digestion_manager.package_payload(digestion['id'], 'reader-user')
+        self.assertFalse(managed_package['sources_included'])
+        with self.assertRaisesRegex(Exception, 'source metadata access'):
+            self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')
+
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
             can_read_sources=True,
         )
         reader_manifest = self.digestion_manager.get_output(digestion['id'], 'reader-user', 'manifest')
@@ -380,10 +407,35 @@ class TestDigestions(unittest.TestCase):
 
             grant_response = client.post(
                 f'/api/v1/digestions/{digestion_id}/acl',
-                json={'grantee_user_id': 'reader-user', 'can_query': True},
+                json={
+                    'grantee_user_id': 'reader-user',
+                    'can_query': 'true',
+                    'can_read_sources': 'false',
+                    'can_manage': 'false',
+                },
                 headers={'X-API-Key': 'owner-key'},
             )
             self.assertEqual(grant_response.status_code, 200)
+            grant_payload = grant_response.get_json() or {}
+            self.assertTrue(grant_payload['can_query'])
+            self.assertFalse(grant_payload['can_read_sources'])
+            self.assertFalse(grant_payload['can_manage'])
+            self.assertEqual(grant_payload['grantee']['username'], 'reader-user')
+
+            bad_grant_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/acl',
+                json={'grantee_user_id': 'not-a-user', 'can_query': True},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(bad_grant_response.status_code, 404)
+
+            remote_grant_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/acl',
+                json={'grantee_user_id': 'remote-user', 'can_query': True},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(remote_grant_response.status_code, 400)
+            self.assertEqual((remote_grant_response.get_json() or {}).get('reason'), 'remote_grantee_not_supported')
 
             query_response = client.post(
                 f'/api/v1/digestions/{digestion_id}/query',

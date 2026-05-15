@@ -6734,6 +6734,30 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI package export error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not export Digestion package'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/acl', methods=['POST'])
+    @require_login
+    def ajax_digestion_grant_access(digestion_id: str):
+        """Grant another local user or agent live access to query a Digestion."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            result = manager.grant_access(
+                digestion_id,
+                get_current_user(),
+                str(data.get('grantee_user_id') or data.get('user_id') or ''),
+                can_query=True if 'can_query' not in data else _ui_as_bool(data.get('can_query')),
+                can_manage=_ui_as_bool(data.get('can_manage')),
+                can_read_sources=_ui_as_bool(data.get('can_read_sources')),
+            )
+            return jsonify(result)
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI ACL error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not grant Digestion access'}), 500
+
     @ui.route('/ajax/workspace_search', methods=['GET'])
     @require_login
     def ajax_workspace_search():

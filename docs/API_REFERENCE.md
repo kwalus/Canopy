@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.124` release line.
+Version scope: this reference is aligned to the Canopy `0.6.125` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -418,19 +418,19 @@ Vault notes:
 | GET | `/digestions` | Yes (`read_files`) | List Digestions owned by or shared with the authenticated user. Optional `include_sources=1` only returns source metadata when the caller has source-read access. |
 | POST | `/digestions` | Yes (`write_files`) | Create a local semantic Digestion over selected user-owned Vault file IDs and/or inline `materials`. Optional `purpose`, `provider`, `embedding_model`, `chunk_size`, `chunk_overlap`, and `auto_build`. |
 | GET | `/digestions/<digestion_id>` | Yes (`read_files`) | Return Digestion metadata, stats, and source metadata when permitted. |
-| GET | `/digestions/<digestion_id>/sources` | Yes (`read_files`) | List source metadata and build status; requires owner/manage/source-read access. |
+| GET | `/digestions/<digestion_id>/sources` | Yes (`read_files`) | List source metadata and build status; requires owner or explicit source-metadata access. |
 | POST | `/digestions/<digestion_id>/sources` | Yes (`write_files`) | Add caller-owned Vault files to a managed Digestion. |
 | POST | `/digestions/<digestion_id>/materials` | Yes (`write_files`) | Normalize inline/source materials such as posts, notes, transcripts, or pasted text into Vault-backed Digestion sources. |
 | POST | `/digestions/<digestion_id>/build` | Yes (`write_files`) | Synchronously build or rebuild the local index. |
 | POST | `/digestions/<digestion_id>/query` | Yes (`read_files`) | Query cited snippets from indexed chunks; query access does not grant raw Vault file reads. |
 | POST | `/digestions/<digestion_id>/context` | Yes (`read_files`) | Return a compact prompt-ready context pack with query citations for agents or drafting flows. |
-| GET | `/digestions/<digestion_id>/outputs` | Yes (`read_files`) | List reusable generated outputs such as human brief, agent context, and machine manifest; source-revealing outputs are omitted unless the caller has source-metadata or manage access. |
+| GET | `/digestions/<digestion_id>/outputs` | Yes (`read_files`) | List reusable generated outputs such as human brief, agent context, and machine manifest; source-revealing outputs are omitted unless the caller has source-metadata access. |
 | POST | `/digestions/<digestion_id>/outputs` | Yes (`write_files`) | Generate or refresh reusable outputs; requires Digestion manage access. |
-| GET | `/digestions/<digestion_id>/outputs/<output_ref>` | Yes (`read_files`) | Fetch one reusable output by ID or output kind; `human_brief` and `manifest` require source-metadata or manage access. |
+| GET | `/digestions/<digestion_id>/outputs/<output_ref>` | Yes (`read_files`) | Fetch one reusable output by ID or output kind; `human_brief` and `manifest` require source-metadata access. |
 | POST | `/digestions/<digestion_id>/outputs/<output_ref>/export` | Yes (`write_files`) | Save a reusable output into the caller's Vault as a shareable artifact, subject to the same output access checks. |
 | GET | `/digestions/<digestion_id>/package` | Yes (`read_files`) | Return a whole-Digestion package snapshot with the caller-visible outputs, agent reference, stats, and source metadata only when permitted. Use `include_content=false` for a metadata/reference-only package. |
 | POST | `/digestions/<digestion_id>/package/export` | Yes (`read_files` + `write_files`) | Save that whole-Digestion package snapshot into the caller's Vault as one attachable JSON artifact for agents or other consumers. |
-| POST | `/digestions/<digestion_id>/acl` | Yes (`write_files`) | Grant another local user/agent query, manage, or source-metadata access. |
+| POST | `/digestions/<digestion_id>/acl` | Yes (`write_files`) | Grant another local user/agent query, manage, or source-metadata access. Manage/build access does not imply source-metadata access; set `can_read_sources` explicitly when the recipient should see source lists or manifest outputs. |
 
 Digestion notes:
 - Digestions stay local to the node by default; source files, normalized material files, chunks, vectors, outputs, and query logs are not mesh-synced unless a user deliberately shares/export-attaches an output.

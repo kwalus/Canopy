@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.125] - 2026-05-15
+
+### Changed
+- **Digestion package handoffs now include explicit Share access** - Vault Digestion cards expose an owner-only grant flow for local users and agents so package recipients can be given live query access without confusing snapshots with ACLs.
+- **Digestion ACLs keep source metadata separate** - live query, source metadata/manifest visibility, and manage/build access remain separate permissions; manage access no longer implies source-revealing output access.
+- **Digestion grant paths are safer** - ACL writes reject stale or remote shadow users, parse boolean request values strictly, and warn before granting manage/build access.
+
 ## [0.6.124] - 2026-05-15
 
 ### Changed
@@ -107,7 +114,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - **Reusable Digestion outputs** - Digestions can now normalize inline/source materials into owner-bound Vault sources, generate durable human briefs, agent context, and machine manifests, expose prompt-ready context packs, and export generated outputs into the caller's Vault.
 
 ### Changed
-- **Digestion reuse keeps source boundaries explicit** - source-revealing reusable outputs remain gated behind source-metadata or manage access, while query-only users can still use cited retrieval and safer agent-context outputs.
+- **Digestion reuse keeps source boundaries explicit** - source-revealing reusable outputs remain gated behind explicit source-metadata access, while query-only users can still use cited retrieval and safer agent-context outputs.
 
 ## [0.6.110] - 2026-05-14
 

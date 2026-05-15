@@ -288,6 +288,14 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('folder_id', main_js)
         self.assertIn('VAULT_VIEW_STORAGE_KEY', main_js)
         self.assertIn('function setVaultViewMode(mode)', main_js)
+        self.assertIn('data-vault-digestion-action="share-access"', main_js)
+        self.assertIn('function toggleDigestionShare(digestionId)', main_js)
+        self.assertIn('function grantDigestionAccess(form)', main_js)
+        self.assertIn("data-vault-digestion-share-submit", main_js)
+        self.assertIn('Grant manage/build access for this Digestion?', main_js)
+        self.assertIn('does not include source metadata unless enabled above', main_js)
+        self.assertIn("`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/acl`", main_js)
+        self.assertIn('.vault-digestion-share', vault_template)
         self.assertIn('data-vault-select-file', main_js)
         self.assertIn('function openVaultFile(file)', main_js)
         self.assertIn('data-vault-open-url', main_js)
@@ -2877,7 +2885,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.124', api_ref)
+        self.assertIn('0.6.125', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

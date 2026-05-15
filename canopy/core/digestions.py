@@ -484,7 +484,7 @@ class DigestionManager:
             if not digestion:
                 raise DigestionError("Digestion not found", status_code=404, reason="not_found")
             access = self._access_for(digestion, user_id)
-            if not (access.get("can_read_sources") or access.get("can_manage")):
+            if not access.get("can_read_sources"):
                 raise DigestionError(
                     "You do not have source metadata access to this Digestion.",
                     status_code=403,
@@ -523,6 +523,17 @@ class DigestionManager:
         if not grantee:
             raise DigestionError("grantee_user_id is required", status_code=400, reason="missing_grantee")
         with self.db.get_connection() as conn:
+            grantee_row = conn.execute("SELECT * FROM users WHERE id = ?", (grantee,)).fetchone()
+            if not grantee_row:
+                raise DigestionError("Grantee user not found on this node.", status_code=404, reason="grantee_not_found")
+            row_keys = set(grantee_row.keys()) if hasattr(grantee_row, "keys") else set()
+            origin_peer = str((grantee_row["origin_peer"] if "origin_peer" in row_keys else "") or "").strip()
+            if origin_peer:
+                raise DigestionError(
+                    "Digestion live query access can only be granted to local users or agents on this node.",
+                    status_code=400,
+                    reason="remote_grantee_not_supported",
+                )
             conn.execute(
                 """
                 INSERT INTO digestion_acl (
@@ -544,7 +555,23 @@ class DigestionManager:
                 ),
             )
             conn.commit()
-        return {"success": True, "digestion_id": digestion.id, "grantee_user_id": grantee}
+        username = grantee_row["username"] if "username" in row_keys else grantee
+        display_name = grantee_row["display_name"] if "display_name" in row_keys else username
+        account_type = grantee_row["account_type"] if "account_type" in row_keys else ""
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "grantee_user_id": grantee,
+            "can_query": bool(can_query),
+            "can_manage": bool(can_manage),
+            "can_read_sources": bool(can_read_sources),
+            "grantee": {
+                "user_id": grantee,
+                "username": username or grantee,
+                "display_name": display_name or username or grantee,
+                "account_type": account_type or "",
+            },
+        }
 
     # ------------------------------------------------------------------
     # Build and query
@@ -747,7 +774,7 @@ class DigestionManager:
     ) -> list[dict[str, Any]]:
         digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
         access = self._access_for(digestion, actor_user_id)
-        source_outputs_allowed = bool(access.get("can_read_sources") or access.get("can_manage"))
+        source_outputs_allowed = bool(access.get("can_read_sources"))
         with self.db.get_connection() as conn:
             rows = conn.execute(
                 """
@@ -792,7 +819,7 @@ class DigestionManager:
             ).fetchone()
         if not row:
             raise DigestionError("Digestion output not found. Generate outputs first.", status_code=404, reason="output_not_found")
-        if str(row["output_kind"] or "") in _SOURCE_REVEALING_OUTPUT_KINDS and not (access.get("can_read_sources") or access.get("can_manage")):
+        if str(row["output_kind"] or "") in _SOURCE_REVEALING_OUTPUT_KINDS and not access.get("can_read_sources"):
             raise DigestionError(
                 "This Digestion output includes source metadata. Source metadata access is required.",
                 status_code=403,
@@ -844,7 +871,9 @@ class DigestionManager:
             },
             "note": (
                 "Use this Digestion as a permissioned retrieval capability. "
-                "Query access returns cited snippets; it does not grant raw File Vault access."
+                "Query access returns cited snippets; it does not grant raw File Vault access. "
+                "If this reference came from an attached package but live query returns 403/query_denied, "
+                "ask the owner to grant Digestion query access."
             ),
         }
 
@@ -860,7 +889,7 @@ class DigestionManager:
             except DigestionError:
                 outputs = []
         sources: list[dict[str, Any]] = []
-        if access.get("can_read_sources") or access.get("can_manage"):
+        if access.get("can_read_sources"):
             sources = self.list_sources(digestion.id, user_id=actor_user_id)
         return {
             "kind": "canopy_digestion_package_v1",
@@ -873,7 +902,7 @@ class DigestionManager:
             "outputs": outputs,
             "reuse_guidance": [
                 "Attach this package to a post, DM, task, or agent request when you want another consumer to understand what the Digestion is.",
-                "Grant Digestion ACL access separately when a local agent or user should query the live index.",
+                "Grant Digestion ACL access separately when a local agent or user should query the live index. In the Vault UI, use Share access on the Digestion card; via API use POST /api/v1/digestions/<digestion_id>/acl.",
                 "Exported packages are snapshots; the live Digestion may continue to change as files are added and rebuilt.",
             ],
         }

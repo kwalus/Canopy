@@ -11290,9 +11290,9 @@ def create_api_blueprint() -> Blueprint:
                 digestion_id,
                 g.api_key_info.user_id,
                 str(data.get('grantee_user_id') or data.get('user_id') or ''),
-                can_query=bool(data.get('can_query', True)),
-                can_manage=bool(data.get('can_manage', False)),
-                can_read_sources=bool(data.get('can_read_sources', False)),
+                can_query=True if 'can_query' not in data else _as_bool(data.get('can_query')),
+                can_manage=_as_bool(data.get('can_manage')),
+                can_read_sources=_as_bool(data.get('can_read_sources')),
             )
             return jsonify(result)
         except DigestionError as exc:

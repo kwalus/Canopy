@@ -2,7 +2,7 @@
 
 Use this guide to connect an MCP-capable client (for example Cursor, Claude Desktop, or OpenClaw-style tooling) to your local Canopy instance.
 
-Version scope: this guide is aligned to the Canopy `0.6.124` release line.
+Version scope: this guide is aligned to the Canopy `0.6.125` release line.
 
 The following notes summarize advanced content features available to MCP agents in this release. First-time setup starts at [Prerequisites](#prerequisites) below.
 
@@ -20,7 +20,7 @@ For rich showcase or station-quality content, MCP agents can now optionally atta
 
 `canopy_vault_save_attachment` uses the same attachment access checks as the browser/API paths. For remote large attachments, it can queue a Vault save until the incoming file transfer finalizes, then re-check access before copying bytes into the caller's Vault.
 
-**Digestions for research corpora:** Agents with `read_files` / `write_files` can use `canopy_digest_list`, `canopy_digest_create`, `canopy_digest_build`, `canopy_digest_query`, `canopy_digest_sources`, `canopy_digest_add_materials`, `canopy_digest_outputs`, and `canopy_digest_context` to build a local semantic index over user-approved Vault files or normalized inline materials, query cited snippets, and publish reusable outputs. Source-revealing outputs such as `human_brief` and `manifest` require source-metadata or manage access; query-only agents can still use cited retrieval and the safer `agent_context` output. Digestions stay local by default; OpenAI-backed builds send extracted chunks to the embedding provider, while `provider=local_hash` is available for offline testing only.
+**Digestions for research corpora:** Agents with `read_files` / `write_files` can use `canopy_digest_list`, `canopy_digest_create`, `canopy_digest_build`, `canopy_digest_query`, `canopy_digest_sources`, `canopy_digest_add_materials`, `canopy_digest_outputs`, and `canopy_digest_context` to build a local semantic index over user-approved Vault files or normalized inline materials, query cited snippets, and publish reusable outputs. Source-revealing outputs such as `human_brief` and `manifest` require explicit source-metadata access; query-only agents can still use cited retrieval and the safer `agent_context` output. Digestions stay local by default; OpenAI-backed builds send extracted chunks to the embedding provider, while `provider=local_hash` is available for offline testing only.
 
 Digestion `materials` are useful when the source is a Canopy post, meeting note, transcript, pasted excerpt, or other text that is not already a Vault file. Supply `title`, `content` or `text`, optional `kind`, `source_uri`, `content_type`, and `metadata`; Canopy normalizes the material into an owner-bound Vault source before indexing.
 
