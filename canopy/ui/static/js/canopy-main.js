@@ -1742,6 +1742,55 @@
 	                return '';
 	            }
 
+	            function vaultFileName(file) {
+	                return String(file && (file.name || file.filename || file.original_name || file.id || file.file_id) || 'Vault file');
+	            }
+
+	            function vaultFileContentType(file) {
+	                return String(file && (file.type || file.content_type || file.mime_type) || '').toLowerCase();
+	            }
+
+	            function vaultFileExtension(file) {
+	                const raw = vaultFileName(file).split('?')[0].split('#')[0];
+	                const dot = raw.lastIndexOf('.');
+	                return dot >= 0 ? raw.slice(dot).toLowerCase() : '';
+	            }
+
+	            function isVaultImageFile(file) {
+	                const type = vaultFileContentType(file);
+	                const category = String(file && file.category || '').toLowerCase();
+	                const ext = vaultFileExtension(file);
+	                return type.startsWith('image/') || category === 'images' || ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.tif', '.tiff', '.heic', '.heif'].includes(ext);
+	            }
+
+	            function isVaultVideoFile(file) {
+	                const type = vaultFileContentType(file);
+	                const category = String(file && file.category || '').toLowerCase();
+	                const ext = vaultFileExtension(file);
+	                return type.startsWith('video/') || category === 'video' || category === 'videos' || ['.mp4', '.m4v', '.mov', '.webm', '.ogv'].includes(ext);
+	            }
+
+	            function isVaultAudioFile(file) {
+	                const type = vaultFileContentType(file);
+	                const category = String(file && file.category || '').toLowerCase();
+	                const ext = vaultFileExtension(file);
+	                return type.startsWith('audio/') || category === 'audio' || ['.mp3', '.m4a', '.aac', '.wav', '.ogg', '.flac', '.webm'].includes(ext);
+	            }
+
+	            function isVaultInlinePreviewable(file) {
+	                const name = vaultFileName(file);
+	                const type = vaultFileContentType(file);
+	                if (isVaultImageFile(file) || isVaultVideoFile(file) || isVaultAudioFile(file)) return true;
+	                const detectors = [
+	                    global.canopyIsPdfPreviewable,
+	                    global.canopyIsMarkdownPreviewable,
+	                    global.canopyIsSpreadsheetPreviewable,
+	                    global.canopyIsDocumentPreviewable,
+	                    global.canopyIsTextPreviewable,
+	                ];
+	                return detectors.some(fn => typeof fn === 'function' && fn(name, type));
+	            }
+
 	            function renderVaultPageCard(file, selected = false) {
 	                const rawId = vaultFileId(file);
 	                const id = vaultEscape(rawId);

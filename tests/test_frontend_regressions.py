@@ -320,6 +320,10 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('vault-inline-preview-body', vault_template)
         self.assertIn('Open in new tab', vault_template)
         self.assertIn('function isVaultInlinePreviewable(file)', main_js)
+        self.assertLess(
+            main_js.index('function isVaultInlinePreviewable(file)'),
+            main_js.index('function renderVaultPageCard(file'),
+        )
         self.assertIn("if (id) return `/files/${encodeURIComponent(id)}`;", main_js)
         self.assertIn('parsed.origin === global.location.origin', main_js)
         self.assertIn('function previewVaultFileInline(file)', main_js)
@@ -2937,7 +2941,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.131', api_ref)
+        self.assertIn('0.6.132', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
