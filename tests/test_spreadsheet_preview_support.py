@@ -369,6 +369,60 @@ img.src = blobUrl;
         self.assertEqual(preview['kind'], 'module')
         self.assertIn('deck', preview['error'].lower())
 
+    def test_build_file_preview_returns_code_language_metadata(self):
+        preview = build_file_preview(
+            b"def summarize(items):\n    return {'count': len(items)}\n",
+            'agent_tool.py',
+            'text/x-python; charset=utf-8',
+        )
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'code')
+        self.assertEqual(preview['language'], 'python')
+        self.assertEqual(preview['language_label'], 'Python')
+        self.assertIn('summarize', preview['text'])
+
+    def test_build_file_preview_returns_plain_text_metadata_for_notes(self):
+        preview = build_file_preview(
+            b'Plain handoff note for the next agent.',
+            'handoff.txt',
+            'text/plain',
+        )
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'text')
+        self.assertEqual(preview['language'], 'plain')
+        self.assertEqual(preview['language_label'], 'Plain text')
+
+    def test_validate_file_upload_accepts_utf8_source_code_formats(self):
+        cases = [
+            (b"export const answer = 42;\n", 'application/octet-stream', 'solver.ts', 'application/typescript'),
+            (b"fn main() { println!(\"hi\"); }\n", 'application/octet-stream', 'main.rs', 'text/x-rust'),
+            (b"package main\nfunc main() {}\n", 'text/x-go', 'worker.go', 'text/x-go'),
+        ]
+        for file_data, content_type, filename, expected_type in cases:
+            with self.subTest(filename=filename):
+                is_valid, error, validated_type = validate_file_upload(file_data, content_type, filename)
+                self.assertTrue(is_valid, error)
+                self.assertIsNone(error)
+                self.assertEqual(validated_type, expected_type)
+
+    def test_validate_file_upload_rejects_binary_source_code_payload(self):
+        is_valid, error, _ = validate_file_upload(
+            b'const ok = true;\x00\xff',
+            'application/octet-stream',
+            'bad.js',
+        )
+        self.assertFalse(is_valid)
+        self.assertIn('source file', str(error).lower())
+
+    def test_validate_file_upload_rejects_invalid_utf8_source_like_text_plain(self):
+        is_valid, error, _ = validate_file_upload(
+            b'fun main() {\xff}\n',
+            'text/plain',
+            'worker.kt',
+        )
+        self.assertFalse(is_valid)
+        self.assertIn('valid utf-8', str(error).lower())
+
     def test_validate_file_upload_accepts_docx_with_generic_metadata(self):
         docx_bytes = _build_docx_bytes()
         is_valid, error, validated_type = validate_file_upload(

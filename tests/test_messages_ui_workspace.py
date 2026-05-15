@@ -450,6 +450,10 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn("choice.setAttribute('aria-pressed'", template)
         self.assertIn("dropdown.classList.add('picker-open')", template)
         self.assertIn("window.bootstrap.Dropdown.getOrCreateInstance(toggle", template)
+        self.assertIn('closeDmReactionPicker(normalizedId);\n        updateDmReactionStrip', template)
+        self.assertIn("picker.classList.remove('show', 'picker-open', 'dropup')", template)
+        self.assertIn("strip.closest('.message-item, .dm-message-row')", template)
+        self.assertIn("msgRow.classList.remove('dropdown-open')", template)
 
     def test_self_dm_renders_as_personal_scratchpad(self) -> None:
         response = self.client.post(

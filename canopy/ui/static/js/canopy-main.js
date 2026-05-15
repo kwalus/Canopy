@@ -5617,10 +5617,119 @@
                 'application/vnd.oasis.opendocument.presentation'
             ]);
             const CANOPY_TEXT_PREVIEW_EXTENSIONS = [
-                '.md', '.markdown', '.txt', '.log', '.json', '.py', '.js', '.ts',
-                '.csv', '.tsv', '.yaml', '.yml', '.xml', '.tex', '.html', '.css',
-                '.sh', '.bat', '.cfg', '.ini', '.toml'
+                '.bat', '.c', '.cfg', '.cjs', '.cpp', '.cs', '.css', '.dockerfile',
+                '.go', '.gradle', '.h', '.hpp', '.html', '.ini', '.java', '.js',
+                '.json', '.jsx', '.kt', '.kts', '.log', '.md', '.markdown',
+                '.makefile', '.mjs', '.php', '.ps1', '.py', '.rb', '.rs', '.sh',
+                '.sql', '.svelte', '.swift', '.toml', '.ts', '.tsx', '.txt',
+                '.vue', '.xml', '.yaml', '.yml', '.tex'
             ];
+            const CANOPY_CODE_LANGUAGE_BY_EXTENSION = {
+                '.bat': 'batch',
+                '.c': 'c',
+                '.cjs': 'javascript',
+                '.cpp': 'cpp',
+                '.cs': 'csharp',
+                '.css': 'css',
+                '.dockerfile': 'dockerfile',
+                '.go': 'go',
+                '.gradle': 'groovy',
+                '.h': 'c',
+                '.hpp': 'cpp',
+                '.html': 'html',
+                '.java': 'java',
+                '.js': 'javascript',
+                '.json': 'json',
+                '.jsx': 'jsx',
+                '.kt': 'kotlin',
+                '.kts': 'kotlin',
+                '.makefile': 'makefile',
+                '.mjs': 'javascript',
+                '.php': 'php',
+                '.ps1': 'powershell',
+                '.py': 'python',
+                '.rb': 'ruby',
+                '.rs': 'rust',
+                '.sh': 'shell',
+                '.sql': 'sql',
+                '.svelte': 'svelte',
+                '.swift': 'swift',
+                '.tex': 'tex',
+                '.toml': 'toml',
+                '.ts': 'typescript',
+                '.tsx': 'tsx',
+                '.vue': 'vue',
+                '.xml': 'xml',
+                '.yaml': 'yaml',
+                '.yml': 'yaml'
+            };
+            const CANOPY_CODE_LANGUAGE_BY_NAME = {
+                dockerfile: 'dockerfile',
+                makefile: 'makefile'
+            };
+            const CANOPY_CODE_LANGUAGE_LABELS = {
+                batch: 'Batch',
+                c: 'C',
+                cpp: 'C++',
+                csharp: 'C#',
+                css: 'CSS',
+                dockerfile: 'Dockerfile',
+                go: 'Go',
+                groovy: 'Groovy',
+                html: 'HTML',
+                java: 'Java',
+                javascript: 'JavaScript',
+                json: 'JSON',
+                jsx: 'JSX',
+                kotlin: 'Kotlin',
+                makefile: 'Makefile',
+                markdown: 'Markdown',
+                php: 'PHP',
+                plain: 'Plain text',
+                powershell: 'PowerShell',
+                python: 'Python',
+                ruby: 'Ruby',
+                rust: 'Rust',
+                shell: 'Shell',
+                sql: 'SQL',
+                svelte: 'Svelte',
+                swift: 'Swift',
+                tex: 'TeX',
+                toml: 'TOML',
+                typescript: 'TypeScript',
+                tsx: 'TSX',
+                vue: 'Vue',
+                xml: 'XML',
+                yaml: 'YAML'
+            };
+            const CANOPY_CODE_KEYWORDS = {
+                batch: ['call', 'do', 'echo', 'else', 'errorlevel', 'exit', 'for', 'goto', 'if', 'in', 'not', 'set'],
+                c: ['auto', 'break', 'case', 'char', 'const', 'continue', 'default', 'do', 'double', 'else', 'enum', 'extern', 'float', 'for', 'if', 'inline', 'int', 'long', 'return', 'short', 'sizeof', 'static', 'struct', 'switch', 'typedef', 'union', 'unsigned', 'void', 'volatile', 'while'],
+                cpp: ['alignas', 'auto', 'bool', 'break', 'case', 'class', 'const', 'constexpr', 'continue', 'default', 'delete', 'do', 'double', 'else', 'enum', 'explicit', 'false', 'float', 'for', 'if', 'inline', 'int', 'namespace', 'new', 'nullptr', 'private', 'protected', 'public', 'return', 'static', 'struct', 'switch', 'template', 'this', 'true', 'typename', 'using', 'virtual', 'void', 'while'],
+                csharp: ['async', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'default', 'delegate', 'do', 'else', 'enum', 'false', 'finally', 'for', 'foreach', 'if', 'interface', 'namespace', 'new', 'null', 'private', 'protected', 'public', 'return', 'static', 'string', 'switch', 'this', 'throw', 'true', 'try', 'using', 'var', 'void', 'while'],
+                css: ['align-items', 'animation', 'background', 'border', 'color', 'display', 'flex', 'font', 'grid', 'height', 'justify-content', 'margin', 'padding', 'position', 'transform', 'transition', 'width'],
+                dockerfile: ['add', 'arg', 'cmd', 'copy', 'entrypoint', 'env', 'expose', 'from', 'healthcheck', 'label', 'run', 'user', 'volume', 'workdir'],
+                go: ['break', 'case', 'chan', 'const', 'continue', 'defer', 'else', 'fallthrough', 'for', 'func', 'go', 'if', 'import', 'interface', 'map', 'package', 'range', 'return', 'select', 'struct', 'switch', 'type', 'var'],
+                groovy: ['as', 'assert', 'break', 'case', 'catch', 'class', 'def', 'else', 'false', 'finally', 'for', 'if', 'import', 'in', 'new', 'null', 'return', 'static', 'switch', 'this', 'throw', 'true', 'try', 'while'],
+                html: ['doctype', 'html', 'head', 'body', 'script', 'style', 'div', 'span', 'template', 'section', 'article', 'button', 'input'],
+                java: ['abstract', 'boolean', 'break', 'case', 'catch', 'class', 'const', 'continue', 'default', 'do', 'else', 'enum', 'extends', 'false', 'final', 'finally', 'for', 'if', 'implements', 'import', 'interface', 'new', 'null', 'package', 'private', 'protected', 'public', 'return', 'static', 'super', 'switch', 'this', 'throw', 'true', 'try', 'void', 'while'],
+                javascript: ['async', 'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'export', 'extends', 'false', 'finally', 'for', 'from', 'function', 'if', 'import', 'in', 'instanceof', 'let', 'new', 'null', 'of', 'return', 'static', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'undefined', 'var', 'void', 'while', 'yield'],
+                json: ['true', 'false', 'null'],
+                kotlin: ['as', 'break', 'by', 'catch', 'class', 'companion', 'continue', 'data', 'do', 'else', 'false', 'for', 'fun', 'if', 'import', 'in', 'interface', 'is', 'null', 'object', 'package', 'return', 'sealed', 'super', 'this', 'throw', 'true', 'try', 'typealias', 'val', 'var', 'when', 'while'],
+                php: ['abstract', 'and', 'array', 'as', 'break', 'case', 'catch', 'class', 'clone', 'const', 'continue', 'declare', 'default', 'echo', 'else', 'elseif', 'extends', 'false', 'final', 'finally', 'for', 'foreach', 'function', 'global', 'if', 'implements', 'interface', 'namespace', 'new', 'null', 'private', 'protected', 'public', 'return', 'static', 'switch', 'throw', 'trait', 'true', 'try', 'use', 'while'],
+                powershell: ['begin', 'break', 'catch', 'class', 'continue', 'data', 'do', 'dynamicparam', 'else', 'elseif', 'end', 'false', 'filter', 'finally', 'for', 'foreach', 'from', 'function', 'if', 'in', 'param', 'process', 'return', 'switch', 'throw', 'true', 'try', 'until', 'using', 'while'],
+                python: ['and', 'as', 'assert', 'async', 'await', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'False', 'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 'None', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'True', 'try', 'while', 'with', 'yield'],
+                ruby: ['BEGIN', 'END', 'alias', 'and', 'begin', 'break', 'case', 'class', 'def', 'defined?', 'do', 'else', 'elsif', 'end', 'ensure', 'false', 'for', 'if', 'in', 'module', 'next', 'nil', 'not', 'or', 'redo', 'rescue', 'retry', 'return', 'self', 'super', 'then', 'true', 'undef', 'unless', 'until', 'when', 'while', 'yield'],
+                rust: ['as', 'async', 'await', 'break', 'const', 'continue', 'crate', 'dyn', 'else', 'enum', 'extern', 'false', 'fn', 'for', 'if', 'impl', 'in', 'let', 'loop', 'match', 'mod', 'move', 'mut', 'pub', 'ref', 'return', 'self', 'static', 'struct', 'super', 'trait', 'true', 'type', 'unsafe', 'use', 'where', 'while'],
+                shell: ['case', 'do', 'done', 'elif', 'else', 'esac', 'fi', 'for', 'function', 'if', 'in', 'select', 'then', 'until', 'while'],
+                sql: ['alter', 'and', 'as', 'by', 'case', 'create', 'delete', 'desc', 'distinct', 'drop', 'else', 'end', 'from', 'group', 'having', 'in', 'insert', 'into', 'is', 'join', 'left', 'like', 'limit', 'not', 'null', 'on', 'or', 'order', 'outer', 'right', 'select', 'set', 'table', 'then', 'union', 'update', 'values', 'when', 'where'],
+                swift: ['as', 'associatedtype', 'break', 'case', 'catch', 'class', 'continue', 'defer', 'do', 'else', 'enum', 'extension', 'false', 'for', 'func', 'guard', 'if', 'import', 'in', 'init', 'let', 'nil', 'protocol', 'return', 'self', 'struct', 'switch', 'throw', 'true', 'try', 'typealias', 'var', 'while'],
+                tex: ['begin', 'cite', 'documentclass', 'emph', 'end', 'frac', 'includegraphics', 'label', 'ref', 'section', 'subsection', 'textbf', 'usepackage'],
+                toml: ['true', 'false'],
+                typescript: ['abstract', 'any', 'as', 'async', 'await', 'boolean', 'break', 'case', 'catch', 'class', 'const', 'constructor', 'continue', 'declare', 'default', 'delete', 'do', 'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'from', 'function', 'if', 'implements', 'import', 'in', 'instanceof', 'interface', 'let', 'module', 'namespace', 'new', 'null', 'number', 'of', 'private', 'protected', 'public', 'readonly', 'return', 'static', 'string', 'super', 'switch', 'this', 'throw', 'true', 'try', 'type', 'typeof', 'undefined', 'var', 'void', 'while'],
+                xml: ['xml', 'version', 'encoding'],
+                yaml: ['true', 'false', 'null']
+            };
 
             function canopyFileExtension(filename) {
                 const raw = String(filename || '').split('?')[0].split('#')[0];
@@ -5667,7 +5776,232 @@
                 const type = String(contentType || '').toLowerCase();
                 if (CANOPY_TEXT_PREVIEW_EXTENSIONS.includes(ext)) return true;
                 if (type.startsWith('text/')) return true;
-                return ['application/json', 'application/xml', 'application/x-yaml', 'application/javascript', 'application/typescript', 'text/x-tex', 'application/x-latex'].includes(type);
+                return [
+                    'application/json',
+                    'application/xml',
+                    'application/x-yaml',
+                    'application/javascript',
+                    'application/typescript',
+                    'application/sql',
+                    'text/x-c',
+                    'text/x-c++src',
+                    'text/x-go',
+                    'text/x-java-source',
+                    'text/x-python',
+                    'text/x-ruby',
+                    'text/x-rust',
+                    'text/x-shellscript',
+                    'text/x-sql',
+                    'text/x-tex',
+                    'application/x-latex'
+                ].includes(type);
+            }
+
+            function canopyCodeBaseLanguage(language) {
+                const value = String(language || '').toLowerCase();
+                if (value === 'jsx' || value === 'tsx' || value === 'svelte' || value === 'vue') return 'javascript';
+                if (value === 'csharp') return 'csharp';
+                return value;
+            }
+
+            function canopyDetectCodeLanguage(filename, contentType) {
+                const rawName = String(filename || '').split('?')[0].split('#')[0];
+                const basename = rawName.split('/').pop().toLowerCase();
+                if (CANOPY_CODE_LANGUAGE_BY_NAME[basename]) return CANOPY_CODE_LANGUAGE_BY_NAME[basename];
+                const ext = canopyFileExtension(filename);
+                if (CANOPY_CODE_LANGUAGE_BY_EXTENSION[ext]) return CANOPY_CODE_LANGUAGE_BY_EXTENSION[ext];
+                const type = String(contentType || '').split(';')[0].toLowerCase();
+                const mimeMap = {
+                    'application/javascript': 'javascript',
+                    'application/json': 'json',
+                    'application/sql': 'sql',
+                    'application/typescript': 'typescript',
+                    'application/xml': 'xml',
+                    'application/x-yaml': 'yaml',
+                    'text/css': 'css',
+                    'text/html': 'html',
+                    'text/javascript': 'javascript',
+                    'text/jsx': 'jsx',
+                    'text/tsx': 'tsx',
+                    'text/x-c': 'c',
+                    'text/x-c++src': 'cpp',
+                    'text/x-go': 'go',
+                    'text/x-java-source': 'java',
+                    'text/x-python': 'python',
+                    'text/x-ruby': 'ruby',
+                    'text/x-rust': 'rust',
+                    'text/x-shellscript': 'shell',
+                    'text/x-sql': 'sql',
+                    'text/x-tex': 'tex'
+                };
+                return mimeMap[type] || '';
+            }
+
+            function canopyCodeLanguageLabel(language) {
+                const normalized = String(language || 'plain').toLowerCase();
+                return CANOPY_CODE_LANGUAGE_LABELS[normalized] || normalized.toUpperCase();
+            }
+
+            function canopyRegexEscape(value) {
+                return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+
+            function canopyCodePattern(source, tokenClass, flags) {
+                return {
+                    tokenClass: tokenClass,
+                    regex: new RegExp(source, flags || 'y')
+                };
+            }
+
+            function canopyKeywordPattern(language) {
+                const base = canopyCodeBaseLanguage(language);
+                const words = CANOPY_CODE_KEYWORDS[language] || CANOPY_CODE_KEYWORDS[base] || [];
+                if (!words.length) return null;
+                return canopyCodePattern('\\b(?:' + words.map(canopyRegexEscape).join('|') + ')\\b', 'keyword', 'iy');
+            }
+
+            function canopyTokenPatternsForLanguage(language) {
+                const normalized = String(language || 'plain').toLowerCase();
+                const base = canopyCodeBaseLanguage(normalized);
+                const patterns = [];
+                if (base === 'html' || base === 'xml') {
+                    patterns.push(canopyCodePattern('<!--[\\s\\S]*?-->', 'comment'));
+                    patterns.push(canopyCodePattern('<![A-Z]+[\\s\\S]*?>', 'keyword', 'iy'));
+                    patterns.push(canopyCodePattern('<\\/?[A-Za-z][A-Za-z0-9:_-]*', 'tag'));
+                    patterns.push(canopyCodePattern('\\s+[A-Za-z_:][A-Za-z0-9:_.-]*(?=\\s*=)', 'attr'));
+                    patterns.push(canopyCodePattern('"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'', 'string'));
+                } else if (base === 'css') {
+                    patterns.push(canopyCodePattern('\\/\\*[\\s\\S]*?\\*\\/', 'comment'));
+                    patterns.push(canopyCodePattern('@[A-Za-z_-][\\w-]*', 'keyword'));
+                    patterns.push(canopyCodePattern('--[A-Za-z_-][\\w-]*', 'property'));
+                    patterns.push(canopyCodePattern('[.#]?[A-Za-z_-][\\w-]*(?=\\s*\\{)', 'selector'));
+                    patterns.push(canopyCodePattern('[A-Za-z-]+(?=\\s*:)', 'property'));
+                    patterns.push(canopyCodePattern('"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'', 'string'));
+                } else if (base === 'python') {
+                    patterns.push(canopyCodePattern('(?:\"\"\"[\\s\\S]*?\"\"\"|\'\'\'[\\s\\S]*?\'\'\')', 'string'));
+                    patterns.push(canopyCodePattern('#.*', 'comment'));
+                    patterns.push(canopyCodePattern('@[A-Za-z_][\\w.]*', 'decorator'));
+                    patterns.push(canopyCodePattern('"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'', 'string'));
+                    patterns.push(canopyCodePattern('\\b[A-Za-z_]\\w*(?=\\s*\\()', 'function'));
+                } else if (base === 'shell' || base === 'powershell' || base === 'batch' || base === 'dockerfile' || base === 'makefile') {
+                    patterns.push(canopyCodePattern('#.*', 'comment'));
+                    patterns.push(canopyCodePattern('"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'', 'string'));
+                    patterns.push(canopyCodePattern('\\$[A-Za-z_][\\w]*|\\$\\{[^}]+\\}', 'variable'));
+                } else if (base === 'sql') {
+                    patterns.push(canopyCodePattern('--.*', 'comment'));
+                    patterns.push(canopyCodePattern('\\/\\*[\\s\\S]*?\\*\\/', 'comment'));
+                    patterns.push(canopyCodePattern('"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'', 'string'));
+                } else if (base === 'yaml' || base === 'toml') {
+                    patterns.push(canopyCodePattern('#.*', 'comment'));
+                    patterns.push(canopyCodePattern('"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'', 'string'));
+                    patterns.push(canopyCodePattern('[A-Za-z0-9_.-]+(?=\\s*[=:])', 'property'));
+                } else {
+                    patterns.push(canopyCodePattern('\\/\\*[\\s\\S]*?\\*\\/', 'comment'));
+                    patterns.push(canopyCodePattern('\\/\\/.*', 'comment'));
+                    patterns.push(canopyCodePattern('"(?:\\\\.|[^"\\\\])*"|\'(?:\\\\.|[^\'\\\\])*\'|`(?:\\\\.|[^`\\\\])*`', 'string'));
+                    patterns.push(canopyCodePattern('\\b[A-Za-z_$][\\w$]*(?=\\s*\\()', 'function'));
+                }
+                if (base === 'json') {
+                    patterns.unshift(canopyCodePattern('"(?:\\\\.|[^"\\\\])*"(?=\\s*:)', 'property'));
+                }
+                const keywordPattern = canopyKeywordPattern(normalized);
+                if (keywordPattern) patterns.push(keywordPattern);
+                patterns.push(canopyCodePattern('\\b(?:0x[a-fA-F0-9]+|\\d+(?:\\.\\d+)?(?:e[+-]?\\d+)?)\\b', 'number', 'iy'));
+                patterns.push(canopyCodePattern('[{}()[\\],.;:+\\-*\\/%=!<>|&?]+', 'punctuation'));
+                return patterns;
+            }
+
+            function canopyHighlightCodeLine(line, language) {
+                const source = String(line || '');
+                const patterns = canopyTokenPatternsForLanguage(language);
+                let index = 0;
+                let output = '';
+                let guard = 0;
+                while (index < source.length && guard < source.length * 5 + 10) {
+                    guard += 1;
+                    let matched = null;
+                    for (const pattern of patterns) {
+                        pattern.regex.lastIndex = index;
+                        const result = pattern.regex.exec(source);
+                        if (result && result.index === index && result[0]) {
+                            matched = {
+                                tokenClass: pattern.tokenClass,
+                                value: result[0]
+                            };
+                            break;
+                        }
+                    }
+                    if (matched) {
+                        output += `<span class="cp-token ${matched.tokenClass}">${_escapeHtml(matched.value)}</span>`;
+                        index += matched.value.length;
+                    } else {
+                        output += _escapeHtml(source[index]);
+                        index += 1;
+                    }
+                }
+                if (index < source.length) {
+                    output += _escapeHtml(source.slice(index));
+                }
+                return output || '&nbsp;';
+            }
+
+            function renderCodePreviewHtml(previewId, payload) {
+                const source = String((payload && payload.text) || '');
+                const language = String((payload && payload.language) || canopyDetectCodeLanguage(payload && payload.filename, payload && payload.content_type) || 'plain').toLowerCase();
+                const label = _escapeHtml((payload && payload.language_label) || canopyCodeLanguageLabel(language));
+                const lines = source.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+                const renderedLines = lines.map(function(line, index) {
+                    return `
+                        <span class="code-preview-line" role="listitem">
+                            <span class="code-line-number">${index + 1}</span>
+                            <span class="code-line-source">${canopyHighlightCodeLine(line, language)}</span>
+                        </span>
+                    `;
+                }).join('');
+                window.canopyCodePreviewText = window.canopyCodePreviewText || {};
+                window.canopyCodePreviewText[previewId] = source;
+                const clipped = payload && payload.truncated ? '<span class="code-preview-pill">Preview clipped</span>' : '';
+                return `
+                    <div class="file-preview-container code-preview" data-code-language="${_escapeAttr(language)}">
+                        <div class="code-preview-header">
+                            <span class="code-preview-lang"><i class="bi bi-code-slash me-1"></i>${label}</span>
+                            <span class="code-preview-actions">
+                                ${clipped}
+                                <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" data-code-preview-copy="${_escapeAttr(previewId)}" onclick="copyCodePreviewText('${_escapeAttr(previewId)}')">
+                                    <i class="bi bi-clipboard me-1"></i>Copy
+                                </button>
+                            </span>
+                        </div>
+                        <pre class="code-preview-body"><code class="code-preview-lines" role="list">${renderedLines}</code></pre>
+                    </div>
+                `;
+            }
+
+            function copyCodePreviewText(previewId) {
+                const text = window.canopyCodePreviewText && window.canopyCodePreviewText[previewId];
+                if (!text) {
+                    if (typeof showAlert === 'function') showAlert('No preview text available to copy.', 'warning');
+                    return;
+                }
+                const onSuccess = function() {
+                    if (typeof showAlert === 'function') showAlert('Code preview copied.', 'success');
+                };
+                const onFailure = function() {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    onSuccess();
+                };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(onSuccess).catch(onFailure);
+                } else {
+                    onFailure();
+                }
             }
 
             function canopySpreadsheetColumnLabel(index) {
@@ -5794,8 +6128,7 @@
                 if (payload.kind === 'markdown' && typeof marked !== 'undefined') {
                     return `<div class="file-preview-container md-preview">${marked.parse(String(payload.text || ''))}</div>`;
                 }
-                const escaped = _escapeHtml(String(payload.text || ''));
-                return `<div class="file-preview-container code-preview"><pre><code>${escaped}</code></pre></div>`;
+                return renderCodePreviewHtml(previewId, payload);
             }
 
             function canopySafePdfPreviewUrl(fileUrl) {
@@ -5940,6 +6273,9 @@
                 window.canopyIsDocumentPreviewable = canopyIsDocumentPreviewable;
                 window.canopyIsTextPreviewable = canopyIsTextPreviewable;
                 window.canopyIsMarkdownPreviewable = canopyIsMarkdownPreviewable;
+                window.canopyDetectCodeLanguage = canopyDetectCodeLanguage;
+                window.canopyHighlightCodeLine = canopyHighlightCodeLine;
+                window.copyCodePreviewText = copyCodePreviewText;
                 window.canopyAttachmentPreviewLabels = canopyAttachmentPreviewLabels;
                 window.canopyIsModuleBundle = canopyIsModuleBundle;
             }
@@ -14240,14 +14576,17 @@
                 const strip = getDeckDmReactionStrip(messageId);
                 const toggle = strip ? strip.querySelector('.dm-reaction-add') : null;
                 if (!toggle) return;
+                const picker = toggle.closest('.dm-reaction-picker');
+                const menu = strip.querySelector('.dm-reaction-palette');
                 if (window.bootstrap && window.bootstrap.Dropdown) {
-                    const instance = window.bootstrap.Dropdown.getInstance(toggle);
+                    const instance = window.bootstrap.Dropdown.getOrCreateInstance(toggle, { autoClose: 'outside' });
                     if (instance) instance.hide();
-                } else {
-                    const menu = strip.querySelector('.dm-reaction-palette');
-                    if (menu) menu.classList.remove('show');
                 }
+                if (menu) menu.classList.remove('show');
+                if (picker) picker.classList.remove('show', 'picker-open', 'dropup');
                 toggle.setAttribute('aria-expanded', 'false');
+                const msgRow = strip.closest('.message-item, .dm-message-row');
+                if (msgRow) msgRow.classList.remove('dropdown-open');
             }
 
             function toggleDeckDmReaction(messageId, reactionType) {
@@ -14256,6 +14595,7 @@
                 const selectedReaction = normalizeDeckDmReactionKey(reactionType || 'like');
                 const before = getDeckDmReactionState(normalizedId);
                 const optimistic = buildDeckDmReactionState(before, selectedReaction);
+                closeDeckDmReactionPicker(normalizedId);
                 updateDeckDmReactionStrip(normalizedId, optimistic.counts, optimistic.userReaction);
                 state.deckInboxReactionInFlight.add(normalizedId);
                 setDeckDmReactionBusy(normalizedId, true);
@@ -14278,7 +14618,6 @@
                             interactions.like_counts || optimistic.counts,
                             data.user_reaction || ''
                         );
-                        closeDeckDmReactionPicker(normalizedId);
                     })
                     .catch((err) => {
                         console.error('Deck Inbox reaction update failed:', err);

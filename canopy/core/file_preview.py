@@ -1,5 +1,5 @@
 """
-Read-only file preview helpers for text and spreadsheet attachments.
+Read-only file preview helpers for text, code, document, and spreadsheet attachments.
 
 This module intentionally does not execute embedded spreadsheet code or VBA.
 It extracts a bounded preview suitable for inline Canopy rendering.
@@ -56,39 +56,174 @@ DOCUMENT_PREVIEW_MIME_TYPES = {
     "application/vnd.oasis.opendocument.presentation",
 }
 TEXT_PREVIEW_EXTENSIONS = {
+    ".bat",
+    ".c",
+    ".cfg",
+    ".cjs",
+    ".cpp",
+    ".cs",
+    ".css",
+    ".dockerfile",
+    ".go",
+    ".gradle",
+    ".h",
+    ".hpp",
+    ".html",
+    ".ini",
+    ".java",
+    ".js",
+    ".json",
+    ".jsx",
+    ".kt",
+    ".kts",
+    ".log",
     ".md",
     ".markdown",
-    ".txt",
-    ".log",
-    ".json",
+    ".makefile",
+    ".mjs",
+    ".php",
+    ".ps1",
     ".py",
-    ".js",
+    ".rb",
+    ".rs",
+    ".sh",
+    ".sql",
+    ".svelte",
+    ".swift",
+    ".txt",
+    ".toml",
     ".ts",
+    ".tsx",
+    ".vue",
     ".csv",
     ".tsv",
+    ".xml",
     ".yaml",
     ".yml",
-    ".xml",
     ".tex",
-    ".html",
-    ".css",
-    ".sh",
-    ".bat",
-    ".cfg",
-    ".ini",
-    ".toml",
 }
 TEXT_PREVIEW_MIME_PREFIXES = ("text/",)
 TEXT_PREVIEW_MIME_TYPES = {
+    "application/javascript",
     "application/json",
+    "application/sql",
+    "application/typescript",
     "application/xml",
     "application/x-yaml",
-    "application/javascript",
-    "application/typescript",
-    "text/x-tex",
     "application/x-latex",
+    "text/x-c",
+    "text/x-c++src",
+    "text/x-go",
+    "text/x-java-source",
+    "text/x-python",
+    "text/x-ruby",
+    "text/x-rust",
+    "text/x-shellscript",
+    "text/x-sql",
+    "text/x-tex",
 }
 CANOPY_MODULE_SUFFIXES = (".canopy-module.html", ".canopy-module.htm")
+
+CODE_LANGUAGE_BY_EXTENSION = {
+    ".bat": "batch",
+    ".c": "c",
+    ".cjs": "javascript",
+    ".cpp": "cpp",
+    ".cs": "csharp",
+    ".css": "css",
+    ".dockerfile": "dockerfile",
+    ".go": "go",
+    ".gradle": "groovy",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".html": "html",
+    ".java": "java",
+    ".js": "javascript",
+    ".json": "json",
+    ".jsx": "jsx",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    ".makefile": "makefile",
+    ".mjs": "javascript",
+    ".php": "php",
+    ".ps1": "powershell",
+    ".py": "python",
+    ".rb": "ruby",
+    ".rs": "rust",
+    ".sh": "shell",
+    ".sql": "sql",
+    ".svelte": "svelte",
+    ".swift": "swift",
+    ".tex": "tex",
+    ".toml": "toml",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".vue": "vue",
+    ".xml": "xml",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+}
+CODE_LANGUAGE_BY_FILENAME = {
+    "dockerfile": "dockerfile",
+    "makefile": "makefile",
+}
+CODE_LANGUAGE_BY_MIME_TYPE = {
+    "application/javascript": "javascript",
+    "application/json": "json",
+    "application/sql": "sql",
+    "application/typescript": "typescript",
+    "application/xml": "xml",
+    "application/x-yaml": "yaml",
+    "text/css": "css",
+    "text/html": "html",
+    "text/javascript": "javascript",
+    "text/jsx": "jsx",
+    "text/tsx": "tsx",
+    "text/x-c": "c",
+    "text/x-c++src": "cpp",
+    "text/x-go": "go",
+    "text/x-java-source": "java",
+    "text/x-python": "python",
+    "text/x-ruby": "ruby",
+    "text/x-rust": "rust",
+    "text/x-shellscript": "shell",
+    "text/x-sql": "sql",
+    "text/x-tex": "tex",
+}
+CODE_LANGUAGE_LABELS = {
+    "batch": "Batch",
+    "c": "C",
+    "cpp": "C++",
+    "csharp": "C#",
+    "css": "CSS",
+    "dockerfile": "Dockerfile",
+    "go": "Go",
+    "groovy": "Groovy",
+    "html": "HTML",
+    "java": "Java",
+    "javascript": "JavaScript",
+    "json": "JSON",
+    "jsx": "JSX",
+    "kotlin": "Kotlin",
+    "makefile": "Makefile",
+    "php": "PHP",
+    "plain": "Plain text",
+    "powershell": "PowerShell",
+    "python": "Python",
+    "ruby": "Ruby",
+    "rust": "Rust",
+    "shell": "Shell",
+    "sql": "SQL",
+    "svelte": "Svelte",
+    "swift": "Swift",
+    "tex": "TeX",
+    "toml": "TOML",
+    "typescript": "TypeScript",
+    "tsx": "TSX",
+    "vue": "Vue",
+    "xml": "XML",
+    "yaml": "YAML",
+}
 
 MAX_TEXT_PREVIEW_BYTES = 512 * 1024
 MAX_TEXT_PREVIEW_CHARS = 50_000
@@ -106,6 +241,26 @@ def _file_extension(filename: str | None) -> str:
     return Path(filename or "").suffix.lower()
 
 
+def _normalized_mime_type(content_type: str | None) -> str:
+    return str(content_type or "").split(";", 1)[0].strip().lower()
+
+
+def detect_code_language(filename: str | None, content_type: str | None) -> str:
+    """Return a stable renderer language id for code-like text files."""
+    name = Path(filename or "").name.strip().lower()
+    if name in CODE_LANGUAGE_BY_FILENAME:
+        return CODE_LANGUAGE_BY_FILENAME[name]
+    ext = _file_extension(filename)
+    if ext in CODE_LANGUAGE_BY_EXTENSION:
+        return CODE_LANGUAGE_BY_EXTENSION[ext]
+    return CODE_LANGUAGE_BY_MIME_TYPE.get(_normalized_mime_type(content_type), "")
+
+
+def code_language_label(language: str | None) -> str:
+    language = str(language or "").strip().lower()
+    return CODE_LANGUAGE_LABELS.get(language, language.upper() if language else "Plain text")
+
+
 def is_canopy_module_bundle(filename: str | None, content_type: str | None) -> bool:
     lower_name = str(filename or "").strip().lower()
     lower_type = str(content_type or "").strip().lower()
@@ -114,19 +269,19 @@ def is_canopy_module_bundle(filename: str | None, content_type: str | None) -> b
 
 def is_markdown_previewable(filename: str | None, content_type: str | None) -> bool:
     ext = _file_extension(filename)
-    ctype = str(content_type or "").lower()
+    ctype = _normalized_mime_type(content_type)
     return ext in MARKDOWN_EXTENSIONS or ctype in {"text/markdown", "text/x-markdown"}
 
 
 def is_spreadsheet_previewable(filename: str | None, content_type: str | None) -> bool:
     ext = _file_extension(filename)
-    ctype = str(content_type or "").lower()
+    ctype = _normalized_mime_type(content_type)
     return ext in SPREADSHEET_EXTENSIONS or ctype in SPREADSHEET_MIME_TYPES
 
 
 def is_document_previewable(filename: str | None, content_type: str | None) -> bool:
     ext = _file_extension(filename)
-    ctype = str(content_type or "").lower()
+    ctype = _normalized_mime_type(content_type)
     return ext in DOCUMENT_PREVIEW_EXTENSIONS or ctype in DOCUMENT_PREVIEW_MIME_TYPES
 
 
@@ -138,8 +293,10 @@ def is_text_previewable(filename: str | None, content_type: str | None) -> bool:
     if is_document_previewable(filename, content_type):
         return False
     ext = _file_extension(filename)
-    ctype = str(content_type or "").lower()
+    ctype = _normalized_mime_type(content_type)
     if ext in TEXT_PREVIEW_EXTENSIONS:
+        return True
+    if detect_code_language(filename, content_type):
         return True
     if ctype in TEXT_PREVIEW_MIME_TYPES:
         return True
@@ -285,10 +442,20 @@ def _build_text_preview(file_data: bytes, filename: str, content_type: str) -> d
     preview_bytes = file_data[:MAX_TEXT_PREVIEW_BYTES]
     text = _decode_text_bytes(preview_bytes)
     text, text_truncated = _truncate_text(text, MAX_TEXT_PREVIEW_CHARS)
-    kind = "markdown" if is_markdown_previewable(filename, content_type) else "text"
+    language = detect_code_language(filename, content_type)
+    if is_markdown_previewable(filename, content_type):
+        kind = "markdown"
+        language = "markdown"
+    elif language:
+        kind = "code"
+    else:
+        kind = "text"
+        language = "plain"
     return {
         "previewable": True,
         "kind": kind,
+        "language": language,
+        "language_label": "Markdown" if language == "markdown" else code_language_label(language),
         "text": text,
         "truncated": len(file_data) > MAX_TEXT_PREVIEW_BYTES or text_truncated,
         "limits": {

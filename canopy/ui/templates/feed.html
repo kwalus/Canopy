@@ -280,7 +280,7 @@
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 composer-action-row">
                 <div class="d-flex gap-2 flex-wrap composer-action-tools">
                     <input type="file" id="post-file-input" style="display: none;" multiple
-                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
+                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.dockerfile,.makefile,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.rb,.php,.sh,.bash,.zsh,.ps1,.sql,.kt,.kts,.swift,.svelte,.vue,.css,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('post-file-input').click()">
                     <i class="bi bi-paperclip"></i> Attach Files
                 </button>
@@ -672,7 +672,8 @@
                                             {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
                                             {% set pdf_preview = lower_name.endswith('.pdf') or (attachment.type or '') == 'application/pdf' %}
                                             {% set document_preview = lower_name.endswith('.docx') or lower_name.endswith('.docm') or lower_name.endswith('.dotx') or lower_name.endswith('.pptx') or lower_name.endswith('.pptm') or lower_name.endswith('.ppsx') or lower_name.endswith('.potx') or lower_name.endswith('.rtf') or lower_name.endswith('.odt') or lower_name.endswith('.odp') %}
-                                            {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or pdf_preview or document_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
+                                            {% set code_preview = lower_name.endswith('.c') or lower_name.endswith('.h') or lower_name.endswith('.cpp') or lower_name.endswith('.hpp') or lower_name.endswith('.cs') or lower_name.endswith('.dockerfile') or lower_name.endswith('.makefile') or lower_name.endswith('.go') or lower_name.endswith('.java') or lower_name.endswith('.jsx') or lower_name.endswith('.tsx') or lower_name.endswith('.mjs') or lower_name.endswith('.cjs') or lower_name.endswith('.kt') or lower_name.endswith('.kts') or lower_name.endswith('.php') or lower_name.endswith('.ps1') or lower_name.endswith('.rb') or lower_name.endswith('.rs') or lower_name.endswith('.sql') or lower_name.endswith('.svelte') or lower_name.endswith('.swift') or lower_name.endswith('.vue') %}
+                                            {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or pdf_preview or document_preview or code_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
                                             {% set preview_id = 'feed-attachment-preview-' ~ post.id ~ '-' ~ loop.index0 %}
                                             {% set module_title = (attachment.name or 'Canopy Module')|replace('.canopy-module.html', '')|replace('.canopy-module.htm', '')|replace('-', ' ')|replace('_', ' ')|title %}
                                             {% set module_manifest = {
@@ -1930,7 +1931,7 @@
                                         
                                         <!-- Hidden file input -->
                                         <input type="file" id="comment-file-input-{{ post.id }}" style="display: none;" multiple 
-                                               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm" onchange="handleCommentFileSelect('{{ post.id }}', this)">
+                                               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.dockerfile,.makefile,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.rb,.php,.sh,.bash,.zsh,.ps1,.sql,.kt,.kts,.swift,.svelte,.vue,.css,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm" onchange="handleCommentFileSelect('{{ post.id }}', this)">
                                     </div>
                                     
                                     <!-- Comments List -->
@@ -7172,7 +7173,7 @@
             'application/vnd.rar', 'application/x-rar-compressed',
         ];
         const allowedExtensions = [
-            '.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.ts', '.log',
+            '.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.dockerfile', '.makefile', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.hpp', '.cs', '.rb', '.php', '.sh', '.bash', '.zsh', '.ps1', '.sql', '.kt', '.kts', '.swift', '.svelte', '.vue', '.css', '.log',
             '.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
             '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
             '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.pot', '.potx', '.odp',
@@ -7304,7 +7305,7 @@
                            data-inline-post-file-input
                            style="display:none;"
                            multiple
-                           accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
+                           accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.dockerfile,.makefile,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.rb,.php,.sh,.bash,.zsh,.ps1,.sql,.kt,.kts,.swift,.svelte,.vue,.css,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
                     <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-post-add-files>
                         <i class="bi bi-paperclip"></i> Add Files
                     </button>
@@ -7955,7 +7956,7 @@
                         
                         <!-- Hidden file input -->
                         <input type="file" id="comment-file-input-${postId}" style="display: none;" multiple 
-                               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm" onchange="handleCommentFileSelect('${postId}', this)">
+                               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.dockerfile,.makefile,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.rb,.php,.sh,.bash,.zsh,.ps1,.sql,.kt,.kts,.swift,.svelte,.vue,.css,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm" onchange="handleCommentFileSelect('${postId}', this)">
                     </div>
                 </div>
             `;
@@ -8082,7 +8083,7 @@
                                   'application/gzip', 'application/x-gzip', 'application/x-bzip2',
                                   'application/x-xz', 'application/x-7z-compressed',
                                   'application/vnd.rar', 'application/x-rar-compressed'];
-        const allowedExtensions = ['.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.ts', '.log',
+        const allowedExtensions = ['.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.dockerfile', '.makefile', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.hpp', '.cs', '.rb', '.php', '.sh', '.bash', '.zsh', '.ps1', '.sql', '.kt', '.kts', '.swift', '.svelte', '.vue', '.css', '.log',
                                    '.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
                                    '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
                                    '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.pot', '.potx', '.odp',
@@ -8618,7 +8619,7 @@
                                   'application/gzip', 'application/x-gzip', 'application/x-bzip2',
                                   'application/x-xz', 'application/x-7z-compressed',
                                   'application/vnd.rar', 'application/x-rar-compressed'];
-        const allowedExtensions = ['.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.ts', '.log',
+        const allowedExtensions = ['.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.dockerfile', '.makefile', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.hpp', '.cs', '.rb', '.php', '.sh', '.bash', '.zsh', '.ps1', '.sql', '.kt', '.kts', '.swift', '.svelte', '.vue', '.css', '.log',
                                    '.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
                                    '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
                                    '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.pot', '.potx', '.odp',

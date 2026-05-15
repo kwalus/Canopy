@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.121] - 2026-05-15
+
+### Changed
+- **Source attachments now preview as readable code** - common source and configuration files can open a local, bounded preview with language labels, line numbers, Copy, and lightweight theme-aware syntax highlighting without executing file contents or loading third-party highlighters.
+- **Code preview upload handling is stricter** - source-code MIME types and source-like `text/plain` extensions are validated as UTF-8 text, while Canopy Module bundles remain excluded from generic previews and continue to open through the deck/runtime path.
+- **DM reaction pickers dismiss immediately** - selecting a direct-message reaction closes the picker before the optimistic update runs, and cleanup now resets Bootstrap/manual dropdown state for both full Messages and Deck Inbox surfaces.
+
 ## [0.6.120] - 2026-05-15
 
 ### Changed

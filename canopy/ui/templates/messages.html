@@ -2964,7 +2964,7 @@
             'application/x-rar-compressed'
         ];
         const allowedExtensions = [
-            '.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.ts', '.log',
+            '.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.dockerfile', '.makefile', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.hpp', '.cs', '.rb', '.php', '.sh', '.bash', '.zsh', '.ps1', '.sql', '.kt', '.kts', '.swift', '.svelte', '.vue', '.css', '.log',
             '.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods',
             '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat', '.cfg', '.ini', '.toml',
             '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
@@ -4053,14 +4053,17 @@
         const strip = getDmReactionStrip(messageId);
         const toggle = strip ? strip.querySelector('.dm-reaction-add') : null;
         if (!toggle) return;
+        const picker = toggle.closest('.dm-reaction-picker');
+        const menu = strip.querySelector('.dm-reaction-palette');
         if (window.bootstrap && window.bootstrap.Dropdown) {
-            const instance = window.bootstrap.Dropdown.getInstance(toggle);
+            const instance = window.bootstrap.Dropdown.getOrCreateInstance(toggle, { autoClose: 'outside' });
             if (instance) instance.hide();
-        } else {
-            const menu = strip.querySelector('.dm-reaction-palette');
-            if (menu) menu.classList.remove('show');
         }
+        if (menu) menu.classList.remove('show');
+        if (picker) picker.classList.remove('show', 'picker-open', 'dropup');
         toggle.setAttribute('aria-expanded', 'false');
+        const msgRow = strip.closest('.message-item, .dm-message-row');
+        if (msgRow) msgRow.classList.remove('dropdown-open');
     }
 
     function toggleDmReaction(messageId, reactionType) {
@@ -4069,6 +4072,7 @@
         const normalizedReaction = String(reactionType || 'like').trim().toLowerCase() || 'like';
         const before = getDmReactionState(normalizedId);
         const optimistic = buildDmReactionState(before, normalizedReaction);
+        closeDmReactionPicker(normalizedId);
         updateDmReactionStrip(normalizedId, optimistic.counts, optimistic.userReaction);
         DM_REACTION_IN_FLIGHT.add(normalizedId);
         setDmReactionBusy(normalizedId, true);
@@ -4093,7 +4097,6 @@
                 );
                 flashDmReactionUpdate(normalizedId);
                 dmLastThreadToken = '';
-                closeDmReactionPicker(normalizedId);
             })
             .catch((error) => {
                 console.error('Error toggling DM reaction:', error);
@@ -4841,7 +4844,7 @@
         });
         document.addEventListener('shown.bs.dropdown', (event) => {
             const dropdown = resolveDmDropdownElement(event.target);
-            const msgRow = dropdown ? dropdown.closest('.message-item') : null;
+            const msgRow = dropdown ? dropdown.closest('.message-item, .dm-message-row') : null;
             const toggle = dropdown ? dropdown.querySelector('[data-bs-toggle="dropdown"]') : null;
             if (toggle) toggle.setAttribute('aria-expanded', 'true');
             if (dropdown && dropdown.classList.contains('dm-reaction-picker')) {
@@ -4851,7 +4854,7 @@
         });
         document.addEventListener('hidden.bs.dropdown', (event) => {
             const dropdown = resolveDmDropdownElement(event.target);
-            const msgRow = dropdown ? dropdown.closest('.message-item') : null;
+            const msgRow = dropdown ? dropdown.closest('.message-item, .dm-message-row') : null;
             const toggle = dropdown ? dropdown.querySelector('[data-bs-toggle="dropdown"]') : null;
             if (toggle) toggle.setAttribute('aria-expanded', 'false');
             if (dropdown && dropdown.classList.contains('dm-reaction-picker')) {

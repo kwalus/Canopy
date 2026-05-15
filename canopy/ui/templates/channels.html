@@ -5015,7 +5015,7 @@
                         <!-- Message Controls -->
                         <div class="input-group-append d-flex">
                             <input type="file" id="file-input" style="display: none;" multiple 
-                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
+                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.dockerfile,.makefile,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.rb,.php,.sh,.bash,.zsh,.ps1,.sql,.kt,.kts,.swift,.svelte,.vue,.css,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
                             <button type="button" class="btn btn-outline-secondary" onclick="document.getElementById('file-input').click()">
                                 <i class="bi bi-paperclip"></i>
                             </button>
@@ -7757,7 +7757,7 @@ const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
 ]);
 const CHANNEL_FILE_ALLOWED_EXTENSIONS = [
     '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg',
-    '.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.ts', '.log',
+    '.md', '.markdown', '.txt', '.tex', '.json', '.py', '.pyi', '.pyw', '.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.dockerfile', '.makefile', '.go', '.rs', '.java', '.c', '.h', '.cpp', '.hpp', '.cs', '.rb', '.php', '.sh', '.bash', '.zsh', '.ps1', '.sql', '.kt', '.kts', '.swift', '.svelte', '.vue', '.css', '.log',
     '.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods', '.yaml', '.yml', '.xml', '.html', '.css', '.sh', '.bat',
     '.cfg', '.ini', '.toml', '.pdf', '.doc', '.docx', '.docm', '.dot', '.dotx', '.rtf', '.odt',
     '.ppt', '.pptx', '.pptm', '.pps', '.ppsx', '.pot', '.potx', '.odp',
@@ -19532,7 +19532,7 @@ function beginInlineChannelMessageEdit(message) {
                        data-inline-file-input
                        style="display:none;"
                        multiple
-                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
+                       accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.dockerfile,.makefile,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.rb,.php,.sh,.bash,.zsh,.ps1,.sql,.kt,.kts,.swift,.svelte,.vue,.css,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-inline-add-files>
                     <i class="bi bi-paperclip"></i> Add Files
                 </button>

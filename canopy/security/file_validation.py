@@ -21,6 +21,48 @@ logger = logging.getLogger(__name__)
 CANOPY_MODULE_SUFFIXES = ('.canopy-module.html', '.canopy-module.htm')
 CANOPY_MODULE_MAX_BYTES = 300 * 1024
 
+SOURCE_CODE_EXT_TO_MIME = {
+    '.bash': 'text/x-shellscript',
+    '.bat': 'text/plain',
+    '.c': 'text/x-c',
+    '.cjs': 'application/javascript',
+    '.cpp': 'text/x-c++src',
+    '.cs': 'text/plain',
+    '.css': 'text/css',
+    '.dockerfile': 'text/plain',
+    '.go': 'text/x-go',
+    '.gradle': 'text/plain',
+    '.h': 'text/x-c',
+    '.hpp': 'text/x-c++src',
+    '.java': 'text/x-java-source',
+    '.js': 'application/javascript',
+    '.jsx': 'text/jsx',
+    '.kt': 'text/plain',
+    '.kts': 'text/plain',
+    '.makefile': 'text/plain',
+    '.mjs': 'application/javascript',
+    '.php': 'text/plain',
+    '.ps1': 'text/plain',
+    '.rb': 'text/x-ruby',
+    '.rs': 'text/x-rust',
+    '.sh': 'text/x-shellscript',
+    '.sql': 'application/sql',
+    '.svelte': 'text/plain',
+    '.swift': 'text/plain',
+    '.ts': 'application/typescript',
+    '.tsx': 'text/tsx',
+    '.vue': 'text/plain',
+    '.zsh': 'text/x-shellscript',
+}
+SOURCE_CODE_MIME_TO_EXTENSIONS: dict[str, list[str]] = {}
+for _source_ext, _source_mime in SOURCE_CODE_EXT_TO_MIME.items():
+    SOURCE_CODE_MIME_TO_EXTENSIONS.setdefault(_source_mime, []).append(_source_ext)
+SOURCE_CODE_MIME_TO_EXTENSIONS.setdefault('text/javascript', ['.js', '.mjs', '.cjs'])
+SOURCE_CODE_MIME_TO_EXTENSIONS.setdefault('text/typescript', ['.ts'])
+SOURCE_CODE_MIME_TO_EXTENSIONS.setdefault('text/x-php', ['.php'])
+SOURCE_CODE_MIME_TYPES = set(SOURCE_CODE_MIME_TO_EXTENSIONS)
+SOURCE_CODE_VALIDATION_MIME_TYPES = SOURCE_CODE_MIME_TYPES - {'text/plain'}
+
 
 # Extension-to-MIME mapping for when browsers send application/octet-stream
 _EXT_TO_MIME = {
@@ -95,6 +137,7 @@ _EXT_TO_MIME = {
     '.xml': 'application/xml',
     '.html': 'text/html',
     '.htm': 'text/html',
+    **SOURCE_CODE_EXT_TO_MIME,
     # Archives
     '.zip': 'application/zip',
     '.tar': 'application/x-tar',
@@ -127,6 +170,11 @@ def _infer_content_type(filename: str) -> Optional[str]:
 def is_canopy_module_filename(filename: str | None) -> bool:
     lower = str(filename or '').strip().lower()
     return any(lower.endswith(suffix) for suffix in CANOPY_MODULE_SUFFIXES)
+
+
+def _filename_extension(filename: str | None) -> str:
+    lower = str(filename or '').strip().lower()
+    return f".{lower.rsplit('.', 1)[-1]}" if '.' in lower else ''
 
 
 def _has_safe_inline_module_resource_urls(file_str: str) -> bool:
@@ -336,6 +384,10 @@ ALLOWED_TYPES = {
     'text/x-python': [
         # Python source files — validated as UTF-8 text below
     ],
+    **{
+        source_mime: []
+        for source_mime in SOURCE_CODE_VALIDATION_MIME_TYPES
+    },
     'text/csv': [
         # CSV files — no magic bytes
     ],
@@ -504,6 +556,10 @@ MAX_SIZES = {
     'text/x-tex': 2 * 1024 * 1024,       # 2MB for TeX/LaTeX
     'application/x-latex': 2 * 1024 * 1024,
     'text/x-python': 2 * 1024 * 1024,    # 2MB for Python source shared as text
+    **{
+        source_mime: 2 * 1024 * 1024
+        for source_mime in SOURCE_CODE_VALIDATION_MIME_TYPES
+    },
     'text/csv': 5 * 1024 * 1024,          # 5MB for CSV
     'application/rtf': 5 * 1024 * 1024,
     'text/rtf': 5 * 1024 * 1024,
@@ -719,7 +775,7 @@ def validate_file_upload(
     # 2. Check file size
     default_max_size = MAX_SIZES.get(claimed_content_type, 10 * 1024 * 1024)
     max_size = max_size_override or default_max_size
-    if claimed_content_type == 'text/x-python':
+    if claimed_content_type == 'text/x-python' or claimed_content_type in SOURCE_CODE_VALIDATION_MIME_TYPES:
         max_size = min(max_size, default_max_size)
     if len(file_data) > max_size:
         return False, f"File size {len(file_data)} bytes exceeds maximum {max_size} bytes", None
@@ -843,9 +899,11 @@ def validate_file_upload(
         if not is_text:
             return False, text_error, None
 
-    # 4d. Python source is allowed for agent collaboration, but only as text.
-    if claimed_content_type == 'text/x-python':
-        is_text, text_error = _validate_utf8_source_payload(file_data, 'Python')
+    # 4d. Source attachments are allowed for agent collaboration, but only as UTF-8 text.
+    source_ext = _filename_extension(filename)
+    source_like_plain_text = claimed_content_type == 'text/plain' and source_ext in SOURCE_CODE_EXT_TO_MIME
+    if claimed_content_type == 'text/x-python' or claimed_content_type in SOURCE_CODE_VALIDATION_MIME_TYPES or source_like_plain_text:
+        is_text, text_error = _validate_utf8_source_payload(file_data, 'Source code')
         if not is_text:
             return False, text_error, None
     
@@ -872,11 +930,19 @@ def validate_file_upload(
         'application/vnd.ms-excel': ['.xls'],
         'application/vnd.ms-powerpoint': ['.ppt', '.pot', '.pps'],
         'application/vnd.ms-outlook': ['.msg'],
-        'text/plain': ['.txt', '.log', '.cfg', '.ini', '.yml', '.yaml', '.toml'],
+        'text/plain': [
+            '.txt', '.log', '.cfg', '.ini', '.yml', '.yaml', '.toml',
+            '.bat', '.cs', '.dockerfile', '.gradle', '.kt', '.kts', '.makefile', '.php', '.ps1', '.svelte', '.swift', '.vue',
+        ],
         'text/markdown': ['.md', '.markdown'],
         'text/x-tex': ['.tex', '.sty', '.cls', '.bib', '.bst'],
         'application/x-latex': ['.tex', '.latex', '.ltx'],
         'text/x-python': ['.py', '.pyi', '.pyw'],
+        **{
+            source_mime: source_exts
+            for source_mime, source_exts in SOURCE_CODE_MIME_TO_EXTENSIONS.items()
+            if source_mime != 'text/plain'
+        },
         'text/csv': ['.csv', '.tsv'],
         'application/rtf': ['.rtf'],
         'text/rtf': ['.rtf'],
