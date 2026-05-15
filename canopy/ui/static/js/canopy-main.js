@@ -1792,8 +1792,10 @@
 	                    loading: false,
 	                    timer: null,
 	                    viewMode: readVaultViewMode(),
-	                    selectedIds: new Set(),
-	                    shareTimers: new Map()
+		                    selectedIds: new Set(),
+		                    shareTimers: new Map(),
+		                    shareUsers: new Map(),
+		                    shareActiveIndex: new Map()
 	                };
                 const grid = document.getElementById('vault-grid');
                 const empty = document.getElementById('vault-empty');
@@ -2033,19 +2035,23 @@
 	                                </button>
 	                            </div>
 	                            ${canManage ? `
-	                            <form class="vault-digestion-share" data-vault-digestion-share="${id}" hidden>
-	                                <div class="vault-digestion-share-copy">
-	                                    Grant live query access to a local user or agent. Packages explain the corpus; access lets the recipient actually query the RAG index.
-	                                </div>
+		                            <form class="vault-digestion-share" data-vault-digestion-share="${id}" hidden>
+		                                <input type="hidden" data-vault-digestion-share-grantee="${id}" name="grantee_user_id" value="">
+		                                <div class="vault-digestion-share-copy">
+		                                    Grant live query access to a local user or agent. Packages explain the corpus; access lets the recipient actually query the RAG index.
+		                                </div>
 	                                <div class="vault-digestion-share-row">
 	                                    <div class="vault-digestion-share-search">
 	                                        <input class="form-control form-control-sm"
 	                                               type="search"
 	                                               autocomplete="off"
 	                                               data-vault-digestion-share-search="${id}"
+	                                               aria-autocomplete="list"
+	                                               aria-controls="vault-digestion-share-results-${id}"
+	                                               aria-expanded="false"
 	                                               placeholder="Search @agent or user"
 	                                               aria-label="Search user or agent for ${name}">
-	                                        <div class="vault-digestion-share-results" data-vault-digestion-share-results="${id}" hidden></div>
+	                                        <div class="vault-digestion-share-results" id="vault-digestion-share-results-${id}" data-vault-digestion-share-results="${id}" hidden></div>
 	                                    </div>
 	                                    <button class="btn btn-sm btn-success" type="submit" data-vault-digestion-share-submit="${id}" disabled>
 	                                        <i class="bi bi-unlock"></i> Grant query access
@@ -2334,125 +2340,294 @@
 	                    return pieces.join(' · ');
 	                }
 
-	                function renderDigestionShareUsers(digestionId, users) {
-	                    const resultsEl = document.querySelector(`[data-vault-digestion-share-results="${vaultCssEscape(digestionId)}"]`);
-	                    if (!resultsEl) return;
-	                    const safeUsers = Array.isArray(users) ? users.filter(user => user && user.user_id && !user.is_remote) : [];
-	                    resultsEl.hidden = false;
-	                    if (!safeUsers.length) {
-	                        resultsEl.innerHTML = '<div class="vault-digestion-share-empty">No matching local users or agents.</div>';
-	                        return;
-	                    }
-	                    resultsEl.innerHTML = safeUsers.map((user) => {
-	                        const payload = vaultEscape(JSON.stringify({
-	                            user_id: user.user_id || '',
-	                            username: user.username || '',
-	                            display_name: user.display_name || '',
-	                            handle: user.handle || '',
-	                            account_type: user.account_type || '',
-	                            avatar_url: user.avatar_url || '',
-	                            is_remote: !!user.is_remote,
-	                        }));
-	                        const avatar = user.avatar_url
-	                            ? `<img src="${vaultEscape(user.avatar_url)}" alt="">`
-	                            : `<span>${vaultEscape(userLabel(user).slice(0, 2).toUpperCase())}</span>`;
-	                        return `
-	                            <button class="vault-digestion-share-user" type="button" data-vault-digestion-share-user="${payload}">
-	                                <span class="vault-digestion-share-avatar">${avatar}</span>
-	                                <span class="vault-digestion-share-user-copy">
-	                                    <strong>${vaultEscape(userLabel(user))}</strong>
-	                                    <small>${vaultEscape(userSubLabel(user) || user.user_id)}</small>
-	                                </span>
-	                            </button>
-	                        `;
-	                    }).join('');
-	                }
+		                function normalizeDigestionShareUser(user) {
+		                    const uid = String(user && user.user_id || '').trim();
+		                    if (!uid || (user && user.is_remote)) return null;
+		                    const normalized = {
+		                        user_id: uid,
+		                        username: String(user.username || '').trim(),
+		                        display_name: String(user.display_name || '').trim(),
+		                        handle: String(user.handle || '').replace(/^@+/, '').trim(),
+		                        account_type: String(user.account_type || '').trim(),
+		                        avatar_url: String(user.avatar_url || '').trim(),
+		                        is_remote: false,
+		                    };
+		                    if (!normalized.username) normalized.username = uid;
+		                    if (!normalized.display_name) normalized.display_name = normalized.username || uid;
+		                    return normalized;
+		                }
 
-	                function setDigestionShareSelected(form, user) {
-	                    if (!form || !user || !user.user_id) return;
-	                    const selectedEl = form.querySelector('[data-vault-digestion-share-selected]');
-	                    const submitBtn = form.querySelector('[data-vault-digestion-share-submit]');
-	                    const input = form.querySelector('[data-vault-digestion-share-search]');
-	                    const resultsEl = form.querySelector('[data-vault-digestion-share-results]');
-	                    form.dataset.granteeUserId = String(user.user_id || '');
-	                    if (input) input.value = userLabel(user);
-	                    if (submitBtn) submitBtn.disabled = false;
-	                    if (resultsEl) {
-	                        resultsEl.hidden = true;
-	                        resultsEl.innerHTML = '';
-	                    }
-	                    if (selectedEl) {
-	                        selectedEl.hidden = false;
-	                        selectedEl.innerHTML = `
-	                            <i class="bi bi-person-check"></i>
-	                            <span>Selected: <strong>${vaultEscape(userLabel(user))}</strong>${userSubLabel(user) ? ` <small>${vaultEscape(userSubLabel(user))}</small>` : ''}</span>
-	                        `;
-	                    }
-	                }
+		                function digestionShareSearchValue(value) {
+		                    return String(value || '').replace(/^@+/, '').trim();
+		                }
 
-	                function setDigestionShareStatus(form, message, tone = 'muted') {
-	                    const statusEl = form && form.querySelector('[data-vault-digestion-share-status]');
-	                    if (!statusEl) return;
-	                    statusEl.className = `vault-digestion-share-status text-${tone}`;
-	                    statusEl.textContent = String(message || '');
-	                }
+		                function digestionShareSearchKey(value) {
+		                    return digestionShareSearchValue(value).toLowerCase();
+		                }
 
-	                async function searchDigestionShareUsers(digestionId, query) {
-	                    const resultsEl = document.querySelector(`[data-vault-digestion-share-results="${vaultCssEscape(digestionId)}"]`);
-	                    if (!resultsEl) return;
-	                    const q = String(query || '').replace(/^@+/, '').trim();
-	                    if (!q) {
-	                        resultsEl.hidden = true;
-	                        resultsEl.innerHTML = '';
-	                        return;
-	                    }
-	                    resultsEl.hidden = false;
-	                    resultsEl.innerHTML = '<div class="vault-digestion-share-empty"><span class="spinner-border spinner-border-sm me-1"></span>Finding users...</div>';
-	                    try {
-	                        const data = await apiCall(`/ajax/mention_suggestions?q=${encodeURIComponent(q)}&limit=12`);
-	                        renderDigestionShareUsers(digestionId, data && data.users);
-	                    } catch (error) {
-	                        resultsEl.innerHTML = `<div class="vault-digestion-share-empty text-danger">${vaultEscape(error.error || 'Could not search users.')}</div>`;
-	                    }
-	                }
+		                function digestionShareResultButtons(form) {
+		                    return Array.from((form || document).querySelectorAll('[data-vault-digestion-share-user-id]'));
+		                }
 
-	                function queueDigestionShareSearch(input) {
-	                    if (!input) return;
-	                    const digestionId = input.getAttribute('data-vault-digestion-share-search') || '';
-	                    const form = digestionShareForm(digestionId);
-	                    if (form) {
-	                        delete form.dataset.granteeUserId;
-	                        const submitBtn = form.querySelector('[data-vault-digestion-share-submit]');
-	                        const selectedEl = form.querySelector('[data-vault-digestion-share-selected]');
-	                        if (submitBtn) submitBtn.disabled = true;
-	                        if (selectedEl) selectedEl.hidden = true;
-	                        setDigestionShareStatus(form, '');
-	                    }
-	                    clearTimeout(state.shareTimers.get(digestionId));
-	                    state.shareTimers.set(digestionId, global.setTimeout(() => {
-	                        searchDigestionShareUsers(digestionId, input.value);
-	                    }, 180));
-	                }
+		                function setDigestionShareStatus(form, message, tone = 'muted') {
+		                    const statusEl = form && form.querySelector('[data-vault-digestion-share-status]');
+		                    if (!statusEl) return;
+		                    statusEl.className = `vault-digestion-share-status text-${tone}`;
+		                    statusEl.textContent = String(message || '');
+		                }
 
-	                function toggleDigestionShare(digestionId) {
-	                    const form = digestionShareForm(digestionId);
-	                    if (!form) return;
-	                    const willOpen = form.hidden;
-	                    form.hidden = !willOpen;
-	                    form.classList.toggle('is-visible', willOpen);
-	                    if (willOpen) {
-	                        const input = form.querySelector('[data-vault-digestion-share-search]');
-	                        global.setTimeout(() => input && input.focus(), 0);
-	                    }
-	                }
+		                function resetDigestionShareSelection(form, { keepInput = true, keepStatus = false } = {}) {
+		                    if (!form) return;
+		                    delete form.dataset.granteeUserId;
+		                    delete form.dataset.granteeUserLabel;
+		                    const hiddenInput = form.querySelector('[data-vault-digestion-share-grantee]');
+		                    const submitBtn = form.querySelector('[data-vault-digestion-share-submit]');
+		                    const selectedEl = form.querySelector('[data-vault-digestion-share-selected]');
+		                    const input = form.querySelector('[data-vault-digestion-share-search]');
+		                    if (hiddenInput) hiddenInput.value = '';
+		                    if (submitBtn) submitBtn.disabled = true;
+		                    if (selectedEl) {
+		                        selectedEl.hidden = true;
+		                        selectedEl.innerHTML = '';
+		                    }
+		                    if (!keepInput && input) input.value = '';
+		                    if (input) input.setAttribute('aria-expanded', 'false');
+		                    digestionShareResultButtons(form).forEach((button) => {
+		                        button.classList.remove('is-active');
+		                        button.setAttribute('aria-selected', 'false');
+		                    });
+		                    if (!keepStatus) setDigestionShareStatus(form, '');
+		                }
 
-	                async function grantDigestionAccess(form) {
-	                    if (!form) return;
-	                    const digestionId = form.getAttribute('data-vault-digestion-share') || '';
-	                    const granteeUserId = String(form.dataset.granteeUserId || '').trim();
-	                    if (!digestionId || !granteeUserId) {
-	                        setDigestionShareStatus(form, 'Choose a user or agent before granting access.', 'warning');
-	                        return;
+		                function renderDigestionShareUsers(digestionId, users, { emptyMessage = 'No matching local users or agents.' } = {}) {
+		                    const resultsEl = document.querySelector(`[data-vault-digestion-share-results="${vaultCssEscape(digestionId)}"]`);
+		                    if (!resultsEl) return;
+		                    const safeUsers = Array.isArray(users)
+		                        ? users.map(normalizeDigestionShareUser).filter(Boolean)
+		                        : [];
+		                    state.shareUsers.set(String(digestionId || ''), safeUsers);
+		                    state.shareActiveIndex.set(String(digestionId || ''), safeUsers.length ? 0 : -1);
+		                    resultsEl.hidden = false;
+		                    resultsEl.setAttribute('role', 'listbox');
+		                    if (!safeUsers.length) {
+		                        resultsEl.innerHTML = `<div class="vault-digestion-share-empty">${vaultEscape(emptyMessage)}</div>`;
+		                        return;
+		                    }
+		                    resultsEl.innerHTML = safeUsers.map((user, index) => {
+		                        const label = userLabel(user);
+		                        const subLabel = userSubLabel(user) || user.user_id;
+		                        const avatar = user.avatar_url
+		                            ? `<img src="${vaultEscape(user.avatar_url)}" alt="">`
+		                            : `<span>${vaultEscape(label.slice(0, 2).toUpperCase())}</span>`;
+		                        return `
+		                            <button class="vault-digestion-share-user${index === 0 ? ' is-active' : ''}"
+		                                    type="button"
+		                                    role="option"
+		                                    aria-selected="${index === 0 ? 'true' : 'false'}"
+		                                    data-vault-digestion-share-user-id="${vaultEscape(user.user_id)}"
+		                                    data-vault-digestion-share-user-label="${vaultEscape(label)}"
+		                                    data-vault-digestion-share-user-sub-label="${vaultEscape(subLabel)}"
+		                                    data-vault-digestion-share-user-username="${vaultEscape(user.username)}"
+		                                    data-vault-digestion-share-user-handle="${vaultEscape(user.handle)}"
+		                                    data-vault-digestion-share-user-account-type="${vaultEscape(user.account_type)}"
+		                                    data-vault-digestion-share-user-avatar-url="${vaultEscape(user.avatar_url)}">
+		                                <span class="vault-digestion-share-avatar">${avatar}</span>
+		                                <span class="vault-digestion-share-user-copy">
+		                                    <strong>${vaultEscape(label)}</strong>
+		                                    <small>${vaultEscape(subLabel)}</small>
+		                                </span>
+		                            </button>
+		                        `;
+		                    }).join('');
+		                }
+
+		                function setDigestionShareActiveResult(form, nextIndex) {
+		                    if (!form) return null;
+		                    const buttons = digestionShareResultButtons(form);
+		                    if (!buttons.length) return null;
+		                    const count = buttons.length;
+		                    const wrappedIndex = ((Number(nextIndex) || 0) % count + count) % count;
+		                    const digestionId = form.getAttribute('data-vault-digestion-share') || '';
+		                    state.shareActiveIndex.set(String(digestionId), wrappedIndex);
+		                    buttons.forEach((button, index) => {
+		                        const active = index === wrappedIndex;
+		                        button.classList.toggle('is-active', active);
+		                        button.setAttribute('aria-selected', active ? 'true' : 'false');
+		                    });
+		                    buttons[wrappedIndex].scrollIntoView({ block: 'nearest' });
+		                    return buttons[wrappedIndex];
+		                }
+
+		                function userFromDigestionShareButton(button) {
+		                    if (!button) return null;
+		                    return normalizeDigestionShareUser({
+		                        user_id: button.getAttribute('data-vault-digestion-share-user-id') || '',
+		                        display_name: button.getAttribute('data-vault-digestion-share-user-label') || '',
+		                        username: button.getAttribute('data-vault-digestion-share-user-username') || '',
+		                        handle: button.getAttribute('data-vault-digestion-share-user-handle') || '',
+		                        account_type: button.getAttribute('data-vault-digestion-share-user-account-type') || '',
+		                        avatar_url: button.getAttribute('data-vault-digestion-share-user-avatar-url') || '',
+		                    });
+		                }
+
+		                function setDigestionShareSelected(form, user) {
+		                    const normalized = normalizeDigestionShareUser(user);
+		                    if (!form || !normalized) return false;
+		                    const selectedEl = form.querySelector('[data-vault-digestion-share-selected]');
+		                    const submitBtn = form.querySelector('[data-vault-digestion-share-submit]');
+		                    const input = form.querySelector('[data-vault-digestion-share-search]');
+		                    const hiddenInput = form.querySelector('[data-vault-digestion-share-grantee]');
+		                    const resultsEl = form.querySelector('[data-vault-digestion-share-results]');
+		                    const label = userLabel(normalized);
+		                    const subLabel = userSubLabel(normalized);
+		                    form.dataset.granteeUserId = normalized.user_id;
+		                    form.dataset.granteeUserLabel = label;
+		                    if (hiddenInput) hiddenInput.value = normalized.user_id;
+		                    if (input) input.value = label;
+		                    if (submitBtn) submitBtn.disabled = false;
+		                    if (resultsEl) resultsEl.hidden = true;
+		                    if (input) input.setAttribute('aria-expanded', 'false');
+		                    if (selectedEl) {
+		                        selectedEl.hidden = false;
+		                        selectedEl.innerHTML = `
+		                            <i class="bi bi-person-check"></i>
+		                            <span>Selected: <strong>${vaultEscape(label)}</strong>${subLabel ? ` <small>${vaultEscape(subLabel)}</small>` : ''}</span>
+		                            <button type="button" title="Clear selected user" aria-label="Clear selected user" data-vault-digestion-share-clear>
+		                                <i class="bi bi-x-lg"></i>
+		                            </button>
+		                        `;
+		                    }
+		                    setDigestionShareStatus(form, '');
+		                    return true;
+		                }
+
+		                function selectDigestionShareUserButton(button) {
+		                    const form = button && button.closest('[data-vault-digestion-share]');
+		                    return setDigestionShareSelected(form, userFromDigestionShareButton(button));
+		                }
+
+		                function maybeSelectTypedDigestionShareUser(form) {
+		                    if (!form) return false;
+		                    const digestionId = String(form.getAttribute('data-vault-digestion-share') || '');
+		                    const input = form.querySelector('[data-vault-digestion-share-search]');
+		                    const typed = digestionShareSearchKey(input && input.value);
+		                    if (!typed) return false;
+		                    const users = state.shareUsers.get(digestionId) || [];
+		                    const matches = users.filter((user) => {
+		                        const values = [
+		                            userLabel(user),
+		                            user.username,
+		                            user.handle,
+		                            user.user_id,
+		                        ].map(digestionShareSearchKey).filter(Boolean);
+		                        return values.includes(typed);
+		                    });
+		                    return matches.length === 1 ? setDigestionShareSelected(form, matches[0]) : false;
+		                }
+
+		                async function searchDigestionShareUsers(digestionId, query, { showAll = false } = {}) {
+		                    const resultsEl = document.querySelector(`[data-vault-digestion-share-results="${vaultCssEscape(digestionId)}"]`);
+		                    const form = digestionShareForm(digestionId);
+		                    if (!resultsEl) return;
+		                    const q = digestionShareSearchValue(query);
+		                    if (!q && !showAll) {
+		                        resultsEl.hidden = true;
+		                        resultsEl.innerHTML = '';
+		                        const input = form && form.querySelector('[data-vault-digestion-share-search]');
+		                        if (input) input.setAttribute('aria-expanded', 'false');
+		                        state.shareUsers.set(String(digestionId || ''), []);
+		                        return;
+		                    }
+		                    resultsEl.hidden = false;
+		                    const input = form && form.querySelector('[data-vault-digestion-share-search]');
+		                    if (input) input.setAttribute('aria-expanded', 'true');
+		                    resultsEl.innerHTML = '<div class="vault-digestion-share-empty"><span class="spinner-border spinner-border-sm me-1"></span>Finding users...</div>';
+		                    try {
+		                        const limit = showAll && !q ? 30 : 12;
+		                        const data = await apiCall(`/ajax/mention_suggestions?q=${encodeURIComponent(q)}&limit=${limit}`);
+		                        if (input && digestionShareSearchKey(input.value) !== digestionShareSearchKey(q)) return;
+		                        renderDigestionShareUsers(
+		                            digestionId,
+		                            data && data.users,
+		                            { emptyMessage: q ? 'No matching local users or agents.' : 'No local users or agents found.' }
+		                        );
+		                    } catch (error) {
+		                        resultsEl.innerHTML = `<div class="vault-digestion-share-empty text-danger">${vaultEscape(error.error || 'Could not search users.')}</div>`;
+		                    }
+		                }
+
+		                function queueDigestionShareSearch(input) {
+		                    if (!input) return;
+		                    const digestionId = input.getAttribute('data-vault-digestion-share-search') || '';
+		                    const form = digestionShareForm(digestionId);
+		                    if (form) {
+		                        const selectedLabel = digestionShareSearchKey(form.dataset.granteeUserLabel || '');
+		                        const typed = digestionShareSearchKey(input.value);
+		                        if (!selectedLabel || typed !== selectedLabel) {
+		                            resetDigestionShareSelection(form, { keepInput: true });
+		                        }
+		                    }
+		                    clearTimeout(state.shareTimers.get(digestionId));
+		                    state.shareTimers.set(digestionId, global.setTimeout(() => {
+		                        searchDigestionShareUsers(digestionId, input.value, { showAll: !digestionShareSearchValue(input.value) });
+		                    }, 180));
+		                }
+
+		                function handleDigestionShareSearchKeydown(input, event) {
+		                    const digestionId = input && input.getAttribute('data-vault-digestion-share-search') || '';
+		                    const form = digestionShareForm(digestionId);
+		                    if (!form) return;
+		                    const buttons = digestionShareResultButtons(form);
+		                    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && buttons.length) {
+		                        event.preventDefault();
+		                        const current = Number(state.shareActiveIndex.get(String(digestionId)) || 0);
+		                        setDigestionShareActiveResult(form, current + (event.key === 'ArrowDown' ? 1 : -1));
+		                        return;
+		                    }
+		                    if (event.key === 'Enter' && buttons.length) {
+		                        const current = Number(state.shareActiveIndex.get(String(digestionId)) || 0);
+		                        const button = setDigestionShareActiveResult(form, current);
+		                        if (button) {
+		                            event.preventDefault();
+		                            selectDigestionShareUserButton(button);
+		                        }
+		                        return;
+		                    }
+		                    if (event.key === 'Escape') {
+		                        const resultsEl = form.querySelector('[data-vault-digestion-share-results]');
+		                        if (resultsEl) resultsEl.hidden = true;
+		                        input.setAttribute('aria-expanded', 'false');
+		                    }
+		                }
+
+		                function toggleDigestionShare(digestionId) {
+		                    const form = digestionShareForm(digestionId);
+		                    if (!form) return;
+		                    const willOpen = form.hidden;
+		                    form.hidden = !willOpen;
+		                    form.classList.toggle('is-visible', willOpen);
+		                    if (willOpen) {
+		                        const input = form.querySelector('[data-vault-digestion-share-search]');
+		                        global.setTimeout(() => {
+		                            if (input) {
+		                                input.focus();
+		                                searchDigestionShareUsers(digestionId, input.value, { showAll: !digestionShareSearchValue(input.value) });
+		                            }
+		                        }, 0);
+		                    }
+		                }
+
+		                async function grantDigestionAccess(form) {
+		                    if (!form) return;
+		                    const digestionId = form.getAttribute('data-vault-digestion-share') || '';
+		                    if (!form.dataset.granteeUserId) maybeSelectTypedDigestionShareUser(form);
+		                    const hiddenInput = form.querySelector('[data-vault-digestion-share-grantee]');
+		                    const granteeUserId = String(
+		                        (hiddenInput && hiddenInput.value) || form.dataset.granteeUserId || ''
+		                    ).trim();
+		                    if (!digestionId || !granteeUserId) {
+		                        setDigestionShareStatus(form, 'Choose a user or agent before granting access.', 'warning');
+		                        return;
 	                    }
 	                    const submitBtn = form.querySelector('[data-vault-digestion-share-submit]');
 	                    const canReadSources = !!form.querySelector('[data-vault-digestion-share-sources]')?.checked;
@@ -2478,6 +2653,9 @@
 	                            })
 	                        });
 	                        const grantee = result.grantee || {};
+	                        if (grantee.user_id) {
+	                            setDigestionShareSelected(form, grantee);
+	                        }
 	                        const label = userLabel(grantee);
 	                        setDigestionShareStatus(
 	                            form,
@@ -2491,12 +2669,12 @@
 	                        const message = error.error || 'Could not grant Digestion access.';
 	                        setDigestionShareStatus(form, message, 'danger');
 	                        if (typeof showAlert === 'function') showAlert(message, 'danger');
-	                    } finally {
-	                        if (submitBtn) {
-	                            submitBtn.disabled = !String(form.dataset.granteeUserId || '').trim();
-	                            submitBtn.innerHTML = original;
-	                        }
-	                    }
+		                    } finally {
+		                        if (submitBtn) {
+		                            submitBtn.disabled = !String((hiddenInput && hiddenInput.value) || form.dataset.granteeUserId || '').trim();
+		                            submitBtn.innerHTML = original;
+		                        }
+		                    }
 	                }
 
 	                async function queryDigestion(digestionId, queryText = '') {
@@ -2940,20 +3118,41 @@
                 if (digestionRefresh) {
                     digestionRefresh.addEventListener('click', loadDigestions);
                 }
-	                if (digestionList) {
-	                    digestionList.addEventListener('click', (event) => {
-	                        const shareUserBtn = event.target.closest('[data-vault-digestion-share-user]');
-	                        if (shareUserBtn && digestionList.contains(shareUserBtn)) {
-	                            const form = shareUserBtn.closest('[data-vault-digestion-share]');
-	                            try {
-	                                const user = JSON.parse(shareUserBtn.getAttribute('data-vault-digestion-share-user') || '{}');
-	                                setDigestionShareSelected(form, user);
-	                            } catch (error) {
-	                                console.warn('Could not parse Digestion share user payload:', error);
-	                            }
-	                            return;
-	                        }
-	                        const actionBtn = event.target.closest('[data-vault-digestion-action]');
+		                if (digestionList) {
+		                    digestionList.addEventListener('pointerdown', (event) => {
+		                        const shareUserBtn = event.target.closest('[data-vault-digestion-share-user-id]');
+		                        if (shareUserBtn && digestionList.contains(shareUserBtn)) {
+		                            event.preventDefault();
+		                            event.stopPropagation();
+		                            selectDigestionShareUserButton(shareUserBtn);
+		                        }
+		                    });
+		                    digestionList.addEventListener('click', (event) => {
+		                        const clearShareBtn = event.target.closest('[data-vault-digestion-share-clear]');
+		                        if (clearShareBtn && digestionList.contains(clearShareBtn)) {
+		                            event.preventDefault();
+		                            event.stopPropagation();
+		                            const form = clearShareBtn.closest('[data-vault-digestion-share]');
+		                            resetDigestionShareSelection(form, { keepInput: false });
+		                            const input = form && form.querySelector('[data-vault-digestion-share-search]');
+		                            if (input) {
+		                                input.focus();
+		                                searchDigestionShareUsers(
+		                                    form.getAttribute('data-vault-digestion-share') || '',
+		                                    '',
+		                                    { showAll: true }
+		                                );
+		                            }
+		                            return;
+		                        }
+		                        const shareUserBtn = event.target.closest('[data-vault-digestion-share-user-id]');
+		                        if (shareUserBtn && digestionList.contains(shareUserBtn)) {
+		                            event.preventDefault();
+		                            event.stopPropagation();
+		                            selectDigestionShareUserButton(shareUserBtn);
+		                            return;
+		                        }
+		                        const actionBtn = event.target.closest('[data-vault-digestion-action]');
 	                        if (!actionBtn || !digestionList.contains(actionBtn)) return;
 	                        const digestionId = actionBtn.getAttribute('data-vault-digestion-id') || '';
 	                        const action = actionBtn.getAttribute('data-vault-digestion-action') || '';
@@ -2983,11 +3182,17 @@
 	                    });
 	                    digestionList.addEventListener('input', (event) => {
 	                        const shareInput = event.target.closest('[data-vault-digestion-share-search]');
-	                        if (shareInput && digestionList.contains(shareInput)) {
-	                            queueDigestionShareSearch(shareInput);
-	                        }
-	                    });
-	                    digestionList.addEventListener('submit', (event) => {
+		                        if (shareInput && digestionList.contains(shareInput)) {
+		                            queueDigestionShareSearch(shareInput);
+		                        }
+		                    });
+		                    digestionList.addEventListener('keydown', (event) => {
+		                        const shareInput = event.target.closest('[data-vault-digestion-share-search]');
+		                        if (shareInput && digestionList.contains(shareInput)) {
+		                            handleDigestionShareSearchKeydown(shareInput, event);
+		                        }
+		                    });
+		                    digestionList.addEventListener('submit', (event) => {
 	                        const shareForm = event.target.closest('[data-vault-digestion-share]');
 	                        if (shareForm && digestionList.contains(shareForm)) {
 	                            event.preventDefault();

@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.127] - 2026-05-15
+
+### Changed
+- **Digestion Share access picker is more reliable** - selectable local users and agents now use explicit data attributes, durable hidden form state, and selected-user chips instead of brittle serialized result payloads.
+- **Digestion ACL grants are easier to complete** - the picker loads local candidates on open, supports pointer/touch selection, keyboard navigation, exact-match submit fallback, and clear-selected behavior.
+- **Share access accessibility is tighter** - the search field now tracks its listbox with `aria-controls` and `aria-expanded`, and successful grants refresh the selected chip from canonical grantee metadata returned by the server.
+
 ## [0.6.126] - 2026-05-15
 
 ### Changed

@@ -484,7 +484,8 @@
         text-align: left;
     }
     .vault-digestion-share-user:hover,
-    .vault-digestion-share-user:focus {
+    .vault-digestion-share-user:focus,
+    .vault-digestion-share-user.is-active {
         background: color-mix(in srgb, var(--canopy-primary) 16%, transparent);
         outline: none;
     }
@@ -532,6 +533,19 @@
         background: color-mix(in srgb, var(--canopy-success) 16%, transparent);
         color: var(--canopy-text-primary);
         font-size: 0.78rem;
+    }
+    .vault-digestion-share-selected button {
+        border: 0;
+        background: transparent;
+        color: inherit;
+        padding: 0;
+        line-height: 1;
+        opacity: 0.72;
+    }
+    .vault-digestion-share-selected button:hover,
+    .vault-digestion-share-selected button:focus {
+        opacity: 1;
+        outline: none;
     }
     .vault-digestion-share-options {
         display: flex;
