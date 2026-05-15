@@ -119,6 +119,14 @@ Current-information and web-search rules:
 - For local requests such as weather, traffic, restaurants, or events, use only the location supplied by the user and make clear that live details still need verification.
 - Keep the result suitable for a Canopy post: short, useful, and ready for human review.
 """.strip()
+CANOPY_LLM_TRANSFORMATION_GUIDE = """
+Draft-transformation rules:
+- Treat the user's text as an instruction to satisfy, not as text to echo. Do the requested drafting, synthesis, research framing, or decision support work.
+- Do not simply restate, summarize, or lightly reword the user's request unless the user explicitly asks for that.
+- Add useful structure, specifics, and next-step clarity appropriate to a Canopy post while staying concise enough for a human to edit.
+- If required facts or context are missing, write a useful draft that clearly names what is missing and asks for the smallest next input.
+- Preserve @mentions, #channels, file names, URLs, and user-provided facts exactly unless fixing obvious punctuation around them.
+""".strip()
 DEFAULT_CANOPY_LLM_SYSTEM_PROMPT = (
     "You are Canopy's local compose assistant. Convert the user's draft into the exact "
     "Canopy message or post they should review and optionally send. Output only the final post body, with no "
@@ -129,7 +137,7 @@ DEFAULT_CANOPY_LLM_SYSTEM_PROMPT = (
     "rules below, so Canopy can process them normally after "
     "the post is sent. Do not claim access to hidden files, private channel context, or "
     "mesh state unless the user included that context in the draft."
-    f"\n\n{CANOPY_LLM_CURRENT_INFO_GUIDE}\n\n{CANOPY_LLM_POSTING_STRUCTURE_GUIDE}"
+    f"\n\n{CANOPY_LLM_TRANSFORMATION_GUIDE}\n\n{CANOPY_LLM_CURRENT_INFO_GUIDE}\n\n{CANOPY_LLM_POSTING_STRUCTURE_GUIDE}"
 )
 
 CANOPY_TRIGGER_RE = re.compile(r'(?i)(^|\s)@canopy\b[:,]?\s*')
@@ -524,8 +532,10 @@ class CanopyLLMManager:
         composed_prompt = (
             f"{context_block}"
             f"Current node timestamp: {current_timestamp}\n\n"
-            "User draft to transform into a Canopy message:\n"
-            f"{prompt}"
+            "The following text is the user's instruction or rough draft. Satisfy the instruction and write the final Canopy message body; do not merely repeat the instruction.\n"
+            "User instruction/draft:\n"
+            f"<<<\n{prompt}\n>>>\n\n"
+            "Return only the polished Canopy message body for the human to review."
         )
         return {
             'provider': provider,
@@ -728,12 +738,17 @@ class CanopyLLMManager:
         if not web_search_available and CANOPY_LLM_CURRENT_INFO_GUIDE in base:
             base = base.replace(CANOPY_LLM_CURRENT_INFO_GUIDE, current_info_guide)
         if 'Canopy structured block rules:' in base:
-            if 'Current-information and web-search rules:' in base:
+            if 'Current-information and web-search rules:' in base and 'Draft-transformation rules:' in base:
                 return base[:MAX_SYSTEM_PROMPT_CHARS]
-            guide = current_info_guide
+            guide_parts = []
+            if 'Draft-transformation rules:' not in base:
+                guide_parts.append(CANOPY_LLM_TRANSFORMATION_GUIDE)
+            if 'Current-information and web-search rules:' not in base:
+                guide_parts.append(current_info_guide)
+            guide = "\n\n".join(guide_parts)
             base_limit = max(0, MAX_SYSTEM_PROMPT_CHARS - len(guide) - 2)
             return f"{base[:base_limit].rstrip()}\n\n{guide}"[:MAX_SYSTEM_PROMPT_CHARS]
-        guide = f"{current_info_guide}\n\n{CANOPY_LLM_POSTING_STRUCTURE_GUIDE}"
+        guide = f"{CANOPY_LLM_TRANSFORMATION_GUIDE}\n\n{current_info_guide}\n\n{CANOPY_LLM_POSTING_STRUCTURE_GUIDE}"
         base_limit = max(0, MAX_SYSTEM_PROMPT_CHARS - len(guide) - 2)
         return f"{base[:base_limit].rstrip()}\n\n{guide}"[:MAX_SYSTEM_PROMPT_CHARS]
 

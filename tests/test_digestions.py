@@ -134,6 +134,33 @@ class TestDigestions(unittest.TestCase):
         self.assertGreaterEqual(result['result_count'], 1)
         self.assertEqual(result['results'][0]['file_name'], 'silicon-notes.txt')
         self.assertIn('hyperfine', result['results'][0]['snippet'])
+        unrelated = self.digestion_manager.query(digestion['id'], 'owner-user', 'winter tire recipes', top_k=3)
+        self.assertTrue(unrelated['success'])
+        self.assertEqual(unrelated['result_count'], 0)
+        self.assertTrue(unrelated['retrieval_ready'])
+
+    def test_query_unbuilt_digestion_returns_explicit_no_chunk_warning_without_embedding(self) -> None:
+        source = self._save_text('unbuilt-corpus.txt', 'This text is present but has not been indexed yet.')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Unbuilt corpus',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+
+        with patch.object(self.digestion_manager, '_embed_one', side_effect=AssertionError('should not embed empty index')):
+            result = self.digestion_manager.query(digestion['id'], 'owner-user', 'indexed yet', top_k=3)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['result_count'], 0)
+        self.assertFalse(result['retrieval_ready'])
+        self.assertEqual(result['indexed_chunks'], 0)
+        self.assertIn('no indexed chunks', result['warning'])
+        context = self.digestion_manager.context_pack(digestion['id'], 'owner-user', 'indexed yet', top_k=3)
+        self.assertFalse(context['retrieval_ready'])
+        self.assertEqual(context['indexed_chunks'], 0)
+        self.assertIn('no indexed chunks', context['warning'])
+        self.assertIn('Retrieval warning:', context['prompt_context'])
 
     def test_digestion_acl_allows_reader_without_vault_file_ownership(self) -> None:
         source = self._save_text('private-corpus.txt', 'Agent-safe retrieval can cite snippets without granting raw vault access.')

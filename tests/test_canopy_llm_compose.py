@@ -31,6 +31,7 @@ from canopy.core.canopy_ai import (
     CANOPY_LLM_MODEL_OPTIONS,
     CANOPY_LLM_NO_WEB_SEARCH_CURRENT_INFO_GUIDE,
     CANOPY_LLM_POSTING_STRUCTURE_GUIDE,
+    CANOPY_LLM_TRANSFORMATION_GUIDE,
     DEFAULT_BEDROCK_LLM_MODEL,
     DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
     CanopyLLMManager,
@@ -415,16 +416,37 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertIn('Canopy structured block rules:', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
         self.assertIn('Default to plain text.', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
         self.assertIn('Current-information and web-search rules:', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
+        self.assertIn('Draft-transformation rules:', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
         self.assertIn('use the hosted web search tool', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
+        self.assertIn('Treat the user\'s text as an instruction to satisfy', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
         self.assertIn('Never invent bracket tags', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
         self.assertIn('[signal] requires type:, title:, summary:, and tags:.', DEFAULT_CANOPY_LLM_SYSTEM_PROMPT)
         custom = CanopyLLMManager._compose_system_prompt('Compose clean Canopy posts.')
         self.assertIn('Compose clean Canopy posts.', custom)
+        self.assertIn(CANOPY_LLM_TRANSFORMATION_GUIDE, custom)
         self.assertIn(CANOPY_LLM_CURRENT_INFO_GUIDE, custom)
         self.assertIn(CANOPY_LLM_POSTING_STRUCTURE_GUIDE, custom)
         long_custom = CanopyLLMManager._compose_system_prompt('x' * 8000)
         self.assertLessEqual(len(long_custom), 4000)
         self.assertIn(CANOPY_LLM_POSTING_STRUCTURE_GUIDE, long_custom)
+
+    def test_expand_context_frames_user_text_as_instruction_not_echo_material(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        manager.save_settings(
+            'user-1',
+            provider='openai',
+            model='gpt-5-mini',
+            api_key='sk-test',
+            enabled=True,
+            system_prompt='Compose clean Canopy posts.',
+        )
+
+        context = manager._prepare_expand_context('user-1', '@Canopy help me announce the meeting notes are ready', channel_name='general')
+
+        self.assertIn('The following text is the user\'s instruction or rough draft.', context['prompt'])
+        self.assertIn('Satisfy the instruction and write the final Canopy message body; do not merely repeat the instruction.', context['prompt'])
+        self.assertIn('<<<\nhelp me announce the meeting notes are ready\n>>>', context['prompt'])
+        self.assertIn('Return only the polished Canopy message body for the human to review.', context['prompt'])
 
     def test_schema_ready_flag_prevents_repeated_create_table(self) -> None:
         manager = CanopyLLMManager(self.db, 'test-secret')

@@ -1119,6 +1119,10 @@
                     const sourceCount = Array.isArray(digestion.sources) ? digestion.sources.length : 0;
                     const provider = vaultEscape(digestion.provider || 'local');
                     const purpose = vaultEscape(digestion.purpose || digestion.description || '');
+                    const queryDisabled = chunks <= 0;
+                    const queryTitle = queryDisabled
+                        ? 'Build this Digestion before querying; no indexed chunks are available yet.'
+                        : 'Query indexed chunks with cited retrieval.';
                     return `
                         <article class="vault-digestion-card" data-vault-digestion-id="${id}">
                             <div class="vault-digestion-card-title">${name}</div>
@@ -1142,9 +1146,11 @@
                                 <input class="form-control form-control-sm"
                                        type="search"
                                        data-vault-digestion-query="${id}"
-                                       placeholder="Ask this Digestion..."
-                                       aria-label="Query ${name}">
-                                <button class="btn btn-sm btn-outline-secondary" type="submit">
+                                       placeholder="${queryDisabled ? 'Build before querying...' : 'Ask this Digestion...'}"
+                                       aria-label="Query ${name}"
+                                       title="${queryTitle}"
+                                       ${queryDisabled ? 'disabled' : ''}>
+                                <button class="btn btn-sm btn-outline-secondary" type="submit" title="${queryTitle}" ${queryDisabled ? 'disabled' : ''}>
                                     <i class="bi bi-search"></i> Query
                                 </button>
                             </form>
@@ -1345,17 +1351,19 @@
                             body: JSON.stringify({ query: query.trim(), top_k: 5 })
                         });
                         const results = Array.isArray(data.results) ? data.results : [];
+                        const warning = String(data.warning || '').trim();
                         if (resultsEl) {
                             resultsEl.classList.add('is-visible');
                             resultsEl.innerHTML = results.length
-                                ? results.map((item) => `
+                                ? `${warning ? `<div class="small text-warning mb-2">${vaultEscape(warning)}</div>` : ''}${results.map((item) => `
                                     <div class="vault-digestion-result">
                                         <strong>${vaultEscape(item.file_name || item.file_id || 'Source')}</strong>
                                         ${item.page_label ? `<span class="text-muted"> ${vaultEscape(item.page_label)}</span>` : ''}
+                                        ${Number(item.score || 0) ? `<span class="text-muted small ms-1">score ${Number(item.score || 0).toFixed(3)}</span>` : ''}
                                         <div>${vaultEscape(item.snippet || '').slice(0, 900)}</div>
                                     </div>
-                                `).join('')
-                                : '<div class="small text-muted">No matching snippets found.</div>';
+                                `).join('')}`
+                                : `<div class="small ${warning ? 'text-warning' : 'text-muted'}">${vaultEscape(warning || 'No matching snippets found.')}</div>`;
                         }
                     } catch (error) {
                         if (resultsEl) {

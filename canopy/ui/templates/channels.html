@@ -1529,6 +1529,14 @@
         padding: 0 0.035em;
     }
 
+    .channel-selection-match.is-current {
+        background: color-mix(in srgb, var(--canopy-warning) 52%, var(--canopy-primary) 24%);
+        color: #06120d;
+        box-shadow:
+            0 0 0 2px color-mix(in srgb, var(--canopy-warning) 62%, transparent),
+            0 0 18px color-mix(in srgb, var(--canopy-warning) 24%, transparent);
+    }
+
     /* Threading styles */
     .thread-reply {
         --thread-depth: 1;
@@ -17243,6 +17251,8 @@ let channelSelectionHighlightMarks = [];
 let channelSelectionHighlightTimer = null;
 let channelSelectionHighlightNeedle = '';
 let channelSelectionHighlightLimitReached = false;
+let channelSelectionActiveMatchIndex = -1;
+let channelSelectionPreserveHighlightsUntil = 0;
 
 try {
     channelSelectionHighlightsEnabled = localStorage.getItem(CHANNEL_SELECTION_MATCH_STORAGE_KEY) !== 'off';
@@ -17331,11 +17341,11 @@ function updateChannelSelectionMatchButtonState(count = channelSelectionHighligh
         btn.setAttribute(
             'aria-label',
             channelSelectionHighlightsEnabled
-                ? `Matching selected text is on. ${countLabel} visible matches highlighted.`
+                ? `Matching selected text is on. ${countLabel} visible matches highlighted. Click to jump to the next match.`
                 : 'Matching selected text is off. Click to highlight visible matches.'
         );
         btn.title = channelSelectionHighlightsEnabled
-            ? 'Matching text is highlighted. Click to turn off.'
+            ? 'Matching text is highlighted. Click to jump to the next match. Escape or click away to clear.'
             : 'Click to highlight visible matches for selected text.';
     }
     if (countEl) {
@@ -17348,6 +17358,7 @@ function clearChannelSelectionHighlights() {
     channelSelectionHighlightTimer = null;
     channelSelectionHighlightNeedle = '';
     channelSelectionHighlightLimitReached = false;
+    channelSelectionActiveMatchIndex = -1;
     const marks = channelSelectionHighlightMarks.length
         ? channelSelectionHighlightMarks
         : Array.from(document.querySelectorAll('.channel-selection-match'));
@@ -17359,6 +17370,38 @@ function clearChannelSelectionHighlights() {
         parent.normalize();
     });
     updateChannelSelectionMatchButtonState(0);
+}
+
+function setChannelSelectionCurrentMatch(index, opts = {}) {
+    if (!channelSelectionHighlightMarks.length) {
+        channelSelectionActiveMatchIndex = -1;
+        updateChannelSelectionMatchButtonState(0);
+        return;
+    }
+    const total = channelSelectionHighlightMarks.length;
+    const normalized = ((Number(index) || 0) % total + total) % total;
+    channelSelectionHighlightMarks.forEach(mark => mark.classList.remove('is-current'));
+    channelSelectionActiveMatchIndex = normalized;
+    const target = channelSelectionHighlightMarks[normalized];
+    if (target) {
+        target.classList.add('is-current');
+        if (opts.scroll !== false) {
+            try {
+                target.scrollIntoView({ behavior: opts.behavior || 'smooth', block: 'center', inline: 'nearest' });
+            } catch (_) {
+                target.scrollIntoView();
+            }
+        }
+    }
+    updateChannelSelectionMatchButtonState(total);
+}
+
+function navigateChannelSelectionMatch(direction = 1) {
+    if (!channelSelectionHighlightMarks.length) return false;
+    const step = Number(direction || 1) < 0 ? -1 : 1;
+    const current = channelSelectionActiveMatchIndex >= 0 ? channelSelectionActiveMatchIndex : 0;
+    setChannelSelectionCurrentMatch(current + step, { scroll: true });
+    return true;
 }
 
 function applyChannelSelectionHighlights(text) {
@@ -17439,6 +17482,9 @@ function applyChannelSelectionHighlights(text) {
     }
 
     updateChannelSelectionMatchButtonState(channelSelectionHighlightMarks.length);
+    if (channelSelectionHighlightMarks.length) {
+        setChannelSelectionCurrentMatch(0, { scroll: false });
+    }
     return channelSelectionHighlightMarks.length;
 }
 
@@ -17573,14 +17619,18 @@ function setChannelSelectionDockVisible(visible) {
 }
 
 function hideChannelSelectionDock(opts = {}) {
-    channelSelectionContext = null;
+    if (!opts.preserveContext) {
+        channelSelectionContext = null;
+    }
     clearTimeout(channelSelectionDockTimer);
     channelSelectionDockTimer = null;
     channelSelectionDockInteracting = false;
     channelSelectionKeepAliveUntil = 0;
     setChannelSelectionDockVisible(false);
     clearChannelSelectionAnchor();
-    clearChannelSelectionHighlights();
+    if (!opts.preserveHighlights) {
+        clearChannelSelectionHighlights();
+    }
     if (opts.clearSelection && window.getSelection) {
         const selection = window.getSelection();
         if (selection && typeof selection.removeAllRanges === 'function') {
@@ -17623,6 +17673,10 @@ function positionChannelSelectionDock(ctx) {
 function syncChannelSelectionDock() {
     const ctx = getChannelSelectionContextFromWindow();
     if (!ctx) {
+        if (channelSelectionHighlightMarks.length && Date.now() < channelSelectionPreserveHighlightsUntil) {
+            hideChannelSelectionDock({ preserveHighlights: true });
+            return;
+        }
         if ((channelSelectionDockInteracting || Date.now() < channelSelectionKeepAliveUntil) && channelSelectionContext) {
             renderChannelSelectionAnchor(channelSelectionContext);
             return;
@@ -17720,15 +17774,16 @@ async function handleChannelSelectionDockAction(action) {
         return;
     }
     if (action === 'matches') {
-        channelSelectionHighlightsEnabled = !channelSelectionHighlightsEnabled;
-        try {
-            localStorage.setItem(CHANNEL_SELECTION_MATCH_STORAGE_KEY, channelSelectionHighlightsEnabled ? 'on' : 'off');
-        } catch (_) {}
-        if (channelSelectionHighlightsEnabled) {
-            applyChannelSelectionHighlights(ctx.text);
-        } else {
-            clearChannelSelectionHighlights();
+        if (channelSelectionHighlightsEnabled && channelSelectionHighlightMarks.length) {
+            navigateChannelSelectionMatch(1);
+            keepChannelSelectionDockAlive(1800);
+            return;
         }
+        channelSelectionHighlightsEnabled = true;
+        try {
+            localStorage.setItem(CHANNEL_SELECTION_MATCH_STORAGE_KEY, 'on');
+        } catch (_) {}
+        applyChannelSelectionHighlights(ctx.text);
         updateChannelSelectionMatchButtonState();
         return;
     }
@@ -17774,6 +17829,17 @@ function setupChannelSelectionDock() {
         handleChannelSelectionDockAction(actionButton.getAttribute('data-selection-action') || '');
     });
     document.addEventListener('selectionchange', scheduleChannelSelectionDockSync);
+    document.addEventListener('pointerdown', (event) => {
+        if (!channelSelectionHighlightMarks.length) return;
+        const target = event.target instanceof Element ? event.target : null;
+        if (target && target.closest('#channel-selection-dock, .channel-selection-match')) return;
+        hideChannelSelectionDock({ clearSelection: true });
+    }, true);
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'F3' || isSearchActive || !channelSelectionHighlightMarks.length) return;
+        event.preventDefault();
+        navigateChannelSelectionMatch(event.shiftKey ? -1 : 1);
+    });
     document.addEventListener('keyup', (event) => {
         if (event.key === 'Escape') {
             hideChannelSelectionDock({ clearSelection: true });
@@ -17788,7 +17854,10 @@ function setupChannelSelectionDock() {
     });
     const scrollContainer = document.getElementById('messages-container');
     if (scrollContainer) {
-        scrollContainer.addEventListener('scroll', () => hideChannelSelectionDock(), { passive: true });
+        scrollContainer.addEventListener('scroll', () => {
+            channelSelectionPreserveHighlightsUntil = Date.now() + 1200;
+            hideChannelSelectionDock({ preserveHighlights: true });
+        }, { passive: true });
     }
     updateChannelSelectionMatchButtonState();
 }

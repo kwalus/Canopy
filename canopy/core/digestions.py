@@ -46,6 +46,7 @@ MAX_FILE_BYTES = int(os.getenv("CANOPY_DIGESTION_MAX_FILE_BYTES", str(64 * 1024 
 MAX_FILE_CHARS = int(os.getenv("CANOPY_DIGESTION_MAX_FILE_CHARS", "2000000"))
 MAX_CHUNKS_PER_BUILD = int(os.getenv("CANOPY_DIGESTION_MAX_CHUNKS_PER_BUILD", "5000"))
 MAX_MATERIALS_PER_INGEST = int(os.getenv("CANOPY_DIGESTION_MAX_MATERIALS_PER_INGEST", "100"))
+MIN_LOCAL_HASH_QUERY_SCORE = float(os.getenv("CANOPY_DIGESTION_LOCAL_HASH_MIN_SCORE", "0.08") or "0.08")
 _SOURCE_REVEALING_OUTPUT_KINDS = {"manifest", "human_brief"}
 _OPENAI_EMBEDDINGS_URL = os.getenv(
     "CANOPY_DIGESTION_OPENAI_EMBEDDINGS_URL",
@@ -621,13 +622,32 @@ class DigestionManager:
         if not query_text:
             raise DigestionError("query is required", status_code=400, reason="missing_query")
         top_k = max(1, min(int(top_k or 8), MAX_QUERY_TOP_K))
+        rows = self._queryable_chunk_rows(digestion.id)
+        stats = self.stats(digestion.id)
+        if not rows:
+            self._log_query(digestion.id, actor_user_id, query_text, 0)
+            return {
+                "success": True,
+                "digestion_id": digestion.id,
+                "query": query_text,
+                "top_k": top_k,
+                "result_count": 0,
+                "results": [],
+                "status": digestion.status,
+                "provider": digestion.provider,
+                "embedding_model": digestion.embedding_model,
+                "indexed_chunks": int(stats.get("chunks") or 0),
+                "retrieval_ready": False,
+                "stats": stats,
+                "warning": "This Digestion has no indexed chunks yet. Build or rebuild it before expecting RAG results.",
+            }
         query_vector = self._embed_one(
             query_text,
             provider=digestion.provider,
             model=digestion.embedding_model,
             dimensions=digestion.embedding_dimensions,
         )
-        rows = self._queryable_chunk_rows(digestion.id)
+        query_terms = self._query_terms(query_text) if digestion.provider == "local_hash" else set()
         scored: list[dict[str, Any]] = []
         for row in rows:
             try:
@@ -638,6 +658,11 @@ class DigestionManager:
             if score <= 0:
                 continue
             text = str(row["text"] or "")
+            term_overlap = 0
+            if digestion.provider == "local_hash":
+                term_overlap = len(query_terms & self._query_terms(text))
+                if term_overlap <= 0 or score < MIN_LOCAL_HASH_QUERY_SCORE:
+                    continue
             scored.append(
                 {
                     "chunk_id": row["chunk_id"],
@@ -647,18 +672,14 @@ class DigestionManager:
                     "chunk_index": int(row["chunk_index"] or 0),
                     "page_label": row["page_label"] or "",
                     "score": round(float(score), 6),
+                    "term_overlap": term_overlap,
                     "token_estimate": int(row["token_estimate"] or 0),
                     "snippet": self._snippet(text) if include_snippets else "",
                 }
             )
         scored.sort(key=lambda item: item["score"], reverse=True)
         results = scored[:top_k]
-        with self.db.get_connection() as conn:
-            conn.execute(
-                "INSERT INTO digestion_query_log (digestion_id, user_id, query, result_count, created_at) VALUES (?, ?, ?, ?, ?)",
-                (digestion.id, actor_user_id, query_text[:4000], len(results), self._now()),
-            )
-            conn.commit()
+        self._log_query(digestion.id, actor_user_id, query_text, len(results))
         return {
             "success": True,
             "digestion_id": digestion.id,
@@ -669,6 +690,9 @@ class DigestionManager:
             "status": digestion.status,
             "provider": digestion.provider,
             "embedding_model": digestion.embedding_model,
+            "indexed_chunks": int(stats.get("chunks") or len(rows) or 0),
+            "retrieval_ready": True,
+            "stats": stats,
         }
 
     def stats(self, digestion_id: str) -> dict[str, Any]:
@@ -805,6 +829,10 @@ class DigestionManager:
             "Use only the cited snippets below unless the user supplies additional context.",
             "",
         ]
+        warning = str(result.get("warning") or "").strip()
+        if warning:
+            lines.append(f"Retrieval warning: {warning}")
+            lines.append("")
         for index, item in enumerate(result.get("results") or [], start=1):
             citation = {
                 "index": index,
@@ -819,6 +847,8 @@ class DigestionManager:
             if citation["page_label"]:
                 label += f" {citation['page_label']}"
             lines.append(f"{label}: {item.get('snippet') or ''}")
+        if not citations:
+            lines.append("No cited snippets matched this query. Build/rebuild the Digestion or try a more specific query before using it as evidence.")
         prompt_context = "\n\n".join(lines).strip()
         return {
             "success": True,
@@ -828,6 +858,10 @@ class DigestionManager:
             "citations": citations,
             "prompt_context": prompt_context,
             "results": result.get("results") or [],
+            "retrieval_ready": bool(result.get("retrieval_ready")),
+            "indexed_chunks": int(result.get("indexed_chunks") or 0),
+            "warning": warning,
+            "stats": result.get("stats") or {},
         }
 
     # ------------------------------------------------------------------
@@ -1238,6 +1272,22 @@ class DigestionManager:
                 """,
                 (digestion_id,),
             ).fetchall()
+
+    def _log_query(self, digestion_id: str, user_id: str, query_text: str, result_count: int) -> None:
+        with self.db.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO digestion_query_log (digestion_id, user_id, query, result_count, created_at) VALUES (?, ?, ?, ?, ?)",
+                (digestion_id, user_id, str(query_text or "")[:4000], int(result_count or 0), self._now()),
+            )
+            conn.commit()
+
+    @staticmethod
+    def _query_terms(text: str) -> set[str]:
+        return {
+            token
+            for token in _TOKEN_RE.findall(str(text or "").lower())
+            if len(token) > 2 and token not in _COMMON_TERMS
+        }
 
     def _source_summary_rows(self, digestion_id: str) -> list[dict[str, Any]]:
         rows = self._source_rows(digestion_id)

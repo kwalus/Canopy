@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.116] - 2026-05-14
+
+### Changed
+- **Selected-text Matches stay useful while navigating** - channel selected-text highlights now survive feed scrolling, expose a current-match state, and support F3 / Shift+F3 navigation when channel search is not active.
+- **@Canopy compose prompts are more directive** - AI draft generation now frames user text as an instruction to satisfy, discourages echoing the request, and returns only the polished Canopy message body for review.
+- **Digestion queries fail clearer when retrieval is not ready** - unbuilt or zero-chunk Digestions now return explicit retrieval readiness metadata and warnings, local-hash retrieval requires meaningful term overlap, and context packs preserve retrieval warnings for agents.
+
 ## [0.6.115] - 2026-05-14
 
 ### Added
