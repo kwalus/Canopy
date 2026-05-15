@@ -2181,6 +2181,31 @@
         return true;
     }
 
+    function restorePendingMentionDmDraft() {
+        const textarea = document.getElementById('messageContent');
+        const targetUserId = ACTIVE_THREAD && ACTIVE_THREAD.kind === 'direct'
+            ? String(ACTIVE_THREAD.user_id || '').trim()
+            : (selectedRecipients.length === 1 ? String(selectedRecipients[0].user_id || '').trim() : '');
+        if (!textarea || !targetUserId || !window.sessionStorage) return false;
+        const key = window.CanopyMentionActions && typeof window.CanopyMentionActions.pendingDmDraftKey === 'function'
+            ? window.CanopyMentionActions.pendingDmDraftKey(targetUserId)
+            : `canopy.pendingMentionDmDraft.v1.${encodeURIComponent(CURRENT_USER_ID || 'anon')}.${encodeURIComponent(targetUserId)}`;
+        let draft = '';
+        try {
+            draft = window.sessionStorage.getItem(key) || '';
+            if (draft) window.sessionStorage.removeItem(key);
+        } catch (_) {
+            draft = '';
+        }
+        if (!draft || String(textarea.value || '').trim()) return false;
+        textarea.value = draft;
+        setDmComposerExpanded(true);
+        saveDmComposerDraft();
+        updateDmCanopyLLMComposePanel();
+        textarea.focus();
+        return true;
+    }
+
     function bindDmComposerDraftPersistence() {
         const textarea = document.getElementById('messageContent');
         if (!textarea || !window.CanopyDraftStore || textarea.dataset.canopyDraftBound === '1') return;
@@ -2188,7 +2213,9 @@
         window.CanopyDraftStore.bindTextarea(textarea, () => dmDraftKeyParts(), {
             restore: false
         });
-        restoreDmComposerDraft();
+        if (!restorePendingMentionDmDraft()) {
+            restoreDmComposerDraft();
+        }
     }
 
     function getDmQueryUrl(targetUrl) {
@@ -3355,6 +3382,7 @@
             .then(res => res.json())
             .then(data => {
                 const users = data && Array.isArray(data.users) ? data.users : [];
+                if (window.rememberMentionUsers) window.rememberMentionUsers(users);
                 if (query) {
                     mergeRecipientDirectory(users);
                     return users;

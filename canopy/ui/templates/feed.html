@@ -5550,6 +5550,7 @@
                     feedMentionLoading = false;
                     if (data && data.success && Array.isArray(data.users)) {
                         feedMentionCandidates = data.users;
+                        if (window.rememberMentionUsers) window.rememberMentionUsers(data.users);
                     } else if (!Array.isArray(feedMentionCandidates)) {
                         feedMentionCandidates = [];
                     }

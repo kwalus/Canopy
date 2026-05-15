@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.119] - 2026-05-15
+
+### Changed
+- **Mentions now act as identity affordances** - rendered `@username` chips can open a compact identity toolbar with Profile, DM, `@Canopy DM`, and Copy actions while preserving normal text selection.
+- **Mention DM actions are safer across surfaces** - identity data is cached from channel, feed, and DM mention lookups, Deck Inbox is preferred for DMs, and `@Canopy DM` drafts fall back through session storage when full-page navigation is needed.
+- **Selected-text Context is more recoverable** - channel selected-text Context insertion now includes compact source metadata such as channel, author, message id, reply parent id, posted timestamp, and a focus link.
+
 ## [0.6.118] - 2026-05-15
 
 ### Changed

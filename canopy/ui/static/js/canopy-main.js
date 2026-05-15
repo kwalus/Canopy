@@ -5430,19 +5430,68 @@
                 window.containsMathDelimiters = containsMathDelimiters;
             }
 
+            function normalizeMentionIdentityKey(value) {
+                return String(value || '').trim().toLowerCase();
+            }
+
+            function rememberMentionUsers(users) {
+                if (typeof window === 'undefined') return {};
+                const map = window.mentionIdentityMap && typeof window.mentionIdentityMap === 'object'
+                    ? window.mentionIdentityMap
+                    : {};
+                (Array.isArray(users) ? users : []).forEach(function(user) {
+                    if (!user || typeof user !== 'object') return;
+                    const uid = String(user.user_id || user.id || '').trim();
+                    const username = String(user.username || '').trim();
+                    const handle = String(user.handle || '').trim();
+                    const display = String(user.display_name || '').trim();
+                    const normalized = {
+                        ...user,
+                        user_id: uid || user.user_id || user.id || '',
+                        username: username || uid,
+                        display_name: display || username || uid,
+                        handle: handle || username || uid,
+                    };
+                    [uid, username, handle].forEach(function(key) {
+                        const normalizedKey = normalizeMentionIdentityKey(key);
+                        if (normalizedKey) map[normalizedKey] = normalized;
+                    });
+                });
+                window.mentionIdentityMap = map;
+                return map;
+            }
+
+            function getMentionIdentityForHandle(handle) {
+                const key = normalizeMentionIdentityKey(handle);
+                if (!key || typeof window === 'undefined') return null;
+                const map = window.mentionIdentityMap || {};
+                return map[key] || null;
+            }
+
+            if (typeof window !== 'undefined') {
+                window.rememberMentionUsers = rememberMentionUsers;
+                window.getMentionIdentityForHandle = getMentionIdentityForHandle;
+            }
+
 	        function linkifyMentions(text) {
-	            if (!text || text.indexOf('@') === -1) return text;
-	            const map = (typeof window !== 'undefined' && window.mentionDisplayMap) || {};
-	            const mentionRegex = /(^|[^A-Za-z0-9_.\-@])@([A-Za-z0-9](?:[A-Za-z0-9_.\-]{0,47}[A-Za-z0-9]))/g;
-	            return text.replace(mentionRegex, function(match, prefix, handle) {
-	                var display = map[handle];
-	                if (display == null) display = handle;
-	                var div = document.createElement('div');
-	                div.textContent = display;
-	                var escaped = div.innerHTML;
-	                return (prefix || '') + '<span class="mention-tag" data-mention="' + handle + '" title="@' + handle + '">@' + escaped + '</span>';
-	            });
-	        }
+		            if (!text || text.indexOf('@') === -1) return text;
+		            const map = (typeof window !== 'undefined' && window.mentionDisplayMap) || {};
+		            const mentionRegex = /(^|[^A-Za-z0-9_.\-@])@([A-Za-z0-9](?:[A-Za-z0-9_.\-]{0,47}[A-Za-z0-9]))/g;
+		            return text.replace(mentionRegex, function(match, prefix, handle) {
+		                var identity = getMentionIdentityForHandle(handle);
+		                var display = identity && (identity.display_name || identity.username || identity.user_id);
+		                if (display == null || display === '') display = map[handle];
+		                if (display == null) display = handle;
+		                var escaped = _escapeHtml(display);
+		                var safeHandle = _escapeHtml(handle);
+		                var safeUserId = identity && identity.user_id ? _escapeHtml(identity.user_id) : '';
+		                var accountType = identity && identity.account_type ? _escapeHtml(identity.account_type) : '';
+		                return (prefix || '') + '<span class="mention-tag" role="button" tabindex="0" aria-haspopup="dialog" ' +
+                            'data-mention="' + safeHandle + '" data-mention-user-id="' + safeUserId + '" ' +
+                            'data-mention-account-type="' + accountType + '" title="Open actions for @' + safeHandle + '" ' +
+                            'aria-label="Open actions for @' + safeHandle + '">@' + escaped + '</span>';
+		            });
+		        }
 
             function _escapeHtml(text) {
                 const div = document.createElement('div');
@@ -7170,8 +7219,307 @@
                     if (modalEl.getAttribute('data-request-seq') !== String(requestSeq)) return;
                     _renderUserIdentityModal(initialInfo, false);
                     showAlert('User details lookup is unavailable; showing local details only.', 'warning');
+	                });
+	        }
+
+        // --- Mention identity toolbar ---
+        let _mentionIdentityToolbar = null;
+        let _mentionIdentityState = null;
+
+        function _mentionCurrentUserId() {
+            return encodeURIComponent(String((window.CANOPY_VARS && (window.CANOPY_VARS.userId || window.CANOPY_VARS.localUserId)) || 'anon'));
+        }
+
+        function _mentionPendingDmDraftKey(userId) {
+            return `canopy.pendingMentionDmDraft.v1.${_mentionCurrentUserId()}.${encodeURIComponent(String(userId || ''))}`;
+        }
+
+        function _selectionHasVisibleText() {
+            const selection = window.getSelection ? window.getSelection() : null;
+            return !!(selection && !selection.isCollapsed && String(selection.toString() || '').trim());
+        }
+
+        function _mentionMessagesUrl(userId) {
+            const base = (((window.CANOPY_VARS || {}).urls || {}).messages || '/messages');
+            return `${base}?with=${encodeURIComponent(String(userId || ''))}`;
+        }
+
+        function _mentionDraftForUser(info) {
+            const label = (info && (info.display_name || info.username || info.user_id)) || 'this person';
+            return `@Canopy Draft a concise direct message to ${label} about:\n\n`;
+        }
+
+        function _ensureMentionIdentityToolbar() {
+            if (_mentionIdentityToolbar) return _mentionIdentityToolbar;
+            const el = document.createElement('div');
+            el.id = 'canopy-mention-identity-toolbar';
+            el.className = 'mention-identity-toolbar';
+            el.setAttribute('role', 'dialog');
+            el.setAttribute('aria-label', 'Mention actions');
+            el.setAttribute('aria-hidden', 'true');
+            el.innerHTML = `
+                <div class="mention-identity-card">
+                    <div class="mention-identity-head">
+                        <div class="mention-identity-avatar" data-mention-avatar></div>
+                        <div class="mention-identity-meta">
+                            <div class="mention-identity-name" data-mention-name>User</div>
+                            <div class="mention-identity-subtitle" data-mention-subtitle>@mention</div>
+                        </div>
+                        <button type="button" class="mention-identity-close" data-mention-toolbar-action="close" aria-label="Close mention actions">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                    <div class="mention-identity-status" data-mention-status></div>
+                    <div class="mention-identity-actions">
+                        <button type="button" data-mention-toolbar-action="profile"><i class="bi bi-person-badge"></i><span>Profile</span></button>
+                        <button type="button" data-mention-toolbar-action="dm"><i class="bi bi-chat-dots"></i><span>DM</span></button>
+                        <button type="button" data-mention-toolbar-action="canopy-dm"><i class="bi bi-stars"></i><span>@Canopy DM</span></button>
+                        <button type="button" data-mention-toolbar-action="copy"><i class="bi bi-at"></i><span>Copy</span></button>
+                    </div>
+                </div>`;
+            document.body.appendChild(el);
+            el.addEventListener('click', handleMentionToolbarAction);
+            _mentionIdentityToolbar = el;
+            return el;
+        }
+
+        function _setMentionToolbarBusy(toolbar, busy) {
+            toolbar.querySelectorAll('[data-mention-toolbar-action="profile"], [data-mention-toolbar-action="dm"], [data-mention-toolbar-action="canopy-dm"]').forEach(btn => {
+                btn.disabled = !!busy;
+            });
+        }
+
+        function _mentionLabel(info, handle) {
+            return String((info && (info.display_name || info.username || info.user_id)) || handle || 'User').trim();
+        }
+
+        function _renderMentionToolbar(info, options = {}) {
+            const toolbar = _ensureMentionIdentityToolbar();
+            const state = _mentionIdentityState || {};
+            const handle = state.handle || '';
+            const label = _mentionLabel(info, handle);
+            const userId = String((info && info.user_id) || '').trim();
+            const avatarUrl = _safeImageSrc(info && info.avatar_url);
+            const avatar = toolbar.querySelector('[data-mention-avatar]');
+            const name = toolbar.querySelector('[data-mention-name]');
+            const subtitle = toolbar.querySelector('[data-mention-subtitle]');
+            const status = toolbar.querySelector('[data-mention-status]');
+            if (avatar) {
+                avatar.innerHTML = avatarUrl
+                    ? `<img src="${_escapeHtml(avatarUrl)}" alt="${_escapeHtml(label)}">`
+                    : `<span>${_escapeHtml(label.slice(0, 2).toUpperCase())}</span>`;
+            }
+            if (name) name.textContent = label;
+            if (subtitle) {
+                const bits = [];
+                bits.push(`@${handle || (info && info.username) || userId || 'mention'}`);
+                if (info && info.account_type) bits.push(String(info.account_type));
+                if (info && info.presence_label) bits.push(String(info.presence_label));
+                if (info && info.is_remote) bits.push('remote');
+                subtitle.textContent = bits.join(' · ');
+            }
+            if (status) {
+                status.textContent = options.loading
+                    ? 'Resolving identity...'
+                    : (userId ? 'Choose an action for this identity.' : 'Mention text recognized; identity not resolved yet.');
+            }
+            _setMentionToolbarBusy(toolbar, options.loading || !userId);
+        }
+
+        function _positionMentionToolbar(triggerEl) {
+            const toolbar = _ensureMentionIdentityToolbar();
+            if (!triggerEl || !toolbar) return;
+            toolbar.classList.add('is-open');
+            toolbar.setAttribute('aria-hidden', 'false');
+            const rect = triggerEl.getBoundingClientRect();
+            const width = toolbar.offsetWidth || 320;
+            const gutter = 12;
+            const left = Math.min(Math.max(rect.left + rect.width / 2 - width / 2, gutter), window.innerWidth - width - gutter);
+            const fitsBelow = rect.bottom + 12 + (toolbar.offsetHeight || 190) < window.innerHeight;
+            toolbar.style.left = `${Math.round(left)}px`;
+            toolbar.style.top = `${Math.round(fitsBelow ? rect.bottom + 8 : Math.max(gutter, rect.top - (toolbar.offsetHeight || 190) - 8))}px`;
+        }
+
+        function closeMentionIdentityToolbar() {
+            if (!_mentionIdentityToolbar) return;
+            _mentionIdentityToolbar.classList.remove('is-open');
+            _mentionIdentityToolbar.setAttribute('aria-hidden', 'true');
+            _mentionIdentityState = null;
+        }
+
+        function _resolveMentionIdentity(handle, userId) {
+            const cleanHandle = String(handle || '').trim();
+            const cleanUserId = String(userId || '').trim();
+            const cached = cleanUserId
+                ? (_userIdentityCache[cleanUserId] || getMentionIdentityForHandle(cleanUserId))
+                : getMentionIdentityForHandle(cleanHandle);
+            if (cached && cached.user_id) {
+                return Promise.resolve(_userIdentityInfoFromPayload(cached.user_id, cached.display_name || cached.username || cleanHandle, null, cached));
+            }
+            if (cleanUserId) {
+                return _fetchUserIdentityInfo(cleanUserId).then(payload => (
+                    _userIdentityInfoFromPayload(cleanUserId, cleanHandle, null, payload || {})
+                ));
+            }
+            if (!cleanHandle) return Promise.resolve(null);
+            return apiCall(`/ajax/mention_suggestions?q=${encodeURIComponent(cleanHandle)}&limit=8`)
+                .then(data => {
+                    const users = data && Array.isArray(data.users) ? data.users : [];
+                    rememberMentionUsers(users);
+                    const lower = normalizeMentionIdentityKey(cleanHandle);
+                    const match = users.find(user => {
+                        return [user.user_id, user.username, user.handle].some(value => normalizeMentionIdentityKey(value) === lower);
+                    }) || users[0] || null;
+                    if (!match || !match.user_id) return null;
+                    return _userIdentityInfoFromPayload(match.user_id, match.display_name || match.username || cleanHandle, null, match);
                 });
         }
+
+        function showMentionIdentityToolbar(triggerEl) {
+            if (!triggerEl) return;
+            const handle = String(triggerEl.getAttribute('data-mention') || '').trim();
+            const userId = String(triggerEl.getAttribute('data-mention-user-id') || '').trim();
+            if (!handle) return;
+            const localInfo = userId
+                ? (_userIdentityCache[userId] || getMentionIdentityForHandle(userId) || getMentionIdentityForHandle(handle))
+                : getMentionIdentityForHandle(handle);
+            _mentionIdentityState = { triggerEl, handle, userId, info: localInfo || null };
+            _renderMentionToolbar(localInfo || { user_id: userId, username: handle, display_name: triggerEl.textContent || handle }, { loading: !localInfo && !userId });
+            _positionMentionToolbar(triggerEl);
+            _resolveMentionIdentity(handle, userId)
+                .then(info => {
+                    if (!_mentionIdentityState || _mentionIdentityState.triggerEl !== triggerEl) return;
+                    if (info && info.user_id) {
+                        _mentionIdentityState.userId = info.user_id;
+                        _mentionIdentityState.info = info;
+                        rememberMentionUsers([info]);
+                    }
+                    _renderMentionToolbar(_mentionIdentityState.info || info || null, { loading: false });
+                    _positionMentionToolbar(triggerEl);
+                })
+                .catch(() => {
+                    if (!_mentionIdentityState || _mentionIdentityState.triggerEl !== triggerEl) return;
+                    _renderMentionToolbar(_mentionIdentityState.info || null, { loading: false });
+                });
+        }
+
+        function _openMentionDm(info, useCanopyDraft) {
+            const userId = String(info && info.user_id || '').trim();
+            if (!userId) {
+                showAlert('Could not resolve that mention to a user.', 'warning');
+                return;
+            }
+            const draft = useCanopyDraft ? _mentionDraftForUser(info) : '';
+            const fallbackToMessages = () => {
+                if (draft && window.sessionStorage) {
+                    try {
+                        window.sessionStorage.setItem(_mentionPendingDmDraftKey(userId), draft);
+                    } catch (_) {}
+                }
+                window.location.href = _mentionMessagesUrl(userId);
+            };
+            closeMentionIdentityToolbar();
+            if (typeof window.openDeckInbox === 'function') {
+                window.openDeckInbox({ userId }).then((result) => {
+                    if (result === null) {
+                        fallbackToMessages();
+                        return;
+                    }
+                    if (!draft) return;
+                    window.setTimeout(() => {
+                        const textarea = document.querySelector('#deck-inbox-surface [data-dm-role="message-content"]');
+                        if (!textarea) return;
+                        if (!String(textarea.value || '').trim()) {
+                            textarea.value = draft;
+                            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                        textarea.focus();
+                    }, 120);
+                }).catch(fallbackToMessages);
+                return;
+            }
+            fallbackToMessages();
+        }
+
+        function _resolveCurrentMentionForAction() {
+            const state = _mentionIdentityState;
+            if (!state) return Promise.resolve(null);
+            if (state.info && state.info.user_id) return Promise.resolve(state.info);
+            return _resolveMentionIdentity(state.handle, state.userId).then(info => {
+                if (info && _mentionIdentityState === state) {
+                    state.info = info;
+                    state.userId = info.user_id || state.userId;
+                    rememberMentionUsers([info]);
+                }
+                return info;
+            });
+        }
+
+        function handleMentionToolbarAction(event) {
+            const btn = event.target && event.target.closest ? event.target.closest('[data-mention-toolbar-action]') : null;
+            if (!btn || !_mentionIdentityToolbar || !_mentionIdentityToolbar.contains(btn)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const action = btn.getAttribute('data-mention-toolbar-action') || '';
+            if (action === 'close') {
+                closeMentionIdentityToolbar();
+                return;
+            }
+            if (action === 'copy') {
+                const handle = _mentionIdentityState && _mentionIdentityState.handle;
+                _copyTextToClipboard(handle ? `@${handle}` : '', '@mention');
+                closeMentionIdentityToolbar();
+                return;
+            }
+            _resolveCurrentMentionForAction().then(info => {
+                if (!info || !info.user_id) {
+                    showAlert('Could not resolve that mention to a user.', 'warning');
+                    return;
+                }
+                if (action === 'profile') {
+                    const triggerEl = _mentionIdentityState && _mentionIdentityState.triggerEl;
+                    closeMentionIdentityToolbar();
+                    copyUserId(info.user_id, info.display_name || info.username || info.user_id, triggerEl);
+                } else if (action === 'dm') {
+                    _openMentionDm(info, false);
+                } else if (action === 'canopy-dm') {
+                    _openMentionDm(info, true);
+                }
+            });
+        }
+
+        function handleMentionIdentityClick(event) {
+            const target = event.target instanceof Element ? event.target.closest('.mention-tag[data-mention]') : null;
+            if (!target) {
+                if (_mentionIdentityToolbar && !_mentionIdentityToolbar.contains(event.target)) {
+                    closeMentionIdentityToolbar();
+                }
+                return;
+            }
+            if (_selectionHasVisibleText()) return;
+            event.preventDefault();
+            event.stopPropagation();
+            showMentionIdentityToolbar(target);
+        }
+
+        function handleMentionIdentityKeydown(event) {
+            const target = event.target instanceof Element ? event.target.closest('.mention-tag[data-mention]') : null;
+            if (!target) return;
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            showMentionIdentityToolbar(target);
+        }
+
+        document.addEventListener('click', handleMentionIdentityClick);
+        document.addEventListener('keydown', handleMentionIdentityKeydown);
+        window.addEventListener('resize', closeMentionIdentityToolbar, { passive: true });
+        window.addEventListener('scroll', closeMentionIdentityToolbar, { passive: true, capture: true });
+
+        window.CanopyMentionActions = {
+            close: closeMentionIdentityToolbar,
+            pendingDmDraftKey: _mentionPendingDmDraftKey,
+            openForElement: showMentionIdentityToolbar,
+        };
 
 	        function apiCall(url, options = {}) {
 	            console.log('apiCall:', url, options);

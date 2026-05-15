@@ -13006,6 +13006,7 @@ function fetchChannelMentionCandidates(channelId, options) {
         .then(data => {
             if (data && data.success && Array.isArray(data.users)) {
                 channelMentionCache[channelId] = data.users;
+                if (window.rememberMentionUsers) window.rememberMentionUsers(data.users);
             } else if (!Array.isArray(channelMentionCache[channelId])) {
                 channelMentionCache[channelId] = [];
             }
@@ -17733,14 +17734,18 @@ function getChannelSelectionContextFromWindow() {
         'message'
     ).trim();
     const channel = currentChannelName ? `#${currentChannelName}` : 'this channel';
+    const channelId = currentChannelId ? String(currentChannelId) : '';
     return {
         text: text.length > 6000 ? text.slice(0, 6000).trim() : text,
         wasTrimmed: text.length > 6000,
         rect,
         rects,
         messageId,
+        channelId,
         author,
         channel,
+        messageCreatedAt: message.created_at || '',
+        parentMessageId: message.parent_message_id || '',
         sourceLabel: `${author} in ${channel}`,
     };
 }
@@ -17865,6 +17870,33 @@ function formatChannelSelectionQuote(text) {
         .join('\n');
 }
 
+function buildChannelSelectionSourceUrl(ctx) {
+    if (!ctx || !ctx.messageId || typeof window === 'undefined' || !window.location) return '';
+    try {
+        const url = new URL(window.location.href);
+        if (ctx.channelId) {
+            url.searchParams.set('focus_channel', ctx.channelId);
+        }
+        url.searchParams.set('focus_message', ctx.messageId);
+        return url.toString();
+    } catch (_) {
+        return '';
+    }
+}
+
+function buildChannelSelectionContextBlock(ctx, quote) {
+    const sourceUrl = buildChannelSelectionSourceUrl(ctx);
+    const sourceLines = [
+        `- Channel: ${ctx.channel || 'this channel'}`,
+        `- Author: ${ctx.author || 'unknown'}`,
+        ctx.messageCreatedAt ? `- Posted: ${ctx.messageCreatedAt}` : '',
+        ctx.messageId ? `- Message ID: ${ctx.messageId}` : '',
+        ctx.parentMessageId ? `- Reply parent ID: ${ctx.parentMessageId}` : '',
+        sourceUrl ? `- Source link: ${sourceUrl}` : '',
+    ].filter(Boolean).join('\n');
+    return `Context from ${ctx.sourceLabel}:\n${sourceLines}\n\nSelected text:\n${quote}\n\n`;
+}
+
 function insertTextIntoChannelComposer(text, opts = {}) {
     const input = document.getElementById('message-input');
     if (!input || !text) return false;
@@ -17893,7 +17925,7 @@ function buildChannelSelectionInsertion(action, ctx) {
         return `${quote}\n\n`;
     }
     if (action === 'context') {
-        return `Context from ${ctx.sourceLabel}:\n${quote}\n\n`;
+        return buildChannelSelectionContextBlock(ctx, quote);
     }
     if (action === 'canopy') {
         return `@Canopy Use this selected context while drafting the next message:\n${quote}\n\n`;
