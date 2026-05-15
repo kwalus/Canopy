@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.118] - 2026-05-15
+
+### Changed
+- **Channel selected-text dock is steadier during selection** - the dock now defers positioning and match painting while the browser is still performing a pointer selection, which keeps multi-word and multi-line selection from fighting DOM highlight updates.
+- **Selected-text Reply no longer duplicates content** - Reply from the dock now sets the reply target only; Quote remains the action for pasting selected text into the composer.
+- **DM snapshot refreshes skip unchanged work** - DM polling now sends known sidebar/thread tokens, the server omits unchanged fragments, and the client scopes hydration/timestamp formatting to updated thread content.
+
 ## [0.6.117] - 2026-05-14
 
 ### Changed

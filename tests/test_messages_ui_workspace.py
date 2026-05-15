@@ -273,6 +273,8 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn("function refreshMessages() {", body)
         self.assertIn("if (isDmSearchActive()) {", body)
         self.assertIn("loadDmSnapshot({ forceBottom: false, allowDeferred: false, hardFallback: true }).catch(() => {});", body)
+        self.assertIn("setKnownSnapshotToken(url, 'known_sidebar_token', dmLastSidebarToken);", body)
+        self.assertIn("setKnownSnapshotToken(url, 'known_thread_token', dmLastThreadToken);", body)
         self.assertIn('/ajax/mention_suggestions?', body)
         self.assertIn('let recipientDirectory = [', body)
         self.assertIn('"user_id": "peer-a"', body)
@@ -739,6 +741,31 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertTrue(after.get('success'))
         self.assertNotEqual(before_token, after.get('thread_state_token'))
         self.assertIn('Need update (edited)', after.get('thread_body_html') or '')
+
+    def test_thread_snapshot_omits_unchanged_fragments_when_client_tokens_match(self) -> None:
+        initial = self.client.get('/ajax/messages/thread_snapshot?with=peer-a').get_json() or {}
+        self.assertTrue(initial.get('success'))
+        sidebar_token = str(initial.get('sidebar_state_token') or '')
+        thread_token = str(initial.get('thread_state_token') or '')
+        self.assertTrue(sidebar_token)
+        self.assertTrue(thread_token)
+
+        response = self.client.get(
+            '/ajax/messages/thread_snapshot',
+            query_string={
+                'with': 'peer-a',
+                'known_sidebar_token': sidebar_token,
+                'known_thread_token': thread_token,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertFalse(payload.get('sidebar_changed'))
+        self.assertFalse(payload.get('thread_changed'))
+        self.assertEqual(payload.get('sidebar_html'), '')
+        self.assertEqual(payload.get('thread_header_html'), '')
+        self.assertEqual(payload.get('thread_body_html'), '')
 
     def test_ajax_send_message_preserves_reply_to_metadata(self) -> None:
         response = self.client.post(

@@ -2332,7 +2332,7 @@
                     window.canopyApplySourceLayoutsInScope(body);
                 }
                 if (typeof formatTimestamps === 'function') {
-                    formatTimestamps();
+                    formatTimestamps(body);
                 }
 
                 const newHeight = scroller.scrollHeight;
@@ -2382,23 +2382,38 @@
         };
     }
 
+    function dmSnapshotTokenChanged(serverFlag, nextToken, knownToken) {
+        return serverFlag === true || String(nextToken || '') !== String(knownToken || '');
+    }
+
+    function setKnownSnapshotToken(url, paramName, tokenValue) {
+        if (!url || !paramName) return;
+        if (tokenValue) {
+            url.searchParams.set(paramName, tokenValue);
+        } else {
+            url.searchParams.delete(paramName);
+        }
+    }
+
     function applyDmSnapshot(data, options) {
         const opts = options || {};
         if (!data || !data.success) return;
         const previousScroll = getThreadScrollState();
+        const threadChanged = dmSnapshotTokenChanged(data.thread_changed, data.thread_state_token, dmLastThreadToken);
+        const sidebarChanged = dmSnapshotTokenChanged(data.sidebar_changed, data.sidebar_state_token, dmLastSidebarToken);
 
         const sidebar = document.getElementById('dm-sidebar-sections');
-        if (sidebar && typeof data.sidebar_html === 'string') {
+        if (sidebarChanged && sidebar && typeof data.sidebar_html === 'string') {
             sidebar.innerHTML = data.sidebar_html;
         }
 
         const header = document.getElementById('dm-thread-header');
-        if (header && typeof data.thread_header_html === 'string') {
+        if (threadChanged && header && typeof data.thread_header_html === 'string') {
             header.innerHTML = data.thread_header_html;
         }
 
         const body = document.getElementById('dm-thread-body');
-        if (body && typeof data.thread_body_html === 'string') {
+        if (threadChanged && body && typeof data.thread_body_html === 'string') {
             body.innerHTML = data.thread_body_html;
         }
 
@@ -2408,13 +2423,23 @@
         dmLastSidebarToken = data.sidebar_state_token || '';
         dmLastThreadToken = data.thread_state_token || '';
 
-        if (composerUsesActiveThread) {
+        if (threadChanged && composerUsesActiveThread) {
             selectedRecipients = Array.isArray(INITIAL_RECIPIENTS) ? [...INITIAL_RECIPIENTS] : [];
             updateRecipientChips();
         }
 
-        updateComposerTarget();
-        applyDmRichContent();
+        if (threadChanged) {
+            updateComposerTarget();
+            if (body) {
+                applyDmRichContentInScope(body);
+                if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+                    window.canopyApplySourceLayoutsInScope(body);
+                }
+                if (typeof formatTimestamps === 'function') {
+                    formatTimestamps(body);
+                }
+            }
+        }
         restoreThreadScrollState(previousScroll, opts);
         syncDmMobileLayoutState();
 
@@ -2422,10 +2447,7 @@
             window.history.replaceState({}, '', opts.targetUrl);
         }
 
-        if (typeof formatTimestamps === 'function') {
-            formatTimestamps();
-        }
-        if (typeof window.requestCanopySidebarDmRefresh === 'function') {
+        if (sidebarChanged && typeof window.requestCanopySidebarDmRefresh === 'function') {
             window.requestCanopySidebarDmRefresh({ force: false }).catch(() => {});
         }
         startDmPolling();
@@ -2445,6 +2467,8 @@
         const targetUrl = getDmQueryUrl(opts.targetUrl);
         const url = new URL(targetUrl, window.location.origin);
         url.searchParams.delete('partial');
+        setKnownSnapshotToken(url, 'known_sidebar_token', dmLastSidebarToken);
+        setKnownSnapshotToken(url, 'known_thread_token', dmLastThreadToken);
         const serial = ++dmSnapshotSerial;
         dmSnapshotInFlight = true;
 
@@ -2459,8 +2483,8 @@
                     return data || null;
                 }
 
-                const threadChanged = (data.thread_state_token || '') !== (dmLastThreadToken || '');
-                const sidebarChanged = (data.sidebar_state_token || '') !== (dmLastSidebarToken || '');
+                const threadChanged = dmSnapshotTokenChanged(data.thread_changed, data.thread_state_token, dmLastThreadToken);
+                const sidebarChanged = dmSnapshotTokenChanged(data.sidebar_changed, data.sidebar_state_token, dmLastSidebarToken);
                 if (!threadChanged && !sidebarChanged) {
                     return data;
                 }
@@ -4226,7 +4250,7 @@
             window.canopyApplySourceLayoutsInScope(row);
         }
         if (typeof formatTimestamps === 'function') {
-            formatTimestamps();
+            formatTimestamps(row);
         }
         scrollThreadToBottom();
         return true;

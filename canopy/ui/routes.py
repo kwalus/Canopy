@@ -6355,7 +6355,7 @@ def create_ui_blueprint() -> Blueprint:
             ).encode('utf-8')
         ).hexdigest()[:20] if message_rows else ''
         sidebar_state_token = '|'.join(
-            f"{entry.get('key')}:{entry.get('updated_at')}:{entry.get('unread_count')}"
+            f"{entry.get('key')}:{entry.get('updated_at')}:{entry.get('unread_count')}:{bool(entry.get('is_active'))}"
             for entry in conversation_entries[:80]
         )
         thread_state_token = '|'.join([
@@ -7335,6 +7335,8 @@ def create_ui_blueprint() -> Blueprint:
             user_id = get_current_user()
             requested_surface = str(request.args.get('surface') or '').strip().lower()
             dm_surface = 'deck' if requested_surface == 'deck' else 'page'
+            known_sidebar_token = str(request.args.get('known_sidebar_token') or '').strip()
+            known_thread_token = str(request.args.get('known_thread_token') or '').strip()
             template_data = _build_dm_workspace_template_data(
                 user_id=user_id,
                 conversation_with=(request.args.get('with') or '').strip() or None,
@@ -7342,6 +7344,10 @@ def create_ui_blueprint() -> Blueprint:
                 search_query=request.args.get('search', '').strip(),
             )
             template_data['dm_surface'] = dm_surface
+            sidebar_state_token = str(template_data.get('sidebar_state_token') or '')
+            thread_state_token = str(template_data.get('thread_state_token') or '')
+            sidebar_changed = (not known_sidebar_token) or known_sidebar_token != sidebar_state_token
+            thread_changed = (not known_thread_token) or known_thread_token != thread_state_token
             return jsonify({
                 'success': True,
                 'surface': dm_surface,
@@ -7356,14 +7362,16 @@ def create_ui_blueprint() -> Blueprint:
                 'has_older_messages': bool(template_data.get('has_older_messages')),
                 'thread_page_limit': template_data.get('thread_page_limit'),
                 'workspace_event_cursor': template_data.get('workspace_event_cursor'),
-                'sidebar_state_token': template_data.get('sidebar_state_token'),
-                'thread_state_token': template_data.get('thread_state_token'),
-                'sidebar_html': render_template('_messages_sidebar_sections.html', **template_data),
-                'thread_header_html': render_template('_messages_thread_header.html', **template_data),
-                'thread_body_html': render_template('_messages_thread_body.html', **template_data),
+                'sidebar_state_token': sidebar_state_token,
+                'thread_state_token': thread_state_token,
+                'sidebar_changed': sidebar_changed,
+                'thread_changed': thread_changed,
+                'sidebar_html': render_template('_messages_sidebar_sections.html', **template_data) if sidebar_changed else '',
+                'thread_header_html': render_template('_messages_thread_header.html', **template_data) if thread_changed else '',
+                'thread_body_html': render_template('_messages_thread_body.html', **template_data) if thread_changed else '',
                 'composer_html': (
                     ''
-                    if template_data.get('search_query')
+                    if template_data.get('search_query') or not thread_changed
                     else render_template('_messages_composer.html', **template_data)
                 ),
             })

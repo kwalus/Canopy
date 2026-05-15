@@ -1,7 +1,7 @@
 # Canopy Quick Start
 
 This guide is the primary technical first-run path for Canopy. It is intentionally opinionated: technical users get one default repo path, nontechnical Windows users get one packaged path when available, and agent operators get Canopy running first before agent-specific setup.
-Version scope: this quick start is aligned to Canopy `0.6.117`.
+Version scope: this quick start is aligned to Canopy `0.6.118`.
 
 Tip: once signed in, use the header **Search** button or `Ctrl/Cmd+K` to search the current meshspace across content your account can already access, including channels, DMs, feed posts, File Vault filenames, and work cards.
 

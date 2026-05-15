@@ -2084,10 +2084,12 @@
         color: var(--canopy-text-primary) !important;
     }
     .channel-thread-filter-toggle,
+    .channel-thread-sort-toggle,
     .channel-human-filter-toggle {
         position: relative;
     }
     .channel-thread-filter-toggle.is-active,
+    .channel-thread-sort-toggle.is-active,
     .channel-human-filter-toggle.is-active {
         border-color: rgba(52, 211, 153, 0.72) !important;
         color: #bbf7d0 !important;
@@ -2095,6 +2097,7 @@
         box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.16), 0 10px 24px rgba(16, 185, 129, 0.12) !important;
     }
     .channel-thread-filter-toggle.is-active::after,
+    .channel-thread-sort-toggle.is-active::after,
     .channel-human-filter-toggle.is-active::after {
         content: "";
         position: absolute;
@@ -2248,6 +2251,7 @@
         box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-thread-filter-toggle.is-active,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-thread-sort-toggle.is-active,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-human-filter-toggle.is-active {
         color: #065f46 !important;
         background: linear-gradient(135deg, rgba(209, 250, 229, 0.96), rgba(236, 253, 245, 0.86)) !important;
@@ -4682,6 +4686,15 @@
                                 <i class="bi bi-lightning-charge" id="channel-unread-filter-icon"></i>
                                 <span class="channel-header-tool-label" id="channel-unread-filter-label">New</span>
                             </button>
+                            <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-thread-sort-toggle"
+                                    id="channel-activity-sort-toggle"
+                                    onclick="toggleChannelThreadActivitySort()"
+                                    title="Show latest active threads first"
+                                    aria-label="Show latest active threads first"
+                                    aria-pressed="false">
+                                <i class="bi bi-sort-down" id="channel-activity-sort-icon"></i>
+                                <span class="channel-header-tool-label" id="channel-activity-sort-label">Latest</span>
+                            </button>
                         </div>
                         <div class="channel-header-search">
                             <div class="input-group input-group-sm" id="channel-search-bar">
@@ -4816,6 +4829,11 @@
                                     <li>
                                         <button type="button" class="dropdown-item" id="channel-unread-filter-menu-btn" onclick="toggleChannelUnreadThreadFilter()">
                                             <i class="bi bi-lightning-charge me-2"></i><span id="channel-unread-filter-menu-label">Show unread/new threads</span>
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" id="channel-activity-sort-menu-btn" onclick="toggleChannelThreadActivitySort()">
+                                            <i class="bi bi-sort-down me-2"></i><span id="channel-activity-sort-menu-label">Latest active first</span>
                                         </button>
                                     </li>
                                     <li>
@@ -7660,6 +7678,7 @@ const CHANNEL_GROUP_CHANNEL_ORDER_STORAGE_KEY = `canopy.channel_group_channel_or
 const CHANNEL_GROUP_DEFS_STORAGE_KEY = `canopy.channel_group_defs.v1.${currentUserId || 'anon'}`;
 const CHANNEL_HUMAN_THREAD_FILTER_STORAGE_KEY = `canopy.channel_human_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_UNREAD_THREAD_FILTER_STORAGE_KEY = `canopy.channel_unread_threads.v1.${currentUserId || 'anon'}`;
+const CHANNEL_THREAD_ACTIVITY_SORT_STORAGE_KEY = `canopy.channel_thread_activity_sort.v1.${currentUserId || 'anon'}`;
 const CHANNEL_ORG_PALETTE = [
     { color: '#2dd4bf', label: 'Canopy teal' },
     { color: '#60a5fa', label: 'Signal blue' },
@@ -7686,6 +7705,7 @@ const channelMessageRenderInFlight = new Set();
 const channelLikeInFlight = new Set();
 let channelHumanThreadFilterById = {};
 let channelUnreadThreadFilterById = {};
+let channelThreadActivitySortById = {};
 let channelReadBaselineById = {};
 let currentChannelMessagesSnapshot = [];
 let currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
@@ -8077,6 +8097,27 @@ function saveChannelUnreadThreadFilterState() {
     } catch (_) {}
 }
 
+function loadChannelThreadActivitySortState() {
+    channelThreadActivitySortById = {};
+    try {
+        const raw = localStorage.getItem(CHANNEL_THREAD_ACTIVITY_SORT_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+        Object.entries(parsed).forEach(([channelId, enabled]) => {
+            const normalized = String(channelId || '').trim();
+            if (normalized && enabled === true) channelThreadActivitySortById[normalized] = true;
+        });
+    } catch (_) {
+        channelThreadActivitySortById = {};
+    }
+}
+
+function saveChannelThreadActivitySortState() {
+    try {
+        localStorage.setItem(CHANNEL_THREAD_ACTIVITY_SORT_STORAGE_KEY, JSON.stringify(channelThreadActivitySortById));
+    } catch (_) {}
+}
+
 function isChannelHumanThreadFilterEnabled(channelId = currentChannelId) {
     const normalized = String(channelId || '').trim();
     return !!(normalized && channelHumanThreadFilterById[normalized]);
@@ -8085,6 +8126,11 @@ function isChannelHumanThreadFilterEnabled(channelId = currentChannelId) {
 function isChannelUnreadThreadFilterEnabled(channelId = currentChannelId) {
     const normalized = String(channelId || '').trim();
     return !!(normalized && channelUnreadThreadFilterById[normalized]);
+}
+
+function isChannelThreadActivitySortEnabled(channelId = currentChannelId) {
+    const normalized = String(channelId || '').trim();
+    return !!(normalized && channelThreadActivitySortById[normalized]);
 }
 
 function setChannelHumanThreadFilter(channelId, enabled) {
@@ -8107,6 +8153,17 @@ function setChannelUnreadThreadFilter(channelId, enabled) {
         delete channelUnreadThreadFilterById[normalized];
     }
     saveChannelUnreadThreadFilterState();
+}
+
+function setChannelThreadActivitySort(channelId, enabled) {
+    const normalized = String(channelId || '').trim();
+    if (!normalized) return;
+    if (enabled) {
+        channelThreadActivitySortById[normalized] = true;
+    } else {
+        delete channelThreadActivitySortById[normalized];
+    }
+    saveChannelThreadActivitySortState();
 }
 
 function parseChannelReadBoundary(rawValue) {
@@ -8259,12 +8316,36 @@ function updateChannelUnreadThreadFilterUI() {
     }
 }
 
+function updateChannelThreadActivitySortUI() {
+    const enabled = isChannelThreadActivitySortEnabled();
+    const toggle = document.getElementById('channel-activity-sort-toggle');
+    const icon = document.getElementById('channel-activity-sort-icon');
+    const label = document.getElementById('channel-activity-sort-label');
+    const menuLabel = document.getElementById('channel-activity-sort-menu-label');
+    if (toggle) {
+        toggle.classList.toggle('is-active', enabled);
+        toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        toggle.title = enabled ? 'Return to chronological thread order' : 'Show latest active threads first';
+        toggle.setAttribute('aria-label', enabled ? 'Return to chronological thread order' : 'Show latest active threads first');
+    }
+    if (icon) {
+        icon.className = enabled ? 'bi bi-sort-down-alt' : 'bi bi-sort-down';
+    }
+    if (label) {
+        label.textContent = enabled ? 'Latest first' : 'Latest';
+    }
+    if (menuLabel) {
+        menuLabel.textContent = enabled ? 'Chronological thread order' : 'Latest active first';
+    }
+}
+
 function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterStats) {
     const banner = document.getElementById('channel-human-filter-banner');
     if (!banner) return;
     const humanEnabled = isChannelHumanThreadFilterEnabled();
     const unreadEnabled = isChannelUnreadThreadFilterEnabled();
-    if (!humanEnabled && !unreadEnabled) {
+    const activitySortEnabled = isChannelThreadActivitySortEnabled();
+    if (!humanEnabled && !unreadEnabled && !activitySortEnabled) {
         banner.classList.add('d-none');
         banner.innerHTML = '';
         return;
@@ -8292,13 +8373,18 @@ function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterS
                 : 'Only unread/new threads are shown.');
         }
     }
+    if (activitySortEnabled) {
+        details.push('Latest active threads are shown first.');
+    }
     const chips = [
         humanEnabled ? '<span class="filter-pill"><i class="bi bi-person-fill-check"></i> Human threads</span>' : '',
         unreadEnabled ? '<span class="filter-pill"><i class="bi bi-lightning-charge-fill"></i> New/unread threads</span>' : '',
+        activitySortEnabled ? '<span class="filter-pill"><i class="bi bi-sort-down-alt"></i> Latest first</span>' : '',
     ].filter(Boolean).join('');
     const actions = [
         humanEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelHumanThreadFilter(false)">Show agents</button>' : '',
         unreadEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelUnreadThreadFilter(false)">Show read</button>' : '',
+        activitySortEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelThreadActivitySort(false)">Chronological</button>' : '',
     ].filter(Boolean).join('');
     banner.innerHTML = `
         <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
@@ -8340,6 +8426,29 @@ function toggleChannelUnreadThreadFilter(forceEnabled) {
     updateChannelUnreadThreadFilterUI();
     if (Array.isArray(currentChannelMessagesSnapshot) && currentChannelMessagesSnapshot.length) {
         displayMessages(currentChannelMessagesSnapshot, { forceScroll: false, ignoreSignature: true });
+    } else if (currentChannelId) {
+        loadChannelMessages(currentChannelId, { forceScroll: false });
+    } else {
+        updateChannelHumanThreadFilterBanner();
+    }
+}
+
+function toggleChannelThreadActivitySort(forceEnabled) {
+    if (!currentChannelId) {
+        showAlert('Select a channel before sorting threads.', 'warning');
+        return;
+    }
+    const nextEnabled = typeof forceEnabled === 'boolean'
+        ? forceEnabled
+        : !isChannelThreadActivitySortEnabled();
+    setChannelThreadActivitySort(currentChannelId, nextEnabled);
+    updateChannelThreadActivitySortUI();
+    if (Array.isArray(currentChannelMessagesSnapshot) && currentChannelMessagesSnapshot.length) {
+        displayMessages(currentChannelMessagesSnapshot, {
+            forceScroll: !nextEnabled,
+            ignoreSignature: true,
+            scrollToTop: nextEnabled,
+        });
     } else if (currentChannelId) {
         loadChannelMessages(currentChannelId, { forceScroll: false });
     } else {
@@ -9947,6 +10056,7 @@ function selectChannel(channelId, channelName, options = {}) {
     syncChannelRemovalBanner();
     updateChannelHumanThreadFilterUI();
     updateChannelUnreadThreadFilterUI();
+    updateChannelThreadActivitySortUI();
     updateChannelHumanThreadFilterBanner();
     refreshChannelMentionBuilderForChannel(channelId);
     
@@ -10943,6 +11053,7 @@ function displayMessages(messages, options = {}) {
     noMoreOlderMessages = messages.length < OLDER_MESSAGES_LIMIT;
     loadingOlderMessages = false;
 
+    const latestFirstThreads = isChannelThreadActivitySortEnabled();
     const threadLayout = buildChannelThreadLayout(messages);
     const rootMessages = threadLayout.rootMessages;
     const repliesByRoot = threadLayout.repliesByRoot;
@@ -11018,7 +11129,7 @@ function displayMessages(messages, options = {}) {
             currentChannelHumanFilterStats = { hiddenThreads: humanHiddenThreads, hiddenMessages: humanHiddenMessages };
             updateChannelHumanThreadFilterBanner(currentChannelHumanFilterStats);
 
-            // Prepend "Load older" banner if there may be more messages
+            // Place "Load older" at the history edge for the active thread order.
             const olderBanner = noMoreOlderMessages ? '' :
                 `<div id="load-older-banner" class="text-center py-2 mb-2">
 		                <button class="btn btn-sm btn-outline-secondary" onclick="loadOlderMessages()">
@@ -11040,9 +11151,9 @@ function displayMessages(messages, options = {}) {
                     <div class="small mt-1">Use ${emptyActions} to broaden the feed.</div>
                 </div>`;
             }
-            messagesContainer.innerHTML = olderBanner + html;
+            messagesContainer.innerHTML = latestFirstThreads ? (html + olderBanner) : (olderBanner + html);
 
-            formatTimestamps();
+            formatTimestamps(messagesContainer);
             if (window.applyInlineTaskAvatars) {
                 window.applyInlineTaskAvatars(messagesContainer);
             }
@@ -11100,7 +11211,7 @@ function displayMessages(messages, options = {}) {
                 requestAnimationFrame(function () {
                     requestAnimationFrame(runFocusAndMaybeDeck);
                 });
-            } else if (container && options.scrollToTop) {
+            } else if (container && (options.scrollToTop || (latestFirstThreads && (options.forceScroll || wasNearBottom)))) {
                 container.scrollTop = 0;
             } else if (container) {
                 if (options.forceScroll || wasNearBottom) {
@@ -13820,7 +13931,7 @@ function appendNewMessages(allMessages) {
 
     // The unread/new filter may need to reveal an entire previously hidden thread
     // when a new reply lands, so prefer the full renderer over partial DOM splices.
-    if (isChannelUnreadThreadFilterEnabled()) {
+    if (isChannelUnreadThreadFilterEnabled() || isChannelThreadActivitySortEnabled()) {
         return false;
     }
 
@@ -13959,7 +14070,7 @@ function appendNewMessages(allMessages) {
         }
 
         // Post-processing on the new elements only
-        formatTimestamps();
+        formatTimestamps(messagesContainer);
         if (window.applyInlineTaskAvatars) {
             window.applyInlineTaskAvatars(messagesContainer);
         }
@@ -14073,7 +14184,12 @@ function buildChannelThreadLayout(messages) {
         }
     });
 
-    rootMessages.sort(compareChannelRootMessagesByActivity);
+    rootMessages.sort((a, b) => {
+        const result = compareChannelRootMessagesByActivity(a, b);
+        const latestFirst = typeof isChannelThreadActivitySortEnabled === 'function'
+            && isChannelThreadActivitySortEnabled();
+        return latestFirst ? -result : result;
+    });
     Object.values(childrenByParent).forEach((items) => {
         items.sort(compareChannelMessagesByChronology);
     });
@@ -14237,12 +14353,19 @@ function loadOlderMessages() {
                 const prevHeight = scrollContainer ? scrollContainer.scrollHeight : 0;
                 const prevScroll = scrollContainer ? scrollContainer.scrollTop : 0;
 
-                // Insert older messages after the banner (or at the top)
+                // Insert older messages at the natural history edge for the current sort mode.
                 const fragment = document.createElement('div');
                 fragment.innerHTML = html;
-                const insertRef = banner ? banner.nextSibling : messagesContainer.firstChild;
-                while (fragment.firstChild) {
-                    messagesContainer.insertBefore(fragment.firstChild, insertRef);
+                if (isChannelThreadActivitySortEnabled()) {
+                    const insertBefore = banner || null;
+                    while (fragment.firstChild) {
+                        messagesContainer.insertBefore(fragment.firstChild, insertBefore);
+                    }
+                } else {
+                    const insertRef = banner ? banner.nextSibling : messagesContainer.firstChild;
+                    while (fragment.firstChild) {
+                        messagesContainer.insertBefore(fragment.firstChild, insertRef);
+                    }
                 }
 
                 // Restore scroll position so the view doesn't jump
@@ -14260,7 +14383,7 @@ function loadOlderMessages() {
                     </button>`;
                 }
 
-                formatTimestamps();
+                formatTimestamps(messagesContainer);
                 if (window.applyInlineTaskAvatars) {
                     window.applyInlineTaskAvatars(messagesContainer);
                 }
@@ -17242,6 +17365,7 @@ function bindChannelComposerDraftPersistence() {
 let channelSelectionContext = null;
 let channelSelectionDockTimer = null;
 let channelSelectionDockInteracting = false;
+let channelSelectionPointerSelecting = false;
 let channelSelectionKeepAliveUntil = 0;
 let channelSelectionAnchorLayer = null;
 const CHANNEL_SELECTION_MATCH_STORAGE_KEY = 'canopy.channel.selectionMatchHighlights.v1';
@@ -17490,9 +17614,19 @@ function applyChannelSelectionHighlights(text) {
 
 function scheduleChannelSelectionHighlights(text) {
     clearTimeout(channelSelectionHighlightTimer);
+    const expectedNeedle = normalizeChannelSelectionNeedle(text);
+    if (expectedNeedle.length < 2) return;
     channelSelectionHighlightTimer = setTimeout(() => {
-        applyChannelSelectionHighlights(text);
-    }, 110);
+        if (channelSelectionPointerSelecting) {
+            scheduleChannelSelectionHighlights(text);
+            return;
+        }
+        const ctx = getChannelSelectionContextFromWindow();
+        if (!ctx || normalizeChannelSelectionNeedle(ctx.text) !== expectedNeedle) {
+            return;
+        }
+        applyChannelSelectionHighlights(ctx.text);
+    }, 420);
 }
 
 function getUsefulSelectionRects(range) {
@@ -17671,6 +17805,11 @@ function positionChannelSelectionDock(ctx) {
 }
 
 function syncChannelSelectionDock() {
+    if (channelSelectionPointerSelecting) {
+        setChannelSelectionDockVisible(false);
+        clearChannelSelectionAnchor();
+        return;
+    }
     const ctx = getChannelSelectionContextFromWindow();
     if (!ctx) {
         if (channelSelectionHighlightMarks.length && Date.now() < channelSelectionPreserveHighlightsUntil) {
@@ -17692,6 +17831,31 @@ function syncChannelSelectionDock() {
 function scheduleChannelSelectionDockSync() {
     clearTimeout(channelSelectionDockTimer);
     channelSelectionDockTimer = setTimeout(syncChannelSelectionDock, 80);
+}
+
+function isChannelSelectionGestureTarget(target) {
+    if (!(target instanceof Element)) return false;
+    if (target.closest('#channel-selection-dock, textarea, input, select, button, a, [contenteditable="true"]')) {
+        return false;
+    }
+    return !!target.closest('#messages-list .message-content');
+}
+
+function beginChannelSelectionGesture(event) {
+    const target = event && event.target instanceof Element ? event.target : null;
+    if (!isChannelSelectionGestureTarget(target)) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    channelSelectionPointerSelecting = true;
+    clearTimeout(channelSelectionDockTimer);
+    clearTimeout(channelSelectionHighlightTimer);
+    setChannelSelectionDockVisible(false);
+    clearChannelSelectionAnchor();
+}
+
+function endChannelSelectionGesture() {
+    if (!channelSelectionPointerSelecting) return;
+    channelSelectionPointerSelecting = false;
+    window.setTimeout(scheduleChannelSelectionDockSync, 80);
 }
 
 function formatChannelSelectionQuote(text) {
@@ -17733,9 +17897,6 @@ function buildChannelSelectionInsertion(action, ctx) {
     }
     if (action === 'canopy') {
         return `@Canopy Use this selected context while drafting the next message:\n${quote}\n\n`;
-    }
-    if (action === 'reply') {
-        return `${quote}\n\n`;
     }
     return ctx.text;
 }
@@ -17797,6 +17958,11 @@ async function handleChannelSelectionDockAction(action) {
     }
     if (action === 'reply' && ctx.messageId && typeof setReplyTo === 'function') {
         setReplyTo(ctx.messageId, ctx.author || 'author', ctx.text.slice(0, 120));
+        if (typeof showAlert === 'function') {
+            showAlert('Reply target set. Type your response or use Quote to paste the selected text.', 'success');
+        }
+        hideChannelSelectionDock({ clearSelection: true });
+        return;
     }
     const inserted = insertTextIntoChannelComposer(buildChannelSelectionInsertion(action, ctx), {
         expand: action === 'canopy' || ctx.text.length > 360,
@@ -17829,11 +17995,16 @@ function setupChannelSelectionDock() {
         handleChannelSelectionDockAction(actionButton.getAttribute('data-selection-action') || '');
     });
     document.addEventListener('selectionchange', scheduleChannelSelectionDockSync);
+    document.addEventListener('pointerdown', beginChannelSelectionGesture, true);
+    document.addEventListener('pointerup', endChannelSelectionGesture, true);
+    document.addEventListener('pointercancel', endChannelSelectionGesture, true);
     document.addEventListener('pointerdown', (event) => {
         if (!channelSelectionHighlightMarks.length) return;
+        if (channelSelectionPointerSelecting) return;
         const target = event.target instanceof Element ? event.target : null;
-        if (target && target.closest('#channel-selection-dock, .channel-selection-match')) return;
-        hideChannelSelectionDock({ clearSelection: true });
+        if (target && target.closest('#channel-selection-dock')) return;
+        clearChannelSelectionHighlights();
+        hideChannelSelectionDock({ preserveContext: true });
     }, true);
     document.addEventListener('keydown', (event) => {
         if (event.key !== 'F3' || isSearchActive || !channelSelectionHighlightMarks.length) return;
@@ -17847,8 +18018,14 @@ function setupChannelSelectionDock() {
         }
         scheduleChannelSelectionDockSync();
     });
-    document.addEventListener('mouseup', scheduleChannelSelectionDockSync);
-    document.addEventListener('touchend', scheduleChannelSelectionDockSync, { passive: true });
+    document.addEventListener('mouseup', () => {
+        endChannelSelectionGesture();
+        scheduleChannelSelectionDockSync();
+    });
+    document.addEventListener('touchend', () => {
+        endChannelSelectionGesture();
+        scheduleChannelSelectionDockSync();
+    }, { passive: true });
     window.addEventListener('resize', () => {
         if (channelSelectionContext) scheduleChannelSelectionDockSync();
     });
@@ -20811,8 +20988,9 @@ function formatTimestamp(timestamp) {
     return date.toLocaleString();
 }
 
-function formatTimestamps() {
-    document.querySelectorAll('[data-timestamp]').forEach(el => {
+function formatTimestamps(scope) {
+    const root = scope && typeof scope.querySelectorAll === 'function' ? scope : document;
+    root.querySelectorAll('[data-timestamp]').forEach(el => {
         const timestamp = el.getAttribute('data-timestamp');
         if (timestamp) {
             el.textContent = formatTimestamp(timestamp);
@@ -21461,8 +21639,10 @@ document.addEventListener('DOMContentLoaded', function() {
         loadChannelOrgState();
         loadChannelHumanThreadFilterState();
         loadChannelUnreadThreadFilterState();
+        loadChannelThreadActivitySortState();
         updateChannelHumanThreadFilterUI();
         updateChannelUnreadThreadFilterUI();
+        updateChannelThreadActivitySortUI();
         updateChannelHumanThreadFilterBanner();
         bindChannelItemHandlers();
         bindChannelQuickActionHandlers();
@@ -21474,7 +21654,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 	        setupFileUpload();
 	        setupChannelPasteHandler();
-	        formatTimestamps();
+	        formatTimestamps(document);
 	        handleChannelExpiryChange();
             setupEmojiPicker();
             setupChannelSelectionDock();
