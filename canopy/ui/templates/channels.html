@@ -15309,6 +15309,12 @@ function isSpreadsheetPreviewable(filename, contentType) {
         : false;
 }
 
+function isPdfPreviewable(filename, contentType) {
+    return typeof canopyIsPdfPreviewable === 'function'
+        ? canopyIsPdfPreviewable(filename, contentType)
+        : String(filename || '').toLowerCase().endsWith('.pdf') || String(contentType || '').toLowerCase() === 'application/pdf';
+}
+
 function isDocumentPreviewable(filename, contentType) {
     return typeof canopyIsDocumentPreviewable === 'function'
         ? canopyIsDocumentPreviewable(filename, contentType)
@@ -16115,18 +16121,23 @@ function displayAttachments(attachments, sourceLayout) {
         const escapedUrl = hasUrl ? String(att.url).replace(/"/g, '&quot;').replace(/'/g, "\\'") : '';
         const attachmentFileId = String(att.id || att.file_id || '').trim() || ((hasUrl && /^\/files\/([^/?#]+)/.test(att.url)) ? String(att.url).match(/^\/files\/([^/?#]+)/)[1] : '');
         const spreadsheetPreview = isSpreadsheetPreviewable(att.name, att.type);
+        const pdfPreview = isPdfPreviewable(att.name, att.type);
         const documentPreview = isDocumentPreviewable(att.name, att.type);
-        const previewable = attachmentFileId && (isTextPreviewable(att.name, att.type) || spreadsheetPreview || documentPreview);
+        const previewable = attachmentFileId && (isTextPreviewable(att.name, att.type) || spreadsheetPreview || pdfPreview || documentPreview);
         const previewLabels = typeof canopyAttachmentPreviewLabels === 'function'
             ? canopyAttachmentPreviewLabels(att.name, att.type)
             : { collapsed: 'Preview', expanded: 'Collapse' };
         const infoBadges = [];
         if (spreadsheetPreview) infoBadges.push('<span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>');
+        if (pdfPreview) infoBadges.push('<span class="badge rounded-pill text-bg-danger">PDF</span>');
         if (documentPreview) infoBadges.push('<span class="badge rounded-pill text-bg-secondary">Document</span>');
         if (String(att.name || '').toLowerCase().match(/\.(xlsm|docm|pptm)$/)) infoBadges.push('<span class="badge rounded-pill text-bg-warning">Macros disabled</span>');
         if (previewable) {
             const previewId = 'file-preview-' + (++_previewIdCounter);
-            const previewBtn = hasUrl ? `<button type="button" class="btn btn-sm btn-outline-secondary me-1" data-preview-toggle="${previewId}" data-preview-label="${previewLabels.collapsed}" data-preview-expanded-label="${previewLabels.expanded}" onclick="toggleAttachmentPreview('${previewId}', '/ajax/files/${encodeURIComponent(attachmentFileId)}/preview')"><i class="bi bi-eye me-1"></i><span class="preview-label">${previewLabels.collapsed}</span></button>` : '';
+            const pdfPreviewAttrs = pdfPreview
+                ? ` data-pdf-preview-url="${_escapeAttr(att.url || '')}" data-pdf-preview-name="${_escapeAttr(att.name || 'PDF document')}" onclick="togglePdfAttachmentPreview('${previewId}', this.dataset.pdfPreviewUrl, this.dataset.pdfPreviewName)"`
+                : ` onclick="toggleAttachmentPreview('${previewId}', '/ajax/files/${encodeURIComponent(attachmentFileId)}/preview')"`;
+            const previewBtn = hasUrl ? `<button type="button" class="btn btn-sm btn-outline-secondary me-1" data-preview-toggle="${previewId}" data-preview-label="${previewLabels.collapsed}" data-preview-expanded-label="${previewLabels.expanded}"${pdfPreviewAttrs}><i class="bi bi-eye me-1"></i><span class="preview-label">${previewLabels.collapsed}</span></button>` : '';
 	            const downloadBtn = hasUrl ? `
 	                <div class="d-flex align-items-center gap-2">
 	                    ${buildSaveToVaultButton(att)}

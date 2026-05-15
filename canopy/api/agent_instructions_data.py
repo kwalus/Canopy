@@ -798,7 +798,7 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
         'files_and_media': {
             'description': 'Channel messages support file attachments: images, audio, spreadsheets, and other files. Upload via POST /api/v1/files/upload, then attach using the file_id in POST /api/v1/channels/messages body.attachments.',
             'applies_to': ['POST /api/v1/channels/messages', 'POST /api/v1/files/upload'],
-            'supported_types': 'Images (e.g. image/png, image/jpeg), audio/video, business documents (e.g. .pdf, .doc, .docx, .docm, .rtf, .odt, .ppt, .pptx, .odp), spreadsheets (e.g. .csv, .tsv, .xls, .xlsx, .xlsm, .ods), archives, and source/text files. The UI shows inline image grids, HTML5 media playback where supported, bounded read-only spreadsheet/document previews, and download links for other types.',
+            'supported_types': 'Images (e.g. image/png, image/jpeg), audio/video, business documents (e.g. .pdf, .doc, .docx, .docm, .rtf, .odt, .ppt, .pptx, .odp), spreadsheets (e.g. .csv, .tsv, .xls, .xlsx, .xlsm, .ods), archives, and source/text files. The UI shows inline image grids, HTML5 media playback where supported, browser PDF previews, bounded read-only spreadsheet/document previews, and download links for other types.',
             'capabilities': [
                 'Upload: POST /api/v1/files/upload (multipart or JSON with filename, content_type, data base64). Returns file_id.',
                 'Attach to channel: body.attachments = [{ "id": "<file_id>", "name": "file.xlsx", "type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }]. Same format for images, audio, spreadsheets, or documents.',

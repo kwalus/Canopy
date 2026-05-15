@@ -9877,6 +9877,41 @@
             font-family: var(--canopy-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
         }
 
+        .file-preview-container.pdf-preview {
+            padding: 0;
+            background:
+                radial-gradient(circle at top right, color-mix(in srgb, #ef4444 10%, transparent), transparent 38%),
+                var(--canopy-bg-tertiary);
+            border: 1px solid color-mix(in srgb, var(--canopy-border, #334155) 82%, #ef4444 18%);
+            color: var(--canopy-text-primary);
+            overflow: hidden;
+        }
+
+        .pdf-preview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.7rem 0.85rem;
+            border-bottom: 1px solid color-mix(in srgb, var(--canopy-border, #334155) 84%, transparent);
+            background: color-mix(in srgb, var(--canopy-bg-card, #1e293b) 86%, transparent);
+        }
+
+        .pdf-preview-frame {
+            display: block;
+            width: 100%;
+            height: min(68vh, 720px);
+            min-height: 420px;
+            border: 0;
+            background: #111827;
+        }
+
+        .pdf-preview-fallback {
+            padding: 0.55rem 0.85rem;
+            border-top: 1px solid color-mix(in srgb, var(--canopy-border, #334155) 84%, transparent);
+            background: color-mix(in srgb, var(--canopy-bg-card, #1e293b) 84%, transparent);
+        }
+
         .file-preview-container.spreadsheet-preview,
         .canopy-inline-sheet {
             padding: 12px 14px;
@@ -10143,6 +10178,7 @@
         [data-theme="dark"] .file-preview-container.md-preview,
         [data-theme="dark"] .file-preview-container.code-preview,
         [data-theme="dark"] .file-preview-container.document-preview,
+        [data-theme="dark"] .file-preview-container.pdf-preview,
         [data-theme="dark"] .file-preview-container.spreadsheet-preview,
         [data-theme="dark"] .canopy-inline-sheet {
             background: color-mix(in srgb, var(--canopy-bg-card, #1e293b) 94%, var(--canopy-bg-tertiary, #1e1e32));
@@ -10181,13 +10217,24 @@
         }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-container.code-preview,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-container.document-preview,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-container.pdf-preview,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-container.spreadsheet-preview {
             background: #ffffff;
             border-color: var(--canopy-border);
             color: var(--canopy-text-primary);
         }
 
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .pdf-preview-header,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .pdf-preview-fallback {
+            background: #f8fafc;
+        }
+
         @media (max-width: 768px) {
+            .pdf-preview-frame {
+                height: 62vh;
+                min-height: 320px;
+            }
+
             .canopy-inline-sheet-header {
                 padding: 12px 12px 10px;
             }

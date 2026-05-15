@@ -5598,6 +5598,8 @@
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 'application/vnd.ms-excel.sheet.macroenabled.12'
             ]);
+            const CANOPY_PDF_PREVIEW_EXTENSIONS = ['.pdf'];
+            const CANOPY_PDF_PREVIEW_MIME_TYPES = new Set(['application/pdf']);
             const CANOPY_DOCUMENT_PREVIEW_EXTENSIONS = [
                 '.docx', '.docm', '.dotx', '.pptx', '.pptm', '.ppsx', '.potx', '.rtf', '.odt', '.odp'
             ];
@@ -5644,6 +5646,12 @@
                 return CANOPY_SPREADSHEET_PREVIEW_EXTENSIONS.includes(ext) || CANOPY_SPREADSHEET_PREVIEW_MIME_TYPES.has(type);
             }
 
+            function canopyIsPdfPreviewable(filename, contentType) {
+                const ext = canopyFileExtension(filename);
+                const type = String(contentType || '').toLowerCase();
+                return CANOPY_PDF_PREVIEW_EXTENSIONS.includes(ext) || CANOPY_PDF_PREVIEW_MIME_TYPES.has(type);
+            }
+
             function canopyIsDocumentPreviewable(filename, contentType) {
                 const ext = canopyFileExtension(filename);
                 const type = String(contentType || '').toLowerCase();
@@ -5653,6 +5661,7 @@
             function canopyIsTextPreviewable(filename, contentType) {
                 if (canopyIsModuleBundle(filename, contentType)) return false;
                 if (canopyIsSpreadsheetPreviewable(filename, contentType)) return false;
+                if (canopyIsPdfPreviewable(filename, contentType)) return false;
                 if (canopyIsDocumentPreviewable(filename, contentType)) return false;
                 const ext = canopyFileExtension(filename);
                 const type = String(contentType || '').toLowerCase();
@@ -5789,6 +5798,59 @@
                 return `<div class="file-preview-container code-preview"><pre><code>${escaped}</code></pre></div>`;
             }
 
+            function canopySafePdfPreviewUrl(fileUrl) {
+                const raw = String(fileUrl || '').trim();
+                if (!raw) return '';
+                try {
+                    const url = new URL(raw, window.location.origin);
+                    if (url.origin !== window.location.origin) return '';
+                    if (!url.pathname.startsWith('/files/')) return '';
+                    return raw;
+                } catch (_) {
+                    return raw.startsWith('/files/') ? raw : '';
+                }
+            }
+
+            function canopyPdfViewerUrl(fileUrl) {
+                const raw = canopySafePdfPreviewUrl(fileUrl);
+                if (!raw) return '';
+                if (raw.includes('#')) return raw;
+                return `${raw}#toolbar=1&navpanes=0&view=FitH`;
+            }
+
+            function renderPdfAttachmentPreviewHtml(fileUrl, filename) {
+                const viewerUrl = canopyPdfViewerUrl(fileUrl);
+                if (!viewerUrl) {
+                    return `
+                        <div class="file-preview-container pdf-preview">
+                            <div class="text-warning small">
+                                <i class="bi bi-shield-lock me-1"></i>PDF preview is only available for local Canopy file links.
+                            </div>
+                        </div>
+                    `;
+                }
+                const escapedUrl = _escapeAttr(viewerUrl);
+                const downloadUrl = _escapeAttr(String(fileUrl || ''));
+                const label = _escapeHtml(String(filename || 'PDF document'));
+                return `
+                    <div class="file-preview-container pdf-preview">
+                        <div class="pdf-preview-header">
+                            <div>
+                                <div class="small fw-semibold"><i class="bi bi-file-pdf me-1"></i>PDF preview</div>
+                                <div class="small text-muted">${label}</div>
+                            </div>
+                            <a href="${downloadUrl}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-box-arrow-up-right me-1"></i>Open
+                            </a>
+                        </div>
+                        <iframe class="pdf-preview-frame" src="${escapedUrl}" title="PDF preview: ${_escapeAttr(filename || 'document')}" loading="lazy"></iframe>
+                        <div class="pdf-preview-fallback small text-muted">
+                            If your browser does not display the PDF inline, use Open or Download.
+                        </div>
+                    </div>
+                `;
+            }
+
             function setAttachmentPreviewToggleState(previewId, expanded) {
                 const btn = document.querySelector(`[data-preview-toggle="${previewId}"]`);
                 if (!btn) return;
@@ -5800,6 +5862,9 @@
             }
 
             function canopyAttachmentPreviewLabels(filename, contentType) {
+                if (canopyIsPdfPreviewable(filename, contentType)) {
+                    return { collapsed: 'Open PDF', expanded: 'Hide PDF' };
+                }
                 if (canopyIsSpreadsheetPreviewable(filename, contentType)) {
                     return { collapsed: 'Open sheet', expanded: 'Hide sheet' };
                 }
@@ -5848,10 +5913,30 @@
                     });
             }
 
+            function togglePdfAttachmentPreview(previewId, fileUrl, filename) {
+                const wrapper = document.getElementById(previewId);
+                if (!wrapper) return;
+
+                if (wrapper.style.display !== 'none') {
+                    wrapper.style.display = 'none';
+                    setAttachmentPreviewToggleState(previewId, false);
+                    return;
+                }
+
+                wrapper.style.display = 'block';
+                setAttachmentPreviewToggleState(previewId, true);
+
+                if (wrapper.dataset.loaded === 'true') return;
+                wrapper.dataset.loaded = 'true';
+                wrapper.innerHTML = renderPdfAttachmentPreviewHtml(fileUrl, filename);
+            }
+
             if (typeof window !== 'undefined') {
                 window.toggleAttachmentPreview = toggleAttachmentPreview;
+                window.togglePdfAttachmentPreview = togglePdfAttachmentPreview;
                 window.switchSpreadsheetPreviewSheet = switchSpreadsheetPreviewSheet;
                 window.canopyIsSpreadsheetPreviewable = canopyIsSpreadsheetPreviewable;
+                window.canopyIsPdfPreviewable = canopyIsPdfPreviewable;
                 window.canopyIsDocumentPreviewable = canopyIsDocumentPreviewable;
                 window.canopyIsTextPreviewable = canopyIsTextPreviewable;
                 window.canopyIsMarkdownPreviewable = canopyIsMarkdownPreviewable;

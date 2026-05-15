@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.120] - 2026-05-15
+
+### Changed
+- **PDF attachments can preview inline on demand** - channel, feed, and DM attachment cards now show PDF badges and lazy `Open PDF` / `Hide PDF` previews that use the existing authenticated `/files/...` route.
+- **PDF previews stay local and bounded** - preview iframes are only created after user action, are constrained by responsive preview styling, and only render same-origin Canopy file links.
+- **Agent file guidance mentions PDF previews** - agent-facing instructions now describe browser PDF previews alongside existing media, document, spreadsheet, and download behavior.
+
 ## [0.6.119] - 2026-05-15
 
 ### Changed

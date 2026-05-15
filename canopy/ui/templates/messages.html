@@ -4155,8 +4155,9 @@
     function renderOptimisticDmAttachments(attachments) {
         const items = Array.isArray(attachments) ? attachments : [];
         if (!items.length) return '';
-        return `<div class="dm-attachment-list">${items.map((attachment) => {
-            const name = escapeHtml(String((attachment && attachment.name) || 'Attachment'));
+        return `<div class="dm-attachment-list">${items.map((attachment, index) => {
+            const rawName = String((attachment && attachment.name) || 'Attachment');
+            const name = escapeHtml(rawName);
             const url = String((attachment && attachment.url) || '').trim();
             const type = escapeHtml(String((attachment && attachment.type) || 'file'));
             const rawType = String((attachment && attachment.type) || '').trim().toLowerCase();
@@ -4164,6 +4165,7 @@
             const sizeLabel = Number.isFinite(size) && size > 0 ? ` • ${escapeHtml((size / 1024 / 1024 >= 1 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`))}` : '';
             const download = url ? `<a href="${dmEscapeAttr(url)}" class="btn btn-sm btn-outline-primary" download="${dmEscapeAttr(name)}"><i class="bi bi-download"></i></a>` : '';
             let mediaHtml = '';
+            const isPdf = rawType === 'application/pdf' || rawName.toLowerCase().endsWith('.pdf');
             if (url && rawType.startsWith('audio/')) {
                 mediaHtml = `
                     <audio controls preload="metadata" class="w-100 mt-2">
@@ -4175,6 +4177,21 @@
                     <video controls preload="metadata" playsinline class="w-100 mt-2" style="max-width:100%;border-radius:12px;background:#000;">
                         <source src="${dmEscapeAttr(url)}" type="${dmEscapeAttr(rawType || 'video/mp4')}">
                     </video>
+                `;
+            } else if (url && isPdf) {
+                const previewId = `dm-optimistic-pdf-${Date.now()}-${index}`;
+                mediaHtml = `
+                    <button type="button"
+                            class="btn btn-sm btn-outline-secondary mt-2"
+                            data-preview-toggle="${dmEscapeAttr(previewId)}"
+                            data-preview-label="Open PDF"
+                            data-preview-expanded-label="Hide PDF"
+                            data-pdf-preview-url="${dmEscapeAttr(url)}"
+                            data-pdf-preview-name="${dmEscapeAttr(rawName)}"
+                            onclick="togglePdfAttachmentPreview('${dmEscapeAttr(previewId)}', this.dataset.pdfPreviewUrl, this.dataset.pdfPreviewName)">
+                        <i class="bi bi-eye"></i> <span class="preview-label">Open PDF</span>
+                    </button>
+                    <div id="${dmEscapeAttr(previewId)}" class="file-preview-wrapper mt-2" style="display:none;"></div>
                 `;
             }
             return `

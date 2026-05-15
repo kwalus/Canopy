@@ -983,6 +983,7 @@ class TestFrontendRegressions(unittest.TestCase):
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
         messages_composer = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_composer.html').read_text(encoding='utf-8')
+        messages_macros = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
@@ -994,6 +995,20 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function canopyIsDocumentPreviewable', main_js)
         self.assertIn("payload.kind === 'document'", main_js)
         self.assertIn('.file-preview-container.document-preview', base_template)
+        self.assertIn('function canopyIsPdfPreviewable', main_js)
+        self.assertIn('function canopySafePdfPreviewUrl', main_js)
+        self.assertIn("if (!url.pathname.startsWith('/files/')) return '';", main_js)
+        self.assertIn('function togglePdfAttachmentPreview', main_js)
+        self.assertIn('window.togglePdfAttachmentPreview = togglePdfAttachmentPreview;', main_js)
+        self.assertIn('window.canopyIsPdfPreviewable = canopyIsPdfPreviewable;', main_js)
+        self.assertIn('class="file-preview-container pdf-preview"', main_js)
+        self.assertIn('.file-preview-container.pdf-preview', base_template)
+        self.assertIn('pdf-preview-frame', base_template)
+        self.assertIn('togglePdfAttachmentPreview', feed_template)
+        self.assertIn('togglePdfAttachmentPreview', channels_template)
+        self.assertIn('togglePdfAttachmentPreview', messages_template)
+        self.assertIn('togglePdfAttachmentPreview', messages_macros)
+        self.assertIn('browser PDF previews', (ROOT / 'canopy' / 'api' / 'agent_instructions_data.py').read_text(encoding='utf-8'))
 
     def test_sidebar_toggle_aria_label_is_updated_per_state(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -2738,7 +2753,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.119', api_ref)
+        self.assertIn('0.6.120', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
