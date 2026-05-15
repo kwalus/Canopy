@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.131] - 2026-05-15
+
+### Fixed
+- **File Vault cards render again after the preview hotfix** - the local `/files/<id>` URL helper now lives in the shared Vault scope used by card rendering, preventing a `vaultFileUrl is not defined` error from blanking the file grid.
+
 ## [0.6.130] - 2026-05-15
 
 ### Fixed

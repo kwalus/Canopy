@@ -1728,6 +1728,20 @@
 	                return String(file && (file.id || file.file_id || file.vault_file_id) || '').trim();
 	            }
 
+	            function vaultFileUrl(file) {
+	                const id = vaultFileId(file);
+	                if (id) return `/files/${encodeURIComponent(id)}`;
+	                const raw = String(file && file.url || '').trim();
+	                if (!raw) return '';
+	                try {
+	                    const parsed = new URL(raw, global.location.origin);
+	                    if (parsed.origin === global.location.origin) {
+	                        return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+	                    }
+	                } catch (_) {}
+	                return '';
+	            }
+
 	            function renderVaultPageCard(file, selected = false) {
 	                const rawId = vaultFileId(file);
 	                const id = vaultEscape(rawId);
@@ -1837,20 +1851,6 @@
 	                const inlinePreviewOpen = document.getElementById('vault-inline-preview-open');
 	                const inlinePreviewDownload = document.getElementById('vault-inline-preview-download');
 	                const inlinePreviewClose = document.getElementById('vault-inline-preview-close');
-
-	                function vaultFileUrl(file) {
-	                    const id = vaultFileId(file);
-	                    if (id) return `/files/${encodeURIComponent(id)}`;
-	                    const raw = String(file && file.url || '').trim();
-	                    if (!raw) return '';
-	                    try {
-	                        const parsed = new URL(raw, global.location.origin);
-	                        if (parsed.origin === global.location.origin) {
-	                            return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-	                        }
-	                    } catch (_) {}
-	                    return '';
-	                }
 
 	                function vaultFileName(file) {
 	                    return String(file && (file.name || file.filename || file.original_name || file.id) || 'Vault file');
