@@ -6302,6 +6302,90 @@
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
         }
 
+        function initFeedSelectionTools() {
+            if (!window.CanopySelectionDock) return;
+            window.CanopySelectionDock.initSurface({
+                surface: 'feed',
+                rootSelector: '#posts-container',
+                contentSelector: '.post-content, .comment-content',
+                itemSelector: '.post-card[data-post-id]',
+                composerSelector: '#postContent',
+                dockId: 'feed-selection-dock',
+                storageKey: 'canopy.feed.selectionMatchHighlights.v1',
+                surfaceLabel: 'Feed',
+                eyebrow: 'Feed selection',
+                replyLabel: 'Comment',
+                hashPrefix: 'post',
+                getContextMeta(postEl, contentEl) {
+                    const postId = postEl.getAttribute('data-post-id') || '';
+                    const commentEl = contentEl.closest('.comment-item');
+                    const authorEl = commentEl
+                        ? commentEl.querySelector('.comment-username')
+                        : postEl.querySelector('[data-user-display]');
+                    const timestampEl = commentEl
+                        ? commentEl.querySelector('[data-timestamp]')
+                        : postEl.querySelector('[data-timestamp]');
+                    const author = (authorEl && authorEl.textContent.trim()) || 'Feed participant';
+                    const surfaceLabel = commentEl ? 'Feed comment' : 'Feed post';
+                    return {
+                        sourceId: postId,
+                        postId,
+                        author,
+                        surfaceLabel,
+                        createdAt: timestampEl ? (timestampEl.getAttribute('data-timestamp') || timestampEl.textContent.trim()) : '',
+                        sourceLabel: `${author} on ${surfaceLabel}`,
+                    };
+                },
+                buildSourceUrl(ctx) {
+                    if (!ctx || !ctx.postId) return '';
+                    try {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set('post', ctx.postId);
+                        url.hash = `post-${ctx.postId}`;
+                        return url.toString();
+                    } catch (_) {
+                        return '';
+                    }
+                },
+                buildContextBlock(ctx, quote, helpers) {
+                    const sourceUrl = helpers.buildSourceUrl(ctx);
+                    const sourceLines = [
+                        `- Surface: ${ctx.surfaceLabel || 'Feed post'}`,
+                        `- Author: ${ctx.author || 'unknown'}`,
+                        ctx.createdAt ? `- Posted: ${ctx.createdAt}` : '',
+                        ctx.postId ? `- Post ID: ${ctx.postId}` : '',
+                        sourceUrl ? `- Source link: ${sourceUrl}` : '',
+                    ].filter(Boolean).join('\n');
+                    return `Context from ${ctx.sourceLabel}:\n${sourceLines}\n\nSelected text:\n${quote}\n\n`;
+                },
+                onReply(ctx, helpers) {
+                    const postId = ctx && ctx.postId;
+                    if (!postId) return false;
+                    const commentsSection = document.getElementById(`comments-${postId}`);
+                    if (commentsSection && commentsSection.style.display === 'none' && typeof toggleComments === 'function') {
+                        toggleComments(postId);
+                    }
+                    const input = document.getElementById(`comment-input-${postId}`);
+                    if (!input) return false;
+                    const compact = helpers.normalizeSelectedText(ctx.text).replace(/\s+/g, ' ').slice(0, 240);
+                    helpers.insertIntoTextarea(input, `Re: "${compact}" — `, { singleLine: true });
+                    if (typeof showAlert === 'function') {
+                        showAlert('Comment reply started with the selected feed text.', 'success');
+                    }
+                    return true;
+                },
+                afterInsert({ text, action, textarea }) {
+                    if (!textarea) return;
+                    if (text.length > 360 || (text.match(/\n/g) || []).length >= 4 || action === 'canopy') {
+                        setFeedDraftExpanded(true);
+                    }
+                    syncFeedComposerLayout({ forceExpand: true });
+                    saveFeedComposerDraft();
+                    notifyFeedComposerUpdate();
+                },
+            });
+        }
+
         function getFeedToolLabel(toolType) {
             const support = window.canopyStructuredComposer;
             if (support && support.labels && support.labels[toolType]) {
@@ -8949,7 +9033,8 @@
             window.addEventListener('resize', scheduleFeedComposerSync);
 	        focusPostFromQuery();
 	        handleExpiryChange();
-	        updateExpiryBadges();
+            updateExpiryBadges();
+            initFeedSelectionTools();
             // Dropdown stacking fallback for browsers where :has() support is
             // partial/inconsistent.
             document.addEventListener('shown.bs.dropdown', (event) => {

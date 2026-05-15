@@ -87,6 +87,830 @@
             }, 5000);
 	        }
 
+        (function initCanopySelectionDockModule(global) {
+            if (!global || global.CanopySelectionDock) return;
+
+            const surfaces = new Map();
+            const DEFAULT_MATCH_LIMIT = 250;
+
+            function escapeHtml(value) {
+                const div = document.createElement('div');
+                div.textContent = value == null ? '' : String(value);
+                return div.innerHTML;
+            }
+
+            function normalizeSelectedText(text) {
+                return String(text || '')
+                    .replace(/\u00a0/g, ' ')
+                    .replace(/[ \t]+\n/g, '\n')
+                    .replace(/\n{4,}/g, '\n\n\n')
+                    .trim();
+            }
+
+            function normalizeNeedle(text) {
+                return normalizeSelectedText(text).replace(/\s+/g, ' ').trim();
+            }
+
+            function getElementFromSelectionNode(node) {
+                if (!node) return null;
+                return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+            }
+
+            function getActiveSelectionRange() {
+                const selection = global.getSelection ? global.getSelection() : null;
+                if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+                try {
+                    return selection.getRangeAt(0);
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            function textNodeIntersectsRange(textNode, range) {
+                if (!textNode || !range || typeof document.createRange !== 'function') return false;
+                const nodeRange = document.createRange();
+                try {
+                    nodeRange.selectNodeContents(textNode);
+                    return (
+                        range.compareBoundaryPoints(Range.END_TO_START, nodeRange) > 0 &&
+                        range.compareBoundaryPoints(Range.START_TO_END, nodeRange) < 0
+                    );
+                } catch (_) {
+                    return false;
+                } finally {
+                    if (typeof nodeRange.detach === 'function') {
+                        nodeRange.detach();
+                    }
+                }
+            }
+
+            function getUsefulSelectionRects(range) {
+                if (!range) return [];
+                const rects = Array.from(range.getClientRects ? range.getClientRects() : [])
+                    .filter(rect => rect && rect.width > 0 && rect.height > 0)
+                    .map(rect => ({
+                        left: rect.left,
+                        top: rect.top,
+                        right: rect.right,
+                        bottom: rect.bottom,
+                        width: rect.width,
+                        height: rect.height,
+                    }));
+                if (rects.length) return rects;
+                const rect = range.getBoundingClientRect ? range.getBoundingClientRect() : null;
+                return rect && rect.width > 0 && rect.height > 0
+                    ? [{
+                        left: rect.left,
+                        top: rect.top,
+                        right: rect.right,
+                        bottom: rect.bottom,
+                        width: rect.width,
+                        height: rect.height,
+                    }]
+                    : [];
+            }
+
+            function getSelectionRectUnion(rects) {
+                const safeRects = Array.isArray(rects) ? rects.filter(rect => rect && rect.width > 0 && rect.height > 0) : [];
+                if (!safeRects.length) return null;
+                const left = Math.min(...safeRects.map(rect => rect.left));
+                const top = Math.min(...safeRects.map(rect => rect.top));
+                const right = Math.max(...safeRects.map(rect => rect.right));
+                const bottom = Math.max(...safeRects.map(rect => rect.bottom));
+                return { left, top, right, bottom, width: right - left, height: bottom - top };
+            }
+
+            function formatQuote(text) {
+                return normalizeSelectedText(text)
+                    .split(/\r\n|\r|\n/)
+                    .map(line => `> ${line}`)
+                    .join('\n');
+            }
+
+            function copyText(text) {
+                const normalized = normalizeSelectedText(text);
+                if (!normalized) return Promise.resolve(false);
+                if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                    return navigator.clipboard.writeText(normalized).then(() => true);
+                }
+                const tmp = document.createElement('textarea');
+                tmp.value = normalized;
+                tmp.setAttribute('readonly', 'readonly');
+                tmp.style.position = 'fixed';
+                tmp.style.left = '-9999px';
+                document.body.appendChild(tmp);
+                tmp.select();
+                let ok = false;
+                try {
+                    ok = document.execCommand('copy');
+                } catch (_) {
+                    ok = false;
+                }
+                tmp.remove();
+                return Promise.resolve(ok);
+            }
+
+            function insertIntoTextarea(textarea, text, opts = {}) {
+                if (!textarea || !text) return false;
+                const value = String(textarea.value || '');
+                const start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : value.length;
+                const end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : start;
+                const before = value.slice(0, start);
+                const after = value.slice(end);
+                const multilineCapable = textarea.tagName === 'TEXTAREA';
+                let insert = String(text || '');
+                if (!multilineCapable && opts.singleLine !== false) {
+                    insert = insert.replace(/\s+/g, ' ');
+                } else {
+                    const prefix = before ? (/\n\n$/.test(before) ? '' : (/\n$/.test(before) ? '\n' : '\n\n')) : '';
+                    const suffix = after ? (/^\n/.test(after) ? '' : '\n\n') : '';
+                    insert = `${prefix}${insert}${suffix}`;
+                }
+                textarea.value = before + insert + after;
+                const cursor = before.length + insert.length;
+                textarea.focus();
+                try {
+                    textarea.setSelectionRange(cursor, cursor);
+                } catch (_) {}
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                return true;
+            }
+
+            function ensureDock(config) {
+                const dockId = config.dockId || `canopy-selection-dock-${config.surface || 'surface'}`;
+                let dock = document.getElementById(dockId);
+                if (dock) return dock;
+                dock = document.createElement('div');
+                dock.id = dockId;
+                dock.className = `canopy-selection-dock canopy-selection-dock-${config.surface || 'surface'}`;
+                dock.setAttribute('aria-hidden', 'true');
+                dock.setAttribute('role', 'toolbar');
+                dock.setAttribute('aria-label', config.ariaLabel || 'Selected text actions');
+                const replyButton = config.enableReply === false ? '' : `
+                    <button type="button" class="canopy-selection-dock-btn" data-canopy-selection-action="reply">
+                        <i class="bi bi-reply"></i><span>${escapeHtml(config.replyLabel || 'Reply')}</span>
+                    </button>`;
+                dock.innerHTML = `
+                    <div class="canopy-selection-dock-shell">
+                        <div class="canopy-selection-dock-copy">
+                            <span class="canopy-selection-dock-eyebrow"><i class="bi bi-cursor-text"></i>${escapeHtml(config.eyebrow || 'Selected text')}</span>
+                            <div class="canopy-selection-dock-preview" data-canopy-selection-preview></div>
+                        </div>
+                        <div class="canopy-selection-dock-actions">
+                            <button type="button" class="canopy-selection-dock-btn" data-canopy-selection-action="quote">
+                                <i class="bi bi-quote"></i><span>Quote</span>
+                            </button>
+                            <button type="button" class="canopy-selection-dock-btn" data-canopy-selection-action="context">
+                                <i class="bi bi-card-text"></i><span>Context</span>
+                            </button>
+                            <button type="button" class="canopy-selection-dock-btn primary" data-canopy-selection-action="canopy">
+                                <i class="bi bi-stars"></i><span>@Canopy</span>
+                            </button>
+                            ${replyButton}
+                            <button type="button" class="canopy-selection-dock-btn match-toggle" data-canopy-selection-action="matches" aria-pressed="true">
+                                <i class="bi bi-highlighter"></i><span>Matches</span><span class="canopy-selection-match-count" data-canopy-selection-match-count>0</span>
+                            </button>
+                            <button type="button" class="canopy-selection-dock-btn" data-canopy-selection-action="copy">
+                                <i class="bi bi-clipboard"></i><span>Copy</span>
+                            </button>
+                            <button type="button" class="canopy-selection-dock-btn canopy-selection-dock-close" data-canopy-selection-action="close" aria-label="Close selected text tools">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(dock);
+                return dock;
+            }
+
+            function initSurface(config) {
+                if (!config || !config.surface || !config.rootSelector || !config.contentSelector || !config.itemSelector) {
+                    return null;
+                }
+                if (surfaces.has(config.surface)) return surfaces.get(config.surface);
+
+                const firstRoot = document.querySelector(config.rootSelector);
+                if (!firstRoot) return null;
+
+                const state = {
+                    config,
+                    dock: ensureDock(config),
+                    context: null,
+                    timer: null,
+                    interacting: false,
+                    pointerSelecting: false,
+                    keepAliveUntil: 0,
+                    anchorLayer: null,
+                    highlightsEnabled: true,
+                    highlightMarks: [],
+                    highlightTimer: null,
+                    activeMatchIndex: -1,
+                    limitReached: false,
+                    preserveHighlightsUntil: 0,
+                    matchLimit: Number(config.matchLimit || DEFAULT_MATCH_LIMIT),
+                };
+
+                try {
+                    state.highlightsEnabled = localStorage.getItem(config.storageKey || `canopy.${config.surface}.selectionMatchHighlights.v1`) !== 'off';
+                } catch (_) {
+                    state.highlightsEnabled = true;
+                }
+
+                function getRoot() {
+                    return document.querySelector(config.rootSelector);
+                }
+
+                function getComposer() {
+                    return config.composerSelector ? document.querySelector(config.composerSelector) : null;
+                }
+
+                function setDockVisible(visible) {
+                    if (!state.dock) return;
+                    state.dock.classList.toggle('is-visible', !!visible);
+                    state.dock.setAttribute('aria-hidden', visible ? 'false' : 'true');
+                }
+
+                function clearAnchor() {
+                    if (state.anchorLayer) {
+                        state.anchorLayer.remove();
+                        state.anchorLayer = null;
+                    }
+                }
+
+                function renderAnchor(ctx) {
+                    clearAnchor();
+                    if (!ctx || !Array.isArray(ctx.rects) || !ctx.rects.length) return;
+                    const layer = document.createElement('div');
+                    layer.className = 'canopy-selection-anchor-layer';
+                    layer.setAttribute('aria-hidden', 'true');
+                    ctx.rects.slice(0, 18).forEach(rect => {
+                        if (!rect || rect.width <= 0 || rect.height <= 0) return;
+                        const el = document.createElement('span');
+                        el.className = 'canopy-selection-anchor-rect';
+                        el.style.left = `${Math.round(rect.left)}px`;
+                        el.style.top = `${Math.round(rect.top)}px`;
+                        el.style.width = `${Math.max(1, Math.round(rect.width))}px`;
+                        el.style.height = `${Math.max(1, Math.round(rect.height))}px`;
+                        layer.appendChild(el);
+                    });
+                    if (!layer.childNodes.length) return;
+                    document.body.appendChild(layer);
+                    state.anchorLayer = layer;
+                }
+
+                function updateMatchButtonState(count = state.highlightMarks.length) {
+                    const btn = state.dock.querySelector('[data-canopy-selection-action="matches"]');
+                    const countEl = state.dock.querySelector('[data-canopy-selection-match-count]');
+                    const label = state.limitReached && count >= state.matchLimit ? `${state.matchLimit}+` : String(count || 0);
+                    if (btn) {
+                        btn.classList.toggle('is-active', state.highlightsEnabled);
+                        btn.setAttribute('aria-pressed', state.highlightsEnabled ? 'true' : 'false');
+                        btn.setAttribute(
+                            'aria-label',
+                            state.highlightsEnabled
+                                ? `Matching selected text is on. ${label} visible matches highlighted. Click to jump to the next match.`
+                                : 'Matching selected text is off. Click to highlight visible matches.'
+                        );
+                        btn.title = state.highlightsEnabled
+                            ? 'Matching text is highlighted. Click to jump to the next match. Escape or click away to clear.'
+                            : 'Click to highlight visible matches for selected text.';
+                    }
+                    if (countEl) {
+                        countEl.textContent = state.highlightsEnabled ? label : 'off';
+                    }
+                }
+
+                function clearHighlights() {
+                    clearTimeout(state.highlightTimer);
+                    state.highlightTimer = null;
+                    state.limitReached = false;
+                    state.activeMatchIndex = -1;
+                    const root = getRoot();
+                    const fallbackMarks = root ? Array.from(root.querySelectorAll('.canopy-selection-match')) : [];
+                    const marks = state.highlightMarks.length ? state.highlightMarks : fallbackMarks;
+                    state.highlightMarks = [];
+                    marks.forEach(mark => {
+                        const parent = mark.parentNode;
+                        if (!parent) return;
+                        parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+                        parent.normalize();
+                    });
+                    updateMatchButtonState(0);
+                }
+
+                function hideDock(opts = {}) {
+                    if (!opts.preserveContext) {
+                        state.context = null;
+                    }
+                    clearTimeout(state.timer);
+                    state.timer = null;
+                    state.interacting = false;
+                    state.keepAliveUntil = 0;
+                    setDockVisible(false);
+                    clearAnchor();
+                    if (!opts.preserveHighlights) {
+                        clearHighlights();
+                    }
+                    if (opts.clearSelection && global.getSelection) {
+                        const selection = global.getSelection();
+                        if (selection && typeof selection.removeAllRanges === 'function') {
+                            selection.removeAllRanges();
+                        }
+                    }
+                }
+
+                function isHidden(el) {
+                    const root = getRoot();
+                    let current = el;
+                    while (current && current !== root && current.nodeType === Node.ELEMENT_NODE) {
+                        if (current.hidden || current.classList.contains('d-none') || current.getAttribute('aria-hidden') === 'true') {
+                            return true;
+                        }
+                        if (typeof global.getComputedStyle === 'function') {
+                            const style = global.getComputedStyle(current);
+                            if (style && (style.display === 'none' || style.visibility === 'hidden')) {
+                                return true;
+                            }
+                        }
+                        current = current.parentElement;
+                    }
+                    return false;
+                }
+
+                function setCurrentMatch(index, opts = {}) {
+                    if (!state.highlightMarks.length) {
+                        state.activeMatchIndex = -1;
+                        updateMatchButtonState(0);
+                        return;
+                    }
+                    const total = state.highlightMarks.length;
+                    const normalized = ((Number(index) || 0) % total + total) % total;
+                    state.highlightMarks.forEach(mark => mark.classList.remove('is-current'));
+                    state.activeMatchIndex = normalized;
+                    const target = state.highlightMarks[normalized];
+                    if (target) {
+                        target.classList.add('is-current');
+                        if (opts.scroll !== false) {
+                            try {
+                                target.scrollIntoView({ behavior: opts.behavior || 'smooth', block: 'center', inline: 'nearest' });
+                            } catch (_) {
+                                target.scrollIntoView();
+                            }
+                        }
+                    }
+                    updateMatchButtonState(total);
+                }
+
+                function navigateMatch(direction = 1) {
+                    if (!state.highlightMarks.length) return false;
+                    const step = Number(direction || 1) < 0 ? -1 : 1;
+                    const current = state.activeMatchIndex >= 0 ? state.activeMatchIndex : 0;
+                    setCurrentMatch(current + step, { scroll: true });
+                    return true;
+                }
+
+                function applyHighlights(text) {
+                    clearHighlights();
+                    if (!state.highlightsEnabled) return 0;
+
+                    const needle = normalizeNeedle(text);
+                    if (needle.length < 2 || needle.length > 160) return 0;
+                    const root = getRoot();
+                    if (!root) return 0;
+
+                    const activeRange = getActiveSelectionRange();
+                    const lowerNeedle = needle.toLocaleLowerCase();
+                    let limitReached = false;
+                    const contentNodes = Array.from(root.querySelectorAll(config.contentSelector));
+
+                    for (const contentEl of contentNodes) {
+                        if (limitReached) break;
+                        const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, {
+                            acceptNode(node) {
+                                const value = node.nodeValue || '';
+                                if (!value.trim()) return NodeFilter.FILTER_REJECT;
+                                const parentEl = node.parentElement;
+                                if (!parentEl) return NodeFilter.FILTER_REJECT;
+                                if (isHidden(parentEl)) return NodeFilter.FILTER_REJECT;
+                                if (parentEl.closest('.canopy-selection-dock, .canopy-selection-match, script, style, textarea, input, button, a, [contenteditable="true"]')) {
+                                    return NodeFilter.FILTER_REJECT;
+                                }
+                                if (activeRange && textNodeIntersectsRange(node, activeRange)) {
+                                    return NodeFilter.FILTER_REJECT;
+                                }
+                                return value.toLocaleLowerCase().includes(lowerNeedle)
+                                    ? NodeFilter.FILTER_ACCEPT
+                                    : NodeFilter.FILTER_REJECT;
+                            }
+                        });
+                        const textNodes = [];
+                        while (walker.nextNode()) {
+                            textNodes.push(walker.currentNode);
+                        }
+                        for (const textNode of textNodes) {
+                            if (limitReached) break;
+                            const rawText = textNode.nodeValue || '';
+                            const textLower = rawText.toLocaleLowerCase();
+                            const frag = document.createDocumentFragment();
+                            let cursor = 0;
+                            let index = textLower.indexOf(lowerNeedle, cursor);
+                            while (index !== -1) {
+                                if (state.highlightMarks.length >= state.matchLimit) {
+                                    limitReached = true;
+                                    state.limitReached = true;
+                                    break;
+                                }
+                                if (index > cursor) {
+                                    frag.appendChild(document.createTextNode(rawText.slice(cursor, index)));
+                                }
+                                const mark = document.createElement('mark');
+                                mark.className = 'canopy-selection-match';
+                                mark.textContent = rawText.slice(index, index + needle.length);
+                                frag.appendChild(mark);
+                                state.highlightMarks.push(mark);
+                                cursor = index + needle.length;
+                                index = textLower.indexOf(lowerNeedle, cursor);
+                            }
+                            if (cursor < rawText.length) {
+                                frag.appendChild(document.createTextNode(rawText.slice(cursor)));
+                            }
+                            if (textNode.parentNode && frag.childNodes.length) {
+                                textNode.parentNode.replaceChild(frag, textNode);
+                            }
+                        }
+                    }
+
+                    updateMatchButtonState(state.highlightMarks.length);
+                    if (state.highlightMarks.length) {
+                        setCurrentMatch(0, { scroll: false });
+                    }
+                    return state.highlightMarks.length;
+                }
+
+                function scheduleHighlights(text) {
+                    clearTimeout(state.highlightTimer);
+                    const expectedNeedle = normalizeNeedle(text);
+                    if (expectedNeedle.length < 2) return;
+                    state.highlightTimer = setTimeout(() => {
+                        if (state.pointerSelecting) {
+                            scheduleHighlights(text);
+                            return;
+                        }
+                        const ctx = getContextFromWindow();
+                        if (!ctx || normalizeNeedle(ctx.text) !== expectedNeedle) return;
+                        applyHighlights(ctx.text);
+                    }, Number(config.matchDelay || 420));
+                }
+
+                function getContextFromWindow() {
+                    const selection = global.getSelection ? global.getSelection() : null;
+                    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+                    const text = normalizeSelectedText(selection.toString());
+                    if (text.length < 2) return null;
+
+                    const root = getRoot();
+                    if (!root) return null;
+                    const range = selection.getRangeAt(0);
+                    const startEl = getElementFromSelectionNode(range.startContainer);
+                    const endEl = getElementFromSelectionNode(range.endContainer);
+                    if (!startEl || !endEl) return null;
+                    if (startEl.closest('textarea, input, select, button, a, [contenteditable="true"], .canopy-selection-dock')) {
+                        return null;
+                    }
+                    if (!root.contains(startEl) || !root.contains(endEl)) return null;
+
+                    const startContent = startEl.closest(config.contentSelector);
+                    const endContent = endEl.closest(config.contentSelector);
+                    if (!startContent || !endContent || startContent !== endContent) return null;
+
+                    const itemEl = startContent.closest(config.itemSelector);
+                    if (!itemEl || !itemEl.contains(endContent)) return null;
+
+                    const rects = getUsefulSelectionRects(range);
+                    const rect = getSelectionRectUnion(rects);
+                    if (!rect) return null;
+
+                    const meta = typeof config.getContextMeta === 'function'
+                        ? (config.getContextMeta(itemEl, startContent, text) || {})
+                        : {};
+                    const sourceId = meta.sourceId || itemEl.getAttribute(config.sourceIdAttr || 'data-message-id') || itemEl.getAttribute('data-post-id') || '';
+                    const author = String(meta.author || meta.sender || meta.user || config.defaultAuthor || 'author').trim();
+                    const sourceLabel = meta.sourceLabel || [author, meta.surfaceLabel || config.surfaceLabel].filter(Boolean).join(' in ') || config.surfaceLabel || 'Canopy';
+                    const trimmedText = text.length > Number(config.maxSelectionLength || 6000)
+                        ? text.slice(0, Number(config.maxSelectionLength || 6000)).trim()
+                        : text;
+
+                    return {
+                        ...meta,
+                        surface: config.surface,
+                        text: trimmedText,
+                        wasTrimmed: text.length > Number(config.maxSelectionLength || 6000),
+                        rect,
+                        rects,
+                        sourceId,
+                        author,
+                        sourceLabel,
+                    };
+                }
+
+                function positionDock(ctx) {
+                    const preview = state.dock.querySelector('[data-canopy-selection-preview]');
+                    if (!state.dock || !ctx || !ctx.rect) return;
+
+                    if (preview) {
+                        const previewText = ctx.text.length > 120 ? `${ctx.text.slice(0, 117)}...` : ctx.text;
+                        preview.textContent = `${ctx.sourceLabel}: "${previewText}"`;
+                    }
+                    updateMatchButtonState();
+                    renderAnchor(ctx);
+
+                    if (global.innerWidth <= 767) {
+                        state.dock.style.left = '50%';
+                        state.dock.style.top = '';
+                        state.dock.classList.remove('is-below');
+                        setDockVisible(true);
+                        return;
+                    }
+
+                    const width = state.dock.offsetWidth || 420;
+                    const gutter = 18;
+                    const centerX = ctx.rect.left + (ctx.rect.width / 2);
+                    const clampedX = Math.min(Math.max(centerX, gutter + width / 2), global.innerWidth - gutter - width / 2);
+                    const placeBelow = ctx.rect.top < 104;
+                    state.dock.style.left = `${Math.round(clampedX)}px`;
+                    state.dock.style.top = `${Math.round(placeBelow ? ctx.rect.bottom : ctx.rect.top)}px`;
+                    state.dock.classList.toggle('is-below', placeBelow);
+                    setDockVisible(true);
+                }
+
+                function syncDock() {
+                    if (state.pointerSelecting) {
+                        setDockVisible(false);
+                        clearAnchor();
+                        return;
+                    }
+                    const ctx = getContextFromWindow();
+                    if (!ctx) {
+                        if (state.highlightMarks.length && Date.now() < state.preserveHighlightsUntil) {
+                            hideDock({ preserveHighlights: true });
+                            return;
+                        }
+                        if ((state.interacting || Date.now() < state.keepAliveUntil) && state.context) {
+                            renderAnchor(state.context);
+                            return;
+                        }
+                        hideDock();
+                        return;
+                    }
+                    state.context = ctx;
+                    positionDock(ctx);
+                    scheduleHighlights(ctx.text);
+                }
+
+                function scheduleSync() {
+                    clearTimeout(state.timer);
+                    state.timer = setTimeout(syncDock, 80);
+                }
+
+                function keepAlive(ms = 2200) {
+                    state.keepAliveUntil = Math.max(state.keepAliveUntil, Date.now() + ms);
+                }
+
+                function isSelectionGestureTarget(target) {
+                    if (!(target instanceof Element)) return false;
+                    if (target.closest('.canopy-selection-dock, textarea, input, select, button, a, [contenteditable="true"]')) {
+                        return false;
+                    }
+                    const root = getRoot();
+                    return !!root && root.contains(target) && !!target.closest(config.contentSelector);
+                }
+
+                function beginSelectionGesture(event) {
+                    const target = event && event.target instanceof Element ? event.target : null;
+                    if (!isSelectionGestureTarget(target)) return;
+                    if (event.pointerType === 'mouse' && event.button !== 0) return;
+                    state.pointerSelecting = true;
+                    clearTimeout(state.timer);
+                    clearTimeout(state.highlightTimer);
+                    setDockVisible(false);
+                    clearAnchor();
+                }
+
+                function endSelectionGesture() {
+                    if (!state.pointerSelecting) return;
+                    state.pointerSelecting = false;
+                    global.setTimeout(scheduleSync, 80);
+                }
+
+                function buildSourceUrl(ctx) {
+                    if (typeof config.buildSourceUrl === 'function') {
+                        return config.buildSourceUrl(ctx) || '';
+                    }
+                    if (!ctx || !ctx.sourceId || !global.location) return '';
+                    try {
+                        const url = new URL(global.location.href);
+                        url.hash = `${config.hashPrefix || 'item'}-${ctx.sourceId}`;
+                        return url.toString();
+                    } catch (_) {
+                        return '';
+                    }
+                }
+
+                function buildContextBlock(ctx, quote) {
+                    if (typeof config.buildContextBlock === 'function') {
+                        return config.buildContextBlock(ctx, quote, { buildSourceUrl }) || '';
+                    }
+                    const sourceUrl = buildSourceUrl(ctx);
+                    const sourceLines = [
+                        ctx.surfaceLabel || config.surfaceLabel ? `- Surface: ${ctx.surfaceLabel || config.surfaceLabel}` : '',
+                        ctx.author ? `- Author: ${ctx.author}` : '',
+                        ctx.messageCreatedAt || ctx.createdAt ? `- Posted: ${ctx.messageCreatedAt || ctx.createdAt}` : '',
+                        ctx.sourceId ? `- Source ID: ${ctx.sourceId}` : '',
+                        sourceUrl ? `- Source link: ${sourceUrl}` : '',
+                    ].filter(Boolean).join('\n');
+                    return `Context from ${ctx.sourceLabel}:\n${sourceLines}\n\nSelected text:\n${quote}\n\n`;
+                }
+
+                function buildInsertion(action, ctx) {
+                    const quote = formatQuote(ctx.text);
+                    if (action === 'quote') return `${quote}\n\n`;
+                    if (action === 'context') return buildContextBlock(ctx, quote);
+                    if (action === 'canopy') return `@Canopy Use this selected context while drafting the next message:\n${quote}\n\n`;
+                    return ctx.text;
+                }
+
+                function insertIntoComposer(text, opts = {}) {
+                    const composer = getComposer();
+                    const inserted = insertIntoTextarea(composer, text, opts);
+                    if (inserted && typeof config.afterInsert === 'function') {
+                        config.afterInsert({ text, action: opts.action || '', context: state.context, textarea: composer });
+                    }
+                    return inserted;
+                }
+
+                const api = {
+                    formatQuote,
+                    normalizeSelectedText,
+                    insertIntoTextarea,
+                    insertIntoComposer,
+                    buildSourceUrl,
+                    buildContextBlock,
+                    hideDock,
+                    clearHighlights,
+                };
+
+                async function handleAction(action) {
+                    const ctx = state.context;
+                    if (!ctx || !ctx.text) {
+                        hideDock();
+                        return;
+                    }
+                    if (action === 'close') {
+                        hideDock({ clearSelection: true });
+                        return;
+                    }
+                    if (action === 'matches') {
+                        if (state.highlightsEnabled && state.highlightMarks.length) {
+                            navigateMatch(1);
+                            keepAlive(1800);
+                            return;
+                        }
+                        state.highlightsEnabled = true;
+                        try {
+                            localStorage.setItem(config.storageKey || `canopy.${config.surface}.selectionMatchHighlights.v1`, 'on');
+                        } catch (_) {}
+                        applyHighlights(ctx.text);
+                        updateMatchButtonState();
+                        return;
+                    }
+                    if (action === 'copy') {
+                        const copied = await copyText(ctx.text);
+                        if (typeof showAlert === 'function') {
+                            showAlert(copied ? 'Selected text copied.' : 'Could not copy selected text.', copied ? 'success' : 'warning');
+                        }
+                        hideDock({ clearSelection: true });
+                        return;
+                    }
+                    if (action === 'reply' && typeof config.onReply === 'function') {
+                        const handled = config.onReply(ctx, api);
+                        if (handled !== false) {
+                            hideDock({ clearSelection: true });
+                            return;
+                        }
+                    }
+                    const inserted = insertIntoComposer(buildInsertion(action, ctx), {
+                        expand: action === 'canopy' || ctx.text.length > 360,
+                        action,
+                    });
+                    if (inserted && typeof showAlert === 'function') {
+                        const labels = {
+                            quote: 'Quoted selection in the composer.',
+                            context: 'Added selection as context.',
+                            canopy: 'Prepared @Canopy with selected context.',
+                            reply: 'Reply started with selected context.',
+                        };
+                        showAlert(labels[action] || 'Selected text added.', 'success');
+                    }
+                    hideDock({ clearSelection: true });
+                }
+
+                state.dock.addEventListener('pointerdown', (event) => {
+                    if (event.pointerType === 'mouse') {
+                        event.preventDefault();
+                    }
+                    state.interacting = true;
+                    keepAlive();
+                    global.setTimeout(() => { state.interacting = false; }, 800);
+                });
+                state.dock.addEventListener('mouseenter', () => keepAlive(1800));
+                state.dock.addEventListener('focusin', () => keepAlive(3200));
+                state.dock.addEventListener('click', (event) => {
+                    const actionButton = event.target.closest('[data-canopy-selection-action]');
+                    if (!actionButton) return;
+                    event.preventDefault();
+                    handleAction(actionButton.getAttribute('data-canopy-selection-action') || '');
+                });
+
+                document.addEventListener('selectionchange', scheduleSync);
+                document.addEventListener('pointerdown', beginSelectionGesture, true);
+                document.addEventListener('pointerup', endSelectionGesture, true);
+                document.addEventListener('pointercancel', endSelectionGesture, true);
+                document.addEventListener('pointerdown', (event) => {
+                    const dockVisible = state.dock && state.dock.classList.contains('is-visible');
+                    if (!state.highlightMarks.length && !dockVisible && !state.context) return;
+                    if (state.pointerSelecting) return;
+                    const target = event.target instanceof Element ? event.target : null;
+                    if (target && target.closest('.canopy-selection-dock')) return;
+                    hideDock();
+                }, true);
+                document.addEventListener('keydown', (event) => {
+                    if (event.key !== 'F3' || !state.highlightMarks.length) return;
+                    event.preventDefault();
+                    navigateMatch(event.shiftKey ? -1 : 1);
+                });
+                document.addEventListener('keyup', (event) => {
+                    if (event.key === 'Escape') {
+                        hideDock({ clearSelection: true });
+                        return;
+                    }
+                    scheduleSync();
+                });
+                document.addEventListener('mouseup', () => {
+                    endSelectionGesture();
+                    scheduleSync();
+                });
+                document.addEventListener('touchend', () => {
+                    endSelectionGesture();
+                    scheduleSync();
+                }, { passive: true });
+                global.addEventListener('resize', () => {
+                    if (state.context) scheduleSync();
+                });
+
+                const scrollRoot = config.scrollSelector ? document.querySelector(config.scrollSelector) : firstRoot;
+                if (scrollRoot) {
+                    scrollRoot.addEventListener('scroll', () => {
+                        state.preserveHighlightsUntil = Date.now() + 1200;
+                        hideDock({ preserveHighlights: true });
+                    }, { passive: true });
+                }
+
+                state.hide = hideDock;
+                state.clearHighlights = clearHighlights;
+                state.scheduleSync = scheduleSync;
+                updateMatchButtonState();
+                surfaces.set(config.surface, state);
+                return state;
+            }
+
+            function getSurface(surface) {
+                return surfaces.get(String(surface || '').trim());
+            }
+
+            function hideSurface(surface, opts = {}) {
+                const state = getSurface(surface);
+                if (!state || typeof state.hide !== 'function') return false;
+                state.hide(opts);
+                return true;
+            }
+
+            function refreshSurface(surface) {
+                const state = getSurface(surface);
+                if (!state || typeof state.scheduleSync !== 'function') return false;
+                state.scheduleSync();
+                return true;
+            }
+
+            global.CanopySelectionDock = {
+                initSurface,
+                hideSurface,
+                refreshSurface,
+                formatQuote,
+                insertIntoTextarea,
+                normalizeSelectedText,
+                copyText,
+            };
+        })(window);
+
         function canopyEscapeHtml(value) {
             const div = document.createElement('div');
             div.textContent = value == null ? '' : String(value);

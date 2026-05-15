@@ -2350,6 +2350,9 @@
                 const existingWrap = document.getElementById('dm-load-older-wrap');
                 if (existingWrap) existingWrap.remove();
 
+                if (window.CanopySelectionDock && typeof window.CanopySelectionDock.hideSurface === 'function') {
+                    window.CanopySelectionDock.hideSurface('dm', { clearSelection: true });
+                }
                 const fragment = document.createDocumentFragment();
                 incomingNodes.forEach((node) => fragment.appendChild(node));
                 body.prepend(fragment);
@@ -2441,6 +2444,9 @@
 
         const body = document.getElementById('dm-thread-body');
         if (threadChanged && body && typeof data.thread_body_html === 'string') {
+            if (window.CanopySelectionDock && typeof window.CanopySelectionDock.hideSurface === 'function') {
+                window.CanopySelectionDock.hideSurface('dm', { clearSelection: true });
+            }
             body.innerHTML = data.thread_body_html;
         }
 
@@ -4446,6 +4452,77 @@
         if (box) box.classList.remove('active');
     }
 
+    function initDmSelectionTools() {
+        if (!window.CanopySelectionDock) return;
+        window.CanopySelectionDock.initSurface({
+            surface: 'dm',
+            rootSelector: '#dm-thread-body',
+            scrollSelector: '#dm-thread-scroll',
+            contentSelector: '.dm-message-text',
+            itemSelector: '.dm-message-row[data-message-id]',
+            composerSelector: '#messageContent',
+            dockId: 'dm-selection-dock',
+            storageKey: 'canopy.dm.selectionMatchHighlights.v1',
+            surfaceLabel: 'Direct message',
+            eyebrow: 'DM selection',
+            replyLabel: 'Reply',
+            hashPrefix: 'message',
+            getContextMeta(itemEl) {
+                const messageId = itemEl.getAttribute('data-message-id') || '';
+                const authorEl = itemEl.querySelector('.dm-message-sender');
+                const author = (authorEl && authorEl.textContent.trim()) || itemEl.getAttribute('data-user-id') || 'DM participant';
+                const timestampEl = itemEl.querySelector('[data-timestamp]');
+                const threadTitle = (ACTIVE_THREAD && (ACTIVE_THREAD.title || ACTIVE_THREAD.label || ACTIVE_THREAD.name)) || 'DM thread';
+                return {
+                    sourceId: messageId,
+                    messageId,
+                    author,
+                    surfaceLabel: 'Direct message',
+                    threadTitle,
+                    messageCreatedAt: timestampEl ? (timestampEl.getAttribute('data-timestamp') || timestampEl.textContent.trim()) : '',
+                    sourceLabel: `${author} in ${threadTitle}`,
+                };
+            },
+            buildSourceUrl(ctx) {
+                if (!ctx || !ctx.messageId) return '';
+                try {
+                    const url = new URL(window.location.href);
+                    url.hash = `message-${ctx.messageId}`;
+                    return url.toString();
+                } catch (_) {
+                    return '';
+                }
+            },
+            buildContextBlock(ctx, quote, helpers) {
+                const sourceUrl = helpers.buildSourceUrl(ctx);
+                const sourceLines = [
+                    `- Thread: ${ctx.threadTitle || 'DM thread'}`,
+                    `- Author: ${ctx.author || 'unknown'}`,
+                    ctx.messageCreatedAt ? `- Posted: ${ctx.messageCreatedAt}` : '',
+                    ctx.messageId ? `- DM message ID: ${ctx.messageId}` : '',
+                    sourceUrl ? `- Source link: ${sourceUrl}` : '',
+                ].filter(Boolean).join('\n');
+                return `Context from ${ctx.sourceLabel}:\n${sourceLines}\n\nSelected text:\n${quote}\n\n`;
+            },
+            onReply(ctx) {
+                if (!ctx || !ctx.messageId || typeof replyToMessage !== 'function') return false;
+                replyToMessage(ctx.messageId, ctx.author || 'DM participant', ctx.text.slice(0, 140));
+                if (typeof showAlert === 'function') {
+                    showAlert('DM reply target set. Use Quote or Context if you also want the selected text pasted.', 'success');
+                }
+                return true;
+            },
+            afterInsert({ text, action, textarea }) {
+                if (!textarea) return;
+                if (text.length > 360 || (text.match(/\n/g) || []).length >= 4 || action === 'canopy') {
+                    setDmComposerExpanded(true);
+                }
+                saveDmComposerDraft();
+                updateDmCanopyLLMComposePanel();
+            },
+        });
+    }
+
     function jumpToMessage(messageId) {
         const el = document.getElementById(`message-${messageId}`);
         if (!el) return;
@@ -4805,6 +4882,7 @@
         if (dmThreadBody) {
             dmThreadBody.addEventListener('click', handleDmThreadActionClick);
         }
+        initDmSelectionTools();
 
         const messageContent = document.getElementById('messageContent');
         if (messageContent) {

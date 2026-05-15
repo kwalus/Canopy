@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.122] - 2026-05-15
+
+### Changed
+- **Selected-text tools now reach DMs and Feed** - Direct Messages and Feed share a reusable selected-text dock for Quote, Context, @Canopy, Copy, match highlighting, and F3 / Shift+F3 match navigation while keeping the channel-specific dock unchanged.
+- **DM selected-text state is safer across refreshes** - thread snapshot replacement and older-history prepends now clear the shared DM dock before mutating message DOM, preventing stale anchors or highlights after dynamic updates.
+- **Feed selections can start comments** - selected Feed or comment text can open the relevant post comments and seed a compact reply prompt without changing the broader Feed composer flow.
+
 ## [0.6.121] - 2026-05-15
 
 ### Changed

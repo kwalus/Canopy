@@ -1755,6 +1755,49 @@ console.log(JSON.stringify({{
         self.assertIn('.channel-selection-anchor-rect', channels_template)
         self.assertIn('.channel-selection-match {', channels_template)
 
+    def test_shared_selection_dock_extends_to_dm_and_feed(self) -> None:
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+
+        self.assertIn('global.CanopySelectionDock', main_js)
+        self.assertIn('function initSurface(config)', main_js)
+        self.assertIn('function hideSurface(surface, opts = {})', main_js)
+        self.assertIn('function refreshSurface(surface)', main_js)
+        self.assertIn("hideDock();", main_js)
+        self.assertIn('data-canopy-selection-action="quote"', main_js)
+        self.assertIn('data-canopy-selection-action="context"', main_js)
+        self.assertIn('data-canopy-selection-action="canopy"', main_js)
+        self.assertIn('data-canopy-selection-action="matches"', main_js)
+        self.assertIn("mark.className = 'canopy-selection-match';", main_js)
+        self.assertIn("document.addEventListener('selectionchange', scheduleSync);", main_js)
+        self.assertIn("document.addEventListener('keydown', (event) => {", main_js)
+        self.assertIn("if (event.key !== 'F3' || !state.highlightMarks.length) return;", main_js)
+        self.assertIn('insertIntoTextarea', main_js)
+
+        self.assertIn('.canopy-selection-dock {', base_template)
+        self.assertIn('.canopy-selection-dock-actions', base_template)
+        self.assertIn('.canopy-selection-match.is-current', base_template)
+        self.assertIn('grid-template-columns: repeat(3, minmax(0, 1fr));', base_template)
+
+        self.assertIn('function initDmSelectionTools()', messages_template)
+        self.assertIn("surface: 'dm'", messages_template)
+        self.assertIn("rootSelector: '#dm-thread-body'", messages_template)
+        self.assertIn("contentSelector: '.dm-message-text'", messages_template)
+        self.assertIn("composerSelector: '#messageContent'", messages_template)
+        self.assertIn('replyToMessage(ctx.messageId, ctx.author || \'DM participant\', ctx.text.slice(0, 140));', messages_template)
+        self.assertIn("window.CanopySelectionDock.hideSurface('dm', { clearSelection: true });", messages_template)
+        self.assertIn('initDmSelectionTools();', messages_template)
+
+        self.assertIn('function initFeedSelectionTools()', feed_template)
+        self.assertIn("surface: 'feed'", feed_template)
+        self.assertIn("rootSelector: '#posts-container'", feed_template)
+        self.assertIn("contentSelector: '.post-content, .comment-content'", feed_template)
+        self.assertIn("composerSelector: '#postContent'", feed_template)
+        self.assertIn("toggleComments(postId);", feed_template)
+        self.assertIn('initFeedSelectionTools();', feed_template)
+
     def test_workspace_search_palette_spans_workspace_surfaces(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -2768,7 +2811,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.121', api_ref)
+        self.assertIn('0.6.122', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

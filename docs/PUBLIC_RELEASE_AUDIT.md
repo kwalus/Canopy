@@ -1,10 +1,10 @@
-# Public Release Audit - Canopy 0.6.121
+# Public Release Audit - Canopy 0.6.122
 
 > **Canopy-Dev internal - do not include in the public `kwalus/Canopy` promotion PR.**
 > This document is a working audit log for the private dev mirror only.
 
 **Date:** 2026-05-14
-**Scope:** Public-release readiness for the 0.6.x line through `0.6.121` - repo hygiene, docs clarity, public-safe wording, accidental internal-only leakage, first-run/setup friction, and obvious release blockers.
+**Scope:** Public-release readiness for the 0.6.x line through `0.6.122` - repo hygiene, docs clarity, public-safe wording, accidental internal-only leakage, first-run/setup friction, and obvious release blockers.
 
 ---
 
@@ -38,7 +38,7 @@ When assembling the public promotion PR, omit these files entirely. Public-safe 
 
 ---
 
-## Current 0.6.121 Pass
+## Current 0.6.122 Pass
 
 ### 1. Documentation drift - Updated (2026-05-14)
 
@@ -126,7 +126,7 @@ When assembling the public promotion PR, omit these files entirely. Public-safe 
 | Internal workflow scripts under `scripts/` | Keep in the private development mirror for maintainer use, but exclude the internal push, Copilot, posting, cache-export, and local-recovery helpers from public promotion (see section above) |
 | `docs/SECURITY_ASSESSMENT.md` | Public-appropriate security documentation; no sensitive specifics |
 | `docs/RECOVERY_LOCK_STORM.md` | Mentions Dropbox as a general WAL-contention scenario; appropriate operational context |
-| Version alignment | Current app/package/README badge versions are aligned to `0.6.121`; API, MCP, agent onboarding, quickstart, peer-connect, and mentions docs now declare the same release scope |
+| Version alignment | Current app/package/README badge versions are aligned to `0.6.122`; API, MCP, agent onboarding, quickstart, peer-connect, and mentions docs now declare the same release scope |
 | Meshspaces public explanation | README, QUICKSTART, and AGENT_ONBOARDING explain Meshspaces as the supported multi-workspace path with clear scope |
 | First-run UX | QUICKSTART covers Windows nontechnical, technical repo, and agent operator paths; install rough edges section is present |
 | Windows/nontechnical clarity | WINDOWS_TRAY.md covers install, verify, upgrade, and rollback with no Python setup required |
@@ -152,6 +152,6 @@ The 2026-05-14 pass added broader patterns for internal posting, Copilot/MCP orc
 
 ## Summary
 
-The current pass refreshed the audit for `0.6.121`, updated drifted public docs, and tightened ignore coverage for local-only automation and generated backup artifacts. Earlier 0.6.0 cleanup removed personal machine paths from `scripts/start_canopy_dev.ps1` and removed the internal development repo name from the public release announcement draft. No credentials, tokens, or other genuinely sensitive material were found in committed files during the earlier audit.
+The current pass refreshed the audit for `0.6.122`, updated drifted public docs, and tightened ignore coverage for local-only automation and generated backup artifacts. Earlier 0.6.0 cleanup removed personal machine paths from `scripts/start_canopy_dev.ps1` and removed the internal development repo name from the public release announcement draft. No credentials, tokens, or other genuinely sensitive material were found in committed files during the earlier audit.
 
 The public promotion must exclude this audit log and the broader internal workflow script set used for dev-mirror pushes, Copilot orchestration, bot posting, cached exports, and local recovery/testing helpers. Public-safe scripts should stay limited to generic contributor, migration, and Windows packaging utilities.

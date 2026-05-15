@@ -9697,6 +9697,203 @@
             z-index: 1050;
             width: 350px;
         }
+
+        /* Shared selected-text toolbar used by channels, DMs, and feed surfaces. */
+        .canopy-selection-dock {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            z-index: 1085;
+            transform: translate(-50%, calc(-100% - 12px)) scale(0.96);
+            width: min(780px, calc(100vw - 1.5rem));
+            max-width: calc(100vw - 1.5rem);
+            pointer-events: none;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 130ms ease, transform 130ms ease, visibility 130ms ease;
+        }
+
+        .canopy-selection-dock.is-visible {
+            pointer-events: auto;
+            opacity: 1;
+            visibility: visible;
+            transform: translate(-50%, calc(-100% - 12px)) scale(1);
+        }
+
+        .canopy-selection-dock.is-below {
+            transform: translate(-50%, 12px) scale(0.96);
+        }
+
+        .canopy-selection-dock.is-below.is-visible {
+            transform: translate(-50%, 12px) scale(1);
+        }
+
+        .canopy-selection-dock-shell {
+            display: grid;
+            grid-template-columns: minmax(11rem, 0.84fr) minmax(18rem, 1.16fr);
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.46rem;
+            border: 1px solid color-mix(in srgb, var(--canopy-primary) 32%, var(--canopy-border));
+            border-radius: 1.1rem;
+            background:
+                radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--canopy-primary) 20%, transparent), transparent 34%),
+                linear-gradient(145deg, color-mix(in srgb, var(--canopy-bg-card) 96%, transparent), color-mix(in srgb, var(--canopy-bg-secondary) 96%, transparent));
+            box-shadow: 0 18px 46px color-mix(in srgb, var(--canopy-shadow) 88%, transparent), 0 0 0 1px rgba(255,255,255,0.03) inset;
+            backdrop-filter: blur(18px) saturate(1.12);
+        }
+
+        .canopy-selection-dock-copy {
+            min-width: 0;
+            display: grid;
+            gap: 0.1rem;
+            padding: 0 0.25rem;
+        }
+
+        .canopy-selection-dock-eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-text-primary));
+            font-size: 0.7rem;
+            font-weight: 900;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .canopy-selection-dock-preview {
+            max-width: 100%;
+            color: var(--canopy-text-secondary);
+            font-size: 0.78rem;
+            line-height: 1.25;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .canopy-selection-dock-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.28rem;
+            flex-wrap: wrap;
+            min-width: 0;
+            overflow: visible;
+        }
+
+        .canopy-selection-dock-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.34rem;
+            border-radius: 999px;
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+            background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+            color: var(--canopy-text-primary);
+            font-size: 0.75rem;
+            font-weight: 800;
+            line-height: 1;
+            min-height: 2rem;
+            padding: 0.42rem 0.56rem;
+            white-space: nowrap;
+            transition: transform 110ms ease, border-color 110ms ease, background 110ms ease;
+        }
+
+        .canopy-selection-dock-btn:hover,
+        .canopy-selection-dock-btn:focus-visible {
+            transform: translateY(-1px);
+            border-color: color-mix(in srgb, var(--canopy-primary) 55%, var(--canopy-border));
+            background: color-mix(in srgb, var(--canopy-primary) 16%, var(--canopy-bg-tertiary));
+        }
+
+        .canopy-selection-dock-btn.primary {
+            background: linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 82%, #ffffff 4%), color-mix(in srgb, var(--canopy-primary-soft) 86%, #ffffff 2%));
+            border-color: color-mix(in srgb, var(--canopy-primary) 76%, var(--canopy-border));
+            color: #06120d;
+            box-shadow: 0 10px 24px color-mix(in srgb, var(--canopy-primary) 18%, transparent);
+        }
+
+        .canopy-selection-dock-btn.match-toggle {
+            border-color: color-mix(in srgb, var(--canopy-primary) 32%, var(--canopy-border));
+        }
+
+        .canopy-selection-dock-btn.match-toggle.is-active {
+            background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-tertiary));
+            color: color-mix(in srgb, var(--canopy-primary) 76%, var(--canopy-text-primary));
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 18%, transparent);
+        }
+
+        .canopy-selection-dock-btn.match-toggle:not(.is-active) {
+            opacity: 0.72;
+        }
+
+        .canopy-selection-match-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 1.25rem;
+            height: 1.25rem;
+            padding: 0 0.36rem;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--canopy-bg-card) 76%, transparent);
+            color: var(--canopy-text-secondary);
+            font-size: 0.66rem;
+            line-height: 1;
+        }
+
+        .canopy-selection-dock-close {
+            width: 2rem;
+            min-width: 2rem;
+            flex: 0 0 2rem;
+            justify-content: center;
+            padding-inline: 0;
+            color: var(--canopy-text-muted);
+        }
+
+        .canopy-selection-anchor-layer {
+            position: fixed;
+            inset: 0;
+            z-index: 1082;
+            pointer-events: none;
+            contain: strict;
+        }
+
+        .canopy-selection-anchor-rect {
+            position: fixed;
+            border-radius: 0.28rem;
+            background: color-mix(in srgb, var(--canopy-primary) 28%, transparent);
+            box-shadow:
+                inset 0 -0.22em 0 color-mix(in srgb, var(--canopy-primary) 44%, transparent),
+                0 0 0 1px color-mix(in srgb, var(--canopy-primary) 18%, transparent);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .canopy-selection-dock-shell {
+            background:
+                radial-gradient(circle at 10% 0%, rgba(20, 184, 166, 0.16), transparent 36%),
+                linear-gradient(145deg, rgba(255,255,255,0.98), rgba(241,245,249,0.98));
+            box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+        }
+
+        :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .canopy-selection-dock-btn.primary {
+            color: #052e16;
+        }
+
+        .canopy-selection-match {
+            background: color-mix(in srgb, var(--canopy-primary) 24%, transparent);
+            color: inherit;
+            border-radius: 0.22em;
+            box-shadow:
+                inset 0 -0.2em 0 color-mix(in srgb, var(--canopy-primary) 42%, transparent),
+                0 0 0 1px color-mix(in srgb, var(--canopy-primary) 10%, transparent);
+            padding: 0 0.035em;
+        }
+
+        .canopy-selection-match.is-current {
+            background: color-mix(in srgb, var(--canopy-warning) 52%, var(--canopy-primary) 24%);
+            color: #06120d;
+            box-shadow:
+                0 0 0 2px color-mix(in srgb, var(--canopy-warning) 62%, transparent),
+                0 0 18px color-mix(in srgb, var(--canopy-warning) 24%, transparent);
+        }
         
         @media (max-width: 768px) {
             .sidebar {
@@ -9709,6 +9906,41 @@
             
             .message {
                 max-width: 85%;
+            }
+
+            .canopy-selection-dock {
+                top: auto !important;
+                bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+                width: calc(100vw - 1rem);
+                transform: translateX(-50%) translateY(0.35rem) scale(0.98);
+            }
+
+            .canopy-selection-dock.is-visible,
+            .canopy-selection-dock.is-below.is-visible {
+                transform: translateX(-50%) translateY(0) scale(1);
+            }
+
+            .canopy-selection-dock-shell {
+                grid-template-columns: 1fr;
+                align-items: stretch;
+                border-radius: 1rem;
+            }
+
+            .canopy-selection-dock-actions {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                justify-content: stretch;
+            }
+
+            .canopy-selection-dock-btn {
+                justify-content: center;
+                min-width: 0;
+            }
+
+            .canopy-selection-dock-close {
+                width: auto;
+                min-width: 0;
+                flex-basis: auto;
             }
         }
 
