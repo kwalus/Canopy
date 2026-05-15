@@ -67,11 +67,40 @@ from canopy.core.large_attachments import (
     get_large_attachment_download_mode,
     is_large_attachment_reference,
 )
+from canopy.core.digestions import DigestionError
 from canopy.security.api_keys import Permission
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("canopy-mcp")
+
+
+def _digest_access_error(exc: DigestionError, digestion_id: str, your_user_id: str) -> dict[str, Any]:
+    """Build a structured, agent-actionable error payload for a Digestion access denial."""
+    reason = getattr(exc, "reason", "digestion_error")
+    payload: dict[str, Any] = {
+        "success": False,
+        "error": str(exc),
+        "reason": reason,
+        "digestion_id": digestion_id,
+        "your_user_id": your_user_id,
+    }
+    if reason == "query_denied":
+        payload["recovery"] = (
+            f"You do not have query access to Digestion {digestion_id}. "
+            "Use canopy_digest_request_access to get a formatted request for the owner."
+        )
+    elif reason == "source_metadata_denied":
+        payload["recovery"] = (
+            f"You do not have source-metadata access to Digestion {digestion_id}. "
+            "Ask the owner to re-grant access with can_read_sources=true."
+        )
+    elif reason in {"manage_denied", "output_source_metadata_denied"}:
+        payload["recovery"] = (
+            f"This operation requires elevated access to Digestion {digestion_id}. "
+            "Ask the owner to grant the needed source-metadata or manage access."
+        )
+    return payload
 
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
@@ -1085,7 +1114,7 @@ class CanopyMCPServer:
                 ),
                 Tool(
                     name="canopy_digest_query",
-                    description="Query a Digestion and receive cited snippets from approved Vault sources. Requires read_files and Digestion query access.",
+                    description="Query a Digestion and receive cited snippets from approved Vault sources. Requires read_files and Digestion query access. If this returns 403/query_denied, use canopy_digest_request_access for a formatted owner request.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -1099,7 +1128,7 @@ class CanopyMCPServer:
                 ),
                 Tool(
                     name="canopy_digest_sources",
-                    description="List source file metadata and build status for an accessible Digestion. Requires read_files.",
+                    description="List source file metadata and build status for an accessible Digestion. Requires read_files and explicit source-metadata access (can_read_sources).",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -1126,13 +1155,17 @@ class CanopyMCPServer:
                 ),
                 Tool(
                     name="canopy_digest_outputs",
-                    description="List or generate reusable Digestion outputs such as human brief, agent context, and machine manifest. Requires read_files; generate/export also require write_files.",
+                    description=(
+                        "List, fetch, generate, or export reusable Digestion outputs such as human brief, agent context, and machine manifest. "
+                        "Requires read_files; generate/export also require write_files. Use output_ref to fetch a single output by stable ID or kind name."
+                    ),
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "digestion_id": {"type": "string"},
                             "generate": {"type": "boolean", "default": False},
-                            "include_content": {"type": "boolean", "default": False},
+                            "include_content": {"type": "boolean", "default": False, "description": "Set to true to receive full output text; false returns metadata-only output rows."},
+                            "output_ref": {"type": "string", "description": "Stable output ID or kind name (agent_context, human_brief, manifest) to fetch a single output with full content"},
                             "kinds": {"type": "array", "items": {"type": "string"}},
                             "export_output_ref": {"type": "string", "description": "Optional output id or kind to export to Vault"},
                             "export_package": {"type": "boolean", "default": False, "description": "Export a whole-Digestion package snapshot to Vault"}
@@ -1142,7 +1175,7 @@ class CanopyMCPServer:
                 ),
                 Tool(
                     name="canopy_digest_context",
-                    description="Query a Digestion and return a compact prompt-ready context pack with citations. Requires read_files and Digestion query access.",
+                    description="Query a Digestion and return a compact prompt-ready context pack with citations. Requires read_files and Digestion query access. If this returns 403/query_denied, use canopy_digest_request_access for a formatted owner request.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -1151,6 +1184,20 @@ class CanopyMCPServer:
                             "top_k": {"type": "integer", "default": 8}
                         },
                         "required": ["digestion_id", "query"]
+                    }
+                ),
+                Tool(
+                    name="canopy_digest_request_access",
+                    description=(
+                        "Return a pre-formatted access request for a Digestion you cannot query. "
+                        "Use after 403/query_denied or 403/source_metadata_denied. Requires read_files."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "digestion_id": {"type": "string", "description": "The Digestion ID you need access to"}
+                        },
+                        "required": ["digestion_id"]
                     }
                 ),
                 Tool(
@@ -1688,6 +1735,10 @@ class CanopyMCPServer:
                     if not self._check_permission(Permission.READ_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: read_files required")]
                     return await self._digest_context(arguments or {})
+                elif name == "canopy_digest_request_access":
+                    if not self._check_permission(Permission.READ_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: read_files required")]
+                    return await self._digest_request_access(arguments or {})
                 elif name == "canopy_get_profile":
                     # Profile reading doesn't require special permissions (users can see their own)
                     return await self._get_profile(arguments or {})
@@ -4640,10 +4691,10 @@ class CanopyMCPServer:
 
     async def _digest_query(self, args: Dict[str, Any]) -> List[TextContent]:
         """Query a Digestion."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
         try:
             from canopy.core.app import create_app
 
-            digestion_id = str(args.get("digestion_id") or "").strip()
             query = str(args.get("query") or args.get("q") or "").strip()
             if not digestion_id:
                 return [TextContent(type="text", text="Error: digestion_id is required")]
@@ -4662,15 +4713,17 @@ class CanopyMCPServer:
                     include_snippets=not bool(args.get("metadata_only")),
                 )
                 return _mcp_json(result)
+        except DigestionError as exc:
+            return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
         except Exception as e:
             raise Exception(f"Failed to query Digestion: {str(e)}")
 
     async def _digest_sources(self, args: Dict[str, Any]) -> List[TextContent]:
         """List source metadata for a Digestion."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
         try:
             from canopy.core.app import create_app
 
-            digestion_id = str(args.get("digestion_id") or "").strip()
             if not digestion_id:
                 return [TextContent(type="text", text="Error: digestion_id is required")]
             app = create_app()
@@ -4683,6 +4736,8 @@ class CanopyMCPServer:
                     "digestion_id": digestion_id,
                     "sources": manager.list_sources(digestion_id, user_id=self.user_id),
                 })
+        except DigestionError as exc:
+            return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
         except Exception as e:
             raise Exception(f"Failed to list Digestion sources: {str(e)}")
 
@@ -4710,10 +4765,10 @@ class CanopyMCPServer:
 
     async def _digest_outputs(self, args: Dict[str, Any]) -> List[TextContent]:
         """List, generate, or export reusable Digestion outputs."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
         try:
             from canopy.core.app import create_app
 
-            digestion_id = str(args.get("digestion_id") or "").strip()
             if not digestion_id:
                 return [TextContent(type="text", text="Error: digestion_id is required")]
             app = create_app()
@@ -4732,21 +4787,27 @@ class CanopyMCPServer:
                         kinds = [kinds]
                     result = manager.generate_outputs(digestion_id, self.user_id, kinds=kinds if isinstance(kinds, list) else None)
                     return _mcp_json(result)
+                output_ref = str(args.get("output_ref") or "").strip()
+                if output_ref:
+                    output = manager.get_output(digestion_id, self.user_id, output_ref)
+                    return _mcp_json({"success": True, "digestion_id": digestion_id, "output": output})
                 outputs = manager.list_outputs(
                     digestion_id,
                     self.user_id,
                     include_content=bool(args.get("include_content")),
                 )
                 return _mcp_json({"success": True, "digestion_id": digestion_id, "outputs": outputs, "count": len(outputs)})
+        except DigestionError as exc:
+            return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
         except Exception as e:
             raise Exception(f"Failed to handle Digestion outputs: {str(e)}")
 
     async def _digest_context(self, args: Dict[str, Any]) -> List[TextContent]:
         """Return a prompt-ready context pack with citations."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
         try:
             from canopy.core.app import create_app
 
-            digestion_id = str(args.get("digestion_id") or "").strip()
             query = str(args.get("query") or args.get("q") or "").strip()
             if not digestion_id:
                 return [TextContent(type="text", text="Error: digestion_id is required")]
@@ -4763,8 +4824,35 @@ class CanopyMCPServer:
                     query,
                     top_k=_mcp_int(args.get("top_k") or args.get("limit"), 8, 1, 20),
                 ))
+        except DigestionError as exc:
+            return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
         except Exception as e:
             raise Exception(f"Failed to build Digestion context: {str(e)}")
+
+    async def _digest_request_access(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Return a pre-formatted access request for a Digestion the caller cannot query."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
+        try:
+            from canopy.core.app import create_app
+
+            if not digestion_id:
+                return [TextContent(type="text", text="Error: digestion_id is required")]
+            app = create_app()
+            with app.app_context():
+                manager = app.config.get('DIGESTION_MANAGER')
+                if not manager:
+                    return [TextContent(type="text", text="Error: Digestion manager unavailable")]
+                return _mcp_json(manager.request_access_info(digestion_id, self.user_id))
+        except DigestionError as exc:
+            return _mcp_json({
+                "success": False,
+                "error": str(exc),
+                "reason": getattr(exc, "reason", "digestion_error"),
+                "digestion_id": digestion_id,
+                "your_user_id": self.user_id,
+            })
+        except Exception as e:
+            raise Exception(f"Failed to get Digestion access info: {str(e)}")
 
     async def _get_profile(self, args: Dict[str, Any]) -> List[TextContent]:
         """Get user profile information."""

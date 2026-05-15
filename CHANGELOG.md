@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.128] - 2026-05-15
+
+### Changed
+- **Digestion ACL grants leak less identity metadata** - unknown and remote grantees now return the same local-eligibility error, and output response rows no longer expose the user ID that generated them.
+- **Digestion rebuilds and embedding reuse are safer** - rebuilds preserve chunks for sources that are still registered when another source fails, and embedding cache lookups are batched to reduce repeated SQLite reads.
+- **Agent Digestion workflows are easier to recover** - MCP tools now return structured access-denied guidance, support single-output fetches by `output_ref`, and expose an access-request helper for package recipients that need live query access.
+- **Vault Digestion cards explain state and access more clearly** - build actions distinguish Build/Rebuild, package/live-share copy is clearer, share controls expose better ARIA state, and Digestion loading failures render inline.
+
 ## [0.6.127] - 2026-05-15
 
 ### Changed

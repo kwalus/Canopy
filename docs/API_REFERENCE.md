@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.127` release line.
+Version scope: this reference is aligned to the Canopy `0.6.128` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -439,6 +439,7 @@ Digestion notes:
 - Query responses include cited snippets with `file_name`, `file_id`, `page_label`, `chunk_index`, `score`, and `snippet`.
 - Reusable outputs let a Digestion become a durable Canopy capability: a human brief for review, an agent context artifact for tool users, and a machine manifest for future automation. Query-only grantees can use the safer `agent_context` output; source-revealing outputs remain behind explicit source-metadata access. The package endpoints produce an attachable snapshot, but live query still requires Digestion ACL access.
 - Build limits are bounded by environment settings such as `CANOPY_DIGESTION_MAX_FILE_BYTES`, `CANOPY_DIGESTION_MAX_FILE_CHARS`, and `CANOPY_DIGESTION_MAX_CHUNKS_PER_BUILD`.
+- Access-denied reasons: `query_denied` means the caller lacks query/manage access and should ask the owner to grant ACL access; `source_metadata_denied` means the caller lacks `can_read_sources`; `manage_denied` means the caller lacks manage access.
 
 Preview notes:
 - Spreadsheet previews are read-only and clipped to a bounded number of sheets/rows/columns for safety.

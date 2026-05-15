@@ -525,14 +525,18 @@ class DigestionManager:
         with self.db.get_connection() as conn:
             grantee_row = conn.execute("SELECT * FROM users WHERE id = ?", (grantee,)).fetchone()
             if not grantee_row:
-                raise DigestionError("Grantee user not found on this node.", status_code=404, reason="grantee_not_found")
+                raise DigestionError(
+                    "Digestion live query access can only be granted to local users or agents on this node.",
+                    status_code=400,
+                    reason="grantee_not_eligible",
+                )
             row_keys = set(grantee_row.keys()) if hasattr(grantee_row, "keys") else set()
             origin_peer = str((grantee_row["origin_peer"] if "origin_peer" in row_keys else "") or "").strip()
             if origin_peer:
                 raise DigestionError(
                     "Digestion live query access can only be granted to local users or agents on this node.",
                     status_code=400,
-                    reason="remote_grantee_not_supported",
+                    reason="grantee_not_eligible",
                 )
             conn.execute(
                 """
@@ -590,7 +594,16 @@ class DigestionManager:
         try:
             if rebuild:
                 with self.db.get_connection() as conn:
-                    conn.execute("DELETE FROM digestion_chunks WHERE digestion_id = ?", (digestion.id,))
+                    conn.execute(
+                        """
+                        DELETE FROM digestion_chunks
+                        WHERE digestion_id = ?
+                          AND file_id NOT IN (
+                            SELECT file_id FROM digestion_sources WHERE digestion_id = ?
+                          )
+                        """,
+                        (digestion.id, digestion.id),
+                    )
                     conn.commit()
 
             for source in source_rows:
@@ -907,6 +920,38 @@ class DigestionManager:
             ],
         }
 
+    def request_access_info(self, digestion_id: str, requester_user_id: str) -> dict[str, Any]:
+        """Return non-sensitive guidance for requesting live Digestion access."""
+        requester = self._clean_id(requester_user_id)
+        digestion = self._get_digestion_obj(digestion_id)
+        if not digestion:
+            raise DigestionError("Digestion not found", status_code=404, reason="not_found")
+        access = self._access_for(digestion, requester)
+        acl_endpoint = f"POST /api/v1/digestions/{digestion.id}/acl"
+        acl_body: dict[str, Any] = {
+            "grantee_user_id": requester,
+            "can_query": True,
+            "can_read_sources": False,
+            "can_manage": False,
+        }
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "name": digestion.name,
+            "status": digestion.status,
+            "owner_user_id": digestion.owner_user_id,
+            "your_user_id": requester,
+            "your_access": access,
+            "already_has_query_access": bool(access.get("can_query") or access.get("can_manage")),
+            "acl_grant_endpoint": acl_endpoint,
+            "acl_grant_body": acl_body,
+            "guidance": (
+                f"You do not currently have query access to Digestion '{digestion.name}' ({digestion.id}). "
+                f"Ask the owner ({digestion.owner_user_id}) to grant your user id ({requester}) live query access. "
+                "In the Vault UI, the owner can use Share access on the Digestion card."
+            ),
+        }
+
     def export_package_to_vault(self, digestion_id: str, actor_user_id: str) -> dict[str, Any]:
         """Save a whole Digestion package into the caller's Vault as one artifact."""
         digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
@@ -1139,17 +1184,27 @@ class DigestionManager:
         result: dict[str, str] = {}
         missing: list[dict[str, Any]] = []
         cache_dimensions = int(dimensions or 0)
-        with self.db.get_connection() as conn:
+        if chunks:
+            chunk_hashes = [chunk["chunk_hash"] for chunk in chunks]
+            cached: dict[str, str] = {}
+            batch_size = 500
+            with self.db.get_connection() as conn:
+                for start in range(0, len(chunk_hashes), batch_size):
+                    batch = chunk_hashes[start:start + batch_size]
+                    placeholders = ",".join(["?"] * len(batch))
+                    rows = conn.execute(
+                        f"""
+                        SELECT chunk_hash, id FROM digestion_embeddings
+                        WHERE provider = ? AND model = ? AND dimensions = ?
+                          AND chunk_hash IN ({placeholders})
+                        """,
+                        (provider, model, cache_dimensions, *batch),
+                    ).fetchall()
+                    cached.update({str(row["chunk_hash"]): str(row["id"]) for row in rows})
             for chunk in chunks:
-                row = conn.execute(
-                    """
-                    SELECT id FROM digestion_embeddings
-                    WHERE provider = ? AND model = ? AND dimensions = ? AND chunk_hash = ?
-                    """,
-                    (provider, model, cache_dimensions, chunk["chunk_hash"]),
-                ).fetchone()
-                if row:
-                    result[chunk["chunk_hash"]] = str(row["id"])
+                chunk_hash = str(chunk["chunk_hash"])
+                if chunk_hash in cached:
+                    result[chunk_hash] = cached[chunk_hash]
                 else:
                     missing.append(chunk)
         if not missing:
@@ -1164,7 +1219,7 @@ class DigestionManager:
         with self.db.get_connection() as conn:
             for chunk, vector in zip(missing, vectors):
                 embedding_id = f"Dge{secrets.token_hex(12)}"
-                conn.execute(
+                cursor = conn.execute(
                     """
                     INSERT OR IGNORE INTO digestion_embeddings (
                         id, provider, model, dimensions, chunk_hash, vector_json, created_at
@@ -1180,15 +1235,19 @@ class DigestionManager:
                         now,
                     ),
                 )
-                row = conn.execute(
-                    """
-                    SELECT id FROM digestion_embeddings
-                    WHERE provider = ? AND model = ? AND dimensions = ? AND chunk_hash = ?
-                    """,
-                    (provider, model, cache_dimensions, chunk["chunk_hash"]),
-                ).fetchone()
-                if row:
-                    result[chunk["chunk_hash"]] = str(row["id"])
+                chunk_hash = str(chunk["chunk_hash"])
+                if cursor.rowcount == 1:
+                    result[chunk_hash] = embedding_id
+                else:
+                    row = conn.execute(
+                        """
+                        SELECT id FROM digestion_embeddings
+                        WHERE provider = ? AND model = ? AND dimensions = ? AND chunk_hash = ?
+                        """,
+                        (provider, model, cache_dimensions, chunk_hash),
+                    ).fetchone()
+                    if row:
+                        result[chunk_hash] = str(row["id"])
             conn.commit()
         return result
 
@@ -1617,7 +1676,6 @@ Use this as a permissioned retrieval capability, not as raw file access.
             "title": str(row["title"] or ""),
             "content_type": str(row["content_type"] or "text/markdown"),
             "metadata": metadata if isinstance(metadata, dict) else {},
-            "created_by": str(row["created_by"] or ""),
             "created_at": str(row["created_at"] or ""),
             "updated_at": str(row["updated_at"] or ""),
             "size_chars": len(content),

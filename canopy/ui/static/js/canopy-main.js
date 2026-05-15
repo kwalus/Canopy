@@ -2004,6 +2004,12 @@
                     const queryTitle = queryDisabled
                         ? 'Build this Digestion before querying; no indexed chunks are available yet.'
                         : 'Query indexed chunks with cited retrieval.';
+                    const rawStatus = String((digestion && digestion.status) || 'draft');
+                    const hasBeenBuilt = rawStatus !== 'draft';
+                    const buildLabel = hasBeenBuilt ? 'Rebuild' : 'Build';
+                    const buildTitle = hasBeenBuilt
+                        ? 'Re-index all sources and refresh embedded chunks.'
+                        : 'Index sources and create embedded chunks for querying.';
                     return `
                         <article class="vault-digestion-card" data-vault-digestion-id="${id}">
                             <div class="vault-digestion-card-title">${name}</div>
@@ -2014,23 +2020,24 @@
                                 <span class="vault-digestion-pill"><i class="bi bi-braces"></i>${chunks} chunks</span>
                                 <span class="vault-digestion-pill"><i class="bi bi-file-earmark-text"></i>${tokens} tokens</span>
                                 <span class="vault-digestion-pill"><i class="bi bi-cpu"></i>${provider}</span>
+                                ${queryDisabled && hasBeenBuilt ? `<span class="vault-digestion-pill text-warning" title="No indexed chunks available. Run Build/Rebuild to index sources."><i class="bi bi-exclamation-triangle"></i>No chunks - build first</span>` : ''}
                             </div>
                             <div class="vault-digestion-actions">
-                                <button class="btn btn-sm btn-primary" type="button" data-vault-digestion-action="build" data-vault-digestion-id="${id}">
-                                    <i class="bi bi-hammer"></i> Build
+                                <button class="btn btn-sm btn-primary" type="button" data-vault-digestion-action="build" data-vault-digestion-id="${id}" aria-label="${buildLabel} ${name}" title="${buildTitle}">
+                                    <i class="bi bi-hammer"></i> ${buildLabel}
                                 </button>
-                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="outputs" data-vault-digestion-id="${id}">
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="outputs" data-vault-digestion-id="${id}" aria-label="View outputs for ${name}">
                                     <i class="bi bi-journal-richtext"></i> Outputs
                                 </button>
-	                                <button class="btn btn-sm btn-outline-primary" type="button" data-vault-digestion-action="export-package" data-vault-digestion-id="${id}">
+	                                <button class="btn btn-sm btn-outline-primary" type="button" data-vault-digestion-action="export-package" data-vault-digestion-id="${id}" aria-label="Export package for ${name}" title="Export a static snapshot of this Digestion to your Vault. Use Share access to let a recipient query the live index instead.">
 	                                    <i class="bi bi-box-arrow-up-right"></i> Package
 	                                </button>
 	                                ${canManage ? `
-	                                <button class="btn btn-sm btn-outline-success" type="button" data-vault-digestion-action="share-access" data-vault-digestion-id="${id}">
+	                                <button class="btn btn-sm btn-outline-success" type="button" data-vault-digestion-action="share-access" data-vault-digestion-id="${id}" aria-label="Share live query access for ${name}" aria-expanded="false">
 	                                    <i class="bi bi-person-check"></i> Share access
 	                                </button>
 	                                ` : ''}
-	                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="copy-agent-ref" data-vault-digestion-id="${id}">
+	                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="copy-agent-ref" data-vault-digestion-id="${id}" aria-label="Copy agent reference for ${name}">
 	                                    <i class="bi bi-clipboard"></i> Agent ref
 	                                </button>
 	                            </div>
@@ -2038,19 +2045,20 @@
 		                            <form class="vault-digestion-share" data-vault-digestion-share="${id}" hidden>
 		                                <input type="hidden" data-vault-digestion-share-grantee="${id}" name="grantee_user_id" value="">
 		                                <div class="vault-digestion-share-copy">
-		                                    Grant live query access to a local user or agent. Packages explain the corpus; access lets the recipient actually query the RAG index.
+		                                    Grant live local query access to a local user or agent. Package exports are static snapshots; Share access lets the recipient query the live local index directly.
 		                                </div>
 	                                <div class="vault-digestion-share-row">
 	                                    <div class="vault-digestion-share-search">
 	                                        <input class="form-control form-control-sm"
 	                                               type="search"
+	                                               role="combobox"
 	                                               autocomplete="off"
 	                                               data-vault-digestion-share-search="${id}"
 	                                               aria-autocomplete="list"
 	                                               aria-controls="vault-digestion-share-results-${id}"
 	                                               aria-expanded="false"
 	                                               placeholder="Search @agent or user"
-	                                               aria-label="Search user or agent for ${name}">
+	                                               aria-label="Search local user or agent to share ${name}">
 	                                        <div class="vault-digestion-share-results" id="vault-digestion-share-results-${id}" data-vault-digestion-share-results="${id}" hidden></div>
 	                                    </div>
 	                                    <button class="btn btn-sm btn-success" type="submit" data-vault-digestion-share-submit="${id}" disabled>
@@ -2107,11 +2115,14 @@
 
                 async function loadDigestions() {
                     if (!digestionList) return;
+                    digestionList.innerHTML = '<div class="small text-muted p-2"><span class="spinner-border spinner-border-sm me-1"></span>Loading Digestions...</div>';
                     try {
                         const data = await apiCall(`${vaultUrls().digestions}?include_sources=1`);
                         state.digestions = Array.isArray(data.digestions) ? data.digestions : [];
                         renderDigestions();
                     } catch (error) {
+                        const errMsg = vaultEscape(error.error || 'Refresh to try again.');
+                        digestionList.innerHTML = `<div class="vault-digestion-card"><div class="vault-digestion-card-title">Could not load Digestions</div><div class="small text-danger mt-1">${errMsg}</div></div>`;
                         console.error('Digestion load failed:', error);
                         if (typeof showAlert === 'function') showAlert(error.error || 'Could not load Digestions.', 'warning');
                     }
@@ -2606,6 +2617,8 @@
 		                    const willOpen = form.hidden;
 		                    form.hidden = !willOpen;
 		                    form.classList.toggle('is-visible', willOpen);
+		                    const shareBtn = digestionList && digestionList.querySelector(`[data-vault-digestion-action="share-access"][data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
+		                    if (shareBtn) shareBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
 		                    if (willOpen) {
 		                        const input = form.querySelector('[data-vault-digestion-share-search]');
 		                        global.setTimeout(() => {

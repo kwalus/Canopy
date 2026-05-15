@@ -29,7 +29,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.api.routes import create_api_blueprint
-from canopy.core.digestions import DigestionManager
+from canopy.core.digestions import DigestionError, DigestionManager
 from canopy.core.files import FileManager
 from canopy.security.api_keys import ApiKeyInfo, Permission
 
@@ -180,7 +180,7 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(grant['can_query'])
         self.assertFalse(grant['can_read_sources'])
         self.assertEqual(grant['grantee']['username'], 'reader-user')
-        with self.assertRaisesRegex(Exception, 'Grantee user not found'):
+        with self.assertRaisesRegex(Exception, 'local users or agents'):
             self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'missing-user', can_query=True)
         with self.assertRaisesRegex(Exception, 'local users or agents'):
             self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'remote-user', can_query=True)
@@ -427,7 +427,8 @@ class TestDigestions(unittest.TestCase):
                 json={'grantee_user_id': 'not-a-user', 'can_query': True},
                 headers={'X-API-Key': 'owner-key'},
             )
-            self.assertEqual(bad_grant_response.status_code, 404)
+            self.assertEqual(bad_grant_response.status_code, 400)
+            self.assertEqual((bad_grant_response.get_json() or {}).get('reason'), 'grantee_not_eligible')
 
             remote_grant_response = client.post(
                 f'/api/v1/digestions/{digestion_id}/acl',
@@ -435,7 +436,7 @@ class TestDigestions(unittest.TestCase):
                 headers={'X-API-Key': 'owner-key'},
             )
             self.assertEqual(remote_grant_response.status_code, 400)
-            self.assertEqual((remote_grant_response.get_json() or {}).get('reason'), 'remote_grantee_not_supported')
+            self.assertEqual((remote_grant_response.get_json() or {}).get('reason'), 'grantee_not_eligible')
 
             query_response = client.post(
                 f'/api/v1/digestions/{digestion_id}/query',
@@ -533,6 +534,164 @@ class TestDigestions(unittest.TestCase):
             )
             self.assertEqual(package_export_response.status_code, 200)
             self.assertTrue(package_export_response.get_json()['success'])
+
+    def test_grant_access_does_not_enumerate_user_existence(self) -> None:
+        """Unknown and remote grantees return identical public errors."""
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Enum test',
+            provider='local_hash',
+        )
+
+        with self.assertRaises(DigestionError) as unknown_ctx:
+            self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'does-not-exist', can_query=True)
+        with self.assertRaises(DigestionError) as remote_ctx:
+            self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'remote-user', can_query=True)
+
+        self.assertEqual(unknown_ctx.exception.status_code, 400)
+        self.assertEqual(remote_ctx.exception.status_code, 400)
+        self.assertEqual(unknown_ctx.exception.reason, 'grantee_not_eligible')
+        self.assertEqual(remote_ctx.exception.reason, 'grantee_not_eligible')
+        self.assertEqual(str(unknown_ctx.exception), str(remote_ctx.exception))
+
+    def test_output_responses_do_not_expose_created_by(self) -> None:
+        """Output API rows should not leak the user ID that generated them."""
+        source = self._save_text(
+            'privacy-corpus.txt',
+            'Output responses should not reveal which user generated them.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Privacy outputs',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
+
+        for output in self.digestion_manager.list_outputs(digestion['id'], 'owner-user'):
+            self.assertNotIn('created_by', output)
+        for output in self.digestion_manager.list_outputs(digestion['id'], 'reader-user'):
+            self.assertNotIn('created_by', output)
+        self.assertNotIn('created_by', self.digestion_manager.get_output(digestion['id'], 'owner-user', 'agent_context'))
+
+    def test_request_access_info_helps_unauthorized_agents_recover(self) -> None:
+        """request_access_info returns actionable recovery info for query_denied scenarios."""
+        source = self._save_text('sensitive-doc.txt', 'Sensitive research findings for authorized personnel only.')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Restricted corpus',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+
+        with self.assertRaisesRegex(Exception, 'query access'):
+            self.digestion_manager.query(digestion['id'], 'other-user', 'sensitive findings')
+
+        info = self.digestion_manager.request_access_info(digestion['id'], 'other-user')
+        self.assertTrue(info['success'])
+        self.assertEqual(info['digestion_id'], digestion['id'])
+        self.assertEqual(info['owner_user_id'], 'owner-user')
+        self.assertEqual(info['your_user_id'], 'other-user')
+        self.assertFalse(info['already_has_query_access'])
+        self.assertEqual(info['acl_grant_body']['grantee_user_id'], 'other-user')
+        self.assertTrue(info['acl_grant_body']['can_query'])
+        self.assertIn('guidance', info)
+
+        self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'other-user', can_query=True)
+        self.assertTrue(
+            self.digestion_manager.request_access_info(digestion['id'], 'other-user')['already_has_query_access']
+        )
+
+        with self.assertRaises(DigestionError) as ctx:
+            self.digestion_manager.request_access_info('nonexistent-id', 'other-user')
+        self.assertEqual(ctx.exception.reason, 'not_found')
+
+    def test_rebuild_partial_failure_preserves_prior_indexed_chunks(self) -> None:
+        """A rebuild failure for one source must not destroy other indexed sources."""
+        file1 = self._save_text('stable-content.txt', 'Quantum silicon devices require hyperfine control.')
+        file2 = self._save_text('fragile-content.txt', 'Garden tomatoes require soil and water to grow.')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Rebuild safety test',
+            source_file_ids=[file1.id, file2.id],
+            provider='local_hash',
+            chunk_size=80,
+            chunk_overlap=10,
+        )
+
+        initial = self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        self.assertTrue(initial['success'])
+        initial_total_chunks = initial['stats']['chunks']
+        original_index = self.digestion_manager._index_source
+
+        def failing_index(digestion_obj, source_row, **kwargs):
+            if str(source_row['file_id']) == file2.id:
+                raise DigestionError('bytes unavailable', status_code=404, reason='source_bytes_missing')
+            return original_index(digestion_obj, source_row, **kwargs)
+
+        with patch.object(self.digestion_manager, '_index_source', side_effect=failing_index):
+            partial = self.digestion_manager.build_digestion(digestion['id'], 'owner-user', rebuild=True)
+
+        self.assertTrue(partial['success'])
+        self.assertTrue(any(e['file_id'] == file2.id for e in partial['errors']))
+        self.assertGreaterEqual(partial['stats']['chunks'], initial_total_chunks)
+        result = self.digestion_manager.query(digestion['id'], 'owner-user', 'garden tomatoes', top_k=3)
+        self.assertTrue(result['success'])
+        self.assertGreaterEqual(result['result_count'], 1)
+
+    def test_rebuild_unchanged_content_reuses_cached_embeddings(self) -> None:
+        """Rebuilding unchanged content should use the embedding cache."""
+        source = self._save_text('cached-content.txt', 'Hyperfine silicon control for quantum devices.')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Cache reuse test',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.assertTrue(self.digestion_manager.build_digestion(digestion['id'], 'owner-user')['success'])
+
+        embed_call_count = [0]
+        original_embed = self.digestion_manager._embed_texts
+
+        def counting_embed(texts, **kwargs):
+            embed_call_count[0] += len(texts)
+            return original_embed(texts, **kwargs)
+
+        with patch.object(self.digestion_manager, '_embed_texts', side_effect=counting_embed):
+            second = self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+
+        self.assertTrue(second['success'])
+        self.assertEqual(embed_call_count[0], 0)
+
+    def test_chunk_limit_build_reports_truncation_and_remains_queryable(self) -> None:
+        """Chunk-limit truncation should surface clearly without making the index unusable."""
+        import canopy.core.digestions as dig_mod
+
+        file1 = self._save_text('big1.txt', 'silicon ' * 200)
+        file2 = self._save_text('big2.txt', 'tomato ' * 200)
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Limit test',
+            source_file_ids=[file1.id, file2.id],
+            provider='local_hash',
+            chunk_size=80,
+            chunk_overlap=0,
+        )
+
+        original_limit = dig_mod.MAX_CHUNKS_PER_BUILD
+        dig_mod.MAX_CHUNKS_PER_BUILD = 3
+        try:
+            build = self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        finally:
+            dig_mod.MAX_CHUNKS_PER_BUILD = original_limit
+
+        self.assertTrue(build['success'])
+        self.assertLessEqual(build['chunk_count'], 3)
+        self.assertTrue(any('build_chunk_limit_reached' in e['error'] for e in build['errors']))
+        result = self.digestion_manager.query(digestion['id'], 'owner-user', 'silicon', top_k=3)
+        self.assertTrue(result['success'])
+        self.assertGreaterEqual(result['result_count'], 1)
 
 
 if __name__ == '__main__':
