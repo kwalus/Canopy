@@ -703,23 +703,42 @@ class MessageManager:
             logger.error(f"Failed to get messages for user {user_id}: {e}")
             return []
     
-    def get_conversation(self, user_id: str, other_user_id: str, 
-                        limit: int = 50) -> List[Message]:
-        """Get conversation between two users."""
+    def get_conversation(
+        self,
+        user_id: str,
+        other_user_id: str,
+        limit: int = 50,
+        before: Optional[datetime] = None,
+        before_id: Optional[str] = None,
+    ) -> List[Message]:
+        """Get the latest direct conversation page in chronological display order."""
         try:
             with self.db.get_connection() as conn:
-                cursor = conn.execute("""
+                params: list[Any] = [user_id, other_user_id, other_user_id, user_id]
+                before_clause = ""
+                if before:
+                    clean_before_id = str(before_id or "").strip()
+                    if clean_before_id:
+                        before_clause = " AND (m.created_at < ? OR (m.created_at = ? AND m.id < ?))"
+                        before_iso = before.isoformat()
+                        params.extend([before_iso, before_iso, clean_before_id])
+                    else:
+                        before_clause = " AND m.created_at < ?"
+                        params.append(before.isoformat())
+                params.append(limit)
+                cursor = conn.execute(f"""
                     SELECT m.*, u.username as sender_username 
                     FROM messages m
                     LEFT JOIN users u ON m.sender_id = u.id
                     WHERE ((m.sender_id = ? AND m.recipient_id = ?) OR 
                            (m.sender_id = ? AND m.recipient_id = ?))
-                    ORDER BY m.created_at ASC
+                    {before_clause}
+                    ORDER BY m.created_at DESC, m.id DESC
                     LIMIT ?
-                """, (user_id, other_user_id, other_user_id, user_id, limit))
+                """, params)
                 
                 messages = []
-                for row in cursor.fetchall():
+                for row in reversed(cursor.fetchall()):
                     # Decrypt content if encrypted
                     content = row['content']
                     if self.data_encryptor and self.data_encryptor.is_enabled:
@@ -1179,8 +1198,14 @@ class MessageManager:
 
         return sorted(member for member in resolved_members if member)
 
-    def get_group_conversation(self, user_id: str, group_id: str,
-                               limit: int = 100) -> List[Message]:
+    def get_group_conversation(
+        self,
+        user_id: str,
+        group_id: str,
+        limit: int = 100,
+        before: Optional[datetime] = None,
+        before_id: Optional[str] = None,
+    ) -> List[Message]:
         """Get conversation for a group DM by group_id."""
         if not group_id:
             return []
@@ -1202,7 +1227,7 @@ class MessageManager:
                             WHERE CAST(gm.value AS TEXT) = ?
                         )
                     )
-                    ORDER BY m.created_at ASC
+                    ORDER BY m.created_at ASC, m.id ASC
                 """, (user_id, user_id, user_id))
 
                 messages = []
@@ -1286,6 +1311,14 @@ class MessageManager:
                         read_at=datetime.fromisoformat(row['read_at']) if row['read_at'] else None,
                         edited_at=datetime.fromisoformat(row['edited_at']) if row['edited_at'] else None
                     )
+                    if before:
+                        clean_before_id = str(before_id or "").strip()
+                        if message.created_at > before:
+                            continue
+                        if message.created_at == before and clean_before_id and message.id >= clean_before_id:
+                            continue
+                        if message.created_at == before and not clean_before_id:
+                            continue
                     messages.append(message)
 
                 if limit and len(messages) > limit:

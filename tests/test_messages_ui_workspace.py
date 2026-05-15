@@ -8,6 +8,7 @@ import sys
 import tempfile
 import types
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -261,8 +262,11 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('.7z,.rar', body)
         self.assertIn('.html,.css,.sh,.bat,.cfg,.ini,.toml', body)
         self.assertIn('/ajax/messages/thread_snapshot', body)
+        self.assertIn('/ajax/messages/thread_page', body)
+        self.assertIn('function loadOlderDmMessages(button)', body)
         self.assertIn('/api/v1/events?', body)
         self.assertIn('let dmEventCursor = ', body)
+        self.assertIn('let dmOlderPageInFlight = false;', body)
         self.assertIn('function pollDmEvents() {', body)
         self.assertIn('function queueDmSnapshot(options) {', body)
         self.assertIn('dmQueuedSnapshotOptions', body)
@@ -284,6 +288,102 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('toggleDmMobileSidebar(true)', body)
         self.assertIn('function syncDmMobileLayoutState(options)', body)
         self.assertIn("window.addEventListener('resize', scheduleDmMobileLayoutSync);", body)
+
+    def test_dm_thread_opens_on_latest_page_and_paginates_older_history(self) -> None:
+        rows = []
+        for index in range(75):
+            rows.append(
+                (
+                    f'DM-long-{index:03d}',
+                    'peer-a' if index % 2 else 'owner',
+                    'owner' if index % 2 else 'peer-a',
+                    f'Long DM marker {index:03d}',
+                    'text',
+                    'delivered',
+                    f'2026-03-07T11:{index // 60:02d}:{index % 60:02d}+00:00',
+                    f'2026-03-07T11:{index // 60:02d}:{index % 60:02d}+00:00',
+                    None,
+                    None,
+                    None,
+                )
+            )
+        self.conn.executemany(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        self.conn.commit()
+
+        response = self.client.get('/messages?with=peer-a')
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('Long DM marker 074', body)
+        self.assertIn('Long DM marker 015', body)
+        self.assertNotIn('Long DM marker 014', body)
+        self.assertNotIn('id="message-DM-root"', body)
+        self.assertIn('data-dm-action="load-older"', body)
+        self.assertIn('data-before="2026-03-07T11:00:15+00:00"', body)
+        self.assertIn('data-before-id="DM-long-015"', body)
+
+        older = self.client.get(
+            '/ajax/messages/thread_page?with=peer-a&before=2026-03-07T11:00:15%2B00:00&before_id=DM-long-015&limit=60'
+        )
+        self.assertEqual(older.status_code, 200)
+        payload = older.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        older_body = payload.get('thread_body_html') or ''
+        self.assertIn('Long DM marker 014', older_body)
+        self.assertIn('Hello owner', older_body)
+        self.assertNotIn('Long DM marker 015', older_body)
+        self.assertFalse(payload.get('has_older_messages'))
+
+    def test_dm_thread_page_rejects_missing_or_invalid_cursor(self) -> None:
+        missing = self.client.get('/ajax/messages/thread_page?with=peer-a')
+        self.assertEqual(missing.status_code, 400)
+        self.assertFalse((missing.get_json() or {}).get('success'))
+
+        invalid = self.client.get('/ajax/messages/thread_page?with=peer-a&before=not-a-date')
+        self.assertEqual(invalid.status_code, 400)
+        self.assertFalse((invalid.get_json() or {}).get('success'))
+
+    def test_dm_conversation_before_cursor_uses_id_tie_breaker(self) -> None:
+        rows = []
+        for index in range(4):
+            rows.append(
+                (
+                    f'DM-tie-00{index}',
+                    'peer-a' if index % 2 else 'owner',
+                    'owner' if index % 2 else 'peer-a',
+                    f'Tied timestamp {index}',
+                    'text',
+                    'delivered',
+                    '2026-03-07T12:00:00+00:00',
+                    '2026-03-07T12:00:00+00:00',
+                    None,
+                    None,
+                    None,
+                )
+            )
+        self.conn.executemany(
+            """
+            INSERT INTO messages (
+                id, sender_id, recipient_id, content, message_type, status,
+                created_at, delivered_at, read_at, edited_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        self.conn.commit()
+
+        before = datetime.fromisoformat('2026-03-07T12:00:00+00:00')
+        page = self.message_manager.get_conversation('owner', 'peer-a', limit=10, before=before, before_id='DM-tie-002')
+
+        self.assertEqual([message.id for message in page[-2:]], ['DM-tie-000', 'DM-tie-001'])
+        self.assertNotIn('DM-tie-002', [message.id for message in page])
 
     def test_dm_reactions_toggle_and_render_in_thread(self) -> None:
         response = self.client.post(

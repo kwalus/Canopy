@@ -20,6 +20,17 @@
         {% endif %}
     </div>
 {% elif message_rows %}
+    {% if has_older_messages %}
+        <div class="dm-load-older-wrap" id="dm-load-older-wrap">
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary dm-load-older-btn"
+                    data-dm-action="load-older"
+                    data-before="{{ oldest_message_created_at or '' }}"
+                    data-before-id="{{ oldest_message_id or '' }}">
+                <i class="bi bi-arrow-up-circle"></i> Load older messages
+            </button>
+        </div>
+    {% endif %}
     {% for message in message_rows %}
         {% if message.day_divider %}
             <div class="dm-day-divider"><span>{{ message.day_divider }}</span></div>
@@ -27,6 +38,7 @@
         <div class="dm-message-row {% if message.outbound %}outbound{% else %}inbound{% endif %} message-item"
              id="message-{{ message.id }}"
              data-message-id="{{ message.id }}"
+             data-created-at="{{ message.created_at }}"
              data-user-id="{{ message.sender_id }}">
             {% if not message.outbound %}
                 <div class="dm-message-avatar-wrap {% if not message.cluster_start %}spacer{% endif %}">

@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.117] - 2026-05-14
+
+### Changed
+- **DM threads open on the latest page first** - direct messages now fetch the newest bounded page before rendering, then display that page in chronological order so long conversations open quickly at the recent context.
+- **Older DM history is paginated in place** - the Messages page now exposes a Load older messages control, prepends older direct or group-DM pages without disturbing scroll position, and avoids duplicate day dividers across page boundaries.
+- **Older-message cursors are safer** - pagination requires a valid thread cursor and uses the oldest rendered message id as a tie-breaker so same-timestamp messages do not get skipped.
+
 ## [0.6.116] - 2026-05-14
 
 ### Changed

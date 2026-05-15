@@ -5598,9 +5598,25 @@ def create_ui_blueprint() -> Blueprint:
         conversation_with: Optional[str] = None,
         conversation_group: Optional[str] = None,
         search_query: str = '',
+        thread_before: Optional[str] = None,
+        thread_before_id: Optional[str] = None,
+        thread_limit: Optional[int] = None,
     ) -> dict[str, Any]:
         db_manager, _, _, message_manager, _, _, _, interaction_manager, profile_manager, _, p2p_manager = _get_app_components_any(current_app)
         workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+        try:
+            requested_thread_limit = int(thread_limit or 60)
+        except (TypeError, ValueError):
+            requested_thread_limit = 60
+        dm_thread_page_limit = max(20, min(requested_thread_limit, 120))
+        dm_fetch_limit = dm_thread_page_limit + 1
+        thread_before_dt: Optional[datetime] = None
+        clean_thread_before_id = str(thread_before_id or '').strip()
+        if thread_before:
+            try:
+                thread_before_dt = datetime.fromisoformat(str(thread_before).strip().replace('Z', '+00:00'))
+            except Exception:
+                thread_before_dt = None
         try:
             # Capture the cursor before rebuilding sidebar/thread state so the
             # client never advances past changes that are absent from this snapshot.
@@ -6074,16 +6090,38 @@ def create_ui_blueprint() -> Blueprint:
                 entry['is_active'] = True
 
         active_messages: list[Any] = []
+        has_older_messages = False
         if active_thread and not search_query:
             if active_thread.get('kind') == 'group':
                 requested_group_id = str(active_thread.get('canonical_group_key') or active_thread.get('group_id') or '').strip()
-                active_messages = message_manager.get_group_conversation(user_id, requested_group_id, limit=200)
+                active_messages = message_manager.get_group_conversation(
+                    user_id,
+                    requested_group_id,
+                    limit=dm_fetch_limit,
+                    before=thread_before_dt,
+                    before_id=clean_thread_before_id,
+                )
                 if not active_messages:
                     fallback_group_id = str(active_thread.get('group_id') or '').strip()
                     if fallback_group_id and fallback_group_id != requested_group_id:
-                        active_messages = message_manager.get_group_conversation(user_id, fallback_group_id, limit=200)
+                        active_messages = message_manager.get_group_conversation(
+                            user_id,
+                            fallback_group_id,
+                            limit=dm_fetch_limit,
+                            before=thread_before_dt,
+                            before_id=clean_thread_before_id,
+                        )
             else:
-                active_messages = message_manager.get_conversation(user_id, str(active_thread.get('user_id') or ''), limit=200)
+                active_messages = message_manager.get_conversation(
+                    user_id,
+                    str(active_thread.get('user_id') or ''),
+                    limit=dm_fetch_limit,
+                    before=thread_before_dt,
+                    before_id=clean_thread_before_id,
+                )
+            if len(active_messages) > dm_thread_page_limit:
+                has_older_messages = True
+                active_messages = active_messages[-dm_thread_page_limit:]
             any_marked_read = False
             for message in active_messages:
                 if getattr(message, 'sender_id', None) != user_id and not getattr(message, 'read_at', None):
@@ -6286,6 +6324,8 @@ def create_ui_blueprint() -> Blueprint:
 
         latest_message_id = message_rows[-1]['id'] if message_rows else None
         latest_message_created_at = message_rows[-1]['created_at'] if message_rows else None
+        oldest_message_id = message_rows[0]['id'] if message_rows else None
+        oldest_message_created_at = message_rows[0]['created_at'] if message_rows else None
         thread_state_fingerprint = hashlib.sha256(
             '\n'.join(
                 '|'.join(
@@ -6342,6 +6382,10 @@ def create_ui_blueprint() -> Blueprint:
             'dm_reaction_options': _get_dm_reaction_options(),
             'latest_message_id': latest_message_id,
             'latest_message_created_at': latest_message_created_at,
+            'oldest_message_id': oldest_message_id,
+            'oldest_message_created_at': oldest_message_created_at,
+            'has_older_messages': has_older_messages,
+            'thread_page_limit': dm_thread_page_limit,
             'workspace_event_cursor': workspace_event_cursor,
             'sidebar_state_token': sidebar_state_token,
             'thread_state_token': thread_state_token,
@@ -7307,6 +7351,10 @@ def create_ui_blueprint() -> Blueprint:
                 'conversation_group': template_data.get('conversation_group'),
                 'latest_message_id': template_data.get('latest_message_id'),
                 'latest_message_created_at': template_data.get('latest_message_created_at'),
+                'oldest_message_id': template_data.get('oldest_message_id'),
+                'oldest_message_created_at': template_data.get('oldest_message_created_at'),
+                'has_older_messages': bool(template_data.get('has_older_messages')),
+                'thread_page_limit': template_data.get('thread_page_limit'),
                 'workspace_event_cursor': template_data.get('workspace_event_cursor'),
                 'sidebar_state_token': template_data.get('sidebar_state_token'),
                 'thread_state_token': template_data.get('thread_state_token'),
@@ -7322,6 +7370,47 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"DM thread snapshot error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to refresh messages'}), 500
+
+    @ui.route('/ajax/messages/thread_page', methods=['GET'])
+    @require_login
+    def ajax_messages_thread_page():
+        """Return an older DM message page for prepend pagination."""
+        try:
+            user_id = get_current_user()
+            conversation_with = (request.args.get('with') or '').strip() or None
+            conversation_group = (request.args.get('group') or '').strip() or None
+            thread_before = (request.args.get('before') or '').strip()
+            thread_before_id = (request.args.get('before_id') or '').strip() or None
+            if not thread_before:
+                return jsonify({'success': False, 'error': 'Missing older-message cursor'}), 400
+            try:
+                datetime.fromisoformat(thread_before.replace('Z', '+00:00'))
+            except Exception:
+                return jsonify({'success': False, 'error': 'Invalid older-message cursor'}), 400
+            if not conversation_with and not conversation_group:
+                return jsonify({'success': False, 'error': 'Choose a DM thread before loading older messages'}), 400
+            template_data = _build_dm_workspace_template_data(
+                user_id=user_id,
+                conversation_with=conversation_with,
+                conversation_group=conversation_group,
+                search_query='',
+                thread_before=thread_before,
+                thread_before_id=thread_before_id,
+                thread_limit=request.args.get('limit'),
+            )
+            template_data['dm_surface'] = 'page'
+            return jsonify({
+                'success': True,
+                'active_thread': template_data.get('active_thread'),
+                'oldest_message_id': template_data.get('oldest_message_id'),
+                'oldest_message_created_at': template_data.get('oldest_message_created_at'),
+                'has_older_messages': bool(template_data.get('has_older_messages')),
+                'thread_page_limit': template_data.get('thread_page_limit'),
+                'thread_body_html': render_template('_messages_thread_body.html', **template_data),
+            })
+        except Exception as e:
+            logger.error(f"DM thread page error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to load older messages'}), 500
     
     # API Key management
     @ui.route('/keys')

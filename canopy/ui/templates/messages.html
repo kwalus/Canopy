@@ -652,6 +652,32 @@
         min-width: 0;
     }
 
+    .dm-load-older-wrap {
+        display: flex;
+        justify-content: center;
+        padding: 0.1rem 0 0.45rem;
+    }
+
+    .dm-load-older-btn {
+        border-radius: 999px;
+        border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--dm-day-divider-border));
+        background: color-mix(in srgb, var(--canopy-primary) 8%, var(--dm-surface-soft));
+        color: var(--canopy-text-primary);
+        font-weight: 800;
+        letter-spacing: 0.01em;
+        box-shadow: 0 10px 26px rgba(3, 10, 22, 0.12);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.38rem;
+    }
+
+    .dm-load-older-btn:hover,
+    .dm-load-older-btn:focus-visible {
+        background: color-mix(in srgb, var(--canopy-primary) 16%, var(--dm-surface-soft));
+        border-color: color-mix(in srgb, var(--canopy-primary) 58%, transparent);
+        color: var(--canopy-text-primary);
+    }
+
     .dm-day-divider {
         display: flex;
         justify-content: center;
@@ -2076,6 +2102,7 @@
     let dmResyncTimer = null;
     let dmEventPollInFlight = false;
     let dmSnapshotInFlight = false;
+    let dmOlderPageInFlight = false;
     let dmQueuedSnapshotOptions = null;
     let dmComposerDragDepth = 0;
     let dmCanopyLLMInFlight = false;
@@ -2205,6 +2232,124 @@
             return;
         }
         scroller.scrollTop = state.top || 0;
+    }
+
+    function getOldestRenderedDmTimestamp() {
+        const firstRow = document.querySelector('#dm-thread-body .dm-message-row[data-created-at]');
+        return firstRow ? String(firstRow.getAttribute('data-created-at') || '') : '';
+    }
+
+    function getOldestRenderedDmId() {
+        const firstRow = document.querySelector('#dm-thread-body .dm-message-row[data-message-id]');
+        return firstRow ? String(firstRow.getAttribute('data-message-id') || '') : '';
+    }
+
+    function dedupeDmDayDividers() {
+        const body = document.getElementById('dm-thread-body');
+        if (!body) return;
+        let lastLabel = '';
+        body.querySelectorAll('.dm-day-divider').forEach((divider) => {
+            const label = String(divider.textContent || '').trim();
+            if (label && label === lastLabel) {
+                divider.remove();
+                return;
+            }
+            if (label) lastLabel = label;
+        });
+    }
+
+    function setDmOlderPageBusy(button, busy) {
+        if (!button) return;
+        button.disabled = !!busy;
+        button.classList.toggle('disabled', !!busy);
+        if (busy) {
+            button.dataset.originalLabel = button.innerHTML;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Loading older messages';
+        } else if (button.dataset.originalLabel) {
+            button.innerHTML = button.dataset.originalLabel;
+            delete button.dataset.originalLabel;
+        }
+    }
+
+    function loadOlderDmMessages(button) {
+        if (dmOlderPageInFlight || isDmSearchActive()) return Promise.resolve(null);
+        const body = document.getElementById('dm-thread-body');
+        const scroller = document.getElementById('dm-thread-scroll');
+        if (!body || !scroller || !ACTIVE_THREAD) return Promise.resolve(null);
+
+        const before = String((button && button.getAttribute('data-before')) || getOldestRenderedDmTimestamp() || '').trim();
+        const beforeId = String((button && button.getAttribute('data-before-id')) || getOldestRenderedDmId() || '').trim();
+        if (!before) {
+            if (typeof showAlert === 'function') showAlert('Could not determine where to load older messages.', 'warning');
+            return Promise.resolve(null);
+        }
+
+        const threadUrl = new URL(getDmQueryUrl(), window.location.origin);
+        const pageUrl = new URL('/ajax/messages/thread_page', window.location.origin);
+        ['with', 'group'].forEach((key) => {
+            const value = threadUrl.searchParams.get(key);
+            if (value) pageUrl.searchParams.set(key, value);
+        });
+        pageUrl.searchParams.set('before', before);
+        if (beforeId) pageUrl.searchParams.set('before_id', beforeId);
+        pageUrl.searchParams.set('limit', '60');
+
+        const previousHeight = scroller.scrollHeight;
+        const previousTop = scroller.scrollTop;
+        dmOlderPageInFlight = true;
+        setDmOlderPageBusy(button, true);
+
+        return fetch(pageUrl.toString(), {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then((res) => res.json())
+            .then((data) => {
+                if (!data || !data.success) {
+                    throw new Error((data && data.error) || 'Failed to load older messages');
+                }
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = data.thread_body_html || '';
+                const incomingNodes = Array.from(wrapper.children).filter((node) => {
+                    return !(node.classList && node.classList.contains('dm-empty-state'));
+                });
+                if (!incomingNodes.length) {
+                    const existingWrap = document.getElementById('dm-load-older-wrap');
+                    if (existingWrap) existingWrap.remove();
+                    return data;
+                }
+
+                const existingWrap = document.getElementById('dm-load-older-wrap');
+                if (existingWrap) existingWrap.remove();
+
+                const fragment = document.createDocumentFragment();
+                incomingNodes.forEach((node) => fragment.appendChild(node));
+                body.prepend(fragment);
+                dedupeDmDayDividers();
+                applyDmRichContentInScope(body);
+                if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+                    window.canopyApplySourceLayoutsInScope(body);
+                }
+                if (typeof formatTimestamps === 'function') {
+                    formatTimestamps();
+                }
+
+                const newHeight = scroller.scrollHeight;
+                scroller.scrollTop = previousTop + Math.max(0, newHeight - previousHeight);
+                return data;
+            })
+            .catch((error) => {
+                console.error('Failed to load older DM messages:', error);
+                if (typeof showAlert === 'function') {
+                    showAlert('Could not load older messages. Please try again.', 'warning');
+                }
+                return null;
+            })
+            .finally(() => {
+                dmOlderPageInFlight = false;
+                setDmOlderPageBusy(button, false);
+            });
     }
 
     function hidePendingDmSnapshotNotice() {
@@ -4308,6 +4453,9 @@
         } else if (action === 'jump-message') {
             event.preventDefault();
             jumpToMessage(actionEl.getAttribute('data-message-id'));
+        } else if (action === 'load-older') {
+            event.preventDefault();
+            loadOlderDmMessages(actionEl);
         } else if (action === 'open-reactions') {
             event.preventDefault();
             const messageId = actionEl.getAttribute('data-message-id');
