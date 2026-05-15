@@ -2813,7 +2813,11 @@
 
     function clearComposer() {
         const textarea = document.getElementById('messageContent');
-        if (textarea) textarea.value = '';
+        if (textarea) {
+            textarea.value = '';
+            textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        clearDmComposerDraft();
         dmCanopyLLMDraftReady = false;
         dmCanopyLLMIgnoredDraft = '';
         updateDmCanopyLLMComposePanel();
@@ -2828,6 +2832,7 @@
             updateRecipientChips();
             updateComposerTarget();
         }
+        if (textarea) textarea.focus();
     }
 
     function setDmComposerExpanded(expanded) {

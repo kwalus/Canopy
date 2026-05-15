@@ -10154,6 +10154,12 @@
             background: color-mix(in srgb, var(--canopy-bg-card, #1e293b) 72%, transparent);
         }
 
+        .code-preview-copy.is-active {
+            border-color: color-mix(in srgb, var(--canopy-primary, #22c55e) 58%, var(--canopy-border, #334155) 42%);
+            color: color-mix(in srgb, var(--canopy-primary, #22c55e) 78%, var(--canopy-text-primary, #f8fafc) 22%);
+            background: color-mix(in srgb, var(--canopy-primary, #22c55e) 16%, var(--canopy-bg-card, #1e293b) 84%);
+        }
+
         .file-preview-container.code-preview pre.code-preview-body {
             margin: 0;
             padding: 0;
@@ -10161,7 +10167,7 @@
             color: inherit;
             background: transparent;
             font-size: 0.85em;
-            line-height: 1.52;
+            line-height: 1.32;
         }
 
         .file-preview-container.code-preview code {
@@ -10174,19 +10180,22 @@
         .code-preview-lines {
             display: block;
             margin: 0;
-            padding: 8px 0;
+            padding: 6px 0;
         }
 
         .code-preview-line {
             display: grid;
             grid-template-columns: minmax(38px, max-content) minmax(0, 1fr);
-            min-height: 1.52em;
+            align-items: start;
+            min-height: 1.32em;
+            line-height: 1.32;
         }
 
         .code-line-number {
             display: block;
             user-select: none;
             padding: 0 10px 0 12px;
+            line-height: 1.32;
             text-align: right;
             color: var(--code-line-number);
             background: var(--code-line-number-bg);
@@ -10198,8 +10207,53 @@
             display: block;
             min-width: 0;
             padding: 0 14px 0 12px;
+            line-height: 1.32;
             white-space: pre;
             overflow-wrap: normal;
+        }
+
+        .file-preview-rich-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding-bottom: 0.65rem;
+            margin-bottom: 0.75rem;
+            border-bottom: 1px solid color-mix(in srgb, var(--canopy-border, #334155) 78%, transparent);
+        }
+
+        .file-preview-container.md-preview .file-preview-rich-header {
+            margin-bottom: 0.85rem;
+        }
+
+        .file-preview-raw-text {
+            margin: 0;
+            max-height: min(64vh, 760px);
+            overflow: auto;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid color-mix(in srgb, var(--canopy-border, #334155) 78%, transparent);
+            background: color-mix(in srgb, var(--canopy-bg-primary, #0f172a) 88%, #000 12%);
+            color: var(--canopy-text-primary, #f8fafc);
+            font-family: var(--canopy-font-mono, "SFMono-Regular", "Cascadia Code", "Liberation Mono", Consolas, monospace);
+            font-size: 0.85em;
+            line-height: 1.34;
+            white-space: pre;
+            overflow-wrap: normal;
+        }
+
+        .file-preview-raw-text code {
+            color: inherit;
+            background: transparent;
+            padding: 0;
+        }
+
+        .file-preview-container.md-preview pre.file-preview-raw-text {
+            padding: 10px 12px;
+            border-radius: 10px;
+            white-space: pre;
+            word-break: normal;
+            line-height: 1.34;
         }
 
         .cp-token.keyword {
@@ -10638,6 +10692,12 @@
             --code-selector: #0f766e;
             --code-variable: #a21caf;
             --code-punctuation: #475569;
+        }
+
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .file-preview-raw-text {
+            background: #f8fafc;
+            color: #0f172a;
+            border-color: rgba(148, 163, 184, 0.24);
         }
 
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .code-preview-copy {

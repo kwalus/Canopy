@@ -150,6 +150,10 @@ CURRENT_INFO_TRIGGER_RE = re.compile(
 )
 MAX_SYSTEM_PROMPT_CHARS = 4000
 MAX_LLM_INPUT_CHARS = 24000
+MAX_COMPOSE_MEMORY_CHARS = 2000
+MAX_COMPOSE_CONTEXT_CHARS = 6500
+MAX_COMPOSE_TEAM_MEMBERS = 24
+MAX_COMPOSE_STYLE_EXAMPLES = 5
 _MAX_LLM_RESPONSE_BYTES = 512 * 1024  # 512 KiB is generous; typical responses are much smaller.
 _OPENAI_PENDING_STATUSES = {'queued', 'in_progress'}
 _OPENAI_WEB_SEARCH_TOOL_STATUSES = {
@@ -196,7 +200,8 @@ class CanopyLLMManager:
         with self.db_manager.get_connection() as conn:
             row = conn.execute(
                 """
-                SELECT provider, model, api_key_ciphertext, enabled, system_prompt, updated_at, web_search_enabled
+                SELECT provider, model, api_key_ciphertext, enabled, system_prompt, updated_at,
+                       web_search_enabled, memory_enabled, compose_memory
                 FROM user_llm_settings
                 WHERE user_id = ?
                 """,
@@ -211,12 +216,16 @@ class CanopyLLMManager:
         system_prompt = str(self._row_value(row, 'system_prompt', 4, '') or '').strip() or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT
         updated_at = self._row_value(row, 'updated_at', 5, None)
         web_search_enabled = self._row_value(row, 'web_search_enabled', 6, 1)
+        memory_enabled = self._row_value(row, 'memory_enabled', 7, 1)
+        compose_memory = str(self._row_value(row, 'compose_memory', 8, '') or '').strip()
         return self._with_instance_summary({
             'provider': provider,
             'model': model[:120],
             'enabled': bool(enabled),
             'api_key_configured': self._provider_secret_configured(provider, ciphertext, allow_environment=False),
             'web_search_enabled': self._normalize_bool(web_search_enabled, default=True),
+            'memory_enabled': self._normalize_bool(memory_enabled, default=True),
+            'compose_memory': compose_memory[:MAX_COMPOSE_MEMORY_CHARS],
             'system_prompt': system_prompt[:MAX_SYSTEM_PROMPT_CHARS],
             'updated_at': updated_at,
             'model_options': CANOPY_LLM_MODEL_OPTIONS,
@@ -273,6 +282,8 @@ class CanopyLLMManager:
         clear_api_key: bool = False,
         system_prompt: Any = None,
         web_search_enabled: Any = True,
+        memory_enabled: Any = None,
+        compose_memory: Any = None,
     ) -> dict[str, Any]:
         user_id = str(user_id or '').strip()
         if not user_id:
@@ -288,12 +299,23 @@ class CanopyLLMManager:
         self._ensure_schema()
         with self.db_manager.get_connection() as conn:
             existing = conn.execute(
-                "SELECT api_key_ciphertext FROM user_llm_settings WHERE user_id = ?",
+                "SELECT api_key_ciphertext, compose_memory, memory_enabled FROM user_llm_settings WHERE user_id = ?",
                 (user_id,),
             ).fetchone()
             existing_ciphertext = ''
+            existing_compose_memory = ''
+            existing_memory_enabled = 1
             if existing:
                 existing_ciphertext = str(self._row_value(existing, 'api_key_ciphertext', 0, '') or '').strip()
+                existing_compose_memory = str(self._row_value(existing, 'compose_memory', 1, '') or '')
+                existing_memory_enabled = self._row_value(existing, 'memory_enabled', 2, 1)
+            memory_enabled_clean = 1 if self._normalize_bool(
+                existing_memory_enabled if memory_enabled is None else memory_enabled,
+                default=True,
+            ) else 0
+            compose_memory_clean = self._normalize_compose_memory(
+                existing_compose_memory if compose_memory is None else compose_memory
+            )
 
             api_key_clean = str(api_key or '').strip() if api_key is not None else ''
             if clear_api_key:
@@ -306,9 +328,10 @@ class CanopyLLMManager:
             conn.execute(
                 """
                 INSERT INTO user_llm_settings (
-                    user_id, provider, model, api_key_ciphertext, enabled, system_prompt, web_search_enabled, updated_at
+                    user_id, provider, model, api_key_ciphertext, enabled, system_prompt,
+                    web_search_enabled, memory_enabled, compose_memory, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id) DO UPDATE SET
                     provider = excluded.provider,
                     model = excluded.model,
@@ -316,6 +339,8 @@ class CanopyLLMManager:
                     enabled = excluded.enabled,
                     system_prompt = excluded.system_prompt,
                     web_search_enabled = excluded.web_search_enabled,
+                    memory_enabled = excluded.memory_enabled,
+                    compose_memory = excluded.compose_memory,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (
@@ -326,6 +351,8 @@ class CanopyLLMManager:
                     enabled_clean,
                     prompt_clean,
                     web_search_enabled_clean,
+                    memory_enabled_clean,
+                    compose_memory_clean,
                 ),
             )
             conn.commit()
@@ -523,6 +550,20 @@ class CanopyLLMManager:
             context_lines.append(f'Surface: {str(context_label).strip()}')
         context_block = '\n'.join(context_lines)
         context_block = f"{context_block}\n\n" if context_block else ''
+        compose_memory_context = self._build_compose_memory_context(
+            user_id,
+            settings,
+            channel_name=channel_name,
+            context_label=context_label,
+        )
+        memory_block = (
+            "Node-local compose memory and team context:\n"
+            "Use this only to make the draft feel natural, consistent, and well-routed. "
+            "Do not quote private memory verbatim or imply access to hidden content.\n"
+            f"{compose_memory_context}\n\n"
+            if compose_memory_context
+            else ''
+        )
         current_timestamp = datetime.now().astimezone().isoformat(timespec='seconds')
         effective_web_search = (
             provider == 'openai'
@@ -532,6 +573,7 @@ class CanopyLLMManager:
         composed_prompt = (
             f"{context_block}"
             f"Current node timestamp: {current_timestamp}\n\n"
+            f"{memory_block}"
             "The following text is the user's instruction or rough draft. Satisfy the instruction and write the final Canopy message body; do not merely repeat the instruction.\n"
             "User instruction/draft:\n"
             f"<<<\n{prompt}\n>>>\n\n"
@@ -599,6 +641,8 @@ class CanopyLLMManager:
                     if use_personal_preferences and personal.get('system_prompt')
                     else instance_settings.get('system_prompt')
                 ) or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
+                'memory_enabled': personal.get('memory_enabled', True),
+                'compose_memory': personal.get('compose_memory') or '',
                 'credential_source': 'instance',
             }
 
@@ -634,6 +678,8 @@ class CanopyLLMManager:
                     api_key_ciphertext TEXT,
                     enabled INTEGER NOT NULL DEFAULT 0,
                     web_search_enabled INTEGER NOT NULL DEFAULT 1,
+                    memory_enabled INTEGER NOT NULL DEFAULT 1,
+                    compose_memory TEXT,
                     system_prompt TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -664,6 +710,16 @@ class CanopyLLMManager:
                     "ALTER TABLE user_llm_settings "
                     "ADD COLUMN web_search_enabled INTEGER NOT NULL DEFAULT 1"
                 )
+            if 'memory_enabled' not in columns:
+                conn.execute(
+                    "ALTER TABLE user_llm_settings "
+                    "ADD COLUMN memory_enabled INTEGER NOT NULL DEFAULT 1"
+                )
+            if 'compose_memory' not in columns:
+                conn.execute(
+                    "ALTER TABLE user_llm_settings "
+                    "ADD COLUMN compose_memory TEXT"
+                )
             instance_columns = {
                 str(row['name'] if hasattr(row, 'keys') else row[1])
                 for row in conn.execute("PRAGMA table_info(instance_llm_settings)").fetchall()
@@ -688,6 +744,8 @@ class CanopyLLMManager:
             'enabled': False,
             'api_key_configured': False,
             'web_search_enabled': True,
+            'memory_enabled': True,
+            'compose_memory': '',
             'system_prompt': DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
             'updated_at': None,
             'model_options': CANOPY_LLM_MODEL_OPTIONS,
@@ -936,6 +994,262 @@ class CanopyLLMManager:
             return row[index]
         except Exception:
             return default
+
+    @staticmethod
+    def _table_exists(conn: Any, table_name: str) -> bool:
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1",
+                (str(table_name or '').strip(),),
+            ).fetchone()
+            return bool(row)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _table_columns(conn: Any, table_name: str) -> set[str]:
+        try:
+            rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        except Exception:
+            return set()
+        columns: set[str] = set()
+        for row in rows:
+            try:
+                columns.add(str(row['name'] if hasattr(row, 'keys') else row[1]))
+            except Exception:
+                continue
+        return columns
+
+    @staticmethod
+    def _compact_compose_text(text: Any, *, limit: int = 220) -> str:
+        compact = re.sub(r'\s+', ' ', str(text or '').replace('\u00a0', ' ')).strip()
+        if not compact:
+            return ''
+        if len(compact) <= limit:
+            return compact
+        return compact[: max(0, limit - 3)].rstrip() + '...'
+
+    @staticmethod
+    def _normalize_compose_memory(compose_memory: Any) -> str:
+        memory = str(compose_memory or '').replace('\r\n', '\n').replace('\r', '\n').strip()
+        memory = re.sub(r'\n{4,}', '\n\n\n', memory)
+        if len(memory) > MAX_COMPOSE_MEMORY_CHARS:
+            raise CanopyLLMError(
+                f'Compose memory is capped at {MAX_COMPOSE_MEMORY_CHARS:,} characters.',
+                status_code=400,
+                reason='compose_memory_too_long',
+            )
+        return memory
+
+    def _resolve_channel_id_for_memory(self, conn: Any, channel_name: Optional[str]) -> str:
+        channel_name_clean = str(channel_name or '').strip().lstrip('#')
+        if not channel_name_clean or not self._table_exists(conn, 'channels'):
+            return ''
+        try:
+            row = conn.execute(
+                "SELECT id FROM channels WHERE name = ? COLLATE NOCASE LIMIT 1",
+                (channel_name_clean,),
+            ).fetchone()
+            return str(self._row_value(row, 'id', 0, '') or '').strip() if row else ''
+        except Exception:
+            return ''
+
+    def _load_compose_team_members(self, conn: Any, user_id: str, *, channel_id: str = '') -> list[str]:
+        if not self._table_exists(conn, 'users'):
+            return []
+        user_columns = self._table_columns(conn, 'users')
+        if not user_columns:
+            return []
+        select_parts = ['u.id']
+        select_parts.append('u.username' if 'username' in user_columns else "u.id AS username")
+        select_parts.append('u.display_name' if 'display_name' in user_columns else "'' AS display_name")
+        select_parts.append('u.account_type' if 'account_type' in user_columns else "'' AS account_type")
+        display_expr = "u.display_name" if 'display_name' in user_columns else "''"
+        username_expr = "u.username" if 'username' in user_columns else "u.id"
+        order_expr = f"COALESCE({display_expr}, {username_expr}, u.id)"
+        if channel_id and self._table_exists(conn, 'channel_members'):
+            channel_member_columns = self._table_columns(conn, 'channel_members')
+            role_select = 'cm.role AS channel_role' if 'role' in channel_member_columns else "'' AS channel_role"
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT {', '.join(select_parts)}, {role_select}
+                    FROM channel_members cm
+                    JOIN users u ON u.id = cm.user_id
+                    WHERE cm.channel_id = ?
+                    ORDER BY
+                        CASE WHEN u.id = ? THEN 0 ELSE 1 END,
+                        {order_expr} COLLATE NOCASE
+                    LIMIT ?
+                    """,
+                    (channel_id, user_id, MAX_COMPOSE_TEAM_MEMBERS),
+                ).fetchall()
+            except Exception:
+                rows = []
+        else:
+            identity_predicates = [
+                f"COALESCE(u.{column}, '') != ''"
+                for column in ('password_hash', 'display_name', 'username')
+                if column in user_columns
+            ]
+            where_sql = f"WHERE {' OR '.join(identity_predicates)}" if identity_predicates else ''
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT {', '.join(select_parts)}, '' AS channel_role
+                    FROM users u
+                    {where_sql}
+                    ORDER BY
+                        CASE WHEN u.id = ? THEN 0 ELSE 1 END,
+                        {order_expr} COLLATE NOCASE
+                    LIMIT ?
+                    """,
+                    (user_id, MAX_COMPOSE_TEAM_MEMBERS),
+                ).fetchall()
+            except Exception:
+                rows = []
+
+        members: list[str] = []
+        seen: set[str] = set()
+        for row in rows or []:
+            uid = str(self._row_value(row, 'id', 0, '') or '').strip()
+            username = str(self._row_value(row, 'username', 1, '') or '').strip()
+            display_name = str(self._row_value(row, 'display_name', 2, '') or '').strip()
+            account_type = str(self._row_value(row, 'account_type', 3, '') or '').strip().lower()
+            role = str(self._row_value(row, 'channel_role', 4, '') or '').strip().lower()
+            key = uid or username or display_name
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            handle = username or uid
+            handle_label = f"@{handle.lstrip('@')}" if handle else uid
+            label = display_name or username or uid
+            detail_parts = []
+            if account_type:
+                detail_parts.append(account_type)
+            if role:
+                detail_parts.append(role)
+            detail = f" ({', '.join(detail_parts)})" if detail_parts else ''
+            if uid == user_id:
+                detail = f"{detail} [current user]".strip()
+            members.append(f"{label} / {handle_label}{detail}")
+        return members[:MAX_COMPOSE_TEAM_MEMBERS]
+
+    def _load_compose_style_examples(self, conn: Any, user_id: str, *, channel_id: str = '') -> list[str]:
+        examples: list[tuple[str, str]] = []
+
+        def add_rows(
+            table: str,
+            user_col: str,
+            content_col: str,
+            created_col: str,
+            label: str,
+            *,
+            extra_clauses: Optional[list[str]] = None,
+            extra_params: Optional[list[Any]] = None,
+        ) -> None:
+            if not self._table_exists(conn, table):
+                return
+            columns = self._table_columns(conn, table)
+            required = {user_col, content_col}
+            if not required.issubset(columns):
+                return
+            order_col = created_col if created_col in columns else ''
+            order_sql = f"ORDER BY {order_col} DESC" if order_col else ''
+            select_created = order_col if order_col else "''"
+            clauses = [
+                f"{user_col} = ?",
+                f"TRIM(COALESCE({content_col}, '')) != ''",
+            ]
+            params: list[Any] = [user_id]
+            for clause in extra_clauses or []:
+                if clause:
+                    clauses.append(clause)
+            params.extend(extra_params or [])
+            where_sql = " AND ".join(clauses)
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT {content_col} AS content, {select_created} AS created_at
+                    FROM {table}
+                    WHERE {where_sql}
+                    {order_sql}
+                    LIMIT 8
+                    """,
+                    tuple(params),
+                ).fetchall()
+            except Exception:
+                return
+            for row in rows or []:
+                content = self._compact_compose_text(self._row_value(row, 'content', 0, ''), limit=240)
+                if not content or '@Canopy' in content or '@canopy' in content:
+                    continue
+                created = str(self._row_value(row, 'created_at', 1, '') or '').strip()
+                examples.append((created, f"{label}: {content}"))
+
+        if channel_id:
+            add_rows(
+                'channel_messages',
+                'user_id',
+                'content',
+                'created_at',
+                'channel',
+                extra_clauses=['channel_id = ?'],
+                extra_params=[channel_id],
+            )
+        feed_clauses = []
+        if 'visibility' in self._table_columns(conn, 'feed_posts'):
+            feed_clauses.append("visibility IN ('public', 'network', 'trusted')")
+        add_rows('feed_posts', 'author_id', 'content', 'created_at', 'feed', extra_clauses=feed_clauses)
+        examples.sort(key=lambda item: item[0] or '', reverse=True)
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for _, example in examples:
+            key = example.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(example)
+            if len(deduped) >= MAX_COMPOSE_STYLE_EXAMPLES:
+                break
+        return deduped
+
+    def _build_compose_memory_context(
+        self,
+        user_id: str,
+        settings: dict[str, Any],
+        *,
+        channel_name: Optional[str] = None,
+        context_label: Optional[str] = None,
+    ) -> str:
+        if not self._normalize_bool(settings.get('memory_enabled'), default=True):
+            return ''
+
+        sections: list[str] = []
+        explicit_memory = str(settings.get('compose_memory') or '').strip()
+        if explicit_memory:
+            sections.append(f"User-stated compose memory:\n{explicit_memory[:MAX_COMPOSE_MEMORY_CHARS]}")
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                channel_id = self._resolve_channel_id_for_memory(conn, channel_name)
+                members = self._load_compose_team_members(conn, user_id, channel_id=channel_id)
+                examples = self._load_compose_style_examples(conn, user_id, channel_id=channel_id)
+        except Exception as exc:
+            logger.debug("Skipping Canopy compose memory context: %s", exc)
+            members = []
+            examples = []
+
+        if members:
+            label = f"Known team members for #{channel_name}" if channel_name else "Known Canopy teammates"
+            sections.append(label + ":\n" + "\n".join(f"- {member}" for member in members))
+        if examples:
+            sections.append(
+                "Recent writing examples from this user for tone and habits; do not quote unless the user asks:\n"
+                + "\n".join(f"- {example}" for example in examples)
+            )
+        context = "\n\n".join(section.strip() for section in sections if section.strip())
+        return context[:MAX_COMPOSE_CONTEXT_CHARS].rstrip()
 
     @staticmethod
     def _normalize_provider(provider: Any) -> str:

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.123] - 2026-05-15
+
+### Changed
+- **@Canopy compose memory is user-controlled and bounded** - Profile now exposes node-local compose memory plus a memory/team-context switch, and AI compose prompts can include scoped teammate context and recent own-writing signals without sampling DM history.
+- **Mention filters help tame busy Channels and Feed** - channel headers and Feed controls can filter the loaded window to posts or threads mentioning you or a selected human/agent, with persisted local state, banner chips, and clear empty-state copy.
+- **Attachment previews are denser and more copyable** - code previews avoid preserved whitespace gaps, text-capable previews can toggle between rendered/styled and raw/source views, and CSV previews include bounded raw text for copying.
+- **Review hardening** - channel style examples for compose memory are scoped to the active channel, private feed examples are excluded when visibility metadata is present, and new mention-filter avatar attributes use attribute-safe escaping.
+
 ## [0.6.122] - 2026-05-15
 
 ### Changed

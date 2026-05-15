@@ -741,6 +741,28 @@
                             </div>
                         </div>
 
+                        <div class="mt-3">
+                            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                                <label class="form-label mb-0" for="canopy-llm-compose-memory">Compose memory</label>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           role="switch"
+                                           id="canopy-llm-memory-enabled"
+                                           {% if canopy_ai.get('memory_enabled', True) %}checked{% endif %}>
+                                    <label class="form-check-label small" for="canopy-llm-memory-enabled">Use memory and team context</label>
+                                </div>
+                            </div>
+                            <textarea class="form-control mt-2"
+                                      id="canopy-llm-compose-memory"
+                                      rows="4"
+                                      maxlength="2000"
+                                      placeholder="Example: Prefer concise lab-update style, tag Forge for module work, avoid long preambles, use first names for close teammates.">{{ canopy_ai.get('compose_memory') or '' }}</textarea>
+                            <div class="form-text text-muted">
+                                Node-local memory sent with your <code>@Canopy</code> draft prompts when enabled. Canopy also adds known teammate names and a few of your own recent channel/feed writing examples for tone; it does not quote private memory verbatim, sample DMs, or sync this note over the mesh.
+                            </div>
+                        </div>
+
                         <div class="row g-3 mt-1">
                             <div class="col-md-8">
                                 <label class="form-label" for="canopy-llm-api-key" id="canopy-llm-api-key-label">OpenAI API Key</label>
@@ -1300,6 +1322,8 @@ function setupCanopyLLMSettings() {
     const providerInput = document.getElementById('canopy-llm-provider');
     const enabledInput = document.getElementById('canopy-llm-enabled');
     const webSearchInput = document.getElementById('canopy-llm-web-search-enabled');
+    const memoryEnabledInput = document.getElementById('canopy-llm-memory-enabled');
+    const composeMemoryInput = document.getElementById('canopy-llm-compose-memory');
     const keyInput = document.getElementById('canopy-llm-api-key');
     const keyLabel = document.getElementById('canopy-llm-api-key-label');
     const keyHelp = document.getElementById('canopy-llm-api-key-help');
@@ -1340,6 +1364,8 @@ function setupCanopyLLMSettings() {
             model: modelInput ? modelInput.value.trim() : '',
             enabled: !!(enabledInput && enabledInput.checked),
             web_search_enabled: !!(webSearchInput && webSearchInput.checked),
+            memory_enabled: !!(memoryEnabledInput && memoryEnabledInput.checked),
+            compose_memory: composeMemoryInput ? composeMemoryInput.value.trim() : '',
             system_prompt: promptInput ? promptInput.value.trim() : '',
             clear_api_key: !!(clearKeyInput && clearKeyInput.checked)
         };
@@ -1368,13 +1394,14 @@ function setupCanopyLLMSettings() {
                 const searchText = isBedrock
                     ? ' Bedrock compose does not use hosted web search.'
                     : (settings.web_search_enabled ? ' Web search is allowed for current facts.' : ' Web search is off.');
+                const memoryText = settings.memory_enabled ? ' Compose memory is on.' : ' Compose memory is off.';
                 let keyText = isBedrock ? 'Saved. Add AWS credentials before using @Canopy.' : 'Saved. Add an API key before using @Canopy.';
                 if (settings.api_key_configured) {
                     keyText = isBedrock ? 'Saved. Personal AWS Bedrock API key or credentials are configured locally.' : 'Saved. Personal API key is configured locally.';
                 } else if (settings.instance_fallback_available) {
                     keyText = 'Saved. No personal key configured; instance fallback is available.';
                 }
-                statusEl.textContent = keyText + searchText;
+                statusEl.textContent = keyText + searchText + memoryText;
             }
         })
         .catch((error) => {

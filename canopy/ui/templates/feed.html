@@ -60,6 +60,15 @@
                             <i class="bi bi-arrows-angle-expand"></i>
                             <span class="d-none d-sm-inline ms-1">Expand</span>
                         </button>
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                id="feed-composer-clear-btn"
+                                onclick="clearFeedComposerContent()"
+                                aria-label="Clear post text"
+                                title="Clear post text">
+                            <i class="bi bi-x-circle"></i>
+                            <span class="d-none d-sm-inline ms-1">Clear</span>
+                        </button>
                     </div>
                 </div>
                 <div class="position-relative">
@@ -328,7 +337,7 @@
 <div class="card mb-4">
     <div class="card-body">
         <div class="row align-items-center feed-controls-row g-2">
-            <div class="col-md-6 feed-controls-search">
+            <div class="col-lg-4 col-md-6 feed-controls-search">
                 <div class="input-group">
                     <input type="text" class="form-control" id="searchInput" 
                            placeholder="Search posts..." value="{{ search_query or '' }}">
@@ -337,7 +346,39 @@
                     </button>
                 </div>
             </div>
-            <div class="col-md-3 feed-controls-algorithm">
+            <div class="col-lg-3 col-md-6 feed-controls-mention">
+                <div class="dropdown feed-mention-filter">
+                    <button class="btn btn-outline-secondary w-100 feed-mention-filter-toggle dropdown-toggle"
+                            type="button"
+                            id="feed-mention-filter-toggle"
+                            data-bs-toggle="dropdown"
+                            data-bs-auto-close="outside"
+                            onclick="renderFeedMentionFilterPicker()"
+                            aria-pressed="false">
+                        <i class="bi bi-at" id="feed-mention-filter-icon"></i>
+                        <span id="feed-mention-filter-label">Mentions</span>
+                    </button>
+                    <div class="dropdown-menu dropdown-menu-end mention-filter-menu p-3" id="feed-mention-filter-menu" aria-labelledby="feed-mention-filter-toggle">
+                        <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                            <div>
+                                <div class="fw-semibold">Mention filter</div>
+                                <div class="small text-muted">Filter the loaded feed by mention target.</div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFeedMentionFilter()">Clear</button>
+                        </div>
+                        <button type="button" class="btn btn-success btn-sm w-100 mb-2" onclick="setFeedMentionFilterToMe()">
+                            <i class="bi bi-person-badge me-1"></i>Mentions me
+                        </button>
+                        <input type="search"
+                               class="form-control form-control-sm mb-2"
+                               id="feed-mention-filter-search"
+                               placeholder="Find user or agent..."
+                               oninput="renderFeedMentionFilterPicker()">
+                        <div class="mention-filter-results" id="feed-mention-filter-results"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-3 col-md-6 feed-controls-algorithm">
                 <div class="d-flex gap-2">
                     <select class="form-select" id="algorithmSelect" onchange="changeAlgorithm()">
                         <option value="chronological" {% if algorithm == 'chronological' %}selected{% endif %}>Latest First</option>
@@ -350,7 +391,7 @@
                     </button>
                 </div>
             </div>
-            <div class="col-md-3 feed-controls-stats">
+            <div class="col-lg-2 col-md-6 feed-controls-stats">
                 {% if feed_stats %}
                     <small class="text-muted">
                         {{ feed_stats.total_posts }} posts • {{ feed_stats.unique_authors }} authors
@@ -358,6 +399,7 @@
                 {% endif %}
             </div>
         </div>
+        <div id="feed-mention-filter-banner" class="feed-mention-filter-banner d-none mt-3" role="status" aria-live="polite"></div>
     </div>
 </div>
 
@@ -1944,6 +1986,11 @@
                     </div>
                 {% endfor %}
             </div>
+            <div id="feed-mention-filter-empty" class="text-center text-muted p-4 d-none">
+                <div class="mb-2"><i class="bi bi-at fs-4"></i></div>
+                <div class="fw-semibold" id="feed-mention-filter-empty-title">No loaded posts match this mention filter.</div>
+                <div class="small mt-1">Clear the mention filter or change the target.</div>
+            </div>
         {% else %}
 	            <div class="text-center text-muted py-5">
                 {% if search_query %}
@@ -3007,6 +3054,24 @@
     border-color: rgba(96, 165, 250, 0.18);
     color: var(--canopy-text-primary);
 }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .feed-mention-filter-toggle.is-active {
+    color: #065f46 !important;
+    background: linear-gradient(135deg, rgba(209, 250, 229, 0.96), rgba(236, 253, 245, 0.86)) !important;
+    border-color: rgba(16, 185, 129, 0.42) !important;
+    box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12) !important;
+}
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .feed-mention-filter-banner {
+    background:
+        radial-gradient(circle at top left, rgba(45, 212, 191, 0.14), transparent 38%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(236, 253, 245, 0.92));
+    color: #0f172a;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .feed-mention-filter-banner .filter-pill {
+    color: #065f46;
+    background: rgba(16, 185, 129, 0.13);
+    border-color: rgba(16, 185, 129, 0.24);
+}
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .post-repost-shell--streamlined .post-repost-card,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .post-repost-card.is-unavailable {
     background: rgba(255, 255, 255, 0.92);
@@ -3198,6 +3263,113 @@
 
 .feed-controls-stats {
     text-align: right;
+}
+
+.feed-mention-filter-toggle {
+    min-height: 2.35rem;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+}
+
+.feed-mention-filter-toggle.is-active {
+    border-color: rgba(52, 211, 153, 0.72) !important;
+    color: #bbf7d0 !important;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.24), rgba(45, 212, 191, 0.12)) !important;
+    box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.16), 0 10px 24px rgba(16, 185, 129, 0.12) !important;
+}
+
+.mention-filter-menu {
+    min-width: min(22rem, calc(100vw - 2rem));
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, var(--canopy-border) 78%, var(--canopy-primary) 22%);
+    background:
+        radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 20%, transparent), transparent 38%),
+        color-mix(in srgb, var(--canopy-bg-card) 96%, var(--canopy-primary) 4%);
+    box-shadow: 0 24px 54px rgba(2, 6, 23, 0.35);
+    color: var(--canopy-text-primary);
+}
+
+.mention-filter-user {
+    width: 100%;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--canopy-text-primary);
+    border-radius: 14px;
+    padding: 0.5rem 0.55rem;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.mention-filter-user:hover,
+.mention-filter-user:focus-visible,
+.mention-filter-user.is-active {
+    border-color: color-mix(in srgb, var(--canopy-primary) 34%, transparent);
+    background: color-mix(in srgb, var(--canopy-bg-tertiary) 76%, var(--canopy-primary) 24%);
+    outline: none;
+}
+
+.mention-filter-avatar {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-tertiary) 82%);
+    color: var(--canopy-text-primary);
+    font-size: 0.78rem;
+    font-weight: 900;
+    border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, transparent);
+}
+
+.mention-filter-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.mention-filter-results {
+    max-height: 16rem;
+    overflow: auto;
+    padding-right: 0.1rem;
+}
+
+.feed-mention-filter-banner {
+    border: 1px solid rgba(45, 212, 191, 0.28);
+    background:
+        radial-gradient(circle at top left, rgba(45, 212, 191, 0.18), transparent 38%),
+        linear-gradient(135deg, rgba(12, 74, 110, 0.38), rgba(15, 23, 42, 0.84));
+    color: var(--canopy-text-primary);
+    border-radius: 14px;
+    padding: 0.58rem 0.75rem;
+    box-shadow: 0 12px 28px rgba(2, 6, 23, 0.22);
+}
+
+.feed-mention-filter-banner .filter-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    padding: 0.18rem 0.52rem;
+    background: rgba(52, 211, 153, 0.14);
+    color: #bbf7d0;
+    border: 1px solid rgba(52, 211, 153, 0.26);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.feed-mention-filter-banner .filter-detail {
+    color: var(--canopy-text-secondary);
+    font-size: 0.86rem;
 }
 
 @media (max-width: 768px) {
@@ -5343,6 +5515,9 @@
         let feedMentionCandidatesFetchedAt = 0;
         const FEED_MENTION_CACHE_TTL_MS = 30000;
         let feedMentionContext = null;
+        const FEED_MENTION_FILTER_STORAGE_KEY = `canopy.feed_mention_filter.v1.${feedCurrentUserId || 'anon'}`;
+        let feedMentionFilterState = loadFeedMentionFilterState();
+        let feedMentionFilterStats = { visible: 0, hidden: 0, targetLabel: '' };
         let feedChannelCandidates = null;
         let feedChannelLoading = false;
         let feedChannelContext = null;
@@ -5565,6 +5740,11 @@
                     }
                     feedMentionCandidatesFetchedAt = Date.now();
                     renderFeedMentionMacroButtons();
+                    updateFeedMentionFilterUI(feedMentionCandidates);
+                    renderFeedMentionFilterPicker();
+                    if (isFeedMentionFilterEnabled()) {
+                        requestAnimationFrame(() => applyFeedMentionFilter(feedMentionCandidates));
+                    }
                     return feedMentionCandidates;
                 })
                 .catch(() => {
@@ -5574,6 +5754,11 @@
                     }
                     feedMentionCandidatesFetchedAt = Date.now();
                     renderFeedMentionMacroButtons();
+                    updateFeedMentionFilterUI(feedMentionCandidates);
+                    renderFeedMentionFilterPicker();
+                    if (isFeedMentionFilterEnabled()) {
+                        requestAnimationFrame(() => applyFeedMentionFilter(feedMentionCandidates));
+                    }
                     return feedMentionCandidates;
                 });
         }
@@ -5660,6 +5845,316 @@
 
         function getFeedMentionBuilderLabel(user) {
             return (user && (user.display_name || user.username || user.user_id)) || '';
+        }
+
+        function normalizeFeedMentionFilterConfig(config) {
+            if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
+            const mode = String(config.mode || '').trim().toLowerCase();
+            if (mode === 'me') {
+                return {
+                    mode: 'me',
+                    user_id: String(feedCurrentUserId || config.user_id || '').trim(),
+                    label: 'you',
+                };
+            }
+            if (mode !== 'user') return null;
+            const userId = String(config.user_id || '').trim();
+            if (!userId) return null;
+            const label = String(config.label || config.display_name || config.username || userId).trim().slice(0, 80);
+            const handle = String(config.handle || config.username || '').trim().slice(0, 80);
+            return { mode: 'user', user_id: userId, label: label || userId, handle };
+        }
+
+        function loadFeedMentionFilterState() {
+            try {
+                const raw = localStorage.getItem(FEED_MENTION_FILTER_STORAGE_KEY);
+                return normalizeFeedMentionFilterConfig(raw ? JSON.parse(raw) : null);
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function saveFeedMentionFilterState() {
+            try {
+                if (feedMentionFilterState) {
+                    localStorage.setItem(FEED_MENTION_FILTER_STORAGE_KEY, JSON.stringify(feedMentionFilterState));
+                } else {
+                    localStorage.removeItem(FEED_MENTION_FILTER_STORAGE_KEY);
+                }
+            } catch (_) {}
+        }
+
+        function isFeedMentionFilterEnabled() {
+            return !!feedMentionFilterState;
+        }
+
+        function setFeedMentionFilterToMe() {
+            feedMentionFilterState = normalizeFeedMentionFilterConfig({
+                mode: 'me',
+                user_id: feedCurrentUserId || '',
+                label: 'you',
+            });
+            saveFeedMentionFilterState();
+            applyFeedMentionFilter();
+        }
+
+        function setFeedMentionFilterForUser(userId) {
+            const targetId = String(userId || '').trim();
+            if (!targetId) return;
+            const user = (feedMentionCandidates || []).find(item => item && String(item.user_id || '') === targetId);
+            feedMentionFilterState = normalizeFeedMentionFilterConfig({
+                mode: 'user',
+                user_id: targetId,
+                label: user ? getFeedMentionBuilderLabel(user) : targetId,
+                handle: user ? getFeedMentionBuilderHandle(user) : targetId,
+            });
+            saveFeedMentionFilterState();
+            applyFeedMentionFilter();
+        }
+
+        function clearFeedMentionFilter() {
+            feedMentionFilterState = null;
+            saveFeedMentionFilterState();
+            applyFeedMentionFilter();
+        }
+
+        function escapeMentionFilterRegex(value) {
+            return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function escapeMentionFilterAttr(value) {
+            return escapeHtml(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function normalizeMentionFilterHandle(value) {
+            return String(value || '')
+                .trim()
+                .replace(/^@+/, '')
+                .replace(/\s+/g, '_')
+                .replace(/[^A-Za-z0-9_.-]/g, '')
+                .toLowerCase();
+        }
+
+        function getMentionFilterHandlesForUser(user) {
+            const handles = new Set();
+            if (!user) return [];
+            [user.handle, user.username, user.user_id].forEach(value => {
+                const normalized = normalizeMentionFilterHandle(value);
+                if (normalized) handles.add(normalized);
+            });
+            const displayHandle = normalizeMentionFilterHandle(user.display_name);
+            if (displayHandle) handles.add(displayHandle);
+            return Array.from(handles);
+        }
+
+        function getFeedMentionFilterTarget(candidates) {
+            const config = feedMentionFilterState;
+            if (!config) return null;
+            const targetUserId = config.mode === 'me' ? String(feedCurrentUserId || '').trim() : String(config.user_id || '').trim();
+            const candidate = (Array.isArray(candidates) ? candidates : []).find(user => {
+                return user && String(user.user_id || '').trim() === targetUserId;
+            });
+            if (candidate) {
+                return {
+                    mode: config.mode,
+                    user_id: candidate.user_id,
+                    label: getFeedMentionBuilderLabel(candidate) || config.label || candidate.user_id,
+                    handles: getMentionFilterHandlesForUser(candidate),
+                };
+            }
+            const fallback = {
+                user_id: targetUserId,
+                username: config.handle || targetUserId,
+                handle: config.handle || targetUserId,
+                display_name: config.mode === 'me' ? 'you' : (config.label || targetUserId),
+            };
+            const handles = getMentionFilterHandlesForUser(fallback);
+            if (!handles.length) return null;
+            return {
+                mode: config.mode,
+                user_id: targetUserId,
+                label: config.mode === 'me' ? 'you' : (config.label || targetUserId),
+                handles,
+            };
+        }
+
+        function textMentionsAnyMentionTarget(text, handles) {
+            const source = String(text || '');
+            if (!source || !Array.isArray(handles) || !handles.length) return false;
+            return handles.some(handle => {
+                const normalized = normalizeMentionFilterHandle(handle);
+                if (!normalized) return false;
+                const pattern = new RegExp(`(^|[^A-Za-z0-9_.-])@${escapeMentionFilterRegex(normalized)}(?=$|[^A-Za-z0-9_.-])`, 'i');
+                return pattern.test(source);
+            });
+        }
+
+        function getFeedPostMentionSearchText(card) {
+            if (!card) return '';
+            const parts = [];
+            card.querySelectorAll('[data-mention-raw-text]').forEach(el => {
+                parts.push(el.getAttribute('data-mention-raw-text') || '');
+            });
+            parts.push(card.textContent || '');
+            return parts.join('\n');
+        }
+
+        function feedPostCardMentionsTarget(card, target) {
+            if (!target || !Array.isArray(target.handles)) return false;
+            return textMentionsAnyMentionTarget(getFeedPostMentionSearchText(card), target.handles);
+        }
+
+        function renderMentionFilterAvatar(user) {
+            const label = getFeedMentionBuilderLabel(user) || '@';
+            const avatarUrl = user && user.avatar_url ? String(user.avatar_url) : '';
+            if (avatarUrl) {
+                return `<span class="mention-filter-avatar"><img src="${escapeMentionFilterAttr(avatarUrl)}" alt="${escapeMentionFilterAttr(label)}"></span>`;
+            }
+            const initials = String(label || '@')
+                .replace(/^@+/, '')
+                .split(/\s+/)
+                .filter(Boolean)
+                .slice(0, 2)
+                .map(part => part.charAt(0).toUpperCase())
+                .join('') || '@';
+            return `<span class="mention-filter-avatar">${escapeHtml(initials)}</span>`;
+        }
+
+        function updateFeedMentionFilterUI(candidates) {
+            const enabled = isFeedMentionFilterEnabled();
+            const target = getFeedMentionFilterTarget(candidates || feedMentionCandidates || []);
+            const toggle = document.getElementById('feed-mention-filter-toggle');
+            const label = document.getElementById('feed-mention-filter-label');
+            const targetLabel = target && target.label ? String(target.label) : '';
+            const compactLabel = enabled
+                ? (target && target.mode === 'me' ? '@Me' : `@${targetLabel.split(/\s+/)[0] || 'Target'}`)
+                : 'Mentions';
+            if (toggle) {
+                toggle.classList.toggle('is-active', enabled);
+                toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+                toggle.setAttribute(
+                    'title',
+                    enabled ? `Showing loaded posts mentioning ${targetLabel || 'the selected target'}` : 'Filter loaded posts by mention target'
+                );
+            }
+            if (label) {
+                label.textContent = compactLabel.length > 18 ? `${compactLabel.slice(0, 17)}…` : compactLabel;
+            }
+        }
+
+        function renderFeedMentionFilterPicker() {
+            const resultsEl = document.getElementById('feed-mention-filter-results');
+            if (!resultsEl) return;
+            const searchEl = document.getElementById('feed-mention-filter-search');
+            const query = String(searchEl && searchEl.value || '').trim();
+            const candidates = feedMentionCandidates || [];
+            updateFeedMentionFilterUI(candidates);
+            if (!Array.isArray(feedMentionCandidates)) {
+                resultsEl.innerHTML = '<div class="small text-muted px-1 py-2">Loading people and agents…</div>';
+                fetchFeedMentionCandidates().then(renderFeedMentionFilterPicker);
+                return;
+            }
+            const activeConfig = feedMentionFilterState;
+            const matches = getFeedMentionMatches(candidates, query, 10)
+                .filter(user => user && user.user_id);
+            if (!matches.length) {
+                resultsEl.innerHTML = '<div class="small text-muted px-1 py-2">No matching users or agents.</div>';
+                return;
+            }
+            resultsEl.innerHTML = matches.map(user => {
+                const userId = String(user.user_id || '');
+                const labelText = getFeedMentionBuilderLabel(user) || userId;
+                const handle = getFeedMentionBuilderHandle(user) || userId;
+                const type = normalizeMentionAccountType(user.account_type);
+                const active = activeConfig
+                    && activeConfig.mode === 'user'
+                    && String(activeConfig.user_id || '') === userId;
+                const presence = renderAgentPresenceBadge(user);
+                const encodedUserId = encodeURIComponent(userId);
+                return `<button type="button"
+                                class="mention-filter-user${active ? ' is-active' : ''}"
+                                onclick="setFeedMentionFilterForUser(decodeURIComponent('${encodedUserId}'))">
+                            ${renderMentionFilterAvatar(user)}
+                            <span class="min-width-0 flex-grow-1">
+                                <span class="d-block fw-semibold text-truncate">${escapeHtml(labelText)}</span>
+                                <span class="d-flex flex-wrap align-items-center gap-1 small text-muted">
+                                    <span>@${escapeHtml(handle)}</span>
+                                    <span>· ${escapeHtml(type)}</span>
+                                    ${presence}
+                                </span>
+                            </span>
+                        </button>`;
+            }).join('');
+        }
+
+        function updateFeedMentionFilterBanner() {
+            const banner = document.getElementById('feed-mention-filter-banner');
+            if (!banner) return;
+            if (!isFeedMentionFilterEnabled()) {
+                banner.classList.add('d-none');
+                banner.innerHTML = '';
+                return;
+            }
+            const label = String(feedMentionFilterStats.targetLabel || 'the selected target');
+            const hidden = Math.max(0, parseInt(feedMentionFilterStats.hidden, 10) || 0);
+            const visible = Math.max(0, parseInt(feedMentionFilterStats.visible, 10) || 0);
+            banner.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                    <span class="filter-pill"><i class="bi bi-at"></i> ${escapeHtml(label)}</span>
+                    <span class="filter-detail">${escapeHtml(`${visible} loaded post${visible === 1 ? '' : 's'} shown; ${hidden} hidden.`)}</span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearFeedMentionFilter()">Clear mentions</button>
+                </div>`;
+            banner.classList.remove('d-none');
+        }
+
+        function applyFeedMentionFilter(candidates) {
+            const candidateList = Array.isArray(candidates) ? candidates : (feedMentionCandidates || []);
+            const cards = Array.from(document.querySelectorAll('#posts-container .post-card[data-post-id]'));
+            const empty = document.getElementById('feed-mention-filter-empty');
+            const emptyTitle = document.getElementById('feed-mention-filter-empty-title');
+            if (!cards.length) {
+                updateFeedMentionFilterUI(candidateList);
+                updateFeedMentionFilterBanner();
+                return;
+            }
+            if (!isFeedMentionFilterEnabled()) {
+                cards.forEach(card => card.classList.remove('d-none'));
+                feedMentionFilterStats = { visible: cards.length, hidden: 0, targetLabel: '' };
+                if (empty) empty.classList.add('d-none');
+                updateFeedMentionFilterUI(candidateList);
+                updateFeedMentionFilterBanner();
+                renderFeedMentionFilterPicker();
+                return;
+            }
+            if (!Array.isArray(feedMentionCandidates) && !Array.isArray(candidates)) {
+                fetchFeedMentionCandidates().then(applyFeedMentionFilter);
+                return;
+            }
+            const target = getFeedMentionFilterTarget(candidateList);
+            if (!target) {
+                feedMentionFilterState = null;
+                saveFeedMentionFilterState();
+                applyFeedMentionFilter(candidateList);
+                return;
+            }
+            let visible = 0;
+            let hidden = 0;
+            cards.forEach(card => {
+                const keep = feedPostCardMentionsTarget(card, target);
+                card.classList.toggle('d-none', !keep);
+                if (keep) visible += 1;
+                else hidden += 1;
+            });
+            feedMentionFilterStats = {
+                visible,
+                hidden,
+                targetLabel: target.label || '',
+            };
+            if (empty) empty.classList.toggle('d-none', visible > 0);
+            if (emptyTitle) emptyTitle.textContent = `No loaded posts mention ${target.label || 'the selected target'}.`;
+            updateFeedMentionFilterUI(candidateList);
+            updateFeedMentionFilterBanner();
+            renderFeedMentionFilterPicker();
         }
 
         function getStoredFeedMentionLists() {
@@ -6257,6 +6752,9 @@
             document.querySelectorAll('.post-text.mentionable').forEach(el => {
                 const raw = el.textContent;
                 if (!raw) return;
+                if (!el.hasAttribute('data-mention-raw-text')) {
+                    el.setAttribute('data-mention-raw-text', raw);
+                }
                 const tmp = document.createElement('div');
                 tmp.textContent = raw;
                 let html = tmp.innerHTML;
@@ -6300,6 +6798,18 @@
             const textarea = document.getElementById('postContent');
             if (!textarea) return;
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        function clearFeedComposerContent() {
+            const textarea = document.getElementById('postContent');
+            if (!textarea) return;
+            textarea.value = '';
+            clearFeedComposerDraft();
+            notifyFeedComposerUpdate();
+            updatePostTaskToggle();
+            updateFeedStructuredValidation();
+            syncFeedComposerLayout({ forceExpand: true });
+            textarea.focus();
         }
 
         function initFeedSelectionTools() {
@@ -9026,6 +9536,8 @@
             hydrateReactionControls();
             refreshFeedMentionListOptions();
             renderFeedMentionMacroButtons();
+            updateFeedMentionFilterUI();
+            renderFeedMentionFilterPicker();
 	        formatTimestamps();
 	        updateUserAvatars(); // Load user avatars
 	        loadTagSuggestionsOnce();
@@ -9061,9 +9573,11 @@
 	            });
 	            window.mentionDisplayMap = map;
 	            applyFeedMentionHighlights();
+                applyFeedMentionFilter(candidates);
 	        }).catch(function() {
 	            window.mentionDisplayMap = {};
 	            applyFeedMentionHighlights();
+                applyFeedMentionFilter();
 	        });
             const postContent = document.getElementById('postContent');
             if (postContent) {

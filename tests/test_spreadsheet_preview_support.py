@@ -532,6 +532,18 @@ img.src = blobUrl;
         self.assertEqual(preview['sheets'][0]['rows'][0][0]['display'], 'Item')
         self.assertEqual(preview['sheets'][0]['rows'][1][1]['display'], '3')
 
+    def test_build_file_preview_returns_csv_grid_with_raw_text(self):
+        preview = build_file_preview(
+            b"item,count\nalpha,3\nbeta,5\n",
+            'agent-results.csv',
+            'text/csv',
+        )
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'spreadsheet')
+        self.assertEqual(preview['sheets'][0]['rows'][1][0]['display'], 'alpha')
+        self.assertIn('item,count', preview['text'])
+        self.assertIn('max_chars', preview['limits'])
+
     def test_build_file_preview_marks_xlsm_as_macro_disabled(self):
         workbook_bytes = _build_workbook_bytes()
         preview = build_file_preview(

@@ -85,6 +85,8 @@ class _FakeLLMManager:
             'enabled': True,
             'api_key_configured': True,
             'web_search_enabled': True,
+            'memory_enabled': True,
+            'compose_memory': '',
             'system_prompt': 'Compose clean Canopy posts.',
             'updated_at': None,
         }
@@ -289,6 +291,102 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertEqual(context['model'], 'gpt-5.5')
         self.assertEqual(context['credential_source'], 'instance')
         self.assertIn('Personal policy.', context['system_prompt'])
+
+    def test_compose_memory_adds_user_controlled_context_to_prompt(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        self.conn.executescript(
+            """
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT,
+                display_name TEXT,
+                account_type TEXT,
+                password_hash TEXT
+            );
+            CREATE TABLE channels (id TEXT PRIMARY KEY, name TEXT);
+            CREATE TABLE channel_members (channel_id TEXT, user_id TEXT, role TEXT);
+            CREATE TABLE channel_messages (
+                id TEXT PRIMARY KEY,
+                channel_id TEXT,
+                user_id TEXT,
+                content TEXT,
+                created_at TEXT
+            );
+            CREATE TABLE feed_posts (
+                id TEXT PRIMARY KEY,
+                author_id TEXT,
+                content TEXT,
+                visibility TEXT,
+                created_at TEXT
+            );
+            """
+        )
+        self.conn.executemany(
+            "INSERT INTO users (id, username, display_name, account_type, password_hash) VALUES (?, ?, ?, ?, ?)",
+            [
+                ('user-1', 'konrad', 'Konrad', 'human', 'hash'),
+                ('agent-1', 'Forge_McClaw', 'Forge McClaw', 'agent', 'hash'),
+            ],
+        )
+        self.conn.executemany("INSERT INTO channels (id, name) VALUES (?, ?)", [('chan-1', 'general'), ('chan-2', 'private-lab')])
+        self.conn.executemany(
+            "INSERT INTO channel_members (channel_id, user_id, role) VALUES (?, ?, ?)",
+            [('chan-1', 'user-1', 'owner'), ('chan-1', 'agent-1', 'member')],
+        )
+        self.conn.executemany(
+            "INSERT INTO channel_messages (id, channel_id, user_id, content, created_at) VALUES (?, ?, ?, ?, ?)",
+            [
+                ('msg-1', 'chan-1', 'user-1', 'Please keep the team moving with concise work product.', '2026-05-15T10:00:00'),
+                ('msg-2', 'chan-2', 'user-1', 'Private lab phrase should not leave this channel.', '2026-05-15T10:05:00'),
+            ],
+        )
+        self.conn.executemany(
+            "INSERT INTO feed_posts (id, author_id, content, visibility, created_at) VALUES (?, ?, ?, ?, ?)",
+            [
+                ('post-1', 'user-1', 'Public feed style can be sampled.', 'network', '2026-05-15T10:10:00'),
+                ('post-2', 'user-1', 'Private feed phrase should not be sampled.', 'private', '2026-05-15T10:11:00'),
+            ],
+        )
+        self.conn.commit()
+        manager.save_settings(
+            'user-1',
+            provider='openai',
+            model='gpt-5-mini',
+            enabled=True,
+            api_key='sk-personal-secret',
+            memory_enabled=True,
+            compose_memory='Prefer concise lab-update style. Tag Forge for module packaging.',
+            system_prompt='Personal policy.',
+        )
+
+        context = manager._prepare_expand_context('user-1', '@Canopy draft the next update', channel_name='general')
+
+        self.assertIn('Node-local compose memory and team context:', context['prompt'])
+        self.assertIn('Prefer concise lab-update style.', context['prompt'])
+        self.assertIn('Forge McClaw / @Forge_McClaw', context['prompt'])
+        self.assertIn('Recent writing examples from this user', context['prompt'])
+        self.assertIn('Please keep the team moving', context['prompt'])
+        self.assertIn('Public feed style can be sampled.', context['prompt'])
+        self.assertNotIn('Private lab phrase should not leave this channel.', context['prompt'])
+        self.assertNotIn('Private feed phrase should not be sampled.', context['prompt'])
+
+    def test_compose_memory_can_be_disabled(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        manager.save_settings(
+            'user-1',
+            provider='openai',
+            model='gpt-5-mini',
+            enabled=True,
+            api_key='sk-personal-secret',
+            memory_enabled=False,
+            compose_memory='Do not include this private preference.',
+            system_prompt='Personal policy.',
+        )
+
+        context = manager._prepare_expand_context('user-1', '@Canopy draft the next update')
+
+        self.assertNotIn('Node-local compose memory and team context:', context['prompt'])
+        self.assertNotIn('Do not include this private preference.', context['prompt'])
 
     def test_bedrock_instance_fallback_can_use_environment_bearer_token(self) -> None:
         with patch.dict(os.environ, {
@@ -938,6 +1036,8 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
                 'model': 'gpt-5-mini',
                 'enabled': True,
                 'web_search_enabled': False,
+                'memory_enabled': False,
+                'compose_memory': 'Prefer short operational updates.',
                 'api_key': 'sk-test',
                 'system_prompt': 'Be useful.',
             },
@@ -949,6 +1049,8 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
         self.assertTrue(payload.get('success'))
         self.assertEqual(self.llm_manager.saved_payloads[0]['api_key'], 'sk-test')
         self.assertFalse(self.llm_manager.saved_payloads[0]['web_search_enabled'])
+        self.assertFalse(self.llm_manager.saved_payloads[0]['memory_enabled'])
+        self.assertEqual(self.llm_manager.saved_payloads[0]['compose_memory'], 'Prefer short operational updates.')
 
     def test_admin_instance_settings_endpoint_saves_fallback_settings(self) -> None:
         csrf = self._login()

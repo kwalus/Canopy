@@ -6775,15 +6775,13 @@
                 const label = _escapeHtml((payload && payload.language_label) || canopyCodeLanguageLabel(language));
                 const lines = source.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
                 const renderedLines = lines.map(function(line, index) {
-                    return `
-                        <span class="code-preview-line" role="listitem">
-                            <span class="code-line-number">${index + 1}</span>
-                            <span class="code-line-source">${canopyHighlightCodeLine(line, language)}</span>
-                        </span>
-                    `;
+                    return '<span class="code-preview-line" role="listitem"><span class="code-line-number">' +
+                        (index + 1) +
+                        '</span><span class="code-line-source">' +
+                        canopyHighlightCodeLine(line, language) +
+                        '</span></span>';
                 }).join('');
-                window.canopyCodePreviewText = window.canopyCodePreviewText || {};
-                window.canopyCodePreviewText[previewId] = source;
+                registerFilePreviewText(previewId, source);
                 const clipped = payload && payload.truncated ? '<span class="code-preview-pill">Preview clipped</span>' : '';
                 return `
                     <div class="file-preview-container code-preview" data-code-language="${_escapeAttr(language)}">
@@ -6791,24 +6789,60 @@
                             <span class="code-preview-lang"><i class="bi bi-code-slash me-1"></i>${label}</span>
                             <span class="code-preview-actions">
                                 ${clipped}
-                                <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" data-code-preview-copy="${_escapeAttr(previewId)}" onclick="copyCodePreviewText('${_escapeAttr(previewId)}')">
+                                <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy is-active" data-preview-mode-button="rendered" aria-pressed="true" onclick="toggleFilePreviewRaw('${_escapeAttr(previewId)}', false)">
+                                    Styled
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" data-preview-mode-button="raw" aria-pressed="false" onclick="toggleFilePreviewRaw('${_escapeAttr(previewId)}', true)">
+                                    Raw
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" data-code-preview-copy="${_escapeAttr(previewId)}" onclick="copyFilePreviewText('${_escapeAttr(previewId)}', 'Preview text')">
                                     <i class="bi bi-clipboard me-1"></i>Copy
                                 </button>
                             </span>
                         </div>
-                        <pre class="code-preview-body"><code class="code-preview-lines" role="list">${renderedLines}</code></pre>
+                        <div data-preview-pane="rendered">
+                            <pre class="code-preview-body"><code class="code-preview-lines" role="list">${renderedLines}</code></pre>
+                        </div>
+                        <div data-preview-pane="raw" hidden>
+                            <pre class="file-preview-raw-text"><code>${_escapeHtml(source)}</code></pre>
+                        </div>
                     </div>
                 `;
             }
 
-            function copyCodePreviewText(previewId) {
-                const text = window.canopyCodePreviewText && window.canopyCodePreviewText[previewId];
+            function registerFilePreviewText(previewId, text) {
+                window.canopyFilePreviewText = window.canopyFilePreviewText || {};
+                window.canopyCodePreviewText = window.canopyCodePreviewText || {};
+                const normalized = String(text || '');
+                window.canopyFilePreviewText[previewId] = normalized;
+                window.canopyCodePreviewText[previewId] = normalized;
+                return normalized;
+            }
+
+            function toggleFilePreviewRaw(previewId, showRaw) {
+                const wrapper = document.getElementById(previewId);
+                if (!wrapper) return;
+                const raw = !!showRaw;
+                wrapper.querySelectorAll('[data-preview-pane]').forEach(function(pane) {
+                    const isRawPane = pane.getAttribute('data-preview-pane') === 'raw';
+                    pane.hidden = raw ? !isRawPane : isRawPane;
+                });
+                wrapper.querySelectorAll('[data-preview-mode-button]').forEach(function(button) {
+                    const isRawButton = button.getAttribute('data-preview-mode-button') === 'raw';
+                    button.classList.toggle('is-active', raw ? isRawButton : !isRawButton);
+                    button.setAttribute('aria-pressed', (raw ? isRawButton : !isRawButton) ? 'true' : 'false');
+                });
+            }
+
+            function copyFilePreviewText(previewId, label) {
+                const text = window.canopyFilePreviewText && window.canopyFilePreviewText[previewId];
+                const copyLabel = String(label || 'Preview text');
                 if (!text) {
                     if (typeof showAlert === 'function') showAlert('No preview text available to copy.', 'warning');
                     return;
                 }
                 const onSuccess = function() {
-                    if (typeof showAlert === 'function') showAlert('Code preview copied.', 'success');
+                    if (typeof showAlert === 'function') showAlert(`${copyLabel} copied.`, 'success');
                 };
                 const onFailure = function() {
                     const ta = document.createElement('textarea');
@@ -6826,6 +6860,26 @@
                 } else {
                     onFailure();
                 }
+            }
+
+            function copyCodePreviewText(previewId) {
+                copyFilePreviewText(previewId, 'Code preview');
+            }
+
+            function renderPreviewModeButtons(previewId, renderedLabel, rawLabel) {
+                const safeId = _escapeAttr(previewId);
+                return `
+                    <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy is-active" data-preview-mode-button="rendered" aria-pressed="true" onclick="toggleFilePreviewRaw('${safeId}', false)">
+                        ${_escapeHtml(renderedLabel || 'Preview')}
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" data-preview-mode-button="raw" aria-pressed="false" onclick="toggleFilePreviewRaw('${safeId}', true)">
+                        ${_escapeHtml(rawLabel || 'Raw')}
+                    </button>
+                `;
+            }
+
+            function renderRawTextPreviewPane(text) {
+                return `<div data-preview-pane="raw" hidden><pre class="file-preview-raw-text"><code>${_escapeHtml(String(text || ''))}</code></pre></div>`;
             }
 
             function canopySpreadsheetColumnLabel(index) {
@@ -6881,6 +6935,9 @@
 
             function renderSpreadsheetPreviewHtml(previewId, payload) {
                 const sheets = Array.isArray(payload && payload.sheets) ? payload.sheets : [];
+                const rawText = String((payload && payload.text) || '');
+                const hasRawText = rawText.length > 0;
+                if (hasRawText) registerFilePreviewText(previewId, rawText);
                 const tabs = sheets.map(function(sheet, index) {
                     const active = index === 0 ? ' active' : '';
                     return `<button type="button" class="btn btn-sm btn-outline-secondary${active}" data-sheet-tab="${index}" onclick="switchSpreadsheetPreviewSheet('${previewId}', ${index})">${_escapeHtml(sheet && sheet.name ? sheet.name : ('Sheet ' + (index + 1)))}</button>`;
@@ -6913,10 +6970,17 @@
                     <div class="file-preview-container spreadsheet-preview">
                         <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
                             <div class="small fw-semibold"><i class="bi bi-file-earmark-spreadsheet me-1"></i>Spreadsheet preview</div>
-                            <div class="d-flex flex-wrap gap-1">${badges.join('')}</div>
+                            <div class="d-flex flex-wrap align-items-center gap-1">
+                                ${hasRawText ? renderPreviewModeButtons(previewId, 'Grid', 'Raw text') : ''}
+                                ${hasRawText ? `<button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" onclick="copyFilePreviewText('${_escapeAttr(previewId)}', 'Raw text')"><i class="bi bi-clipboard me-1"></i>Copy</button>` : ''}
+                                ${badges.join('')}
+                            </div>
                         </div>
-                        ${tabs ? `<div class="d-flex flex-wrap gap-1 mb-2">${tabs}</div>` : ''}
-                        ${panels || '<div class="small text-muted">No worksheet data available.</div>'}
+                        <div data-preview-pane="rendered">
+                            ${tabs ? `<div class="d-flex flex-wrap gap-1 mb-2">${tabs}</div>` : ''}
+                            ${panels || '<div class="small text-muted">No worksheet data available.</div>'}
+                        </div>
+                        ${hasRawText ? renderRawTextPreviewPane(rawText) : ''}
                         ${warning}
                     </div>
                 `;
@@ -6937,12 +7001,18 @@
                     if (payload.macro_enabled) badges.push('<span class="badge text-bg-warning">Macros disabled</span>');
                     if (payload.truncated) badges.push('<span class="badge text-bg-secondary">Preview clipped</span>');
                     const warning = payload.warning ? `<div class="small text-warning mt-2"><i class="bi bi-shield-exclamation me-1"></i>${_escapeHtml(payload.warning)}</div>` : '';
-                    const escaped = _escapeHtml(String(payload.text || ''));
+                    const rawText = registerFilePreviewText(previewId, String(payload.text || ''));
+                    const escaped = _escapeHtml(rawText);
                     return `
                         <div class="file-preview-container document-preview">
                             <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
                                 <div class="small fw-semibold"><i class="bi bi-file-earmark-text me-1"></i>Document preview</div>
-                                <div class="d-flex flex-wrap gap-1">${badges.join('')}</div>
+                                <div class="d-flex flex-wrap align-items-center gap-1">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" onclick="copyFilePreviewText('${_escapeAttr(previewId)}', 'Extracted text')">
+                                        <i class="bi bi-clipboard me-1"></i>Copy text
+                                    </button>
+                                    ${badges.join('')}
+                                </div>
                             </div>
                             <pre><code>${escaped}</code></pre>
                             ${warning}
@@ -6950,7 +7020,23 @@
                     `;
                 }
                 if (payload.kind === 'markdown' && typeof marked !== 'undefined') {
-                    return `<div class="file-preview-container md-preview">${marked.parse(String(payload.text || ''))}</div>`;
+                    const rawText = registerFilePreviewText(previewId, String(payload.text || ''));
+                    return `
+                        <div class="file-preview-container md-preview">
+                            <div class="file-preview-rich-header">
+                                <div class="small fw-semibold"><i class="bi bi-markdown me-1"></i>Markdown preview</div>
+                                <div class="d-flex flex-wrap align-items-center gap-1">
+                                    ${payload.truncated ? '<span class="badge text-bg-secondary">Preview clipped</span>' : ''}
+                                    ${renderPreviewModeButtons(previewId, 'Rendered', 'Raw text')}
+                                    <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" onclick="copyFilePreviewText('${_escapeAttr(previewId)}', 'Markdown source')">
+                                        <i class="bi bi-clipboard me-1"></i>Copy
+                                    </button>
+                                </div>
+                            </div>
+                            <div data-preview-pane="rendered" class="file-preview-rendered-markdown">${marked.parse(rawText)}</div>
+                            ${renderRawTextPreviewPane(rawText)}
+                        </div>
+                    `;
                 }
                 return renderCodePreviewHtml(previewId, payload);
             }
@@ -7100,6 +7186,8 @@
                 window.canopyDetectCodeLanguage = canopyDetectCodeLanguage;
                 window.canopyHighlightCodeLine = canopyHighlightCodeLine;
                 window.copyCodePreviewText = copyCodePreviewText;
+                window.copyFilePreviewText = copyFilePreviewText;
+                window.toggleFilePreviewRaw = toggleFilePreviewRaw;
                 window.canopyAttachmentPreviewLabels = canopyAttachmentPreviewLabels;
                 window.canopyIsModuleBundle = canopyIsModuleBundle;
             }

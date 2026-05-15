@@ -23426,6 +23426,8 @@ def create_ui_blueprint() -> Blueprint:
                 model=data.get('model'),
                 enabled=bool(data.get('enabled')),
                 web_search_enabled=data.get('web_search_enabled', True),
+                memory_enabled=data.get('memory_enabled') if 'memory_enabled' in data else None,
+                compose_memory=data.get('compose_memory') if 'compose_memory' in data else None,
                 api_key=data.get('api_key') if 'api_key' in data else None,
                 clear_api_key=bool(data.get('clear_api_key')),
                 system_prompt=data.get('system_prompt'),

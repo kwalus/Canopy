@@ -575,11 +575,13 @@ def _csv_rows(text: str, filename: str) -> tuple[list[list[dict[str, Any]]], int
 def _build_csv_preview(file_data: bytes, filename: str, content_type: str) -> dict[str, Any]:
     preview_bytes = file_data[:MAX_TEXT_PREVIEW_BYTES]
     text = _decode_text_bytes(preview_bytes)
+    raw_text, raw_text_truncated = _truncate_text(text, MAX_TEXT_PREVIEW_CHARS)
     rows, total_rows, total_cols = _csv_rows(text, filename)
     return {
         "previewable": True,
         "kind": "spreadsheet",
         "macro_enabled": False,
+        "text": raw_text,
         "sheets": [
             {
                 "name": Path(filename or "Sheet1").stem or "Sheet1",
@@ -593,9 +595,10 @@ def _build_csv_preview(file_data: bytes, filename: str, content_type: str) -> di
             }
         ],
         "sheet_count": 1,
-        "truncated": len(file_data) > MAX_TEXT_PREVIEW_BYTES or total_rows > MAX_ROWS or total_cols > MAX_COLS,
+        "truncated": len(file_data) > MAX_TEXT_PREVIEW_BYTES or raw_text_truncated or total_rows > MAX_ROWS or total_cols > MAX_COLS,
         "limits": {
             "max_bytes": MAX_TEXT_PREVIEW_BYTES,
+            "max_chars": MAX_TEXT_PREVIEW_CHARS,
             "max_sheets": 1,
             "max_rows": MAX_ROWS,
             "max_cols": MAX_COLS,
