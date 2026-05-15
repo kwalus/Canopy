@@ -347,35 +347,47 @@
                 </div>
             </div>
             <div class="col-lg-3 col-md-6 feed-controls-mention">
-                <div class="dropdown feed-mention-filter">
-                    <button class="btn btn-outline-secondary w-100 feed-mention-filter-toggle dropdown-toggle"
-                            type="button"
-                            id="feed-mention-filter-toggle"
-                            data-bs-toggle="dropdown"
-                            data-bs-auto-close="outside"
-                            onclick="renderFeedMentionFilterPicker()"
-                            aria-pressed="false">
-                        <i class="bi bi-at" id="feed-mention-filter-icon"></i>
-                        <span id="feed-mention-filter-label">Mentions</span>
-                    </button>
-                    <div class="dropdown-menu dropdown-menu-end mention-filter-menu p-3" id="feed-mention-filter-menu" aria-labelledby="feed-mention-filter-toggle">
-                        <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
-                            <div>
-                                <div class="fw-semibold">Mention filter</div>
-                                <div class="small text-muted">Filter the loaded feed by mention target.</div>
-                            </div>
-                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFeedMentionFilter()">Clear</button>
-                        </div>
-                        <button type="button" class="btn btn-success btn-sm w-100 mb-2" onclick="setFeedMentionFilterToMe()">
-                            <i class="bi bi-person-badge me-1"></i>Mentions me
+                <div class="d-flex gap-2">
+                    <div class="dropdown feed-mention-filter flex-grow-1">
+                        <button class="btn btn-outline-secondary w-100 feed-mention-filter-toggle dropdown-toggle"
+                                type="button"
+                                id="feed-mention-filter-toggle"
+                                data-bs-toggle="dropdown"
+                                data-bs-auto-close="outside"
+                                onclick="renderFeedMentionFilterPicker()"
+                                aria-pressed="false">
+                            <i class="bi bi-at" id="feed-mention-filter-icon"></i>
+                            <span id="feed-mention-filter-label">Mentions</span>
                         </button>
-                        <input type="search"
-                               class="form-control form-control-sm mb-2"
-                               id="feed-mention-filter-search"
-                               placeholder="Find user or agent..."
-                               oninput="renderFeedMentionFilterPicker()">
-                        <div class="mention-filter-results" id="feed-mention-filter-results"></div>
+                        <div class="dropdown-menu dropdown-menu-end mention-filter-menu p-3" id="feed-mention-filter-menu" aria-labelledby="feed-mention-filter-toggle">
+                            <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                                <div>
+                                    <div class="fw-semibold">Mention filter</div>
+                                    <div class="small text-muted">Filter the loaded feed by mention target.</div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFeedMentionFilter()">Clear</button>
+                            </div>
+                            <button type="button" class="btn btn-success btn-sm w-100 mb-2" onclick="setFeedMentionFilterToMe()">
+                                <i class="bi bi-person-badge me-1"></i>Mentions me
+                            </button>
+                            <input type="search"
+                                   class="form-control form-control-sm mb-2"
+                                   id="feed-mention-filter-search"
+                                   placeholder="Find user or agent..."
+                                   oninput="renderFeedMentionFilterPicker()">
+                            <div class="mention-filter-results" id="feed-mention-filter-results"></div>
+                        </div>
                     </div>
+                    <button type="button"
+                            class="btn btn-outline-secondary feed-attachment-filter-toggle"
+                            id="feed-attachment-filter-toggle"
+                            onclick="toggleFeedAttachmentFilter()"
+                            title="Show only loaded posts with files or media attachments"
+                            aria-label="Show only loaded posts with files or media attachments"
+                            aria-pressed="false">
+                        <i class="bi bi-paperclip" id="feed-attachment-filter-icon"></i>
+                        <span class="feed-attachment-filter-label" id="feed-attachment-filter-label">Files</span>
+                    </button>
                 </div>
             </div>
             <div class="col-lg-3 col-md-6 feed-controls-algorithm">
@@ -516,7 +528,9 @@
         {% if posts %}
             <div id="posts-container">
                 {% for post in posts %}
-                    <div class="card mb-4 post-card" data-post-id="{{ post.id }}">
+                    {% set post_metadata = post.metadata if post.metadata else {} %}
+                    {% set post_has_attachments = post_metadata.get('attachments') or post_metadata.get('image_url') or post_metadata.get('video_url') or post_metadata.get('audio_url') %}
+                    <div class="card mb-4 post-card" data-post-id="{{ post.id }}" data-has-attachments="{{ 'true' if post_has_attachments else 'false' }}">
                         <div class="card-body">
                             <!-- Post Header -->
                             <div class="d-flex align-items-start justify-content-between mb-3">
@@ -1987,9 +2001,9 @@
                 {% endfor %}
             </div>
             <div id="feed-mention-filter-empty" class="text-center text-muted p-4 d-none">
-                <div class="mb-2"><i class="bi bi-at fs-4"></i></div>
+                <div class="mb-2"><i class="bi bi-filter-circle fs-4"></i></div>
                 <div class="fw-semibold" id="feed-mention-filter-empty-title">No loaded posts match this mention filter.</div>
-                <div class="small mt-1">Clear the mention filter or change the target.</div>
+                <div class="small mt-1">Clear an active filter or load more posts.</div>
             </div>
         {% else %}
 	            <div class="text-center text-muted py-5">
@@ -3054,7 +3068,8 @@
     border-color: rgba(96, 165, 250, 0.18);
     color: var(--canopy-text-primary);
 }
-:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .feed-mention-filter-toggle.is-active {
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .feed-mention-filter-toggle.is-active,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .feed-attachment-filter-toggle.is-active {
     color: #065f46 !important;
     background: linear-gradient(135deg, rgba(209, 250, 229, 0.96), rgba(236, 253, 245, 0.86)) !important;
     border-color: rgba(16, 185, 129, 0.42) !important;
@@ -3265,7 +3280,8 @@
     text-align: right;
 }
 
-.feed-mention-filter-toggle {
+.feed-mention-filter-toggle,
+.feed-attachment-filter-toggle {
     min-height: 2.35rem;
     border-radius: 999px;
     display: inline-flex;
@@ -3274,7 +3290,13 @@
     gap: 0.4rem;
 }
 
-.feed-mention-filter-toggle.is-active {
+.feed-attachment-filter-toggle {
+    flex: 0 0 auto;
+    padding-inline: 0.82rem;
+}
+
+.feed-mention-filter-toggle.is-active,
+.feed-attachment-filter-toggle.is-active {
     border-color: rgba(52, 211, 153, 0.72) !important;
     color: #bbf7d0 !important;
     background: linear-gradient(135deg, rgba(16, 185, 129, 0.24), rgba(45, 212, 191, 0.12)) !important;
@@ -3424,6 +3446,13 @@
     .feed-controls-algorithm select {
         flex: 1 1 auto;
         min-width: 0;
+    }
+    .feed-attachment-filter-toggle {
+        min-width: 2.35rem;
+        padding-inline: 0.72rem;
+    }
+    .feed-attachment-filter-label {
+        display: none;
     }
     .algo-settings-header {
         flex-wrap: wrap;
@@ -5516,8 +5545,10 @@
         const FEED_MENTION_CACHE_TTL_MS = 30000;
         let feedMentionContext = null;
         const FEED_MENTION_FILTER_STORAGE_KEY = `canopy.feed_mention_filter.v1.${feedCurrentUserId || 'anon'}`;
+        const FEED_ATTACHMENT_FILTER_STORAGE_KEY = `canopy.feed_attachment_filter.v1.${feedCurrentUserId || 'anon'}`;
         let feedMentionFilterState = loadFeedMentionFilterState();
-        let feedMentionFilterStats = { visible: 0, hidden: 0, targetLabel: '' };
+        let feedAttachmentFilterEnabled = loadFeedAttachmentFilterState();
+        let feedMentionFilterStats = { visible: 0, hidden: 0, targetLabel: '', attachmentHidden: 0 };
         let feedChannelCandidates = null;
         let feedChannelLoading = false;
         let feedChannelContext = null;
@@ -5884,8 +5915,38 @@
             } catch (_) {}
         }
 
+        function loadFeedAttachmentFilterState() {
+            try {
+                return localStorage.getItem(FEED_ATTACHMENT_FILTER_STORAGE_KEY) === 'true';
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function saveFeedAttachmentFilterState() {
+            try {
+                if (feedAttachmentFilterEnabled) {
+                    localStorage.setItem(FEED_ATTACHMENT_FILTER_STORAGE_KEY, 'true');
+                } else {
+                    localStorage.removeItem(FEED_ATTACHMENT_FILTER_STORAGE_KEY);
+                }
+            } catch (_) {}
+        }
+
         function isFeedMentionFilterEnabled() {
             return !!feedMentionFilterState;
+        }
+
+        function isFeedAttachmentFilterEnabled() {
+            return !!feedAttachmentFilterEnabled;
+        }
+
+        function toggleFeedAttachmentFilter(forceEnabled) {
+            feedAttachmentFilterEnabled = typeof forceEnabled === 'boolean'
+                ? forceEnabled
+                : !isFeedAttachmentFilterEnabled();
+            saveFeedAttachmentFilterState();
+            applyFeedMentionFilter();
         }
 
         function setFeedMentionFilterToMe() {
@@ -6004,6 +6065,19 @@
             return textMentionsAnyMentionTarget(getFeedPostMentionSearchText(card), target.handles);
         }
 
+        function feedPostCardHasViewableAttachment(card) {
+            if (!card) return false;
+            if (String(card.getAttribute('data-has-attachments') || '').toLowerCase() === 'true') return true;
+            return !!card.querySelector([
+                '.post-attachments',
+                '.attachment-item',
+                '.media-grid',
+                '.post-repost-thumb-grid',
+                '[data-canopy-source-ref^="attachment:"]',
+                '[data-canopy-module-card="1"]',
+            ].join(','));
+        }
+
         function renderMentionFilterAvatar(user) {
             const label = getFeedMentionBuilderLabel(user) || '@';
             const avatarUrl = user && user.avatar_url ? String(user.avatar_url) : '';
@@ -6018,6 +6092,25 @@
                 .map(part => part.charAt(0).toUpperCase())
                 .join('') || '@';
             return `<span class="mention-filter-avatar">${escapeHtml(initials)}</span>`;
+        }
+
+        function updateFeedAttachmentFilterUI() {
+            const enabled = isFeedAttachmentFilterEnabled();
+            const toggle = document.getElementById('feed-attachment-filter-toggle');
+            const icon = document.getElementById('feed-attachment-filter-icon');
+            const label = document.getElementById('feed-attachment-filter-label');
+            if (toggle) {
+                toggle.classList.toggle('is-active', enabled);
+                toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+                toggle.title = enabled ? 'Show all loaded posts' : 'Show only loaded posts with files or media attachments';
+                toggle.setAttribute('aria-label', toggle.title);
+            }
+            if (icon) {
+                icon.className = enabled ? 'bi bi-paperclip' : 'bi bi-paperclip';
+            }
+            if (label) {
+                label.textContent = enabled ? 'Files only' : 'Files';
+            }
         }
 
         function updateFeedMentionFilterUI(candidates) {
@@ -6040,6 +6133,7 @@
             if (label) {
                 label.textContent = compactLabel.length > 18 ? `${compactLabel.slice(0, 17)}…` : compactLabel;
             }
+            updateFeedAttachmentFilterUI();
         }
 
         function renderFeedMentionFilterPicker() {
@@ -6090,7 +6184,9 @@
         function updateFeedMentionFilterBanner() {
             const banner = document.getElementById('feed-mention-filter-banner');
             if (!banner) return;
-            if (!isFeedMentionFilterEnabled()) {
+            const mentionEnabled = isFeedMentionFilterEnabled();
+            const attachmentEnabled = isFeedAttachmentFilterEnabled();
+            if (!mentionEnabled && !attachmentEnabled) {
                 banner.classList.add('d-none');
                 banner.innerHTML = '';
                 return;
@@ -6098,11 +6194,19 @@
             const label = String(feedMentionFilterStats.targetLabel || 'the selected target');
             const hidden = Math.max(0, parseInt(feedMentionFilterStats.hidden, 10) || 0);
             const visible = Math.max(0, parseInt(feedMentionFilterStats.visible, 10) || 0);
+            const chips = [
+                mentionEnabled ? `<span class="filter-pill"><i class="bi bi-at"></i> ${escapeHtml(label)}</span>` : '',
+                attachmentEnabled ? '<span class="filter-pill"><i class="bi bi-paperclip"></i> Attachments</span>' : '',
+            ].filter(Boolean).join('');
+            const actions = [
+                mentionEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearFeedMentionFilter()">Clear mentions</button>' : '',
+                attachmentEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleFeedAttachmentFilter(false)">Show all</button>' : '',
+            ].filter(Boolean).join('');
             banner.innerHTML = `
                 <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
-                    <span class="filter-pill"><i class="bi bi-at"></i> ${escapeHtml(label)}</span>
+                    <span class="d-inline-flex flex-wrap gap-1">${chips}</span>
                     <span class="filter-detail">${escapeHtml(`${visible} loaded post${visible === 1 ? '' : 's'} shown; ${hidden} hidden.`)}</span>
-                    <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" onclick="clearFeedMentionFilter()">Clear mentions</button>
+                    <span class="d-inline-flex gap-1 ms-auto">${actions}</span>
                 </div>`;
             banner.classList.remove('d-none');
         }
@@ -6112,26 +6216,28 @@
             const cards = Array.from(document.querySelectorAll('#posts-container .post-card[data-post-id]'));
             const empty = document.getElementById('feed-mention-filter-empty');
             const emptyTitle = document.getElementById('feed-mention-filter-empty-title');
+            const mentionEnabled = isFeedMentionFilterEnabled();
+            const attachmentEnabled = isFeedAttachmentFilterEnabled();
             if (!cards.length) {
                 updateFeedMentionFilterUI(candidateList);
                 updateFeedMentionFilterBanner();
                 return;
             }
-            if (!isFeedMentionFilterEnabled()) {
+            if (!mentionEnabled && !attachmentEnabled) {
                 cards.forEach(card => card.classList.remove('d-none'));
-                feedMentionFilterStats = { visible: cards.length, hidden: 0, targetLabel: '' };
+                feedMentionFilterStats = { visible: cards.length, hidden: 0, targetLabel: '', attachmentHidden: 0 };
                 if (empty) empty.classList.add('d-none');
                 updateFeedMentionFilterUI(candidateList);
                 updateFeedMentionFilterBanner();
                 renderFeedMentionFilterPicker();
                 return;
             }
-            if (!Array.isArray(feedMentionCandidates) && !Array.isArray(candidates)) {
+            if (mentionEnabled && !Array.isArray(feedMentionCandidates) && !Array.isArray(candidates)) {
                 fetchFeedMentionCandidates().then(applyFeedMentionFilter);
                 return;
             }
-            const target = getFeedMentionFilterTarget(candidateList);
-            if (!target) {
+            const target = mentionEnabled ? getFeedMentionFilterTarget(candidateList) : null;
+            if (mentionEnabled && !target) {
                 feedMentionFilterState = null;
                 saveFeedMentionFilterState();
                 applyFeedMentionFilter(candidateList);
@@ -6139,8 +6245,15 @@
             }
             let visible = 0;
             let hidden = 0;
+            let attachmentHidden = 0;
             cards.forEach(card => {
-                const keep = feedPostCardMentionsTarget(card, target);
+                let keep = true;
+                if (mentionEnabled) keep = keep && feedPostCardMentionsTarget(card, target);
+                if (attachmentEnabled) {
+                    const hasAttachment = feedPostCardHasViewableAttachment(card);
+                    keep = keep && hasAttachment;
+                    if (!hasAttachment) attachmentHidden += 1;
+                }
                 card.classList.toggle('d-none', !keep);
                 if (keep) visible += 1;
                 else hidden += 1;
@@ -6148,10 +6261,19 @@
             feedMentionFilterStats = {
                 visible,
                 hidden,
-                targetLabel: target.label || '',
+                targetLabel: target ? (target.label || '') : '',
+                attachmentHidden,
             };
             if (empty) empty.classList.toggle('d-none', visible > 0);
-            if (emptyTitle) emptyTitle.textContent = `No loaded posts mention ${target.label || 'the selected target'}.`;
+            if (emptyTitle) {
+                if (mentionEnabled && attachmentEnabled) {
+                    emptyTitle.textContent = `No loaded posts with attachments mention ${target.label || 'the selected target'}.`;
+                } else if (mentionEnabled) {
+                    emptyTitle.textContent = `No loaded posts mention ${target.label || 'the selected target'}.`;
+                } else {
+                    emptyTitle.textContent = 'No loaded posts include downloadable or viewable attachments.';
+                }
+            }
             updateFeedMentionFilterUI(candidateList);
             updateFeedMentionFilterBanner();
             renderFeedMentionFilterPicker();

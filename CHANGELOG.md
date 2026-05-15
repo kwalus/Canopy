@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.126] - 2026-05-15
+
+### Changed
+- **Attachment-bearing posts are easier to find** - Channels now have a Files thread filter that keeps whole threads together when any loaded root or reply has attachments.
+- **Feed can filter loaded posts to files and media** - the Feed Files control composes with mention filters and includes attachments, media posts, repost thumbnails, and module cards.
+- **Attachment filter UX is clearer** - active filter banners show attachment pills and hidden counts, empty states explain the loaded-window scope, and filter state persists per user.
+
 ## [0.6.125] - 2026-05-15
 
 ### Changed

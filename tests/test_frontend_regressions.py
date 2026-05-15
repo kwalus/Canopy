@@ -2885,7 +2885,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.125', api_ref)
+        self.assertIn('0.6.126', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
@@ -2949,7 +2949,7 @@ console.log(JSON.stringify({{
         self.assertIn("typeof isChannelThreadActivitySortEnabled === 'function'", channels_template)
         self.assertIn('return latestFirst ? -result : result;', channels_template)
         self.assertIn('Latest active threads are shown first.', channels_template)
-        self.assertIn('if (isChannelUnreadThreadFilterEnabled() || isChannelThreadActivitySortEnabled())', channels_template)
+        self.assertIn('if (isChannelUnreadThreadFilterEnabled() || isChannelAttachmentThreadFilterEnabled() || isChannelThreadActivitySortEnabled())', channels_template)
         self.assertIn('requestChannelThreadRefresh({ forceScroll: true })', channels_template)
         self.assertIn('if (isChannelMediaPlaying())', channels_template)
         self.assertIn('if (forceScroll) {', channels_template)
@@ -2961,3 +2961,26 @@ console.log(JSON.stringify({{
         self.assertIn('advanceCollabCardSource', main_js)
         self.assertIn('advance_source: true', main_js)
         self.assertIn('/ajax/collab_cards/${encodeURIComponent(cardId)}/advance_source', main_js)
+
+    def test_attachment_filters_are_wired_for_channel_threads_and_feed_posts(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+
+        self.assertIn('CHANNEL_ATTACHMENT_THREAD_FILTER_STORAGE_KEY', channels_template)
+        self.assertIn('id="channel-attachment-filter-toggle"', channels_template)
+        self.assertIn('function channelMessageHasAttachmentContent(message)', channels_template)
+        self.assertIn('function filterChannelThreadsForAttachments(rootMessages, repliesByRoot)', channels_template)
+        self.assertIn('const attachmentFilteredView = filterChannelThreadsForAttachments(unreadFilteredView.roots || [], repliesByRoot);', channels_template)
+        self.assertIn('function toggleChannelAttachmentThreadFilter(forceEnabled)', channels_template)
+        self.assertIn("data-has-attachments=\"${hasAttachmentContent ? 'true' : 'false'}\"", channels_template)
+        self.assertIn('<span class="filter-pill"><i class="bi bi-paperclip"></i> Attachments</span>', channels_template)
+        self.assertIn("targetLabel: mentionFilteredView.targetLabel || '',", channels_template)
+        self.assertIn('broaden the loaded threads', channels_template)
+
+        self.assertIn('FEED_ATTACHMENT_FILTER_STORAGE_KEY', feed_template)
+        self.assertIn('id="feed-attachment-filter-toggle"', feed_template)
+        self.assertIn("data-has-attachments=\"{{ 'true' if post_has_attachments else 'false' }}\"", feed_template)
+        self.assertIn('function feedPostCardHasViewableAttachment(card)', feed_template)
+        self.assertIn('function toggleFeedAttachmentFilter(forceEnabled)', feed_template)
+        self.assertIn("'.post-attachments',", feed_template)
+        self.assertIn('No loaded posts include downloadable or viewable attachments.', feed_template)

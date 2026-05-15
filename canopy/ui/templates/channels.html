@@ -2086,12 +2086,14 @@
     .channel-thread-filter-toggle,
     .channel-thread-sort-toggle,
     .channel-human-filter-toggle,
+    .channel-attachment-filter-toggle,
     .channel-mention-filter-toggle {
         position: relative;
     }
     .channel-thread-filter-toggle.is-active,
     .channel-thread-sort-toggle.is-active,
     .channel-human-filter-toggle.is-active,
+    .channel-attachment-filter-toggle.is-active,
     .channel-mention-filter-toggle.is-active {
         border-color: rgba(52, 211, 153, 0.72) !important;
         color: #bbf7d0 !important;
@@ -2101,6 +2103,7 @@
     .channel-thread-filter-toggle.is-active::after,
     .channel-thread-sort-toggle.is-active::after,
     .channel-human-filter-toggle.is-active::after,
+    .channel-attachment-filter-toggle.is-active::after,
     .channel-mention-filter-toggle.is-active::after {
         content: "";
         position: absolute;
@@ -2310,6 +2313,7 @@
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-thread-filter-toggle.is-active,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-thread-sort-toggle.is-active,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-human-filter-toggle.is-active,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-attachment-filter-toggle.is-active,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-mention-filter-toggle.is-active {
         color: #065f46 !important;
         background: linear-gradient(135deg, rgba(209, 250, 229, 0.96), rgba(236, 253, 245, 0.86)) !important;
@@ -4744,6 +4748,15 @@
                                 <i class="bi bi-lightning-charge" id="channel-unread-filter-icon"></i>
                                 <span class="channel-header-tool-label" id="channel-unread-filter-label">New</span>
                             </button>
+                            <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-thread-filter-toggle channel-attachment-filter-toggle"
+                                    id="channel-attachment-filter-toggle"
+                                    onclick="toggleChannelAttachmentThreadFilter()"
+                                    title="Show only threads with attachments"
+                                    aria-label="Show only threads with attachments"
+                                    aria-pressed="false">
+                                <i class="bi bi-paperclip" id="channel-attachment-filter-icon"></i>
+                                <span class="channel-header-tool-label" id="channel-attachment-filter-label">Files</span>
+                            </button>
                             <div class="dropdown">
                                 <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-mention-filter-toggle dropdown-toggle"
                                         id="channel-mention-filter-toggle"
@@ -4919,6 +4932,11 @@
                                     <li>
                                         <button type="button" class="dropdown-item" id="channel-unread-filter-menu-btn" onclick="toggleChannelUnreadThreadFilter()">
                                             <i class="bi bi-lightning-charge me-2"></i><span id="channel-unread-filter-menu-label">Show unread/new threads</span>
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" id="channel-attachment-filter-menu-btn" onclick="toggleChannelAttachmentThreadFilter()">
+                                            <i class="bi bi-paperclip me-2"></i><span id="channel-attachment-filter-menu-label">Show attachment threads</span>
                                         </button>
                                     </li>
                                     <li>
@@ -7786,6 +7804,7 @@ const CHANNEL_GROUP_CHANNEL_ORDER_STORAGE_KEY = `canopy.channel_group_channel_or
 const CHANNEL_GROUP_DEFS_STORAGE_KEY = `canopy.channel_group_defs.v1.${currentUserId || 'anon'}`;
 const CHANNEL_HUMAN_THREAD_FILTER_STORAGE_KEY = `canopy.channel_human_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_UNREAD_THREAD_FILTER_STORAGE_KEY = `canopy.channel_unread_threads.v1.${currentUserId || 'anon'}`;
+const CHANNEL_ATTACHMENT_THREAD_FILTER_STORAGE_KEY = `canopy.channel_attachment_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_MENTION_THREAD_FILTER_STORAGE_KEY = `canopy.channel_mention_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_THREAD_ACTIVITY_SORT_STORAGE_KEY = `canopy.channel_thread_activity_sort.v1.${currentUserId || 'anon'}`;
 const CHANNEL_ORG_PALETTE = [
@@ -7814,12 +7833,14 @@ const channelMessageRenderInFlight = new Set();
 const channelLikeInFlight = new Set();
 let channelHumanThreadFilterById = {};
 let channelUnreadThreadFilterById = {};
+let channelAttachmentThreadFilterById = {};
 let channelMentionThreadFilterById = {};
 let channelThreadActivitySortById = {};
 let channelReadBaselineById = {};
 let currentChannelMessagesSnapshot = [];
 let currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
 let currentChannelUnreadFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
+let currentChannelAttachmentFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
 let currentChannelMentionFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0, targetLabel: '' };
 const CHANNEL_FILE_ALLOWED_MIME_PREFIXES = ['image/', 'video/', 'audio/'];
 const CHANNEL_FILE_ALLOWED_MIME_EXACT = new Set([
@@ -8208,6 +8229,27 @@ function saveChannelUnreadThreadFilterState() {
     } catch (_) {}
 }
 
+function loadChannelAttachmentThreadFilterState() {
+    channelAttachmentThreadFilterById = {};
+    try {
+        const raw = localStorage.getItem(CHANNEL_ATTACHMENT_THREAD_FILTER_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+        Object.entries(parsed).forEach(([channelId, enabled]) => {
+            const normalized = String(channelId || '').trim();
+            if (normalized && enabled === true) channelAttachmentThreadFilterById[normalized] = true;
+        });
+    } catch (_) {
+        channelAttachmentThreadFilterById = {};
+    }
+}
+
+function saveChannelAttachmentThreadFilterState() {
+    try {
+        localStorage.setItem(CHANNEL_ATTACHMENT_THREAD_FILTER_STORAGE_KEY, JSON.stringify(channelAttachmentThreadFilterById));
+    } catch (_) {}
+}
+
 function normalizeChannelMentionThreadFilterConfig(config) {
     if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
     const mode = String(config.mode || '').trim().toLowerCase();
@@ -8279,6 +8321,11 @@ function isChannelUnreadThreadFilterEnabled(channelId = currentChannelId) {
     return !!(normalized && channelUnreadThreadFilterById[normalized]);
 }
 
+function isChannelAttachmentThreadFilterEnabled(channelId = currentChannelId) {
+    const normalized = String(channelId || '').trim();
+    return !!(normalized && channelAttachmentThreadFilterById[normalized]);
+}
+
 function getChannelMentionThreadFilter(channelId = currentChannelId) {
     const normalized = String(channelId || '').trim();
     return normalized ? (channelMentionThreadFilterById[normalized] || null) : null;
@@ -8313,6 +8360,17 @@ function setChannelUnreadThreadFilter(channelId, enabled) {
         delete channelUnreadThreadFilterById[normalized];
     }
     saveChannelUnreadThreadFilterState();
+}
+
+function setChannelAttachmentThreadFilter(channelId, enabled) {
+    const normalized = String(channelId || '').trim();
+    if (!normalized) return;
+    if (enabled) {
+        channelAttachmentThreadFilterById[normalized] = true;
+    } else {
+        delete channelAttachmentThreadFilterById[normalized];
+    }
+    saveChannelAttachmentThreadFilterState();
 }
 
 function setChannelMentionThreadFilter(channelId, config) {
@@ -8443,6 +8501,57 @@ function filterChannelThreadsForUnreadActivity(rootMessages, repliesByRoot) {
         return keep;
     });
     currentChannelUnreadFilterStats = { hiddenThreads, hiddenMessages, visibleThreads: roots.length };
+    return { roots, hiddenThreads, hiddenMessages, visibleThreads: roots.length };
+}
+
+function channelMessageHasAttachmentContent(message) {
+    if (!message) return false;
+    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+    return attachments.some((att) => {
+        if (!att || typeof att !== 'object') return false;
+        return !!(
+            att.url ||
+            att.id ||
+            att.file_id ||
+            att.origin_file_id ||
+            att.stream_id ||
+            att.name ||
+            att.type
+        );
+    });
+}
+
+function channelThreadHasAttachmentContent(rootMessage, replies) {
+    const participants = [rootMessage].concat(Array.isArray(replies) ? replies : []);
+    return participants.some(channelMessageHasAttachmentContent);
+}
+
+function filterChannelThreadsForAttachments(rootMessages, repliesByRoot) {
+    if (!isChannelAttachmentThreadFilterEnabled()) {
+        currentChannelAttachmentFilterStats = {
+            hiddenThreads: 0,
+            hiddenMessages: 0,
+            visibleThreads: (rootMessages || []).length,
+        };
+        return {
+            roots: rootMessages || [],
+            hiddenThreads: 0,
+            hiddenMessages: 0,
+            visibleThreads: (rootMessages || []).length,
+        };
+    }
+    let hiddenThreads = 0;
+    let hiddenMessages = 0;
+    const roots = (rootMessages || []).filter((root) => {
+        const replies = (repliesByRoot && repliesByRoot[root.id]) || [];
+        const keep = channelThreadHasAttachmentContent(root, replies);
+        if (!keep) {
+            hiddenThreads += 1;
+            hiddenMessages += 1 + replies.length;
+        }
+        return keep;
+    });
+    currentChannelAttachmentFilterStats = { hiddenThreads, hiddenMessages, visibleThreads: roots.length };
     return { roots, hiddenThreads, hiddenMessages, visibleThreads: roots.length };
 }
 
@@ -8618,6 +8727,29 @@ function updateChannelUnreadThreadFilterUI() {
     }
 }
 
+function updateChannelAttachmentThreadFilterUI() {
+    const enabled = isChannelAttachmentThreadFilterEnabled();
+    const toggle = document.getElementById('channel-attachment-filter-toggle');
+    const icon = document.getElementById('channel-attachment-filter-icon');
+    const label = document.getElementById('channel-attachment-filter-label');
+    const menuLabel = document.getElementById('channel-attachment-filter-menu-label');
+    if (toggle) {
+        toggle.classList.toggle('is-active', enabled);
+        toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        toggle.title = enabled ? 'Show all loaded threads' : 'Show only threads with attachments';
+        toggle.setAttribute('aria-label', enabled ? 'Show all loaded threads' : 'Show only threads with attachments');
+    }
+    if (icon) {
+        icon.className = enabled ? 'bi bi-paperclip' : 'bi bi-paperclip';
+    }
+    if (label) {
+        label.textContent = enabled ? 'Files only' : 'Files';
+    }
+    if (menuLabel) {
+        menuLabel.textContent = enabled ? 'Show all loaded threads' : 'Show attachment threads';
+    }
+}
+
 function updateChannelThreadActivitySortUI() {
     const enabled = isChannelThreadActivitySortEnabled();
     const toggle = document.getElementById('channel-activity-sort-toggle');
@@ -8742,9 +8874,10 @@ function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterS
     if (!banner) return;
     const humanEnabled = isChannelHumanThreadFilterEnabled();
     const unreadEnabled = isChannelUnreadThreadFilterEnabled();
+    const attachmentEnabled = isChannelAttachmentThreadFilterEnabled();
     const mentionEnabled = isChannelMentionThreadFilterEnabled();
     const activitySortEnabled = isChannelThreadActivitySortEnabled();
-    if (!humanEnabled && !unreadEnabled && !mentionEnabled && !activitySortEnabled) {
+    if (!humanEnabled && !unreadEnabled && !attachmentEnabled && !mentionEnabled && !activitySortEnabled) {
         banner.classList.add('d-none');
         banner.innerHTML = '';
         return;
@@ -8753,6 +8886,8 @@ function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterS
     const hiddenMessages = Math.max(0, parseInt(stats && stats.hiddenMessages, 10) || 0);
     const unreadHiddenThreads = Math.max(0, parseInt(currentChannelUnreadFilterStats && currentChannelUnreadFilterStats.hiddenThreads, 10) || 0);
     const unreadHiddenMessages = Math.max(0, parseInt(currentChannelUnreadFilterStats && currentChannelUnreadFilterStats.hiddenMessages, 10) || 0);
+    const attachmentHiddenThreads = Math.max(0, parseInt(currentChannelAttachmentFilterStats && currentChannelAttachmentFilterStats.hiddenThreads, 10) || 0);
+    const attachmentHiddenMessages = Math.max(0, parseInt(currentChannelAttachmentFilterStats && currentChannelAttachmentFilterStats.hiddenMessages, 10) || 0);
     const mentionHiddenThreads = Math.max(0, parseInt(currentChannelMentionFilterStats && currentChannelMentionFilterStats.hiddenThreads, 10) || 0);
     const mentionHiddenMessages = Math.max(0, parseInt(currentChannelMentionFilterStats && currentChannelMentionFilterStats.hiddenMessages, 10) || 0);
     const mentionTargetLabel = String(currentChannelMentionFilterStats && currentChannelMentionFilterStats.targetLabel || 'the selected target');
@@ -8760,6 +8895,8 @@ function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterS
     const messageLabel = hiddenMessages === 1 ? 'message' : 'messages';
     const unreadThreadLabel = unreadHiddenThreads === 1 ? 'thread' : 'threads';
     const unreadMessageLabel = unreadHiddenMessages === 1 ? 'message' : 'messages';
+    const attachmentThreadLabel = attachmentHiddenThreads === 1 ? 'thread' : 'threads';
+    const attachmentMessageLabel = attachmentHiddenMessages === 1 ? 'message' : 'messages';
     const mentionThreadLabel = mentionHiddenThreads === 1 ? 'thread' : 'threads';
     const mentionMessageLabel = mentionHiddenMessages === 1 ? 'message' : 'messages';
     const details = [];
@@ -8777,6 +8914,11 @@ function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterS
                 : 'Only unread/new threads are shown.');
         }
     }
+    if (attachmentEnabled) {
+        details.push(attachmentHiddenThreads > 0
+            ? `${attachmentHiddenThreads} no-file ${attachmentThreadLabel} hidden (${attachmentHiddenMessages} ${attachmentMessageLabel}).`
+            : 'Only threads with attachments are shown.');
+    }
     if (mentionEnabled) {
         details.push(mentionHiddenThreads > 0
             ? `${mentionHiddenThreads} ${mentionThreadLabel} not mentioning ${mentionTargetLabel} hidden (${mentionHiddenMessages} ${mentionMessageLabel}).`
@@ -8788,12 +8930,14 @@ function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterS
     const chips = [
         humanEnabled ? '<span class="filter-pill"><i class="bi bi-person-fill-check"></i> Human threads</span>' : '',
         unreadEnabled ? '<span class="filter-pill"><i class="bi bi-lightning-charge-fill"></i> New/unread threads</span>' : '',
+        attachmentEnabled ? '<span class="filter-pill"><i class="bi bi-paperclip"></i> Attachments</span>' : '',
         mentionEnabled ? `<span class="filter-pill"><i class="bi bi-at"></i> ${escapeHtml(mentionTargetLabel)}</span>` : '',
         activitySortEnabled ? '<span class="filter-pill"><i class="bi bi-sort-down-alt"></i> Latest first</span>' : '',
     ].filter(Boolean).join('');
     const actions = [
         humanEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelHumanThreadFilter(false)">Show agents</button>' : '',
         unreadEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelUnreadThreadFilter(false)">Show read</button>' : '',
+        attachmentEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelAttachmentThreadFilter(false)">Show all</button>' : '',
         mentionEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearChannelMentionThreadFilterAndRefresh()">Clear mentions</button>' : '',
         activitySortEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelThreadActivitySort(false)">Chronological</button>' : '',
     ].filter(Boolean).join('');
@@ -8835,6 +8979,25 @@ function toggleChannelUnreadThreadFilter(forceEnabled) {
         : !isChannelUnreadThreadFilterEnabled();
     setChannelUnreadThreadFilter(currentChannelId, nextEnabled);
     updateChannelUnreadThreadFilterUI();
+    if (Array.isArray(currentChannelMessagesSnapshot) && currentChannelMessagesSnapshot.length) {
+        displayMessages(currentChannelMessagesSnapshot, { forceScroll: false, ignoreSignature: true });
+    } else if (currentChannelId) {
+        loadChannelMessages(currentChannelId, { forceScroll: false });
+    } else {
+        updateChannelHumanThreadFilterBanner();
+    }
+}
+
+function toggleChannelAttachmentThreadFilter(forceEnabled) {
+    if (!currentChannelId) {
+        showAlert('Select a channel before filtering attachment threads.', 'warning');
+        return;
+    }
+    const nextEnabled = typeof forceEnabled === 'boolean'
+        ? forceEnabled
+        : !isChannelAttachmentThreadFilterEnabled();
+    setChannelAttachmentThreadFilter(currentChannelId, nextEnabled);
+    updateChannelAttachmentThreadFilterUI();
     if (Array.isArray(currentChannelMessagesSnapshot) && currentChannelMessagesSnapshot.length) {
         displayMessages(currentChannelMessagesSnapshot, { forceScroll: false, ignoreSignature: true });
     } else if (currentChannelId) {
@@ -10512,6 +10675,7 @@ function selectChannel(channelId, channelName, options = {}) {
     currentChannelMessagesSnapshot = [];
     currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
     currentChannelUnreadFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
+    currentChannelAttachmentFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
     currentChannelMentionFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0, targetLabel: '' };
     oldestLoadedMessageId = null;
     loadingOlderMessages = false;
@@ -10520,6 +10684,7 @@ function selectChannel(channelId, channelName, options = {}) {
     syncChannelRemovalBanner();
     updateChannelHumanThreadFilterUI();
     updateChannelUnreadThreadFilterUI();
+    updateChannelAttachmentThreadFilterUI();
     updateChannelMentionThreadFilterUI();
     updateChannelThreadActivitySortUI();
     updateChannelHumanThreadFilterBanner();
@@ -11387,6 +11552,7 @@ function loadChannelMessages(channelId, options = {}) {
             currentChannelMessagesSnapshot = [];
             currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
             currentChannelUnreadFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
+            currentChannelAttachmentFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
             updateChannelHumanThreadFilterBanner();
             messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet' + hint + '</div>';
             if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {
@@ -11500,6 +11666,7 @@ function displayMessages(messages, options = {}) {
     if (messages.length === 0) {
         currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
         currentChannelUnreadFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
+        currentChannelAttachmentFilterStats = { hiddenThreads: 0, hiddenMessages: 0, visibleThreads: 0 };
         updateChannelHumanThreadFilterBanner();
         messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet</div>';
         return;
@@ -11553,7 +11720,8 @@ function displayMessages(messages, options = {}) {
             let html = '';
             const humanFilteredView = filterChannelThreadsForHumanParticipants(rootMessages, repliesByRoot, userInfo);
             const unreadFilteredView = filterChannelThreadsForUnreadActivity(humanFilteredView.roots || [], repliesByRoot);
-            const mentionFilteredView = filterChannelThreadsForMentionTarget(unreadFilteredView.roots || [], repliesByRoot, candidates);
+            const attachmentFilteredView = filterChannelThreadsForAttachments(unreadFilteredView.roots || [], repliesByRoot);
+            const mentionFilteredView = filterChannelThreadsForMentionTarget(attachmentFilteredView.roots || [], repliesByRoot, candidates);
             let humanHiddenThreads = humanFilteredView.hiddenThreads || 0;
             let humanHiddenMessages = humanFilteredView.hiddenMessages || 0;
             let mentionHiddenThreads = mentionFilteredView.hiddenThreads || 0;
@@ -11592,6 +11760,11 @@ function displayMessages(messages, options = {}) {
                     currentChannelUnreadFilterStats.hiddenMessages += replies.length;
                     return;
                 }
+                if (isChannelAttachmentThreadFilterEnabled() && !channelThreadHasAttachmentContent(replies[0], replies.slice(1))) {
+                    currentChannelAttachmentFilterStats.hiddenThreads += 1;
+                    currentChannelAttachmentFilterStats.hiddenMessages += replies.length;
+                    return;
+                }
                 const mentionTarget = getChannelMentionFilterTarget(candidates);
                 if (isChannelMentionThreadFilterEnabled() && mentionTarget && !channelThreadMentionsTarget(replies[0], replies.slice(1), mentionTarget)) {
                     mentionHiddenThreads += 1;
@@ -11605,7 +11778,7 @@ function displayMessages(messages, options = {}) {
                 hiddenThreads: mentionHiddenThreads,
                 hiddenMessages: mentionHiddenMessages,
                 visibleThreads: visibleRootMessages.length,
-                targetLabel: currentChannelMentionFilterStats.targetLabel || (mentionFilteredView.targetLabel || ''),
+                targetLabel: mentionFilteredView.targetLabel || '',
             };
             updateChannelHumanThreadFilterBanner(currentChannelHumanFilterStats);
 
@@ -11617,24 +11790,29 @@ function displayMessages(messages, options = {}) {
 		                </button>
 		            </div>`;
             const unreadFilterHasBaseline = isChannelUnreadThreadFilterEnabled() && hasChannelUnreadThreadBaseline();
-            if (!html && (isChannelHumanThreadFilterEnabled() || isChannelUnreadThreadFilterEnabled() || isChannelMentionThreadFilterEnabled())) {
+            if (!html && (isChannelHumanThreadFilterEnabled() || isChannelUnreadThreadFilterEnabled() || isChannelAttachmentThreadFilterEnabled() || isChannelMentionThreadFilterEnabled())) {
                 const mentionLabel = currentChannelMentionFilterStats.targetLabel || 'the selected target';
-                const emptyTitle = isChannelMentionThreadFilterEnabled() && (isChannelHumanThreadFilterEnabled() || isChannelUnreadThreadFilterEnabled())
+                const hasCompoundFilters = [isChannelHumanThreadFilterEnabled(), isChannelUnreadThreadFilterEnabled(), isChannelAttachmentThreadFilterEnabled(), isChannelMentionThreadFilterEnabled()]
+                    .filter(Boolean).length > 1;
+                const emptyTitle = isChannelMentionThreadFilterEnabled() && hasCompoundFilters
                     ? 'No threads match all active filters in this loaded window.'
                     : (isChannelMentionThreadFilterEnabled()
                         ? `No threads mentioning ${mentionLabel} in this loaded window.`
-                        : (unreadFilterHasBaseline && isChannelHumanThreadFilterEnabled()
+                        : (isChannelAttachmentThreadFilterEnabled()
+                            ? 'No attachment threads in this loaded window.'
+                            : (unreadFilterHasBaseline && isChannelHumanThreadFilterEnabled()
                             ? 'No new human-involved threads in this loaded window.'
-                            : (unreadFilterHasBaseline ? 'No unread or new threads in this loaded window.' : 'No human-involved threads in this loaded window.')));
+                            : (unreadFilterHasBaseline ? 'No unread or new threads in this loaded window.' : 'No human-involved threads in this loaded window.'))));
                 const emptyActions = [
                     isChannelUnreadThreadFilterEnabled() ? '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="toggleChannelUnreadThreadFilter(false)">turn off New</button>' : '',
+                    isChannelAttachmentThreadFilterEnabled() ? '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="toggleChannelAttachmentThreadFilter(false)">show threads without files</button>' : '',
                     isChannelHumanThreadFilterEnabled() ? '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="toggleChannelHumanThreadFilter(false)">show agent-only threads</button>' : '',
                     isChannelMentionThreadFilterEnabled() ? '<button type="button" class="btn btn-link btn-sm p-0 align-baseline" onclick="clearChannelMentionThreadFilterAndRefresh()">clear mention filter</button>' : '',
                 ].filter(Boolean).join(' or ');
                 html = `<div class="text-center text-muted p-4">
-                    <div class="mb-2"><i class="bi bi-person-fill-check fs-4"></i></div>
+                    <div class="mb-2"><i class="bi bi-filter-circle fs-4"></i></div>
                     <div class="fw-semibold">${escapeHtml(emptyTitle)}</div>
-                    <div class="small mt-1">Use ${emptyActions} to broaden the feed.</div>
+                    <div class="small mt-1">Use ${emptyActions} to broaden the loaded threads.</div>
                 </div>`;
             }
             messagesContainer.innerHTML = latestFirstThreads ? (html + olderBanner) : (olderBanner + html);
@@ -12118,6 +12296,7 @@ function renderMessage(message, userInfo, isReply) {
     const sourceLayoutAttr = message.source_layout
         ? ` data-canopy-source-layout="${String(JSON.stringify(message.source_layout || {})).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')}"`
         : '';
+    const hasAttachmentContent = channelMessageHasAttachmentContent(message);
     let replyContextHtml = '';
     if (isThreadReply && replyState.parentAuthorId) {
         const parentAuthorInfo = userInfo[replyState.parentAuthorId] || {};
@@ -12132,7 +12311,7 @@ function renderMessage(message, userInfo, isReply) {
     }
 
     return `
-    <div class="message-item message-card ${replyClass}" data-message-id="${message.id}" data-thread-root-id="${threadRootId}" data-thread-depth="${threadDepth}"${isThreadReply ? ` data-parent-message-id="${parentMessageId}" style="--thread-depth:${Math.min(threadDepth, 4)};"` : ''}>
+    <div class="message-item message-card ${replyClass}" data-message-id="${message.id}" data-thread-root-id="${threadRootId}" data-thread-depth="${threadDepth}" data-has-attachments="${hasAttachmentContent ? 'true' : 'false'}"${isThreadReply ? ` data-parent-message-id="${parentMessageId}" style="--thread-depth:${Math.min(threadDepth, 4)};"` : ''}>
         <div class="d-flex align-items-start">
             <div class="user-avatar me-3" style="width: ${avatarSize}px; height: ${avatarSize}px;"
                  data-user-id="${message.user_id}"
@@ -14428,7 +14607,7 @@ function appendNewMessages(allMessages) {
 
     // The unread/new filter may need to reveal an entire previously hidden thread
     // when a new reply lands, so prefer the full renderer over partial DOM splices.
-    if (isChannelUnreadThreadFilterEnabled() || isChannelThreadActivitySortEnabled()) {
+    if (isChannelUnreadThreadFilterEnabled() || isChannelAttachmentThreadFilterEnabled() || isChannelThreadActivitySortEnabled()) {
         return false;
     }
 
@@ -14814,17 +14993,24 @@ function loadOlderMessages() {
                     hiddenThreads: currentChannelUnreadFilterStats.hiddenThreads || 0,
                     hiddenMessages: currentChannelUnreadFilterStats.hiddenMessages || 0,
                 };
+                const priorAttachmentFilterStats = {
+                    hiddenThreads: currentChannelAttachmentFilterStats.hiddenThreads || 0,
+                    hiddenMessages: currentChannelAttachmentFilterStats.hiddenMessages || 0,
+                };
                 const priorMentionFilterStats = {
                     hiddenThreads: currentChannelMentionFilterStats.hiddenThreads || 0,
                     hiddenMessages: currentChannelMentionFilterStats.hiddenMessages || 0,
                 };
                 const humanOlderView = filterChannelThreadsForHumanParticipants(roots, replies, userInfo);
                 const unreadOlderView = filterChannelThreadsForUnreadActivity(humanOlderView.roots || [], replies);
-                const mentionOlderView = filterChannelThreadsForMentionTarget(unreadOlderView.roots || [], replies, candidates);
+                const attachmentOlderView = filterChannelThreadsForAttachments(unreadOlderView.roots || [], replies);
+                const mentionOlderView = filterChannelThreadsForMentionTarget(attachmentOlderView.roots || [], replies, candidates);
                 let humanHiddenThreads = priorHumanFilterStats.hiddenThreads + (humanOlderView.hiddenThreads || 0);
                 let humanHiddenMessages = priorHumanFilterStats.hiddenMessages + (humanOlderView.hiddenMessages || 0);
                 let unreadHiddenThreads = priorUnreadFilterStats.hiddenThreads + (unreadOlderView.hiddenThreads || 0);
                 let unreadHiddenMessages = priorUnreadFilterStats.hiddenMessages + (unreadOlderView.hiddenMessages || 0);
+                let attachmentHiddenThreads = priorAttachmentFilterStats.hiddenThreads + (attachmentOlderView.hiddenThreads || 0);
+                let attachmentHiddenMessages = priorAttachmentFilterStats.hiddenMessages + (attachmentOlderView.hiddenMessages || 0);
                 let mentionHiddenThreads = priorMentionFilterStats.hiddenThreads + (mentionOlderView.hiddenThreads || 0);
                 let mentionHiddenMessages = priorMentionFilterStats.hiddenMessages + (mentionOlderView.hiddenMessages || 0);
                 (mentionOlderView.roots || []).forEach(m => {
@@ -14848,6 +15034,11 @@ function loadOlderMessages() {
                         unreadHiddenMessages += orphanReplies.length;
                         return;
                     }
+                    if (isChannelAttachmentThreadFilterEnabled() && !channelThreadHasAttachmentContent(orphanReplies[0], orphanReplies.slice(1))) {
+                        attachmentHiddenThreads += 1;
+                        attachmentHiddenMessages += orphanReplies.length;
+                        return;
+                    }
                     const mentionTarget = getChannelMentionFilterTarget(candidates);
                     if (isChannelMentionThreadFilterEnabled() && mentionTarget && !channelThreadMentionsTarget(orphanReplies[0], orphanReplies.slice(1), mentionTarget)) {
                         mentionHiddenThreads += 1;
@@ -14861,6 +15052,11 @@ function loadOlderMessages() {
                     hiddenThreads: unreadHiddenThreads,
                     hiddenMessages: unreadHiddenMessages,
                     visibleThreads: (unreadOlderView.roots || []).length,
+                };
+                currentChannelAttachmentFilterStats = {
+                    hiddenThreads: attachmentHiddenThreads,
+                    hiddenMessages: attachmentHiddenMessages,
+                    visibleThreads: (attachmentOlderView.roots || []).length,
                 };
                 currentChannelMentionFilterStats = {
                     hiddenThreads: mentionHiddenThreads,
@@ -22219,10 +22415,12 @@ document.addEventListener('DOMContentLoaded', function() {
         loadChannelOrgState();
         loadChannelHumanThreadFilterState();
         loadChannelUnreadThreadFilterState();
+        loadChannelAttachmentThreadFilterState();
         loadChannelMentionThreadFilterState();
         loadChannelThreadActivitySortState();
         updateChannelHumanThreadFilterUI();
         updateChannelUnreadThreadFilterUI();
+        updateChannelAttachmentThreadFilterUI();
         updateChannelMentionThreadFilterUI();
         updateChannelThreadActivitySortUI();
         updateChannelHumanThreadFilterBanner();
