@@ -1724,13 +1724,18 @@
                 `;
             }
 
+	            function vaultFileId(file) {
+	                return String(file && (file.id || file.file_id || file.vault_file_id) || '').trim();
+	            }
+
 	            function renderVaultPageCard(file, selected = false) {
-	                const id = vaultEscape(file.id || '');
+	                const rawId = vaultFileId(file);
+	                const id = vaultEscape(rawId);
 	                const name = vaultEscape(file.name || file.filename || 'File');
 	                const type = vaultEscape(CATEGORY_LABELS[file.category] || file.category || file.type || 'File');
 	                const size = vaultEscape(formatBytes(file.size));
 	                const uploaded = vaultEscape(formatTimestamp(file.uploaded_at || ''));
-	                const url = vaultEscape(file.url || `/files/${encodeURIComponent(file.id || '')}`);
+	                const url = vaultEscape(vaultFileUrl(file));
 	                const isInFolder = !!String(file.folder_id || '').trim();
 	                const previewable = isVaultInlinePreviewable(file);
 	                const actionLabel = previewable ? 'Preview' : 'Open';
@@ -1834,7 +1839,7 @@
 	                const inlinePreviewClose = document.getElementById('vault-inline-preview-close');
 
 	                function vaultFileUrl(file) {
-	                    const id = String(file && file.id || '').trim();
+	                    const id = vaultFileId(file);
 	                    if (id) return `/files/${encodeURIComponent(id)}`;
 	                    const raw = String(file && file.url || '').trim();
 	                    if (!raw) return '';
@@ -1883,7 +1888,7 @@
 	                }
 
 	                function vaultFilePreviewUrl(file) {
-	                    const id = String(file && file.id || '').trim();
+	                    const id = vaultFileId(file);
 	                    return id ? `/ajax/files/${encodeURIComponent(id)}/preview` : '';
 	                }
 
@@ -1952,7 +1957,7 @@
 	                }
 
 	                async function previewVaultFileInline(file) {
-	                    const id = String(file && file.id || '').trim();
+	                    const id = vaultFileId(file);
 	                    if (!id || !inlinePreviewPanel || !inlinePreviewBody) {
 	                        openVaultFileInNewTab(file);
 	                        return;
@@ -2029,7 +2034,7 @@
 	                }
 
                 function selectedVaultFiles() {
-                    return state.files.filter(file => state.selectedIds.has(String(file.id || '')));
+                    return state.files.filter(file => state.selectedIds.has(vaultFileId(file)));
                 }
 
                 function defaultDigestionName(selected) {
@@ -2334,7 +2339,7 @@
                             body: JSON.stringify({
                                 name: name.trim(),
                                 purpose,
-                                source_file_ids: selected.map(file => file.id).filter(Boolean)
+                                source_file_ids: selected.map(vaultFileId).filter(Boolean)
                             })
                         });
                         if (typeof showAlert === 'function') {
@@ -2971,7 +2976,7 @@
 
                 function render() {
                     if (!grid || !empty) return;
-                    const visibleIds = new Set(state.files.map(file => String(file.id || '')).filter(Boolean));
+                    const visibleIds = new Set(state.files.map(vaultFileId).filter(Boolean));
 	                    state.selectedIds.forEach((id) => {
 	                        if (!visibleIds.has(id)) state.selectedIds.delete(id);
 	                    });
@@ -2984,7 +2989,7 @@
                     } else {
                         empty.style.display = 'none';
                         grid.innerHTML = state.folders.map(renderVaultFolderCard).join('')
-                            + state.files.map(file => renderVaultPageCard(file, state.selectedIds.has(String(file.id || '')))).join('');
+                            + state.files.map(file => renderVaultPageCard(file, state.selectedIds.has(vaultFileId(file)))).join('');
                     }
                     applyVaultViewMode();
                     updateSelectionUi();
@@ -3351,7 +3356,10 @@
                 }
                 if (selectionCopy) {
                     selectionCopy.addEventListener('click', async () => {
-                        const links = selectedVaultFiles().map(file => file.markdown_link || `[${file.name || file.id}](/files/${file.id})`);
+                        const links = selectedVaultFiles().map((file) => {
+                            const id = vaultFileId(file);
+                            return file.markdown_link || `[${file.name || id}](/files/${id})`;
+                        });
                         if (!links.length) return;
                         await copyText(links.join('\n'), 'Vault links');
                     });
@@ -3529,7 +3537,7 @@
                         return target && page.contains(target) ? target : null;
                     }
                     function currentFolderForVaultFile(fileId) {
-                        const file = state.files.find(candidate => String(candidate.id || '') === String(fileId || ''));
+                        const file = state.files.find(candidate => vaultFileId(candidate) === String(fileId || ''));
                         return file ? String(file.folder_id || '') : '';
                     }
                     async function moveVaultFileToFolder(fileId, folderId) {
@@ -3656,7 +3664,7 @@
                         const actionBtn = event.target.closest('[data-vault-action]');
                         if (actionBtn && grid.contains(actionBtn)) {
                             const id = actionBtn.getAttribute('data-vault-id') || '';
-                            const file = state.files.find(candidate => String(candidate.id || '') === id);
+                            const file = state.files.find(candidate => vaultFileId(candidate) === id);
                             const action = actionBtn.getAttribute('data-vault-action') || '';
                             if (!file) return;
                             if (action === 'copy') {
@@ -3672,7 +3680,7 @@
                                 if (!ok) return;
                                 try {
                                     await apiCall(`/ajax/vault/files/${encodeURIComponent(id)}`, { method: 'DELETE' });
-                                    state.files = state.files.filter(candidate => String(candidate.id || '') !== id);
+                                    state.files = state.files.filter(candidate => vaultFileId(candidate) !== id);
                                     state.selectedIds.delete(id);
                                     if (typeof showAlert === 'function') showAlert('Vault file deleted.', 'success');
                                     await loadFiles({ append: false });
@@ -3697,7 +3705,7 @@
                         const fileCard = event.target.closest('[data-vault-file-id]');
                         if (fileCard && grid.contains(fileCard)) {
                             const id = fileCard.getAttribute('data-vault-file-id') || '';
-                            const file = state.files.find(candidate => String(candidate.id || '') === id);
+                            const file = state.files.find(candidate => vaultFileId(candidate) === id);
                             if (file) openVaultFile(file);
                         }
                     });
@@ -3713,7 +3721,7 @@
                             return;
                         }
                         const fileId = card.getAttribute('data-vault-file-id') || '';
-                        const file = state.files.find(candidate => String(candidate.id || '') === fileId);
+                        const file = state.files.find(candidate => vaultFileId(candidate) === fileId);
                         if (file) openVaultFile(file);
                     });
                 }

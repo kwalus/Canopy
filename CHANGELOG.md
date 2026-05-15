@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.130] - 2026-05-15
+
+### Fixed
+- **File Vault list rendering is restored** - Vault file cards now use a single normalized file ID helper across render, selection, preview, copy, delete, and open handlers so API rows with `file_id`/`vault_file_id` cannot disappear from the list.
+
 ## [0.6.129] - 2026-05-15
 
 ### Changed
