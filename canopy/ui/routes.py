@@ -9129,6 +9129,15 @@ def create_ui_blueprint() -> Blueprint:
             }
             if search_query:
                 template_data['search_query'] = search_query
+            requested_fragment = str(
+                request.args.get('fragment') or request.headers.get('X-Canopy-Fragment') or ''
+            ).strip().lower()
+            if requested_fragment == 'posts':
+                rendered = render_template('_feed_posts_fragment.html', **template_data)
+                response = Response(rendered, mimetype='text/html')
+                response.headers['X-Canopy-Fragment'] = 'feed-posts'
+                response.headers['Cache-Control'] = 'no-store'
+                return response
             return render_template('feed.html', **template_data)
                 
         except Exception as e:

@@ -11,12 +11,21 @@ ROOT = Path(__file__).resolve().parents[1]
 LIGHT_SCHEME_SELECTOR = ':is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"])'
 
 
+def read_feed_surface() -> str:
+    templates_dir = ROOT / 'canopy' / 'ui' / 'templates'
+    return (
+        (templates_dir / 'feed.html').read_text(encoding='utf-8')
+        + '\n'
+        + (templates_dir / '_feed_posts_fragment.html').read_text(encoding='utf-8')
+    )
+
+
 class TestFrontendRegressions(unittest.TestCase):
     def test_canopy_llm_compose_ui_is_wired_to_channel_composer_and_profile(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
         messages_composer = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_composer.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
 
@@ -163,7 +172,7 @@ class TestFrontendRegressions(unittest.TestCase):
     def test_theme_system_exposes_custom_builder_and_light_safe_highlights(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
         profile_core = (ROOT / 'canopy' / 'core' / 'profile.py').read_text(encoding='utf-8')
@@ -202,7 +211,7 @@ class TestFrontendRegressions(unittest.TestCase):
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         vault_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'vault.html').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         messages_macros = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
         messages_composer = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_composer.html').read_text(encoding='utf-8')
@@ -486,7 +495,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('copy_file_to_user_vault(', app_core)
 
     def test_universal_collaboration_cards_render_in_feed_and_channels(self) -> None:
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
@@ -627,7 +636,7 @@ class TestFrontendRegressions(unittest.TestCase):
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
 
         self.assertIn('function initCanopyDraftStore(global)', main_js)
         self.assertIn('canopy.composer_draft.v1', main_js)
@@ -660,7 +669,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('window.CanopyDraftStore.bindTextarea(textarea, () => feedDraftKeyParts(), {', feed_template)
 
     def test_reaction_palette_is_shared_across_dm_feed_and_channel_surfaces(self) -> None:
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
         composer_template = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_composer.html').read_text(encoding='utf-8')
@@ -1029,7 +1038,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('explicit_meshspace_connect', connect_template)
 
     def test_feed_video_surfaces_preserve_actual_video_mime_type(self) -> None:
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         self.assertIn("metadata.video_type = firstType || 'video/mp4';", feed_template)
         self.assertIn("type=\"{{ post.metadata.video_type or 'video/mp4' }}\"", feed_template)
         self.assertIn("type=\"{{ em.get('video_type') or 'video/mp4' }}\"", feed_template)
@@ -1105,7 +1114,7 @@ class TestFrontendRegressions(unittest.TestCase):
         messages_composer = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_composer.html').read_text(encoding='utf-8')
         messages_macros = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         self.assertIn('.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx', messages_composer)
         self.assertIn("'application/vnd.openxmlformats-officedocument.wordprocessingml.document'", messages_template)
@@ -1295,7 +1304,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('[data-theme="teams"] .sidebar-dm-contact,', base_template)
 
     def test_feed_exposes_loaded_post_mention_filter(self) -> None:
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         self.assertIn('FEED_MENTION_FILTER_STORAGE_KEY', feed_template)
         self.assertIn('feed-mention-filter-toggle', feed_template)
         self.assertIn('feed-mention-filter-menu', feed_template)
@@ -1313,7 +1322,7 @@ class TestFrontendRegressions(unittest.TestCase):
     def test_light_and_graphite_theme_polish_covers_message_and_primary_pages(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
         trust_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'trust.html').read_text(encoding='utf-8')
@@ -1343,7 +1352,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('[data-theme="liquid-glass"] .sidebar-media-deck-shell {', base_template)
 
     def test_demo_critical_templates_include_page_level_light_theme_polish(self) -> None:
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         connect_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'connect.html').read_text(encoding='utf-8')
@@ -1559,7 +1568,7 @@ console.log(JSON.stringify({{
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
 
         self.assertIn('role="button" tabindex="0"', main_js)
@@ -1604,7 +1613,7 @@ console.log(JSON.stringify({{
 
     def test_attachment_layout_hints_are_rendered_across_surfaces(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         messages_macros = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         self.assertIn("function resolveAttachmentLayoutHint(images)", channels_template)
@@ -1755,7 +1764,7 @@ console.log(JSON.stringify({{
 
     def test_feed_and_channel_composers_render_structured_validation_and_results(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         self.assertIn('id="channel-structured-validation"', channels_template)
         self.assertIn('id="channel-structured-result"', channels_template)
         self.assertIn('id="channel-structured-tools-toggle"', channels_template)
@@ -1886,7 +1895,7 @@ console.log(JSON.stringify({{
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
 
         self.assertIn('global.CanopySelectionDock', main_js)
         self.assertIn('function initSurface(config)', main_js)
@@ -2114,7 +2123,7 @@ console.log(JSON.stringify({{
 
     def test_bookmarks_navigation_and_save_controls_exist(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         dm_template = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_thread_body.html').read_text(encoding='utf-8')
         self.assertIn("href=\"{{ url_for('ui.bookmarks_page') }}\"", base_template)
@@ -2124,7 +2133,7 @@ console.log(JSON.stringify({{
         self.assertIn('data-source-type="dm_message"', dm_template)
 
     def test_feed_repost_ui_uses_reference_wrapper_language(self) -> None:
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         self.assertIn('data-repost-wrapper="1"', feed_template)
         self.assertIn('post-repost-card', feed_template)
         self.assertIn('function repostPost(postId)', feed_template)
@@ -2145,7 +2154,7 @@ console.log(JSON.stringify({{
         self.assertIn('channel-repost-compose-', channels_template)
 
     def test_feed_and_channel_variant_ui_use_lineage_language(self) -> None:
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn('data-variant-wrapper="1"', feed_template)
         self.assertIn('toggleVariantComposer', feed_template)
@@ -2256,7 +2265,7 @@ console.log(JSON.stringify({{
     def test_source_layout_v1_is_rendered_across_surfaces_and_drives_default_deck_entry(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_thread_body.html').read_text(encoding='utf-8')
         messages_macros = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -2307,7 +2316,7 @@ console.log(JSON.stringify({{
 
     def test_repost_deck_buttons_require_explicit_deck_capable_flag(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
 
         self.assertGreaterEqual(feed_template.count('ref.has_source_layout|default(false)'), 2)
         self.assertNotIn('ref.has_source_layout|default(true)', feed_template)
@@ -2547,7 +2556,7 @@ console.log(JSON.stringify({{
     def test_canopy_module_runtime_scaffold_and_attachment_path_exist(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
         dm_macros = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
         module_demo = (ROOT / 'canopy' / 'ui' / 'static' / 'modules' / 'piano-lab-v1.canopy-module.html').read_text(encoding='utf-8')
         self.assertIn("const CANOPY_MODULE_BUNDLE_FORMATS = new Set(['single_html']);", main_js)
@@ -2930,7 +2939,7 @@ console.log(JSON.stringify({{
     def test_mobile_resize_dedup_gates_collapse_redundant_layout_work(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
 
         self.assertIn('let channelViewportSyncQueued = false;', channels_template)
         self.assertIn('function scheduleChannelViewportSync()', channels_template)
@@ -2993,7 +3002,9 @@ console.log(JSON.stringify({{
 
     def test_source_advance_ui_affordances_are_wired_for_feed_channels_and_cards(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
+        feed_fragment = (ROOT / 'canopy' / 'ui' / 'templates' / '_feed_posts_fragment.html').read_text(encoding='utf-8')
+        feed_surface = feed_template + feed_fragment
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
 
         self.assertIn('Bring forward', channels_template)
@@ -3016,17 +3027,46 @@ console.log(JSON.stringify({{
         self.assertIn('if (isChannelMediaPlaying())', channels_template)
         self.assertIn('if (forceScroll) {', channels_template)
         self.assertIn('pendingChannelMessages = data.messages;', channels_template)
-        self.assertIn('Bring forward', feed_template)
-        self.assertIn('source-advance-action-btn', feed_template)
-        self.assertIn('aria-label="Bring this post forward"', feed_template)
-        self.assertIn('advanceFeedPost', feed_template)
+        self.assertIn('Bring forward', feed_surface)
+        self.assertIn('source-advance-action-btn', feed_surface)
+        self.assertIn('aria-label="Bring this post forward"', feed_surface)
+        self.assertIn('advanceFeedPost', feed_surface)
         self.assertIn('advanceCollabCardSource', main_js)
         self.assertIn('advance_source: true', main_js)
         self.assertIn('/ajax/collab_cards/${encodeURIComponent(cardId)}/advance_source', main_js)
 
+    def test_feed_refresh_uses_server_rendered_posts_fragment(self) -> None:
+        feed_template = read_feed_surface()
+        feed_fragment = (ROOT / 'canopy' / 'ui' / 'templates' / '_feed_posts_fragment.html').read_text(encoding='utf-8')
+        ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+
+        self.assertIn('id="feed-posts-region"', feed_template)
+        self.assertIn('{% include "_feed_posts_fragment.html" %}', feed_template)
+        self.assertIn('function hydrateFeedPostsFragment(scope)', feed_template)
+        self.assertIn("params.set('fragment', 'posts');", feed_template)
+        self.assertIn("'X-Canopy-Fragment': 'posts'", feed_template)
+        self.assertIn("response.headers.get('X-Canopy-Fragment')", feed_template)
+        self.assertIn('region.innerHTML = html;', feed_template)
+        self.assertIn('hydrateFeedPostsFragment(region);', feed_template)
+        self.assertIn('refreshFeed({ focusPostId: postId, preserveScroll: false })', feed_template)
+        self.assertIn('const createdPostId = response && response.post ? response.post.id : \'\';', feed_template)
+        self.assertIn('const newPostId = data && data.post ? data.post.id : \'\';', feed_template)
+        self.assertIn("render_template('_feed_posts_fragment.html', **template_data)", ui_routes)
+        self.assertIn("requested_fragment == 'posts'", ui_routes)
+        self.assertIn("response.headers['X-Canopy-Fragment'] = 'feed-posts'", ui_routes)
+        self.assertIn("requested_fragment = str(", ui_routes)
+        self.assertIn("requestAnimationFrame(() => {", feed_template)
+
+        self.assertIn('{% for post in posts %}', feed_fragment)
+        self.assertIn('data-post-id="{{ post.id }}"', feed_fragment)
+        self.assertIn('id="feed-mention-filter-empty"', feed_fragment)
+        self.assertIn('Your feed is empty', feed_fragment)
+
     def test_attachment_filters_are_wired_for_channel_threads_and_feed_posts(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
-        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
+        feed_fragment = (ROOT / 'canopy' / 'ui' / 'templates' / '_feed_posts_fragment.html').read_text(encoding='utf-8')
+        feed_surface = feed_template + feed_fragment
 
         self.assertIn('CHANNEL_ATTACHMENT_THREAD_FILTER_STORAGE_KEY', channels_template)
         self.assertIn('id="channel-attachment-filter-toggle"', channels_template)
@@ -3041,11 +3081,11 @@ console.log(JSON.stringify({{
 
         self.assertIn('FEED_ATTACHMENT_FILTER_STORAGE_KEY', feed_template)
         self.assertIn('id="feed-attachment-filter-toggle"', feed_template)
-        self.assertIn("data-has-attachments=\"{{ 'true' if post_has_attachments else 'false' }}\"", feed_template)
-        self.assertIn('function feedPostCardHasViewableAttachment(card)', feed_template)
-        self.assertIn('function toggleFeedAttachmentFilter(forceEnabled)', feed_template)
-        self.assertIn("'.post-attachments',", feed_template)
-        self.assertIn('No loaded posts include downloadable or viewable attachments.', feed_template)
+        self.assertIn("data-has-attachments=\"{{ 'true' if post_has_attachments else 'false' }}\"", feed_surface)
+        self.assertIn('function feedPostCardHasViewableAttachment(card)', feed_surface)
+        self.assertIn('function toggleFeedAttachmentFilter(forceEnabled)', feed_surface)
+        self.assertIn("'.post-attachments',", feed_surface)
+        self.assertIn('No loaded posts include downloadable or viewable attachments.', feed_surface)
 
     def test_digestion_agent_workflow_mcp_completeness(self) -> None:
         """Guard agent-facing completeness for Digestion MCP tools and instructions."""

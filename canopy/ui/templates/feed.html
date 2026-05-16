@@ -525,1510 +525,9 @@
 <!-- Posts Feed -->
 <div class="row">
     <div class="col-lg-8 mx-auto">
-        {% if posts %}
-            <div id="posts-container">
-                {% for post in posts %}
-                    {% set post_metadata = post.metadata if post.metadata else {} %}
-                    {% set post_has_attachments = post_metadata.get('attachments') or post_metadata.get('image_url') or post_metadata.get('video_url') or post_metadata.get('audio_url') %}
-                    <div class="card mb-4 post-card" data-post-id="{{ post.id }}" data-has-attachments="{{ 'true' if post_has_attachments else 'false' }}">
-                        <div class="card-body">
-                            <!-- Post Header -->
-                            <div class="d-flex align-items-start justify-content-between mb-3">
-                                <div class="d-flex align-items-center">
-                                    <div class="user-avatar me-3" style="width: 40px; height: 40px;"
-                                         data-user-id="{{ post.author_id }}"
-                                         data-origin-peer="{{ post.metadata.get('origin_peer') if post.metadata and post.metadata.get('origin_peer') else '' }}"
-                                         onclick="copyUserId('{{ post.author_id }}', this.closest('.d-flex').querySelector('[data-user-display]')?.textContent?.trim() || '', this)"
-                                         title="View user details">
-                                        <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center" style="width: 100%; height: 100%;">
-                                            <i class="bi bi-person text-white"></i>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <h6 class="mb-0" data-user-display="{{ post.author_id }}">{{ post.author_id }}</h6>
-                                        <small class="text-muted">
-                                            <i class="bi bi-clock"></i>
-                                            <span data-timestamp="{{ post.created_at }}">{{ post.created_at }}</span>
-                                            {% set edited_at = post.metadata.get('edited_at') if post.metadata else None %}
-                                            {% if edited_at %}
-                                                <span class="ms-2 badge bg-secondary-subtle text-light border rounded-pill" title="Edited {{ edited_at }}">
-                                                    <i class="bi bi-pencil-square me-1"></i> Edited
-                                                </span>
-                                            {% endif %}
-                                            <span class="ms-2">
-                                                <i class="bi bi-{% if post.visibility == 'public' %}globe{% elif post.visibility == 'network' %}wifi{% elif post.visibility == 'trusted' %}shield-check{% elif post.visibility == 'private' %}lock{% else %}gear{% endif %}"></i>
-                                                {{ post.visibility.title() }}
-                                            </span>
-                                            {% set can_edit_expiry = post.author_id == user_id %}
-                                            {% if can_edit_expiry %}
-                                                <div class="dropdown d-inline">
-                                                    {% if post.expires_at %}
-                                                    <span class="ms-2 badge bg-dark-subtle text-light border rounded-pill post-expiry editable-expiry" data-expires-at="{{ post.expires_at }}" data-post-id="{{ post.id }}" data-bs-toggle="dropdown" role="button" tabindex="0" title="Click to change lifespan">
-                                                        <i class="bi bi-hourglass-split me-1"></i>
-                                                        <span class="expiry-label">Expires</span>
-                                                    </span>
-                                                    {% else %}
-                                                    <span class="ms-2 badge bg-success-subtle text-light border rounded-pill post-expiry no-expiry editable-expiry" data-expires-at="" data-post-id="{{ post.id }}" data-bs-toggle="dropdown" role="button" tabindex="0" title="Click to change lifespan">
-                                                        <i class="bi bi-infinity me-1"></i>No Expiry
-                                                    </span>
-                                                    {% endif %}
-                                                    <ul class="dropdown-menu">
-                                                        <li><h6 class="dropdown-header">Change lifespan</h6></li>
-                                                        <li><a class="dropdown-item" href="#" onclick="setPostExpiry('{{ post.id }}','day'); return false;">Short (1 day)</a></li>
-                                                        <li><a class="dropdown-item" href="#" onclick="setPostExpiry('{{ post.id }}','week'); return false;">Weekly (7 days)</a></li>
-                                                        <li><a class="dropdown-item" href="#" onclick="setPostExpiry('{{ post.id }}','quarter'); return false;">Quarterly (3 months)</a></li>
-                                                        <li><a class="dropdown-item" href="#" onclick="openCustomExpiryModal('{{ post.id }}'); return false;">Custom…</a></li>
-                                                    </ul>
-                                                </div>
-                                            {% else %}
-                                                {% if post.expires_at %}
-                                                <span class="ms-2 badge bg-dark-subtle text-light border rounded-pill post-expiry" data-expires-at="{{ post.expires_at }}" data-post-id="{{ post.id }}">
-                                                    <i class="bi bi-hourglass-split me-1"></i>
-                                                    <span class="expiry-label">Expires</span>
-                                                </span>
-                                                {% else %}
-                                                <span class="ms-2 badge bg-success-subtle text-light border rounded-pill post-expiry no-expiry" data-post-id="{{ post.id }}">
-                                                    <i class="bi bi-infinity me-1"></i>No Expiry
-                                                </span>
-                                                {% endif %}
-                                            {% endif %}
-                                            {% if post.source_type and post.source_type != 'human' %}
-                                            <span class="ms-2 badge bg-{% if post.source_type == 'agent' %}info{% elif post.source_type == 'agent_curated' %}warning text-dark{% elif post.source_type == 'system' %}secondary{% else %}light text-dark{% endif %} rounded-pill" title="Source: {{ post.source_type }}">
-                                                <i class="bi bi-{% if post.source_type == 'agent' %}robot{% elif post.source_type == 'agent_curated' %}search{% elif post.source_type == 'system' %}gear{% else %}person{% endif %} me-1"></i>{{ post.source_type | replace('_', ' ') | title }}
-                                            </span>
-                                            {% endif %}
-                                            {% if post.tags %}
-                                            <span class="ms-2">
-                                                {% for tag in post.tags[:3] %}
-                                                <span class="badge bg-light text-dark border rounded-pill" style="font-size: 0.7em;"><i class="bi bi-hash"></i>{{ tag }}</span>
-                                                {% endfor %}
-                                            </span>
-                                            {% endif %}
-                                        </small>
-                                    </div>
-                                </div>
-                                
-                                {% if post.author_id == user_id or (is_admin is defined and is_admin) %}
-                                    <div class="d-flex align-items-center gap-2">
-                                        {% if post.author_id == user_id %}
-                                        <button class="btn btn-sm btn-outline-secondary edit-post-btn" type="button"
-                                                onclick="editPost('{{ post.id }}')" title="Edit post">
-                                            <i class="bi bi-pencil"></i> Edit
-                                        </button>
-                                        {% endif %}
-                                        <div class="dropdown">
-                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
-                                                data-bs-toggle="dropdown">
-                                            <i class="bi bi-three-dots"></i>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            {% if post.author_id == user_id %}
-                                            <li><a class="dropdown-item" href="#" onclick="editPost('{{ post.id }}')">
-                                                <i class="bi bi-pencil"></i> Edit
-                                            </a></li>
-                                            {% endif %}
-                                            <li><a class="dropdown-item text-danger" href="#" onclick="deletePost('{{ post.id }}')">
-                                                <i class="bi bi-trash"></i> Delete
-                                            </a></li>
-                                        </ul>
-                                        </div>
-                                    </div>
-                                {% endif %}
-                            </div>
-                            
-                            <!-- Post Content (shown once per type in the if/elif/else below) -->
-                            <div class="post-content mb-3" data-post-content="1"{% if post.metadata and post.metadata.source_layout %} data-canopy-source-layout="{{ post.metadata.source_layout|tojson|forceescape }}"{% endif %}>
-                                <!-- Display attachments from metadata -->
-                                {% if post.metadata and post.metadata.attachments %}
-                                    {% set images = [] %}
-                                    {% set audio_files = [] %}
-                                    {% set others = [] %}
-                                    {% set image_layout = namespace(value='') %}
-                                    {% for attachment in post.metadata.attachments %}
-                                        {% if attachment.type.startswith('image/') %}
-                                            {% if images.append(attachment) %}{% endif %}
-                                            {% if not image_layout.value %}
-                                                {% set candidate = (attachment.layout_hint or '')|lower %}
-                                                {% if candidate in ['grid', 'hero', 'strip', 'stack'] %}
-                                                    {% set image_layout.value = candidate %}
-                                                {% endif %}
-                                            {% endif %}
-                                        {% elif attachment.type.startswith('audio/') %}
-                                            {% if audio_files.append(attachment) %}{% endif %}
-                                        {% else %}
-                                            {% if others.append(attachment) %}{% endif %}
-                                        {% endif %}
-                                    {% endfor %}
-                                    <div class="post-attachments mt-2">
-                                        {% if images %}
-                                            {{ render_image_gallery(images, 'feed-' ~ post.id, image_layout.value) }}
-                                        {% endif %}
-                                        {% for attachment in audio_files %}
-                                            {% set remote_large = attachment.large_attachment or attachment.storage_mode == 'remote_large' %}
-                                            {% set remote_payload = {
-                                                'origin_file_id': attachment.origin_file_id or attachment.id or attachment.file_id,
-                                                'source_peer_id': attachment.source_peer_id or attachment.origin_peer,
-                                                'name': attachment.name,
-                                                'type': attachment.type,
-                                                'size': attachment.size,
-                                                'checksum': attachment.checksum,
-                                                'large_attachment': true,
-                                                'storage_mode': attachment.storage_mode or 'remote_large'
-                                            } %}
-                                            <div class="attachment-item mb-2 p-2 border rounded"{% if attachment.id or attachment.file_id or attachment.origin_file_id %} data-canopy-source-ref="attachment:{{ attachment.id or attachment.file_id or attachment.origin_file_id }}"{% endif %}>
-                                                <div class="d-flex align-items-center flex-wrap">
-                                                    <i class="bi bi-music-note me-2"></i>
-                                                    <div class="flex-grow-1">
-                                                        <strong>{{ attachment.name }}</strong>
-                                                        <small class="text-muted d-block">{{ attachment.type }} • {% if attachment.size is defined and attachment.size is not none %}{{ (attachment.size / 1024) | round(1) }} KB{% else %}—{% endif %}</small>
-                                                        {% if attachment.url %}
-                                                        <audio controls preload="metadata" class="mt-1" style="max-width:100%;width:100%;"><source src="{{ attachment.url }}" type="{{ attachment.type or 'audio/mpeg' }}">Your browser does not support the audio element.</audio>
-                                                        {% endif %}
-                                                    </div>
-	                                                    {% if attachment.url %}
-	                                                    <div class="d-flex align-items-center gap-2 ms-2">
-	                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)' title="Save to File Vault">
-	                                                            <i class="bi bi-folder-plus"></i> Save to Vault
-	                                                        </button>
-	                                                        <button class="btn btn-sm btn-outline-primary" onclick="downloadFile('{{ attachment.url }}', '{{ attachment.name }}')"><i class="bi bi-download"></i> Download</button>
-	                                                        <button class="btn btn-sm btn-outline-secondary" onclick='openFileAccessInspector({{ (attachment.id or attachment.file_id or attachment.url) | tojson }})' title="Inspect access">
-	                                                            <i class="bi bi-shield-lock"></i>
-	                                                        </button>
-	                                                    </div>
-	                                                    {% elif remote_large %}
-	                                                    <div class="d-flex align-items-center gap-2 ms-2">
-	                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ remote_payload|tojson }}, this)' title="Fetch and save to File Vault">
-	                                                            <i class="bi bi-folder-plus"></i> Save to Vault
-	                                                        </button>
-	                                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
-	                                                            <i class="bi bi-cloud-download"></i> Download
-	                                                        </button>
-	                                                    </div>
-	                                                    {% else %}
-	                                                    <span class="small text-muted ms-2" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
-	                                                    {% endif %}
-                                                </div>
-                                            </div>
-                                        {% endfor %}
-                                        {% for attachment in others %}
-                                            {% set remote_large = attachment.large_attachment or attachment.storage_mode == 'remote_large' %}
-                                            {% set remote_payload = {
-                                                'origin_file_id': attachment.origin_file_id or attachment.id or attachment.file_id,
-                                                'source_peer_id': attachment.source_peer_id or attachment.origin_peer,
-                                                'name': attachment.name,
-                                                'type': attachment.type,
-                                                'size': attachment.size,
-                                                'checksum': attachment.checksum,
-                                                'large_attachment': true,
-                                                'storage_mode': attachment.storage_mode or 'remote_large'
-                                            } %}
-                                            {% set attachment_file_id = attachment.id or attachment.file_id or attachment.origin_file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
-                                            {% set lower_name = (attachment.name or '')|lower %}
-                                            {% set is_module = (attachment.type or '') == 'text/html' and (lower_name.endswith('.canopy-module.html') or lower_name.endswith('.canopy-module.htm')) %}
-                                            {% set spreadsheet_preview = lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') %}
-                                            {% set pdf_preview = lower_name.endswith('.pdf') or (attachment.type or '') == 'application/pdf' %}
-                                            {% set document_preview = lower_name.endswith('.docx') or lower_name.endswith('.docm') or lower_name.endswith('.dotx') or lower_name.endswith('.pptx') or lower_name.endswith('.pptm') or lower_name.endswith('.ppsx') or lower_name.endswith('.potx') or lower_name.endswith('.rtf') or lower_name.endswith('.odt') or lower_name.endswith('.odp') %}
-                                            {% set code_preview = lower_name.endswith('.c') or lower_name.endswith('.h') or lower_name.endswith('.cpp') or lower_name.endswith('.hpp') or lower_name.endswith('.cs') or lower_name.endswith('.dockerfile') or lower_name.endswith('.makefile') or lower_name.endswith('.go') or lower_name.endswith('.java') or lower_name.endswith('.jsx') or lower_name.endswith('.tsx') or lower_name.endswith('.mjs') or lower_name.endswith('.cjs') or lower_name.endswith('.kt') or lower_name.endswith('.kts') or lower_name.endswith('.php') or lower_name.endswith('.ps1') or lower_name.endswith('.rb') or lower_name.endswith('.rs') or lower_name.endswith('.sql') or lower_name.endswith('.svelte') or lower_name.endswith('.swift') or lower_name.endswith('.vue') %}
-                                            {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or pdf_preview or document_preview or code_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
-                                            {% set preview_id = 'feed-attachment-preview-' ~ post.id ~ '-' ~ loop.index0 %}
-                                            {% set module_title = (attachment.name or 'Canopy Module')|replace('.canopy-module.html', '')|replace('.canopy-module.htm', '')|replace('-', ' ')|replace('_', ' ')|title %}
-                                            {% set module_manifest = {
-                                                'version': 1,
-                                                'key': 'module:' ~ (attachment_file_id or module_title|lower|replace(' ', '-')),
-                                                'widget_type': 'module_surface',
-                                                'render_mode': 'module_runtime',
-                                                'title': module_title,
-                                                'subtitle': 'Safe executable lesson or station logic bound to this source.',
-                                                'provider_label': 'Canopy Module',
-                                                'icon': 'bi-box-fill',
-                                                'body_text': 'Single-file module bundle executed inside the Canopy Module Runtime.',
-                                                'badges': ['Module', 'Sandboxed', 'Source-bound'],
-                                                'details': [
-                                                    {'label': 'File', 'value': attachment.name or 'module bundle'},
-                                                    {'label': 'Format', 'value': 'Single HTML bundle'}
-                                                ],
-                                                'station_surface': {
-                                                    'kind': 'station_surface',
-                                                    'domain': 'education',
-                                                    'label': module_title ~ ' Surface',
-                                                    'summary': 'Executable lesson or station logic remains bound to this source while capabilities stay brokered.',
-                                                    'recurring': false,
-                                                    'scope': 'source'
-                                                },
-                                                'action_policy': {
-                                                    'bounded': true,
-                                                    'max_risk': 'view',
-                                                    'human_gate': 'none',
-                                                    'audit_label': 'Bounded runtime'
-                                                },
-                                                'source_binding': {
-                                                    'binding_type': 'post_attachment',
-                                                    'source_scope': 'source',
-                                                    'return_label': 'Return to source'
-                                                },
-                                                'module_runtime': {
-                                                    'format': 'single_html',
-                                                    'bundle_file_id': attachment_file_id,
-                                                    'bundle_url': '/files/' ~ attachment_file_id,
-                                                    'module_type': module_title,
-                                                    'runtime_label': 'Canopy Module',
-                                                    'capabilities': {
-                                                        'required': ['source.read', 'deck.return'],
-                                                        'optional': ['clipboard.write', 'module.storage.local']
-                                                    }
-                                                }
-                                            } %}
-                                            {% if is_module %}
-                                            <div class="attachment-item mb-2 p-3 border rounded" data-canopy-module-card="1" data-canopy-widget-manifest="{{ module_manifest|tojson|forceescape }}" data-canopy-widget-key="{{ module_manifest.key|e }}"{% if attachment_file_id %} data-canopy-module-bundle-id="{{ attachment_file_id|e }}" data-canopy-module-bundle-name="{{ (attachment.name or '')|e }}" data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
-                                                <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
-                                                    <div>
-                                                        <div class="fw-semibold"><i class="bi bi-box-fill me-2"></i>{{ module_title }}</div>
-                                                        <div class="small text-muted mt-1">Safe executable module bundle attached to this source.</div>
-                                                        <div class="d-flex flex-wrap gap-2 mt-2">
-                                                            <span class="badge rounded-pill text-bg-secondary">Module</span>
-                                                            <span class="badge rounded-pill text-bg-secondary">Sandboxed</span>
-                                                            <span class="badge rounded-pill text-bg-secondary">Source-bound</span>
-                                                        </div>
-                                                    </div>
-                                                    <span class="badge rounded-pill text-bg-info">Canopy Module</span>
-                                                </div>
-                                                <div class="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
-                                                    <span class="small text-muted">{{ attachment.name }}</span>
-                                                    <div class="stream-card-actions">
-                                                        <button type="button"
-                                                                class="btn btn-sm btn-outline-success"
-                                                                onclick="openMediaDeckForManifestNode(this)">
-                                                            <i class="bi bi-grid-1x2"></i> Open module
-	                                                        </button>
-	                                                        {% if attachment.url %}
-	                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)' title="Save to File Vault">
-	                                                            <i class="bi bi-folder-plus"></i> Save to Vault
-	                                                        </button>
-	                                                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
-	                                                            <i class="bi bi-download"></i> Download
-	                                                        </a>
-                                                        {% endif %}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            {% else %}
-                                            <div class="attachment-item mb-2 p-2 border rounded"{% if attachment_file_id %} data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
-                                                <div class="d-flex align-items-center">
-                                                    <i class="bi bi-{% if attachment.type.startswith('video/') %}camera-video{% elif 'pdf' in (attachment.type or '') %}file-pdf{% elif lower_name.endswith('.csv') or lower_name.endswith('.tsv') or lower_name.endswith('.xls') or lower_name.endswith('.xlsx') or lower_name.endswith('.xlsm') or lower_name.endswith('.xlsb') or lower_name.endswith('.ods') %}file-earmark-spreadsheet{% elif lower_name.endswith('.pptx') or lower_name.endswith('.pptm') or lower_name.endswith('.ppsx') or lower_name.endswith('.potx') or lower_name.endswith('.odp') %}file-earmark-slides{% elif document_preview %}file-earmark-word{% else %}file-earmark{% endif %} me-2"></i>
-                                                    <div class="flex-grow-1">
-                                                        <strong>{{ attachment.name }}</strong>
-                                                        <small class="text-muted d-block">{{ attachment.type or '' }} • {% if attachment.size is defined and attachment.size is not none %}{{ (attachment.size / 1024) | round(1) }} KB{% else %}—{% endif %}</small>
-                                                        {% if spreadsheet_preview or pdf_preview or document_preview %}
-                                                        <div class="attachment-meta-badges">
-                                                            {% if pdf_preview %}
-                                                            <span class="badge rounded-pill text-bg-danger">PDF</span>
-                                                            {% endif %}
-                                                            {% if document_preview %}
-                                                            <span class="badge rounded-pill text-bg-secondary">Document</span>
-                                                            {% endif %}
-                                                            {% if spreadsheet_preview %}
-                                                            <span class="badge rounded-pill text-bg-info-subtle text-info-emphasis">Sheet</span>
-                                                            {% endif %}
-                                                            {% if lower_name.endswith('.xlsm') or lower_name.endswith('.docm') or lower_name.endswith('.pptm') %}
-                                                            <span class="badge rounded-pill text-bg-warning">Macros disabled</span>
-                                                            {% endif %}
-                                                        </div>
-                                                        {% endif %}
-                                                    </div>
-	                                                    {% if attachment.url %}
-	                                                    <div class="d-flex align-items-center gap-2">
-	                                                        {% if previewable %}
-                                                        <button type="button"
-                                                                class="btn btn-sm btn-outline-secondary"
-                                                                data-preview-toggle="{{ preview_id }}"
-                                                                data-preview-label="{{ 'Open PDF' if pdf_preview else ('Open sheet' if spreadsheet_preview else ('Preview text' if document_preview else 'Preview')) }}"
-                                                                data-preview-expanded-label="{{ 'Hide PDF' if pdf_preview else ('Hide sheet' if spreadsheet_preview else ('Hide text' if document_preview else 'Collapse')) }}"
-                                                                {% if pdf_preview %}
-                                                                onclick='togglePdfAttachmentPreview({{ preview_id|tojson }}, {{ attachment.url|tojson }}, {{ attachment.name|tojson }})'
-                                                                {% else %}
-                                                                onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ attachment_file_id }}/preview')"
-                                                                {% endif %}>
-                                                            <i class="bi bi-eye"></i>
-                                                            <span class="preview-label">{{ 'Open PDF' if pdf_preview else ('Open sheet' if spreadsheet_preview else ('Preview text' if document_preview else 'Preview')) }}</span>
-                                                        </button>
-	                                                        {% endif %}
-	                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)' title="Save to File Vault">
-	                                                            <i class="bi bi-folder-plus"></i> Save to Vault
-	                                                        </button>
-	                                                        <button class="btn btn-sm btn-outline-primary" onclick="downloadFile('{{ attachment.url }}', '{{ attachment.name }}')">
-	                                                            <i class="bi bi-download"></i> Download
-	                                                        </button>
-                                                        <button class="btn btn-sm btn-outline-secondary" onclick='openFileAccessInspector({{ (attachment.id or attachment.file_id or attachment.url) | tojson }})' title="Inspect access">
-                                                            <i class="bi bi-shield-lock"></i>
-                                                        </button>
-                                                    </div>
-                                                    {% elif remote_large %}
-	                                                    <div class="d-flex align-items-center gap-2">
-	                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ remote_payload|tojson }}, this)' title="Fetch and save to File Vault">
-	                                                            <i class="bi bi-folder-plus"></i> Save to Vault
-	                                                        </button>
-	                                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick='requestRemoteAttachmentDownload({{ remote_payload|tojson }}, this)'>
-	                                                            <i class="bi bi-cloud-download"></i> Download
-	                                                        </button>
-	                                                    </div>
-	                                                    {% else %}
-                                                    <span class="small text-muted" title="File will be available when it syncs to this device">Not on this device yet — will appear when synced</span>
-                                                    {% endif %}
-                                                </div>
-                                                {% if previewable %}
-                                                <div id="{{ preview_id }}" class="file-preview-wrapper mt-2" style="display:none;"></div>
-                                                {% endif %}
-                                            </div>
-                                            {% endif %}
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-
-                                {% if post.inline_tasks %}
-                                    <div class="inline-task-stack">
-                                        {% for task in post.inline_tasks %}
-                                            <div class="inline-task-card" data-task-id="{{ task.id }}" data-status="{{ task.status }}">
-                                                <div class="inline-task-header">
-                                                    <span class="inline-task-label">Task</span>
-                                                    <span class="inline-task-status {{ task.status }}">{{ task.status_label }}</span>
-                                                </div>
-                                                <div class="inline-task-title">{{ task.title }}</div>
-                                                {% if task.description %}
-                                                    <div class="inline-task-desc">{{ task.description }}</div>
-                                                {% endif %}
-                                                <div class="inline-task-meta">
-                                                    <span class="inline-task-priority {{ task.priority }}">{{ task.priority_label }}</span>
-                                                    {% if task.due_at_label %}
-                                                        <span>Due {{ task.due_at_label }}</span>
-                                                    {% endif %}
-                                                </div>
-                                                <div class="inline-task-assignee">
-                                                    <div class="inline-task-avatar"
-                                                         data-user-id="{{ task.assignee_id or '' }}"
-                                                         data-user-name="{{ task.assignee_name or '' }}"
-                                                         data-user-avatar="{{ task.assignee_avatar_url or '' }}"
-                                                         data-peer-id="{{ task.assignee_origin_peer or '' }}"></div>
-                                                    <div class="inline-task-assignee-label">{{ task.assignee_label }}</div>
-                                                </div>
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-
-                                {% if post.handoffs %}
-                                    <div class="handoff-stack">
-                                        {% for handoff in post.handoffs %}
-                                            <div class="handoff-card" data-handoff-id="{{ handoff.id }}">
-                                                <div class="handoff-header">
-                                                    <span class="handoff-label">Handoff</span>
-                                                    {% if handoff.updated_at %}
-                                                        <span class="handoff-updated timestamp" data-timestamp="{{ handoff.updated_at }}">Updated {{ handoff.updated_at }}</span>
-                                                    {% endif %}
-                                                </div>
-                                                <div class="handoff-title">{{ handoff.title }}</div>
-                                                {% if handoff.summary %}
-                                                    <div class="handoff-summary">{{ handoff.summary }}</div>
-                                                {% endif %}
-                                                {% if handoff.next_steps %}
-                                                    <div class="handoff-next">
-                                                        <div class="handoff-next-label">Next steps</div>
-                                                        <ul>
-                                                            {% for step in handoff.next_steps %}
-                                                                <li>{{ step }}</li>
-                                                            {% endfor %}
-                                                        </ul>
-                                                    </div>
-                                                {% endif %}
-                                                {% set has_routing = (handoff.required_capabilities and handoff.required_capabilities|length > 0) or handoff.escalation_level or handoff.return_to %}
-                                                {% if has_routing %}
-                                                    <div class="handoff-routing">
-                                                        {% if handoff.required_capabilities %}
-                                                            <div class="handoff-routing-row">
-                                                                <span class="handoff-routing-label">Capabilities</span>
-                                                                {% for cap in handoff.required_capabilities %}
-                                                                    <span class="handoff-capability">{{ cap }}</span>
-                                                                {% endfor %}
-                                                            </div>
-                                                        {% endif %}
-                                                        {% if handoff.escalation_level %}
-                                                            <div class="handoff-routing-row">
-                                                                <span class="handoff-routing-label">Escalation</span>
-                                                                <span class="handoff-escalation {{ handoff.escalation_level }}">{{ handoff.escalation_level }}</span>
-                                                            </div>
-                                                        {% endif %}
-                                                        {% if handoff.return_to %}
-                                                            <div class="handoff-routing-row">
-                                                                <span class="handoff-routing-label">Return To</span>
-                                                                <span>{{ handoff.return_to_name or handoff.return_to }}</span>
-                                                            </div>
-                                                        {% endif %}
-                                                    </div>
-                                                {% endif %}
-                                                <div class="handoff-footer">
-                                                    <div class="handoff-owner">
-                                                        <div class="inline-task-avatar handoff-owner-avatar"
-                                                             data-user-id="{{ handoff.owner or handoff.author_id or '' }}"
-                                                             data-user-name="{{ handoff.owner_name or handoff.owner or handoff.author_id or '' }}"
-                                                             data-user-avatar="{{ handoff.owner_avatar_url or '' }}"
-                                                             data-peer-id="{{ handoff.owner_origin_peer or '' }}"></div>
-                                                        <span>{{ handoff.owner_name or handoff.owner or handoff.author_id or 'Unassigned' }}</span>
-                                                    </div>
-                                                    {% if handoff.tags %}
-                                                        <div class="handoff-tags">
-                                                            {% for tag in handoff.tags %}
-                                                                <span class="handoff-tag">{{ tag }}</span>
-                                                            {% endfor %}
-                                                        </div>
-                                                    {% endif %}
-                                                </div>
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-
-                                {% if post.circles %}
-                                    <div class="circle-stack">
-                                        {% for circle in post.circles %}
-                                            <div class="circle-card" data-circle-id="{{ circle.id }}">
-                                                <div class="circle-header">
-                                                    <span class="circle-label">Circle</span>
-                                                    <span class="circle-phase">{{ circle.phase_label or 'Opinion' }}</span>
-                                                </div>
-                                                <div class="circle-topic">{{ circle.topic }}</div>
-                                                {% if circle.description %}
-                                                    <div class="circle-desc">{{ circle.description }}</div>
-                                                {% endif %}
-                                                <div class="circle-meta">
-                                                    <span>Facilitator: {{ circle.facilitator_name or circle.facilitator_id or '—' }}</span>
-                                                    <span>{{ (circle.mode or 'open')|title }} • Opinions {{ circle.opinion_limit }} • Clarify {{ circle.clarify_limit }}</span>
-                                                </div>
-                                                {% if circle.summary or circle.decision %}
-                                                    <div class="circle-outcome">
-                                                        {% if circle.summary %}
-                                                            <div><strong>Summary:</strong> {{ circle.summary }}</div>
-                                                        {% endif %}
-                                                        {% if circle.decision %}
-                                                            <div><strong>Decision:</strong> {{ circle.decision }}</div>
-                                                        {% endif %}
-                                                    </div>
-                                                {% endif %}
-                                                <div class="circle-actions">
-                                                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="openCircleModal('{{ circle.id }}')">
-                                                        Open Circle
-                                                    </button>
-                                                    <span class="circle-stats">{{ circle.entries_count or 0 }} entries</span>
-                                                    {% if circle.decision_mode == 'vote' %}
-                                                        <span class="circle-vote">Vote enabled</span>
-                                                    {% endif %}
-                                                </div>
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-
-                                {% if post.objectives %}
-                                    <div class="objective-stack">
-                                        {% for objective in post.objectives %}
-                                            <div class="objective-card" data-objective-id="{{ objective.id }}" data-status="{{ objective.status }}">
-                                                <div class="objective-header">
-                                                    <span class="objective-label">Objective</span>
-                                                    <span class="objective-status {{ objective.status }}">{{ objective.status_label }}</span>
-                                                </div>
-                                                <div class="objective-title">{{ objective.title }}</div>
-                                                {% if objective.description %}
-                                                    <div class="objective-desc">{{ objective.description }}</div>
-                                                {% endif %}
-                                                <div class="objective-progress">
-                                                    <div class="objective-progress-ring" style="--progress: {{ objective.progress_percent }};">
-                                                        <span>{{ objective.progress_percent }}%</span>
-                                                    </div>
-                                                    <div class="objective-progress-meta">
-                                                        <div class="objective-progress-label">{{ objective.tasks_done }}/{{ objective.tasks_total }} tasks complete</div>
-                                                        <div class="objective-progress-bar"><span style="width: {{ objective.progress_percent }}%"></span></div>
-                                                    </div>
-                                                </div>
-                                                {% if objective.deadline_label %}
-                                                    <div class="objective-deadline">
-                                                        <i class="bi bi-calendar-event me-1"></i>{{ objective.deadline_label }}
-                                                    </div>
-                                                {% endif %}
-                                                {% if objective.members %}
-                                                    <div class="objective-members">
-                                                        {% for member in objective.members %}
-                                                            <div class="objective-member">
-                                                                <div class="inline-task-avatar objective-member-avatar"
-                                                                     data-user-id="{{ member.user_id or '' }}"
-                                                                     data-user-name="{{ member.display_name or member.user_id or '' }}"
-                                                                     data-user-avatar="{{ member.avatar_url or '' }}"
-                                                                     data-peer-id="{{ member.origin_peer or '' }}"></div>
-                                                                <div class="objective-member-text">
-                                                                    <span class="objective-member-name">{{ member.display_name or member.user_id }}</span>
-                                                                    <span class="objective-member-role">{{ member.role }}</span>
-                                                                </div>
-                                                            </div>
-                                                        {% endfor %}
-                                                    </div>
-                                                {% endif %}
-                                                {% if objective.tasks %}
-                                                    <details class="objective-tasks">
-                                                        <summary>Tasks ({{ objective.tasks_done }}/{{ objective.tasks_total }})</summary>
-                                                        <ul>
-                                                            {% for task in objective.tasks %}
-                                                                <li class="objective-task {{ task.status }}">
-                                                                    <span class="objective-task-check">{% if task.status == 'done' %}✓{% else %}○{% endif %}</span>
-                                                                    <span class="objective-task-title">{{ task.title }}</span>
-                                                                    {% if task.assignee_name %}
-                                                                        <span class="objective-task-assignee">@{{ task.assignee_name }}</span>
-                                                                    {% endif %}
-                                                                </li>
-                                                            {% endfor %}
-                                                        </ul>
-                                                    </details>
-                                                {% endif %}
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-
-                                {% if post.requests %}
-                                    <div class="request-stack">
-                                        {% for request in post.requests %}
-                                            <div class="request-card" data-request-id="{{ request.id }}" data-status="{{ request.status }}">
-                                                <div class="request-header">
-                                                    <span class="request-label">Request</span>
-                                                    <div class="request-chips">
-                                                        <span class="request-status {{ request.status }}">{{ request.status_label }}</span>
-                                                        <span class="request-priority {{ request.priority }}">{{ request.priority_label }}</span>
-                                                    </div>
-                                                </div>
-                                                <div class="request-title">{{ request.title }}</div>
-                                                {% if request.request %}
-                                                    <div class="request-body">{{ request.request }}</div>
-                                                {% endif %}
-                                                {% if request.required_output %}
-                                                    <div class="request-output">
-                                                        <div class="request-output-label">Required output</div>
-                                                        <div class="request-output-body">{{ request.required_output }}</div>
-                                                    </div>
-                                                {% endif %}
-                                                {% if request.tags %}
-                                                    <div class="request-tags">
-                                                        {% for tag in request.tags %}
-                                                            <span class="request-tag">{{ tag }}</span>
-                                                        {% endfor %}
-                                                    </div>
-                                                {% endif %}
-                                                {% if request.due_label %}
-                                                    <div class="request-meta">
-                                                        <span class="request-due"><i class="bi bi-calendar-event me-1"></i>{{ request.due_label }}</span>
-                                                    </div>
-                                                {% endif %}
-                                                {% if request.members %}
-                                                    <div class="request-members">
-                                                        {% for member in request.members %}
-                                                            <div class="request-member">
-                                                                <div class="inline-task-avatar request-member-avatar"
-                                                                     data-user-id="{{ member.user_id or '' }}"
-                                                                     data-user-name="{{ member.display_name or member.user_id or '' }}"
-                                                                     data-user-avatar="{{ member.avatar_url or '' }}"
-                                                                     data-peer-id="{{ member.origin_peer or '' }}"></div>
-                                                                <div class="request-member-text">
-                                                                    <span class="request-member-name">{{ member.display_name or member.user_id }}</span>
-                                                                    <span class="request-member-role">{{ member.role }}</span>
-                                                                </div>
-                                                            </div>
-                                                        {% endfor %}
-                                                    </div>
-                                                {% endif %}
-                                                {% if request.can_manage %}
-                                                    <div class="request-actions">
-                                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="updateRequestStatus('{{ request.id }}', 'acknowledged')">Ack</button>
-                                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="updateRequestStatus('{{ request.id }}', 'in_progress')">In Progress</button>
-                                                        <button type="button" class="btn btn-sm btn-outline-success" onclick="updateRequestStatus('{{ request.id }}', 'completed')">Complete</button>
-                                                        <button type="button" class="btn btn-sm btn-outline-light" onclick="updateRequestStatus('{{ request.id }}', 'closed')">Close</button>
-                                                    </div>
-                                                {% endif %}
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-
-                                {% if post.signals %}
-                                    <div class="signal-stack">
-                                        {% for signal in post.signals %}
-                                            <div class="signal-card" data-signal-id="{{ signal.id }}" data-status="{{ signal.status }}">
-                                                <div class="signal-header">
-                                                    <span class="signal-label">{{ signal.type_label or 'Signal' }}</span>
-                                                    <span class="signal-status {{ signal.status }}">{{ signal.status_label or 'Active' }}</span>
-                                                </div>
-                                                <div class="signal-title">{{ signal.title }}</div>
-                                                {% if signal.summary %}
-                                                    <div class="signal-summary">{{ signal.summary }}</div>
-                                                {% endif %}
-                                                {% if signal.tags %}
-                                                    <div class="signal-tags">
-                                                        {% for tag in signal.tags %}
-                                                            <span class="signal-tag">{{ tag }}</span>
-                                                        {% endfor %}
-                                                    </div>
-                                                {% endif %}
-                                                {% if signal.confidence is not none %}
-                                                    <div class="signal-confidence">
-                                                        <span class="signal-confidence-label">Confidence</span>
-                                                        <div class="signal-confidence-bar"><span style="width: {{ signal.confidence_percent }}%"></span></div>
-                                                        <span class="signal-confidence-value">{{ signal.confidence_percent }}%</span>
-                                                    </div>
-                                                {% endif %}
-                                                {% if signal.data %}
-                                                    {% if signal.data.get('_raw') and signal.data.keys()|list|length == 1 %}
-                                                        <pre class="signal-data">{{ signal.data['_raw'] }}</pre>
-                                                    {% else %}
-                                                        <div class="signal-data-grid">
-                                                            {% for key, val in signal.data.items() if not key.startswith('_') %}
-                                                                <div class="signal-data-row">
-                                                                    <div class="signal-data-key">{{ key|replace('_', ' ') }}</div>
-                                                                    {% if val is iterable and val is not string %}
-                                                                        <ol class="signal-data-list">
-                                                                            {% for item in val %}
-                                                                                <li>{{ item }}</li>
-                                                                            {% endfor %}
-                                                                        </ol>
-                                                                    {% elif val is sameas true %}
-                                                                        <div class="signal-data-val"><span class="text-success">✓</span> true</div>
-                                                                    {% elif val is sameas false %}
-                                                                        <div class="signal-data-val"><span class="text-danger">✗</span> false</div>
-                                                                    {% else %}
-                                                                        <div class="signal-data-val">{{ val }}</div>
-                                                                    {% endif %}
-                                                                </div>
-                                                            {% endfor %}
-                                                        </div>
-                                                    {% endif %}
-                                                {% endif %}
-                                                {% if signal.notes %}
-                                                    <div class="signal-notes">{{ signal.notes }}</div>
-                                                {% endif %}
-                                                <div class="signal-meta">
-                                                    <div class="signal-owner">
-                                                        <div class="inline-task-avatar signal-owner-avatar"
-                                                             data-user-id="{{ signal.owner_id or '' }}"
-                                                             data-user-name="{{ signal.owner_name or signal.owner_id or '' }}"
-                                                             data-user-avatar="{{ signal.owner_avatar_url or '' }}"
-                                                             data-peer-id="{{ signal.owner_origin_peer or '' }}"></div>
-                                                        <span>{{ signal.owner_name or signal.owner_id or 'Owner' }}</span>
-                                                    </div>
-                                                    <div class="signal-expiry">
-                                                        {% if signal.expires_label %}
-                                                            <i class="bi bi-hourglass-split me-1"></i>{{ signal.expires_label }}
-                                                        {% else %}
-                                                            <i class="bi bi-infinity me-1"></i>No expiry
-                                                        {% endif %}
-                                                    </div>
-                                                </div>
-                                                {% if signal.can_manage %}
-                                                    <div class="signal-actions">
-                                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="promptSignalTTL('{{ signal.id }}')">
-                                                            <i class="bi bi-hourglass me-1"></i>Edit TTL
-                                                        </button>
-                                                        <button type="button" class="btn btn-sm btn-outline-secondary" data-signal-lock="true" onclick="toggleSignalLock('{{ signal.id }}', {{ 'false' if signal.status == 'locked' else 'true' }})">
-                                                            {% if signal.status == 'locked' %}
-                                                                <i class="bi bi-unlock me-1"></i>Unlock
-                                                            {% else %}
-                                                                <i class="bi bi-lock me-1"></i>Lock
-                                                            {% endif %}
-                                                        </button>
-                                                    </div>
-                                                {% endif %}
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-
-                                {% if post.contracts %}
-                                    <div class="contract-stack">
-                                        {% for contract in post.contracts %}
-                                            <div class="contract-card" data-contract-id="{{ contract.id }}" data-status="{{ contract.status }}">
-                                                <div class="contract-header">
-                                                    <span class="contract-label">Contract</span>
-                                                    <span class="contract-status {{ contract.status }}">{{ contract.status_label }}</span>
-                                                </div>
-                                                <div class="contract-title">{{ contract.title }}</div>
-                                                {% if contract.summary %}
-                                                    <div class="contract-summary">{{ contract.summary }}</div>
-                                                {% endif %}
-                                                {% if contract.terms %}
-                                                    <pre class="contract-terms">{{ contract.terms }}</pre>
-                                                {% endif %}
-                                                {% if contract.counterparty_users %}
-                                                    <div class="contract-counterparties">
-                                                        {% for cp in contract.counterparty_users %}
-                                                            <div class="contract-counterparty">
-                                                                <div class="inline-task-avatar contract-counterparty-avatar"
-                                                                     data-user-id="{{ cp.user_id or '' }}"
-                                                                     data-user-name="{{ cp.display_name or cp.user_id or '' }}"
-                                                                     data-user-avatar="{{ cp.avatar_url or '' }}"
-                                                                     data-peer-id="{{ cp.origin_peer or '' }}"></div>
-                                                                <span>{{ cp.display_name or cp.user_id }}</span>
-                                                            </div>
-                                                        {% endfor %}
-                                                    </div>
-                                                {% endif %}
-                                                <div class="contract-meta">
-                                                    <div class="contract-owner">
-                                                        <div class="inline-task-avatar contract-owner-avatar"
-                                                             data-user-id="{{ contract.owner_id or '' }}"
-                                                             data-user-name="{{ contract.owner_name or contract.owner_id or '' }}"
-                                                             data-user-avatar="{{ contract.owner_avatar_url or '' }}"
-                                                             data-peer-id="{{ contract.owner_origin_peer or '' }}"></div>
-                                                        <span>{{ contract.owner_name or contract.owner_id or 'Owner' }}</span>
-                                                    </div>
-                                                    <div class="contract-expiry">
-                                                        {% if contract.expires_label %}
-                                                            <i class="bi bi-hourglass-split me-1"></i>{{ contract.expires_label }}
-                                                        {% else %}
-                                                            <i class="bi bi-infinity me-1"></i>No expiry
-                                                        {% endif %}
-                                                    </div>
-                                                </div>
-                                                {% if contract.can_participate %}
-                                                    <div class="contract-actions">
-                                                        {% if contract.status == 'proposed' %}
-                                                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="updateContractStatus('{{ contract.id }}', 'accepted')">Accept</button>
-                                                        {% elif contract.status == 'accepted' %}
-                                                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="updateContractStatus('{{ contract.id }}', 'active')">Activate</button>
-                                                        {% elif contract.status == 'active' %}
-                                                            <button type="button" class="btn btn-sm btn-outline-success" onclick="updateContractStatus('{{ contract.id }}', 'fulfilled')">Fulfill</button>
-                                                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="updateContractStatus('{{ contract.id }}', 'breached')">Breach</button>
-                                                        {% endif %}
-                                                        {% if contract.can_manage and contract.status not in ['void', 'archived'] %}
-                                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="updateContractStatus('{{ contract.id }}', 'void')">Void</button>
-                                                        {% endif %}
-                                                    </div>
-                                                {% endif %}
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-
-                                {% if post.collab_cards %}
-                                    <div class="collab-card-stack">
-                                        {% for card in post.collab_cards %}
-                                            <div class="collab-card collab-card--{{ card.card_type }}" data-collab-card-id="{{ card.id }}" data-card-type="{{ card.card_type }}" data-status="{{ card.status }}">
-                                                <div class="collab-card-head">
-                                                    <span class="collab-card-label">
-                                                        {% if card.card_type == 'input' %}
-                                                            <i class="bi bi-ui-checks-grid"></i> Input Request
-                                                        {% else %}
-                                                            <i class="bi bi-activity"></i> Telemetry
-                                                        {% endif %}
-                                                    </span>
-                                                    <span class="collab-card-head-actions">
-                                                        {% if card.can_update or card.can_respond %}
-                                                            <button type="button"
-                                                                    class="collab-card-advance"
-                                                                    onclick='advanceCollabCardSource("{{ card.id }}")'
-                                                                    title="Bring the source post forward"
-                                                                    aria-label="Bring the source post forward">
-                                                                <i class="bi bi-arrow-up-circle"></i>
-                                                            </button>
-                                                        {% endif %}
-                                                        <span class="collab-card-status {{ card.status }}">{{ card.status_label }}</span>
-                                                    </span>
-                                                </div>
-                                                <div class="collab-card-title">{{ card.title }}</div>
-                                                {% if card.summary %}
-                                                    <div class="collab-card-summary">{{ card.summary }}</div>
-                                                {% endif %}
-                                                {% if card.card_type == 'input' %}
-                                                    {% if card.prompt %}
-                                                        <div class="collab-card-prompt">{{ card.prompt }}</div>
-                                                    {% endif %}
-                                                    {% set options = card.config.get('options', []) if card.config else [] %}
-                                                    <div class="collab-card-input-state" data-collab-input-state="{{ card.id }}">
-                                                        {% if card.my_response %}
-                                                            {% set saved_response = card.my_response %}
-                                                            <div class="collab-card-answer collab-card-answer--saved">
-                                                                <div class="collab-card-answer-head">
-                                                                    <i class="bi bi-check2-circle"></i>
-                                                                    <span>Saved response</span>
-                                                                </div>
-                                                                {% if saved_response.value is not none and saved_response.value|string %}
-                                                                    <div class="collab-card-answer-value">{{ saved_response.value }}</div>
-                                                                {% endif %}
-                                                                {% if saved_response.comment %}
-                                                                    <div class="collab-card-answer-comment">{{ saved_response.comment }}</div>
-                                                                {% endif %}
-                                                                {% if saved_response.updated_at or saved_response.created_at %}
-                                                                    <div class="collab-card-answer-time">Stored {{ saved_response.updated_at or saved_response.created_at }}</div>
-                                                                {% endif %}
-                                                            </div>
-                                                            {% if card.can_respond %}
-                                                                <div class="collab-card-response-note">Need to revise it?</div>
-                                                                <div class="collab-card-response" data-collab-response-form="{{ card.id }}">
-                                                                    {% if options %}
-                                                                        <div class="collab-card-options">
-                                                                            {% for option in options %}
-                                                                                <button type="button" class="btn btn-sm btn-outline-info" onclick='submitCollabInputResponse("{{ card.id }}", {{ option|tojson }}, "choice")'>{{ option }}</button>
-                                                                            {% endfor %}
-                                                                        </div>
-                                                                    {% endif %}
-                                                                    <div class="input-group input-group-sm mt-2">
-                                                                        <input type="text" class="form-control" placeholder="Replace or add rationale" data-collab-input="{{ card.id }}">
-                                                                        <button class="btn btn-primary" type="button" onclick='submitCollabInputResponse("{{ card.id }}", null, "text")'>Update</button>
-                                                                    </div>
-                                                                </div>
-                                                            {% endif %}
-                                                        {% elif card.can_respond %}
-                                                            <div class="collab-card-response" data-collab-response-form="{{ card.id }}">
-                                                                {% if options %}
-                                                                    <div class="collab-card-options">
-                                                                        {% for option in options %}
-                                                                            <button type="button" class="btn btn-sm btn-outline-info" onclick='submitCollabInputResponse("{{ card.id }}", {{ option|tojson }}, "choice")'>{{ option }}</button>
-                                                                        {% endfor %}
-                                                                    </div>
-                                                                {% endif %}
-                                                                <div class="input-group input-group-sm mt-2">
-                                                                    <input type="text" class="form-control" placeholder="Add a response or rationale" data-collab-input="{{ card.id }}">
-                                                                    <button class="btn btn-primary" type="button" onclick='submitCollabInputResponse("{{ card.id }}", null, "text")'>Send</button>
-                                                                </div>
-                                                            </div>
-                                                        {% else %}
-                                                            <div class="collab-card-lock"><i class="bi bi-lock"></i> Allocated responders only.</div>
-                                                        {% endif %}
-                                                    </div>
-                                                    <div class="collab-card-meta">
-                                                        <span>{{ card.response_count }} response{{ '' if card.response_count == 1 else 's' }}</span>
-                                                        {% if card.can_update %}
-                                                            <button type="button" class="btn btn-sm btn-outline-light" onclick='updateCollabInputStatus("{{ card.id }}", "resolved")'>Resolve</button>
-                                                        {% endif %}
-                                                    </div>
-                                                {% else %}
-                                                    {% set telemetry = card.telemetry or {} %}
-                                                    {% set progress_raw = telemetry.get('progress') if telemetry.get('progress') is not none else 0 %}
-                                                    {% set progress = [0, [progress_raw|float, 100]|min]|max %}
-                                                    <div class="collab-telemetry-bar" aria-label="Progress {{ progress }} percent">
-                                                        <span style="width: {{ progress }}%"></span>
-                                                    </div>
-                                                    <div class="collab-telemetry-meta">
-                                                        <strong>{{ progress }}%</strong>
-                                                        <span class="collab-telemetry-stage" title="{{ telemetry.get('stage') or 'No stage reported' }}">{{ telemetry.get('stage') or 'No stage reported' }}</span>
-                                                    </div>
-                                                    {% set telemetry_metrics = telemetry.get('metrics') or [] %}
-                                                    {% set visible_metrics = telemetry_metrics[:4] %}
-                                                    {% set extra_metrics = telemetry_metrics[4:] %}
-                                                    <div class="collab-telemetry-metrics" data-collab-telemetry-metrics="{{ card.id }}">
-                                                        {% for metric in visible_metrics %}
-                                                            {% set metric_label = metric.get('label') or metric.get('key') or 'Metric' %}
-                                                            {% set metric_value = metric.get('value') if metric.get('value') is not none else '' %}
-                                                            {% set metric_display = metric_value ~ ((' ' ~ metric.get('unit')) if metric.get('unit') else '') %}
-                                                            <div class="collab-telemetry-metric" title="{{ metric_label }}: {{ metric_display }}">
-                                                                <span class="collab-telemetry-metric-label">{{ metric_label }}</span>
-                                                                <strong class="collab-telemetry-metric-value">{{ metric_display or 'reported' }}</strong>
-                                                            </div>
-                                                        {% endfor %}
-                                                        {% if extra_metrics %}
-                                                            <details class="collab-telemetry-more">
-                                                                <summary>{{ extra_metrics|length }} more metric{{ '' if extra_metrics|length == 1 else 's' }}</summary>
-                                                                <div class="collab-telemetry-metrics collab-telemetry-metrics--extra">
-                                                                    {% for metric in extra_metrics %}
-                                                                        {% set metric_label = metric.get('label') or metric.get('key') or 'Metric' %}
-                                                                        {% set metric_value = metric.get('value') if metric.get('value') is not none else '' %}
-                                                                        {% set metric_display = metric_value ~ ((' ' ~ metric.get('unit')) if metric.get('unit') else '') %}
-                                                                        <div class="collab-telemetry-metric" title="{{ metric_label }}: {{ metric_display }}">
-                                                                            <span class="collab-telemetry-metric-label">{{ metric_label }}</span>
-                                                                            <strong class="collab-telemetry-metric-value">{{ metric_display or 'reported' }}</strong>
-                                                                        </div>
-                                                                    {% endfor %}
-                                                                </div>
-                                                            </details>
-                                                        {% endif %}
-                                                    </div>
-                                                    {% if card.can_update %}
-                                                        <div class="collab-card-response collab-telemetry-update">
-                                                            <div class="input-group input-group-sm">
-                                                                <input type="number" min="0" max="100" class="form-control" placeholder="%" data-collab-progress="{{ card.id }}">
-                                                                <input type="text" class="form-control" placeholder="Stage" data-collab-stage="{{ card.id }}">
-                                                                <button class="btn btn-primary" type="button" onclick='updateCollabTelemetry("{{ card.id }}")'>Update</button>
-                                                            </div>
-                                                        </div>
-                                                    {% endif %}
-                                                {% endif %}
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-
-                                {% if post.skills %}
-                                    <div class="skill-stack">
-                                        {% for skill in post.skills %}
-                                            <div class="skill-card">
-                                                <div class="skill-header">
-                                                    <span class="skill-label"><i class="bi bi-gear-wide-connected"></i> Skill</span>
-                                                    {% if skill.version %}<span class="skill-version">v{{ skill.version }}</span>{% endif %}
-                                                </div>
-                                                <div class="skill-name">{{ skill.name }}</div>
-                                                {% if skill.description %}
-                                                    <div class="skill-desc">{{ skill.description }}</div>
-                                                {% endif %}
-                                                <div class="skill-fields">
-                                                    {% if skill.inputs %}<span><span class="skill-field-label">Inputs:</span> {{ skill.inputs|join(', ') }}</span>{% endif %}
-                                                    {% if skill.outputs %}<span><span class="skill-field-label">Outputs:</span> {{ skill.outputs|join(', ') }}</span>{% endif %}
-                                                    {% if skill.perms %}<span><span class="skill-field-label">Perms:</span> {{ skill.perms|join(', ') }}</span>{% endif %}
-                                                </div>
-                                                {% if skill.invokes %}
-                                                    <div class="skill-invokes"><span class="skill-field-label">Invokes:</span> {{ skill.invokes }}</div>
-                                                {% endif %}
-                                                {% if skill.tags %}
-                                                    <div class="skill-tags">
-                                                        {% for tag in skill.tags %}
-                                                            <span class="skill-tag">{{ tag }}</span>
-                                                        {% endfor %}
-                                                    </div>
-                                                {% endif %}
-                                                {% set trust_components = skill.trust_components or {} %}
-                                                {% set success_rate = trust_components.get('success_rate') if trust_components.get('success_rate') is not none else 0.5 %}
-                                                {% set endorsement_score = trust_components.get('endorsement_score') if trust_components.get('endorsement_score') is not none else 0 %}
-                                                {% set usage_score = trust_components.get('usage_score') if trust_components.get('usage_score') is not none else 0 %}
-                                                <div class="skill-trust">
-                                                    <div class="skill-trust-head">
-                                                        <span>Composite trust</span>
-                                                        {% if skill.trust_percent is not none %}
-                                                            <span class="skill-score-badge {% if skill.trust_percent < 55 %}low{% elif skill.trust_percent < 75 %}mid{% endif %}">{{ skill.trust_percent }}% trust</span>
-                                                        {% else %}
-                                                            <span class="skill-score-badge">No score yet</span>
-                                                        {% endif %}
-                                                    </div>
-                                                    <div class="skill-trust-bar">
-                                                        <span class="skill-trust-seg success" style="width: {{ (success_rate * 60)|round(0) }}%;"></span>
-                                                        <span class="skill-trust-seg endorse" style="width: {{ (endorsement_score * 30)|round(0) }}%;"></span>
-                                                        <span class="skill-trust-seg usage" style="width: {{ (usage_score * 10)|round(0) }}%;"></span>
-                                                    </div>
-                                                    <div class="skill-trust-meta">
-                                                        Success {{ (success_rate * 100)|round(0) }}% • Endorsements {{ skill.endorsement_count or 0 }} • Invocations {{ skill.invocation_count or 0 }}
-                                                    </div>
-                                                </div>
-                                                {% if skill.id %}
-                                                    <div class="skill-actions">
-                                                        <button type="button" class="btn btn-sm btn-outline-info" onclick="endorseSkill('{{ skill.id }}')">
-                                                            <i class="bi bi-hand-thumbs-up me-1"></i>Endorse
-                                                        </button>
-                                                        <button type="button" class="btn btn-sm btn-outline-secondary community-note-trigger" onclick="openCommunityNoteModal('skill', '{{ skill.id }}')">
-                                                            <i class="bi bi-journal-check me-1"></i>Note
-                                                        </button>
-                                                    </div>
-                                                {% endif %}
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                                {% if post.community_notes %}
-                                    <div class="community-note-stack">
-                                        {% for note in post.community_notes %}
-                                            <div class="community-note-card" data-note-id="{{ note.id }}">
-                                                <div class="community-note-head">
-                                                    <span class="community-note-type">{{ note.note_type_label }}</span>
-                                                    <span class="community-note-status {{ note.status }}">{{ note.status_label }}</span>
-                                                </div>
-                                                <div class="community-note-body">{{ note.content }}</div>
-                                                <div class="community-note-meta">
-                                                    <span>{{ note.author_id }}</span>
-                                                    <span>
-                                                        {% if note.ratings.helpful_ratio is not none %}
-                                                            {{ note.ratings.helpful_ratio }}% helpful
-                                                        {% else %}
-                                                            Awaiting consensus
-                                                        {% endif %}
-                                                        • {{ note.ratings.total }} ratings
-                                                    </span>
-                                                </div>
-                                                {% if note.can_rate %}
-                                                    <div class="community-note-actions">
-                                                        <button type="button" class="btn btn-sm btn-outline-success" onclick="rateCommunityNote('{{ note.id }}', true)">
-                                                            <i class="bi bi-hand-thumbs-up me-1"></i>Helpful
-                                                        </button>
-                                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="rateCommunityNote('{{ note.id }}', false)">
-                                                            <i class="bi bi-hand-thumbs-down me-1"></i>Not helpful
-                                                        </button>
-                                                    </div>
-                                                {% endif %}
-                                            </div>
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                                
-                                {% if post.variant_reference %}
-                                    {# Variant = first-class post body; lineage is a slim provenance bar (no duplicate “antecedent card”). #}
-                                    {% set ref = post.variant_reference %}
-                                    <div class="post-variant-shell post-variant-shell--minimal" data-variant-wrapper="1">
-                                        {% if post.display_content %}
-                                            <div data-canopy-source-ref="content:lede">
-                                                <p class="mb-0 post-text mentionable">{{ post.display_content }}</p>
-                                            </div>
-                                        {% endif %}
-                                        {% if ref.module_param_delta %}
-                                            <div class="post-variant-param-delta">
-                                                <span class="delta-label">Δ</span>{{ ref.module_param_delta }}
-                                            </div>
-                                        {% endif %}
-                                        <div class="post-lineage-bar" role="note" aria-label="Lineage provenance">
-                                            <span class="badge rounded-pill text-bg-secondary post-lineage-badge" title="This post is a derivative with preserved lineage">
-                                                <i class="bi bi-bezier2 me-1" aria-hidden="true"></i>{{ ref.relationship_label or 'Variant' }}
-                                            </span>
-                                            {% if ref.available %}
-                                                <a class="link-light link-underline-opacity-50 link-underline-opacity-100-hover" href="{{ ref.href }}" title="Open the antecedent post">
-                                                    Antecedent{% if ref.author_display or ref.author_id %} <span class="text-muted">({{ ref.author_display or ref.author_id }})</span>{% endif %}
-                                                </a>
-                                                {% if ref.created_at %}
-                                                    <span class="text-muted" data-timestamp="{{ ref.created_at }}">{{ ref.created_at }}</span>
-                                                {% endif %}
-                                                {% if ref.source_id and (ref.has_source_layout|default(false)) %}
-                                                <button type="button" class="btn btn-sm btn-outline-primary"
-                                                        onclick="canopyNavigateFeedDeckForPostId({{ ref.source_id|tojson }})"
-                                                        title="Jump to the antecedent post and open its deck">
-                                                    <i class="bi bi-grid-1x2 me-1" aria-hidden="true"></i>Deck
-                                                </button>
-                                                {% endif %}
-                                            {% else %}
-                                                <span class="text-warning">{{ ref.unavailable_label or 'Antecedent unavailable' }}</span>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                {% elif post.repost_reference %}
-                                    {% set ref = post.repost_reference %}
-                                    <div class="post-repost-shell post-repost-shell--streamlined" data-repost-wrapper="1">
-                                        {% if post.display_content %}
-                                            <div data-canopy-source-ref="content:lede">
-                                                <p class="mb-3 post-text mentionable">{{ post.display_content }}</p>
-                                            </div>
-                                        {% endif %}
-                                        <div class="post-repost-card{% if not ref.available %} is-unavailable{% endif %}">
-                                            <div class="post-repost-head">
-                                                <span class="post-repost-eyebrow">
-                                                    <i class="bi bi-repeat"></i> Original source
-                                                </span>
-                                            </div>
-                                            {% if ref.available %}
-                                                <div class="post-repost-meta">
-                                                    <strong>{{ ref.author_display or ref.author_id or 'Unknown author' }}</strong>
-                                                    <span>•</span>
-                                                    <span>{{ (ref.post_type or 'post')|replace('_', ' ')|title }}</span>
-                                                    <span>•</span>
-                                                    <span>{{ (ref.visibility or 'network')|replace('_', ' ')|title }}</span>
-                                                    <span>•</span>
-                                                    <span class="text-muted" data-timestamp="{{ ref.created_at }}">{{ ref.created_at }}</span>
-                                                </div>
-                                                {% set em = ref.embed if ref.embed is defined and ref.embed else {} %}
-                                                <div class="post-repost-quote">
-                                                    {% if ref.body_text is defined and ref.body_text %}
-                                                        <div class="post-repost-body">{{ ref.body_text }}</div>
-                                                        {% if ref.body_truncated %}
-                                                            <div class="post-repost-truncated-hint small text-muted mt-1">
-                                                                <i class="bi bi-scissors"></i> Truncated for the card &mdash; open original for the full post.
-                                                            </div>
-                                                        {% endif %}
-                                                    {% elif ref.preview_text %}
-                                                        <div class="post-repost-preview">{{ ref.preview_text }}</div>
-                                                    {% endif %}
-                                                    {% if em.get('link_url') %}
-                                                        <div class="post-repost-embed-link mt-2">
-                                                            <a href="{{ em.link_url }}" target="_blank" rel="noopener noreferrer" class="text-decoration-none d-inline-flex align-items-start gap-2">
-                                                                <i class="bi bi-link-45deg flex-shrink-0 mt-1"></i>
-                                                                <span>{{ em.get('link_title') or em.link_url }}</span>
-                                                            </a>
-                                                        </div>
-                                                    {% endif %}
-                                                    {% if em.get('image_url') %}
-                                                        <div class="post-repost-embed-media mt-2 text-center">
-                                                            <img src="{{ em.image_url }}" class="img-fluid rounded post-repost-embed-img" alt="">
-                                                        </div>
-                                                    {% endif %}
-                                                    {% if em.get('video_url') %}
-                                                        <div class="post-repost-embed-media mt-2 text-center">
-                                                            <video controls class="img-fluid rounded post-repost-embed-video" preload="metadata">
-                                                                <source src="{{ em.video_url }}" type="{{ em.get('video_type') or 'video/mp4' }}">
-                                                            </video>
-                                                        </div>
-                                                    {% endif %}
-                                                    {% if em.get('audio_url') %}
-                                                        <div class="post-repost-embed-media mt-2">
-                                                            <audio controls preload="metadata" class="w-100">
-                                                                <source src="{{ em.audio_url }}" type="{{ em.get('audio_type') or 'audio/mpeg' }}">
-                                                            </audio>
-                                                        </div>
-                                                    {% endif %}
-                                                    {% if em.get('poll_question') %}
-                                                        <div class="post-repost-poll-preview mt-2 p-2 rounded" style="background: var(--canopy-bg-tertiary, rgba(255,255,255,0.04));">
-                                                            <div class="small text-uppercase text-muted mb-1 fw-semibold" style="letter-spacing:0.06em;">Poll</div>
-                                                            <div class="fw-semibold">{{ em.poll_question }}</div>
-                                                            {% if em.get('poll_option_previews') %}
-                                                                <ul class="small mb-0 mt-2 ps-3 text-muted">
-                                                                    {% for opt in em.poll_option_previews %}
-                                                                        <li>{{ opt }}</li>
-                                                                    {% endfor %}
-                                                                </ul>
-                                                            {% endif %}
-                                                        </div>
-                                                    {% endif %}
-                                                    {% if em.get('attachment_images') %}
-                                                        <div class="post-repost-thumb-grid{% if em.attachment_images|length == 1 %} is-single{% endif %} mt-2">
-                                                            {% for img in em.attachment_images %}
-                                                                <a href="{{ ref.href }}" class="post-repost-thumb-link" title="View original post">
-                                                                    <img src="{{ img.url }}" alt="{{ img.name }}" loading="lazy">
-                                                                </a>
-                                                            {% endfor %}
-                                                        </div>
-                                                    {% endif %}
-                                                </div>
-                                                <div class="post-repost-actions d-flex flex-wrap gap-2 align-items-center">
-                                                    <a class="btn btn-sm btn-outline-primary" href="{{ ref.href }}">
-                                                        <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Open original
-                                                    </a>
-                                                    {% if ref.source_id and (ref.has_source_layout|default(false)) %}
-                                                    <button type="button" class="btn btn-sm btn-outline-primary"
-                                                            onclick="canopyNavigateFeedDeckForPostId({{ ref.source_id|tojson }})"
-                                                            title="Jump to the original post and open its deck">
-                                                        <i class="bi bi-grid-1x2 me-1" aria-hidden="true"></i>Deck
-                                                    </button>
-                                                    {% endif %}
-                                                </div>
-                                            {% else %}
-                                                <div class="post-repost-unavailable">{{ ref.unavailable_label or 'Original source unavailable' }}</div>
-                                                <div class="post-repost-unavailable-meta">
-                                                    This repost keeps attribution to the original source, but the source no longer renders here.
-                                                </div>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                {% elif post.poll %}
-                                    <div class="poll-card" data-poll-id="{{ post.id }}" data-poll-kind="feed" data-poll-ends="{{ post.poll.ends_at or '' }}" data-poll-closed="{{ 'true' if post.poll.is_closed else 'false' }}">
-                                        <div class="poll-header">
-                                            <span class="poll-label">Poll</span>
-                                            <span class="poll-status">{{ post.poll.status_label }}</span>
-                                        </div>
-                                        <div class="poll-question">{{ post.poll.question }}</div>
-                                        <div class="poll-options">
-                                            {% for opt in post.poll.options %}
-                                                <button type="button"
-                                                        class="poll-option{% if post.poll.user_vote is not none and post.poll.user_vote == opt.index %} selected{% endif %}{% if post.poll.is_closed %} closed{% endif %}"
-                                                        data-option-index="{{ opt.index }}"
-                                                        onclick="votePoll('{{ post.id }}', 'feed', {{ opt.index }})"
-                                                        {% if post.poll.is_closed %}disabled{% endif %}>
-                                                    <span class="poll-option-bar" style="width: {{ opt.percent }}%;"></span>
-                                                    <span class="poll-option-label">{{ opt.label }}</span>
-                                                    <span class="poll-option-count">{{ opt.count }}</span>
-                                                </button>
-                                            {% endfor %}
-                                        </div>
-                                        <div class="poll-footer">
-                                            <span class="poll-total">{{ post.poll.total_votes }} votes</span>
-                                            {% if poll_edit_window_seconds %}
-                                                {% set edit_minutes = (poll_edit_window_seconds // 60) %}
-                                                <span class="ms-2 small text-muted">Edits lock after {{ edit_minutes }}m or first vote</span>
-                                            {% endif %}
-                                            {% if post.poll.user_vote is not none %}
-                                                <span class="poll-your-vote"><i class="bi bi-check-circle"></i> Voted</span>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                {% elif post.post_type == 'link' %}
-                                    {% if post.display_content %}<div data-canopy-source-ref="content:lede"><p class="mb-2 post-text mentionable">{{ post.display_content }}</p></div>{% endif %}
-                                    {% if post.metadata and post.metadata.url %}
-                                        <div class="card border-0" style="background: var(--canopy-bg-tertiary);">
-                                            <div class="card-body py-2">
-                                                <a href="{{ post.metadata.url }}" target="_blank" class="text-decoration-none" style="color: var(--canopy-text-primary);">
-                                                    <i class="bi bi-link-45deg"></i> {{ post.metadata.title or post.metadata.url }}
-                                                </a>
-                                            </div>
-                                        </div>
-                                    {% endif %}
-                                {% elif post.post_type == 'image' %}
-                                    {% if post.display_content %}<div data-canopy-source-ref="content:lede"><p class="mb-2 post-text mentionable">{{ post.display_content }}</p></div>{% endif %}
-                                    {% if post.metadata and post.metadata.image_url %}
-                                        <div class="text-center">
-                                            <img src="{{ post.metadata.image_url }}" class="img-fluid rounded" 
-                                                 style="max-height: 400px;" alt="Post image">
-                                        </div>
-                                    {% endif %}
-                                {% elif post.post_type == 'video' %}
-                                    {% if post.display_content %}<div data-canopy-source-ref="content:lede"><p class="mb-2 post-text mentionable">{{ post.display_content }}</p></div>{% endif %}
-                                    {% if post.metadata and post.metadata.video_url %}
-                                        <div class="text-center">
-                                            <video controls class="img-fluid rounded" style="max-height: 400px;">
-                                                <source src="{{ post.metadata.video_url }}" type="{{ post.metadata.video_type or 'video/mp4' }}">
-                                                Your browser does not support the video tag.
-                                            </video>
-                                        </div>
-                                    {% endif %}
-                                {% else %}
-                                    {% if post.display_content %}<div data-canopy-source-ref="content:lede"><p class="mb-0 post-text mentionable">{{ post.display_content }}</p></div>{% endif %}
-                                {% endif %}
-                            </div>
-                            
-                            <!-- Post Actions -->
-                            <div class="d-flex justify-content-between align-items-center pt-2 border-top" data-post-actions="1">
-                                <div class="d-flex gap-2 flex-wrap">
-                                    <button class="btn btn-sm btn-outline-secondary icon-action-btn" 
-                                            onclick="toggleComments('{{ post.id }}')"
-                                            title="Reply to this post"
-                                            aria-label="Reply to this post">
-                                        <i class="bi bi-reply"></i>
-                                        <span class="action-label">Reply</span>
-                                        <span class="comment-count action-count">{{ post.comments or 0 }}</span>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-primary icon-action-btn source-advance-action-btn"
-                                            onclick="advanceFeedPost('{{ post.id }}')"
-                                            title="Bring this post forward for visibility"
-                                            aria-label="Bring this post forward">
-                                        <i class="bi bi-arrow-up-circle"></i>
-                                        <span class="action-label">Bring forward</span>
-                                    </button>
-                                    <div class="reaction-control dropdown"
-                                         data-reaction-surface="feed_post"
-                                         data-item-id="{{ post.id }}"
-                                         data-reaction-counts="{{ (post.reaction_counts or {})|tojson|forceescape }}"
-                                         data-user-reaction="{{ post.user_reaction or '' }}">
-                                        <button class="btn btn-sm btn-outline-secondary icon-action-btn like-btn{% if post.user_has_liked %} is-liked{% endif %}"
-                                                onclick="toggleLike('{{ post.id }}')"
-                                                data-item-id="{{ post.id }}"
-                                                data-liked="{{ 'true' if post.user_has_liked else 'false' }}"
-                                                data-user-reaction="{{ post.user_reaction or '' }}"
-                                                title="{% if post.user_has_liked %}Remove reaction{% else %}React to post{% endif %}"
-                                                aria-label="{% if post.user_has_liked %}Remove reaction{% else %}React to post{% endif %}">
-                                            <span class="reaction-visual" data-reaction-icon><i class="bi bi-heart{% if post.user_has_liked %}-fill{% endif %}"></i></span>
-                                            <span class="action-label like-text">{% if post.user_has_liked %}Reacted{% else %}React{% endif %}</span>
-                                            <span class="action-count like-count">{{ post.likes or 0 }}</span>
-                                        </button>
-                                        <button type="button"
-                                                class="btn btn-sm btn-outline-secondary icon-action-btn reaction-picker-toggle"
-                                                data-bs-toggle="dropdown"
-                                                data-bs-auto-close="outside"
-                                                title="Choose reaction"
-                                                aria-label="Choose reaction"
-                                                aria-haspopup="menu"
-                                                aria-expanded="false">
-                                            <i class="bi bi-chevron-down"></i>
-                                        </button>
-                                        <div class="dropdown-menu dropdown-menu-end reaction-palette"
-                                             role="menu"
-                                             aria-label="Choose reaction">
-                                            {% for reaction in reaction_options %}
-                                                <button type="button"
-                                                        class="reaction-choice{% if post.user_reaction == reaction.type %} is-selected{% endif %}"
-                                                        onclick="toggleLike('{{ post.id }}', {{ reaction.type|tojson|forceescape }})"
-                                                        data-reaction-type="{{ reaction.type }}"
-                                                        role="menuitemcheckbox"
-                                                        aria-label="{{ reaction.label }}"
-                                                        aria-pressed="{{ 'true' if post.user_reaction == reaction.type else 'false' }}">
-                                                    <span class="reaction-choice-visual">
-                                                        {% if reaction.image_url %}
-                                                            <img class="reaction-custom-emoji-img" src="{{ reaction.image_url }}" alt="" loading="lazy">
-                                                        {% else %}
-                                                            {{ reaction.emoji }}
-                                                        {% endif %}
-                                                    </span>
-                                                    <small>{{ reaction.label }}</small>
-                                                </button>
-                                            {% endfor %}
-                                        </div>
-                                        <div class="reaction-summary" data-reaction-summary aria-label="Reaction summary"></div>
-                                    </div>
-                                    <button class="btn btn-sm icon-action-btn bookmark-action-btn{% if post.is_bookmarked %} is-saved{% endif %}"
-                                            data-bookmark-button="1"
-                                            data-source-type="feed_post"
-                                            data-source-id="{{ post.id }}"
-                                            data-bookmarked="{{ 'true' if post.is_bookmarked else 'false' }}"
-                                            title="{% if post.is_bookmarked %}Remove bookmark{% else %}Save bookmark{% endif %}"
-                                            aria-label="{% if post.is_bookmarked %}Remove bookmark{% else %}Save bookmark{% endif %}">
-                                        <i class="bi bi-bookmark{% if post.is_bookmarked %}-fill{% endif %}"></i>
-                                        <span class="action-label" data-bookmark-label>{% if post.is_bookmarked %}Saved{% else %}Save{% endif %}</span>
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-info icon-action-btn repost-trigger-btn"
-                                            id="repost-trigger-{{ post.id }}"
-                                            onclick="toggleRepostComposer('{{ post.id }}')"
-                                            title="Repost — add optional note below"
-                                            aria-expanded="false"
-                                            aria-controls="repost-compose-{{ post.id }}"
-                                            aria-label="Repost source">
-                                        <i class="bi bi-repeat"></i><span class="action-label">Repost</span>
-                                    </button>
-                                    <div class="dropdown">
-                                        <button class="btn btn-sm btn-outline-secondary icon-action-btn"
-                                                type="button"
-                                                data-bs-toggle="dropdown"
-                                                aria-expanded="false"
-                                                title="More post actions"
-                                                aria-label="More post actions">
-                                            <i class="bi bi-three-dots"></i><span class="action-label">More</span>
-                                        </button>
-                                        <ul class="dropdown-menu dropdown-menu-end">
-                                            <li>
-                                                <a class="dropdown-item" href="#" onclick="toggleVariantComposer('{{ post.id }}'); return false;">
-                                                    <i class="bi bi-bezier2 me-2"></i>Variant
-                                                </a>
-                                            </li>
-                                            <li>
-                                                <a class="dropdown-item" href="#" onclick="copyToClipboard(this, '{{ post.id }}'); return false;">
-                                                    <i class="bi bi-clipboard me-2"></i>Copy
-                                                </a>
-                                            </li>
-                                            <li>
-                                                <a class="dropdown-item" href="#" onclick="openContentContextModalFromAction('feed_post', '{{ post.id }}'); return false;">
-                                                    <i class="bi bi-file-earmark-text me-2"></i>Context
-                                                </a>
-                                            </li>
-                                            <li>
-                                                <a class="dropdown-item" href="#" onclick="openCommunityNoteModal('feed_post', '{{ post.id }}'); return false;">
-                                                    <i class="bi bi-journal-check me-2"></i>Notes <span class="text-muted">({{ post.community_notes_count or 0 }})</span>
-                                                </a>
-                                            </li>
-                                        </ul>
-                                    </div>
-                                </div>
-                                
-                                <small class="text-muted">
-                                    <i class="bi bi-{% if post.post_type == 'text' %}type{% elif post.post_type == 'link' %}link{% elif post.post_type == 'image' %}image{% elif post.post_type == 'video' %}play{% elif post.post_type == 'poll' %}bar-chart{% else %}file{% endif %}"></i>
-                                    {{ post.post_type.title() }}
-                                </small>
-                            </div>
-
-                            <!-- Repost inline composer (expands under actions — no modal) -->
-                            <div class="repost-inline-composer" id="repost-compose-{{ post.id }}" data-repost-compose="1" style="display: none;" hidden>
-                                <div class="repost-inline-inner">
-                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                        <i class="bi bi-repeat text-info" aria-hidden="true"></i>
-                                        <span class="small fw-semibold">Repost to your feed</span>
-                                        <span class="text-muted small ms-md-auto">Optional note · <kbd class="small px-1">Esc</kbd> close · <kbd class="small px-1">⌘</kbd>/<kbd class="small px-1">Ctrl</kbd>+<kbd class="small px-1">Enter</kbd> send</span>
-                                    </div>
-                                    <label class="visually-hidden" for="repost-text-{{ post.id }}">Optional repost note</label>
-                                    <textarea class="form-control form-control-sm repost-inline-text"
-                                              id="repost-text-{{ post.id }}"
-                                              rows="3"
-                                              maxlength="5000"
-                                              placeholder="Add a short note (optional)…"></textarea>
-                                    <div class="d-flex justify-content-between align-items-center mt-2 gap-2 flex-wrap">
-                                        <small class="text-muted repost-inline-counter">0 / 5000</small>
-                                        <div class="d-flex gap-2">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="closeRepostComposer('{{ post.id }}')">Cancel</button>
-                                            <button type="button" class="btn btn-sm btn-primary" id="repost-submit-{{ post.id }}" onclick="submitRepostInline('{{ post.id }}')">
-                                                <i class="bi bi-repeat me-1"></i>Repost
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="variant-inline-composer" id="variant-compose-{{ post.id }}" data-variant-compose="1" style="display: none;" hidden>
-                                <div class="repost-inline-inner">
-                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                                        <i class="bi bi-bezier2 text-warning" aria-hidden="true"></i>
-                                        <span class="small fw-semibold">Create a lineage variant</span>
-                                        <span class="text-muted small ms-md-auto">Optional note + explicit relationship metadata</span>
-                                    </div>
-                                    <div class="row g-2 mb-2">
-                                        <div class="col-md-4">
-                                            <label class="form-label form-label-sm mb-1" for="variant-relationship-{{ post.id }}">Relationship</label>
-                                            <select class="form-select form-select-sm variant-inline-relationship" id="variant-relationship-{{ post.id }}">
-                                                <option value="curated_recomposition">Curated recomposition</option>
-                                                <option value="module_variant">Module variant</option>
-                                                <option value="parameterized_variant">Parameterized variant</option>
-                                            </select>
-                                        </div>
-                                        <div class="col-md-8">
-                                            <label class="form-label form-label-sm mb-1" for="variant-delta-{{ post.id }}">Parameter delta</label>
-                                            <input type="text"
-                                                   class="form-control form-control-sm variant-inline-delta"
-                                                   id="variant-delta-{{ post.id }}"
-                                                   maxlength="500"
-                                                   placeholder="Optional: faster tempo, tighter loop, new support cards…">
-                                        </div>
-                                    </div>
-                                    <label class="visually-hidden" for="variant-text-{{ post.id }}">Optional variant note</label>
-                                    <textarea class="form-control form-control-sm variant-inline-text"
-                                              id="variant-text-{{ post.id }}"
-                                              rows="3"
-                                              maxlength="5000"
-                                              placeholder="Add a short note about how this variant changes the source…"></textarea>
-                                    <div class="d-flex justify-content-between align-items-center mt-2 gap-2 flex-wrap">
-                                        <small class="text-muted variant-inline-counter">0 / 5000</small>
-                                        <div class="d-flex gap-2">
-                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="closeVariantComposer('{{ post.id }}')">Cancel</button>
-                                            <button type="button" class="btn btn-sm btn-warning" id="variant-submit-{{ post.id }}" onclick="submitVariantInline('{{ post.id }}')">
-                                                <i class="bi bi-bezier2 me-1"></i>Create variant
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Comments Section (hidden by default) -->
-                            <div class="comments-section mt-3" id="comments-{{ post.id }}" style="display: none;">
-                                <div class="border-top pt-3">
-                                    <!-- Add Comment Form -->
-                                    <div class="mb-3">
-                                        <!-- Comment file preview -->
-                                        <div id="comment-file-preview-{{ post.id }}" class="comment-file-preview mb-2" style="display: none;">
-                                            <!-- File previews will appear here -->
-                                        </div>
-                                        
-                                        <div class="input-group">
-                                            <input type="text" class="form-control comment-input" 
-                                                   placeholder="Add a comment... (paste images with Ctrl+V)" 
-                                                   id="comment-input-{{ post.id }}"
-                                                   onkeydown="handlePostCommentKeydown(event, '{{ post.id }}')">
-                                            <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('comment-file-input-{{ post.id }}').click()" title="Attach files">
-                                                <i class="bi bi-paperclip"></i>
-                                            </button>
-                                            <button class="btn btn-outline-secondary btn-sm" onclick="openCommentVaultPicker('{{ post.id }}', this)" title="Attach from File Vault" aria-label="Attach from File Vault">
-                                                <i class="bi bi-folder2-open"></i>
-                                            </button>
-                                            <button class="btn btn-primary" onclick="addPostComment('{{ post.id }}')">
-                                                <i class="bi bi-send"></i>
-                                            </button>
-                                        </div>
-                                        
-                                        <!-- Hidden file input -->
-                                        <input type="file" id="comment-file-input-{{ post.id }}" style="display: none;" multiple 
-                                               accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.dockerfile,.makefile,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.rb,.php,.sh,.bash,.zsh,.ps1,.sql,.kt,.kts,.swift,.svelte,.vue,.css,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm" onchange="handleCommentFileSelect('{{ post.id }}', this)">
-                                    </div>
-                                    
-                                    <!-- Comments List -->
-                                    <div class="comments-list" id="comments-list-{{ post.id }}">
-                                        <!-- Comments will be loaded here -->
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                {% endfor %}
-            </div>
-            <div id="feed-mention-filter-empty" class="text-center text-muted p-4 d-none">
-                <div class="mb-2"><i class="bi bi-filter-circle fs-4"></i></div>
-                <div class="fw-semibold" id="feed-mention-filter-empty-title">No loaded posts match this mention filter.</div>
-                <div class="small mt-1">Clear an active filter or load more posts.</div>
-            </div>
-        {% else %}
-	            <div class="text-center text-muted py-5">
-                {% if search_query %}
-                    <i class="bi bi-search fs-1 mb-3 d-block" aria-hidden="true"></i>
-                    <h5>No posts found</h5>
-                    <p class="mb-3">No posts match your search criteria.</p>
-                    <div class="d-flex gap-2 justify-content-center">
-                        <a href="{{ url_for('ui.feed') }}" class="btn btn-outline-secondary">
-                            <i class="bi bi-x-circle" aria-hidden="true"></i> Clear search
-                        </a>
-                        <button class="btn btn-primary" type="button" onclick="openComposer()">
-                            <i class="bi bi-plus-circle" aria-hidden="true"></i> Create Post
-                        </button>
-                    </div>
-                {% else %}
-                    <i class="bi bi-newspaper fs-1 mb-3 d-block" aria-hidden="true"></i>
-                    <h5>Your feed is empty</h5>
-                    <p class="mb-3">Start following other users or create your first post!</p>
-                    <button class="btn btn-primary" type="button" onclick="openComposer()">
-                        <i class="bi bi-plus-circle" aria-hidden="true"></i> Create Post
-                    </button>
-                {% endif %}
-	            </div>
-	        {% endif %}
+        <div id="feed-posts-region" data-feed-posts-region="1">
+            {% include "_feed_posts_fragment.html" %}
+        </div>
 	    </div>
 	</div>
 </section>
@@ -2100,6 +599,14 @@
 
 .feed-page .alert.alert-info strong {
     color: inherit;
+}
+
+#feed-posts-region {
+    transition: opacity 0.16s ease;
+}
+
+#feed-posts-region.is-refreshing {
+    opacity: 0.72;
 }
 
 .file-dropzone {
@@ -7490,8 +5997,109 @@
 	            .catch(() => {});
 	    }
 	    
-	    function refreshFeed() {
-	        window.location.reload();
+        let feedFragmentRefreshPromise = null;
+
+        function hydrateFeedPostsFragment(scope) {
+            const root = scope || document.getElementById('feed-posts-region') || document;
+            try { hydrateReactionControls(); } catch (_) {}
+            try { formatTimestamps(); } catch (_) {}
+            try { updateUserAvatars(); } catch (_) {}
+            try { updateExpiryBadges(); } catch (_) {}
+            try { applyFeedMentionHighlights(); } catch (_) {}
+            try {
+                if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+                    window.canopyApplySourceLayoutsInScope(root);
+                    requestAnimationFrame(() => {
+                        if (typeof window.canopyApplySourceLayoutsInScope === 'function') {
+                            window.canopyApplySourceLayoutsInScope(root);
+                        }
+                    });
+                }
+            } catch (_) {}
+            try {
+                if (typeof processRichEmbeds === 'function') {
+                    processRichEmbeds('#feed-posts-region .post-content p');
+                }
+            } catch (_) {}
+            try {
+                if (window.applyInlineTaskAvatars) {
+                    window.applyInlineTaskAvatars();
+                }
+            } catch (_) {}
+            try { initFeedSelectionTools(); } catch (_) {}
+            try { applyFeedMentionFilter(Array.isArray(feedMentionCandidates) ? feedMentionCandidates : undefined); } catch (_) {}
+        }
+
+        function feedCssEscape(value) {
+            const raw = String(value || '');
+            if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(raw);
+            return raw.replace(/["\\]/g, '\\$&');
+        }
+
+	    function refreshFeed(options = {}) {
+            const region = document.getElementById('feed-posts-region');
+            if (!region || !window.fetch) {
+                window.location.reload();
+                return Promise.resolve(false);
+            }
+            if (feedFragmentRefreshPromise) return feedFragmentRefreshPromise;
+
+            const params = new URLSearchParams(window.location.search || '');
+            params.set('fragment', 'posts');
+            params.set('_', String(Date.now()));
+            const fragmentUrl = `${window.location.pathname}?${params.toString()}`;
+            const previousScrollY = window.scrollY || window.pageYOffset || 0;
+            const focusPostId = options && options.focusPostId ? String(options.focusPostId) : '';
+            region.classList.add('is-refreshing');
+
+            feedFragmentRefreshPromise = fetch(fragmentUrl, {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-Canopy-Fragment': 'posts'
+                }
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Feed refresh failed (${response.status})`);
+                    }
+                    if ((response.headers.get('X-Canopy-Fragment') || '') !== 'feed-posts') {
+                        throw new Error('Feed refresh did not return a posts fragment');
+                    }
+                    return response.text();
+                })
+                .then(html => {
+                    if (!html || !html.trim()) {
+                        throw new Error('Feed refresh returned an empty fragment');
+                    }
+                    region.innerHTML = html;
+                    hydrateFeedPostsFragment(region);
+                    if (focusPostId) {
+                        const target = document.querySelector(`.post-card[data-post-id="${feedCssEscape(focusPostId)}"]`);
+                        if (target) {
+                            target.classList.add('focus-flash');
+                            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            setTimeout(() => target.classList.remove('focus-flash'), 3200);
+                        }
+                    } else if (options && options.scrollToPostsTop) {
+                        region.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    } else if (!options || options.preserveScroll !== false) {
+                        window.scrollTo({ top: previousScrollY, left: 0, behavior: 'auto' });
+                    }
+                    return true;
+                })
+                .catch(error => {
+                    console.warn('Feed fragment refresh failed; falling back to full reload.', error);
+                    window.location.reload();
+                    return false;
+                })
+                .finally(() => {
+                    region.classList.remove('is-refreshing');
+                    feedFragmentRefreshPromise = null;
+                });
+
+            return feedFragmentRefreshPromise;
 	    }
 
         function advanceFeedPost(postId) {
@@ -7508,7 +6116,7 @@
                     return;
                 }
                 showAlert('Post brought forward.', 'success');
-                setTimeout(refreshFeed, 180);
+                setTimeout(() => refreshFeed({ focusPostId: postId, preserveScroll: false }), 180);
             }).catch((error) => {
                 showAlert(error.error || error.message || 'Could not bring this post forward.', 'danger');
             });
@@ -7589,7 +6197,7 @@
                     const modal = bootstrap.Modal.getInstance(modalEl);
                     if (modal) modal.hide();
                 }
-                setTimeout(refreshFeed, 150);
+                setTimeout(() => refreshFeed({ preserveScroll: true }), 150);
             }).catch((error) => {
                 showAlert(error.error || 'Failed to publish note', 'danger');
             });
@@ -7601,7 +6209,7 @@
                 body: JSON.stringify({ helpful: !!helpful })
             }).then(() => {
                 showAlert('Note rating saved', 'success');
-                setTimeout(refreshFeed, 120);
+                setTimeout(() => refreshFeed({ preserveScroll: true }), 120);
             }).catch((error) => {
                 showAlert(error.error || 'Failed to rate note', 'danger');
             });
@@ -7613,7 +6221,7 @@
                 body: JSON.stringify({ weight: 1.0 })
             }).then(() => {
                 showAlert('Skill endorsed', 'success');
-                setTimeout(refreshFeed, 120);
+                setTimeout(() => refreshFeed({ preserveScroll: true }), 120);
             }).catch((error) => {
                 showAlert(error.error || 'Failed to endorse skill', 'danger');
             });
@@ -7817,7 +6425,12 @@
 	            showAlert('Post created successfully!', 'success');
 	            resetComposer();
                 renderFeedStructuredResult(response.structured_objects || []);
-	            setTimeout(refreshFeed, 900);
+                const createdPostId = response && response.post ? response.post.id : '';
+	            setTimeout(() => refreshFeed({
+                    focusPostId: createdPostId,
+                    scrollToPostsTop: !createdPostId,
+                    preserveScroll: false
+                }), 180);
                 setShareButtonState(false);
 	        })
 	        .catch(error => {
@@ -8325,11 +6938,11 @@
                 new_attachments: state.newAttachments,
             }),
         })
-        .then(() => {
-            cancelInlinePostEdit(postId, true);
-            showAlert('Post updated successfully!', 'success');
-            setTimeout(refreshFeed, 500);
-        })
+	    .then(() => {
+	        cancelInlinePostEdit(postId, true);
+	        showAlert('Post updated successfully!', 'success');
+	        setTimeout(() => refreshFeed({ focusPostId: postId, preserveScroll: false }), 180);
+	    })
         .catch(error => {
             showAlert(error.error || error.message || 'Failed to update post', 'danger');
         })
@@ -9043,14 +7656,19 @@
             method: 'POST',
             body: JSON.stringify({ post_id: postId, comment: comment })
         })
-        .then(data => {
-            if (data.success) {
-                closeRepostComposer(postId);
-                showAlert('Repost created.', 'success');
-                window.location.reload();
-            } else {
-                showAlert(data.error || 'Failed to repost', 'danger');
-            }
+	    .then(data => {
+	        if (data.success) {
+	            closeRepostComposer(postId);
+	            showAlert('Repost created.', 'success');
+                const newPostId = data && data.post ? data.post.id : '';
+	            refreshFeed({
+                    focusPostId: newPostId,
+                    scrollToPostsTop: !newPostId,
+                    preserveScroll: false
+                });
+	        } else {
+	            showAlert(data.error || 'Failed to repost', 'danger');
+	        }
         })
         .catch(err => showAlert('Repost failed: ' + (err.message || err), 'danger'))
         .finally(() => {
@@ -9185,14 +7803,19 @@
                 module_param_delta: moduleParamDelta
             })
         })
-        .then(data => {
-            if (data.success) {
-                closeVariantComposer(postId);
-                showAlert('Variant created.', 'success');
-                window.location.reload();
-            } else {
-                showAlert(data.error || 'Failed to create variant', 'danger');
-            }
+	    .then(data => {
+	        if (data.success) {
+	            closeVariantComposer(postId);
+	            showAlert('Variant created.', 'success');
+                const newPostId = data && data.post ? data.post.id : '';
+	            refreshFeed({
+                    focusPostId: newPostId,
+                    scrollToPostsTop: !newPostId,
+                    preserveScroll: false
+                });
+	        } else {
+	            showAlert(data.error || 'Failed to create variant', 'danger');
+	        }
         })
         .catch(err => showAlert('Variant failed: ' + (err.message || err), 'danger'))
         .finally(() => {

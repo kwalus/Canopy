@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.134] - 2026-05-16
+
+### Changed
+- **Feed actions refresh posts without tearing down the page** - common create, edit, repost, variant, bring-forward, note, endorsement, and manual refresh paths now request a server-rendered posts fragment so composer drafts, filters, theme state, and page chrome stay intact.
+
+### Fixed
+- **Feed fragment refresh is safer to inject** - fragment responses require the expected header, normalize fragment request detection, and rehydrate source layouts after DOM settle before falling back to a full reload on unexpected responses.
+
 ## [0.6.133] - 2026-05-16
 
 ### Changed
