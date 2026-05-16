@@ -17978,7 +17978,23 @@ def create_ui_blueprint() -> Blueprint:
             limit = max(1, min(500, limit))
             before_message_id = request.args.get('before')
             focus_message_id = str(request.args.get('focus_message') or '').strip()
-            
+            message_id_args: list[str] = []
+            for raw_ids_arg in request.args.getlist('ids'):
+                message_id_args.extend(
+                    part.strip() for part in str(raw_ids_arg or '').split(',')
+                )
+            targeted_message_ids: list[str] = []
+            targeted_seen_ids: set[str] = set()
+            for raw_message_id in message_id_args:
+                clean_message_id = str(raw_message_id or '').strip()
+                if not clean_message_id or clean_message_id in targeted_seen_ids:
+                    continue
+                targeted_seen_ids.add(clean_message_id)
+                targeted_message_ids.append(clean_message_id)
+                if len(targeted_message_ids) >= 120:
+                    break
+            targeted_mode = bool(targeted_message_ids)
+
             logger.debug(f"Get channel messages request: user_id={user_id}, channel_id={channel_id}, limit={limit}")
 
             # Purge expired messages locally before returning results
@@ -18018,12 +18034,20 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception:
                     pass
             
-            messages = channel_manager.get_channel_messages(
-                channel_id, user_id, limit, before_message_id
-            )
+            if targeted_mode and hasattr(channel_manager, 'get_channel_messages_by_ids'):
+                messages = channel_manager.get_channel_messages_by_ids(
+                    channel_id,
+                    user_id,
+                    targeted_message_ids,
+                    include_parents=True,
+                )
+            else:
+                messages = channel_manager.get_channel_messages(
+                    channel_id, user_id, limit, before_message_id
+                )
             focus_context_mode = 'recent'
             focus_message_found = not focus_message_id
-            if focus_message_id:
+            if focus_message_id and not targeted_mode:
                 focus_message_found = any(
                     str(getattr(message, 'id', '') or '') == focus_message_id
                     for message in messages
@@ -18707,7 +18731,6 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as msg_err:
                     logger.warning(f"Skipping message {getattr(message, 'id', '?')} in response: {msg_err}")
                     continue
-            
             payload = {
                 'messages': messages_data,
                 'channel_id': channel_id,
@@ -18721,6 +18744,18 @@ def create_ui_blueprint() -> Blueprint:
                 'focus_context_mode': focus_context_mode if focus_message_id else None,
                 'reaction_options': _get_reaction_options(),
             }
+            if targeted_mode:
+                returned_ids = {
+                    str(message.get('id') or '')
+                    for message in messages_data
+                    if isinstance(message, dict) and message.get('id')
+                }
+                payload['targeted'] = True
+                payload['requested_message_ids'] = targeted_message_ids
+                payload['missing_message_ids'] = [
+                    message_id for message_id in targeted_message_ids
+                    if message_id not in returned_ids
+                ]
             if focus_message_id and not focus_message_found:
                 payload['warning'] = 'Target message is no longer available in this channel.'
             return jsonify(payload)

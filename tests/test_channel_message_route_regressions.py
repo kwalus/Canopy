@@ -118,8 +118,11 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         self.channel_manager.DEFAULT_CHANNEL_LIFECYCLE_DAYS = 180
         self.channel_manager.delete_message.return_value = True
         self.channel_manager.get_channel_access_decision.return_value = {'allowed': True}
+        self.channel_manager.get_channel_last_read_at.return_value = None
         self.channel_manager.purge_expired_channel_messages.return_value = []
         self.channel_manager.get_channel_messages.return_value = []
+        self.channel_manager.resolve_repost_reference.return_value = None
+        self.channel_manager.resolve_variant_reference.return_value = None
         self.interaction_manager = MagicMock()
         self.interaction_manager.get_user_liked_ids.return_value = set()
         self.interaction_manager.get_post_interactions.return_value = {'total_likes': 0}
@@ -238,6 +241,66 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.get_json() or {}
         self.assertEqual(payload.get('workspace_event_cursor'), 5)
+
+    def test_channel_messages_targeted_ids_use_incremental_hydration_path(self) -> None:
+        message = types.SimpleNamespace(
+            id='M-target',
+            channel_id='general',
+            user_id='owner',
+            content='Targeted hydrate',
+            created_at=datetime.now(timezone.utc),
+            edited_at=None,
+            expires_at=None,
+            parent_message_id=None,
+            source_layout=None,
+        )
+        message.to_dict = lambda: {
+            'id': 'M-target',
+            'channel_id': 'general',
+            'user_id': 'owner',
+            'content': 'Targeted hydrate',
+            'message_type': 'text',
+            'created_at': message.created_at.isoformat(),
+            'parent_message_id': None,
+            'attachments': [],
+            'source_layout': None,
+        }
+        self.channel_manager.get_channel_messages_by_ids.return_value = [message]
+        self.channel_manager.resolve_repost_reference.return_value = None
+        self.channel_manager.resolve_variant_reference.return_value = None
+
+        response = self.client.get('/ajax/channel_messages/general?ids=M-target')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('targeted'))
+        self.assertEqual(payload.get('requested_message_ids'), ['M-target'])
+        self.assertEqual(payload.get('missing_message_ids'), [])
+        self.assertEqual(payload.get('count'), 1)
+        self.channel_manager.get_channel_messages_by_ids.assert_called_once_with(
+            'general',
+            'owner',
+            ['M-target'],
+            include_parents=True,
+        )
+        self.channel_manager.get_channel_messages.assert_not_called()
+
+    def test_channel_messages_targeted_ids_accept_repeated_and_comma_values(self) -> None:
+        self.channel_manager.get_channel_messages_by_ids.return_value = []
+
+        response = self.client.get('/ajax/channel_messages/general?ids=M-one,M-two&ids=M-three')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('targeted'))
+        self.assertEqual(payload.get('requested_message_ids'), ['M-one', 'M-two', 'M-three'])
+        self.assertEqual(payload.get('missing_message_ids'), ['M-one', 'M-two', 'M-three'])
+        self.channel_manager.get_channel_messages_by_ids.assert_called_once_with(
+            'general',
+            'owner',
+            ['M-one', 'M-two', 'M-three'],
+            include_parents=True,
+        )
 
     def test_channel_messages_reports_when_view_marks_channel_read(self) -> None:
         self.channel_manager.mark_channel_read.return_value = True

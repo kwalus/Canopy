@@ -1620,12 +1620,18 @@ console.log(JSON.stringify({{
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("// Fall back to a direct snapshot refresh if the event poll fails.", channels_template)
         self.assertIn("requestChannelThreadRefresh();", channels_template)
-        self.assertIn("}, 10000);", channels_template)
+        self.assertIn("ageMs > 45000", channels_template)
+        self.assertIn("}, 15000);", channels_template)
+        self.assertIn("function requestChannelThreadDelta(delta, options = {})", channels_template)
+        self.assertIn("collectChannelThreadDelta(items, activeChannelId)", channels_template)
+        self.assertIn("query.append('ids', messageId)", channels_template)
+        self.assertIn("data.missing_message_ids", channels_template)
+        self.assertIn("requestChannelThreadRefresh(options);", channels_template)
 
     def test_active_channel_refreshes_when_sidebar_receives_new_message_event(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("if (currentChannelId && channelId === currentChannelId) {", channels_template)
-        self.assertIn("requestChannelThreadRefresh();", channels_template)
+        self.assertIn("requestChannelThreadDelta(collectChannelThreadDelta([item], channelId));", channels_template)
         self.assertIn(
             "if (data && (data.marked_read || Number(data.acknowledged_mentions || 0) > 0) && typeof window.requestCanopySidebarAttentionRefresh === 'function') {",
             channels_template,

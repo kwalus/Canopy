@@ -8029,6 +8029,88 @@ class ChannelManager:
             logger.error(f"Failed to get channel messages: {e}", exc_info=True)
             return []
 
+    def get_channel_messages_by_ids(
+        self,
+        channel_id: str,
+        user_id: str,
+        message_ids: List[str],
+        *,
+        include_parents: bool = True,
+    ) -> List[Message]:
+        """Get specific channel messages visible to a user.
+
+        Used by incremental UI refreshes so active channels do not need to
+        rehydrate the full recent-message window for every event poll.
+        """
+        clean_ids: List[str] = []
+        seen_ids: Set[str] = set()
+        for raw_id in message_ids or []:
+            clean_id = str(raw_id or "").strip()
+            if not clean_id or clean_id in seen_ids:
+                continue
+            seen_ids.add(clean_id)
+            clean_ids.append(clean_id)
+            if len(clean_ids) >= 120:
+                break
+        if not channel_id or not user_id or not clean_ids:
+            return []
+
+        try:
+            access = self.get_channel_access_decision(
+                channel_id=channel_id,
+                user_id=user_id,
+                require_membership=True,
+            )
+            if not access.get('allowed'):
+                logger.warning(
+                    f"Channel targeted read denied for user={user_id}, channel={channel_id}, "
+                    f"reason={access.get('reason')}"
+                )
+                return []
+
+            with self.db.get_connection() as conn:
+                placeholders = ",".join("?" for _ in clean_ids)
+                rows = conn.execute(
+                    f"""
+                    SELECT m.*, u.username as author_username
+                    FROM channel_messages m
+                    LEFT JOIN users u ON m.user_id = u.id
+                    WHERE m.channel_id = ?
+                      AND m.id IN ({placeholders})
+                      AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
+                    """,
+                    [channel_id] + clean_ids,
+                ).fetchall()
+
+                messages: List[Message] = []
+                for row in rows:
+                    message = self._row_to_channel_message(row, "targeted-message")
+                    if message:
+                        messages.append(message)
+
+                if include_parents and messages:
+                    messages = self._hydrate_missing_parent_messages(conn, channel_id, messages)
+
+            def _message_sort_key(message: Message) -> Tuple[float, str]:
+                created = message.created_at
+                if created and created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                return (
+                    created.timestamp() if created else 0.0,
+                    message.id,
+                )
+
+            messages.sort(key=_message_sort_key)
+            logger.debug(
+                "Retrieved %s targeted channel messages for channel %s",
+                len(messages),
+                channel_id,
+            )
+            return messages
+        except Exception as e:
+            logger.error(f"Failed to get targeted channel messages: {e}", exc_info=True)
+            return []
+
     def get_channel_message_context(
         self,
         channel_id: str,

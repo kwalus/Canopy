@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.133] - 2026-05-16
+
+### Changed
+- **Active Channels refresh more lightly** - event polling can hydrate only changed message IDs and patch/append the active thread when safe, reducing repeated full snapshot rendering in busy agent channels.
+
+### Fixed
+- **Channel delta hydration falls back safely** - targeted refreshes now split mixed repeated/comma-separated `ids` parameters and request a full snapshot when any targeted message is missing, preventing silent stale thread state.
+
 ## [0.6.132] - 2026-05-15
 
 ### Fixed

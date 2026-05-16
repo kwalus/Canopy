@@ -7775,6 +7775,7 @@ let channelSidebarSafetyHandle = null;
 let channelThreadEventPollInFlight = false;
 let channelThreadEventPollHandle = null;
 let channelThreadSafetyHandle = null;
+let channelThreadEventLastSuccessAt = 0;
 const OLDER_MESSAGES_LIMIT = 50;
 const CHANNEL_SIDEBAR_EVENT_TYPES = [
     'channel.message.created',
@@ -7787,6 +7788,7 @@ const CHANNEL_THREAD_EVENT_TYPES = [
     'channel.message.created',
     'channel.message.edited',
     'channel.message.deleted',
+    'channel.state.updated',
 ];
 const channelMentionCache = {};
 const channelMentionCacheFetchedAt = {};
@@ -14508,6 +14510,18 @@ function mergeChannelMessagesSnapshot(messages) {
     currentChannelMessagesSnapshot = Array.from(byId.values()).sort(compareChannelMessagesByChronology);
 }
 
+function removeChannelMessagesFromSnapshot(messageIds) {
+    const ids = new Set((messageIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+    if (!ids.size) return;
+    currentChannelMessagesSnapshot = (currentChannelMessagesSnapshot || []).filter((message) => {
+        const messageId = String((message && message.id) || '');
+        return !ids.has(messageId);
+    });
+    ids.forEach((messageId) => {
+        delete channelMessageCache[messageId];
+    });
+}
+
 function cssEscapeValue(value) {
     const raw = String(value || '');
     if (typeof window !== 'undefined' && window.CSS && typeof window.CSS.escape === 'function') {
@@ -14770,12 +14784,86 @@ function appendNewMessages(allMessages) {
 
         // Update signature
         if (currentChannelId) {
-            channelMessageSignature[currentChannelId] = getMessagesSignature(allMessages);
+            channelMessageSignature[currentChannelId] = getMessagesSignature(currentChannelMessagesSnapshot);
         }
     }).finally(() => {
         reservedIds.forEach(id => channelMessageRenderInFlight.delete(id));
     });
 
+    return true;
+}
+
+function applyChannelMessagesDelta(messages, options = {}) {
+    const messagesContainer = document.getElementById('messages-list');
+    const scrollContainer = document.getElementById('messages-container');
+    if (!messagesContainer) return false;
+
+    const incomingRaw = Array.isArray(messages) ? messages.filter((message) => message && message.id) : [];
+    const deletedIds = (options.deletedIds || []).map((id) => String(id || '').trim()).filter(Boolean);
+    const createdIds = new Set((options.createdIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+    const advancedIds = new Set((options.advancedIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+    const snapshotIdsBefore = new Set((currentChannelMessagesSnapshot || []).map((message) => String((message && message.id) || '')).filter(Boolean));
+    const mayIntroduceThread = createdIds.size > 0 || advancedIds.size > 0;
+    const incoming = mayIntroduceThread
+        ? incomingRaw
+        : incomingRaw.filter((message) => snapshotIdsBefore.has(String(message.id || '')));
+
+    if (!incoming.length && !deletedIds.length) {
+        return false;
+    }
+
+    const wasNearBottom = isNearBottom(scrollContainer);
+    const forceScroll = !!options.forceScroll;
+    const changedIds = incoming.map((message) => String(message.id || '')).filter(Boolean);
+    const renderedChanged = changedIds.some((messageId) => !!getRenderedMessageElement(messagesContainer, messageId));
+    const structuralRenderNeeded = Boolean(
+        deletedIds.length ||
+        advancedIds.size ||
+        renderedChanged ||
+        isChannelUnreadThreadFilterEnabled() ||
+        isChannelAttachmentThreadFilterEnabled() ||
+        isChannelMentionThreadFilterEnabled() ||
+        isChannelThreadActivitySortEnabled()
+    );
+
+    if (deletedIds.length) {
+        removeChannelMessagesFromSnapshot(deletedIds);
+    }
+    if (incoming.length) {
+        mergeChannelMessagesSnapshot(incoming);
+        incoming.forEach((message) => {
+            if (message && message.id) channelMessageCache[message.id] = message;
+        });
+    }
+
+    if (structuralRenderNeeded) {
+        if (isChannelMediaPlaying() && !forceScroll) {
+            pendingChannelMessages = currentChannelMessagesSnapshot.slice();
+            channelMessageSignature[currentChannelId] = getMessagesSignature(currentChannelMessagesSnapshot);
+            showNewMessagesBanner();
+            return true;
+        }
+        displayMessages(currentChannelMessagesSnapshot, {
+            forceScroll: forceScroll || wasNearBottom,
+            ignoreSignature: false,
+        });
+        return true;
+    }
+
+    const appended = appendNewMessages(incoming);
+    if (!appended) {
+        displayMessages(currentChannelMessagesSnapshot, {
+            forceScroll: forceScroll || wasNearBottom,
+            ignoreSignature: false,
+        });
+        return true;
+    }
+
+    if (wasNearBottom || forceScroll) {
+        clearNewMessagesBanner();
+    } else {
+        showNewMessagesBanner();
+    }
     return true;
 }
 
@@ -15572,7 +15660,14 @@ function applySidebarChannelStateUpdate(channelId, payload) {
             sortChannelListByPins();
         }
         if (String(currentChannelId) === cleanChannelId) {
-            requestChannelThreadRefresh({ forceScroll: false });
+            requestChannelThreadDelta({
+                messageIds: [String(payload && (payload.root_message_id || payload.message_id) || '').trim()].filter(Boolean),
+                createdIds: [],
+                editedIds: [],
+                deletedIds: [],
+                advancedIds: [String(payload && (payload.root_message_id || payload.message_id) || '').trim()].filter(Boolean),
+                forceFullRefresh: false,
+            }, { forceScroll: false });
         } else {
             refreshSidebarChannelState();
         }
@@ -15680,7 +15775,7 @@ function applyChannelSidebarEventItems(items) {
                 needsSnapshotRefresh = true;
             }
             if (currentChannelId && channelId === currentChannelId) {
-                requestChannelThreadRefresh();
+                requestChannelThreadDelta(collectChannelThreadDelta([item], channelId));
             }
             return;
         }
@@ -15850,6 +15945,150 @@ function refreshChannelMessagesSnapshot(options = {}) {
         });
 }
 
+function getChannelThreadEventPayload(item) {
+    const payload = item && item.payload && typeof item.payload === 'object' ? item.payload : {};
+    return payload || {};
+}
+
+function getChannelThreadEventMessageId(item) {
+    const payload = getChannelThreadEventPayload(item);
+    return String(
+        (item && item.message_id) ||
+        payload.message_id ||
+        payload.source_id ||
+        ''
+    ).trim();
+}
+
+function collectChannelThreadDelta(items, activeChannelId) {
+    const messageIds = new Set();
+    const createdIds = new Set();
+    const editedIds = new Set();
+    const deletedIds = new Set();
+    const advancedIds = new Set();
+    let forceFullRefresh = false;
+    (items || []).forEach((item) => {
+        const eventType = String(item && item.event_type || '').trim().toLowerCase();
+        const channelId = String(item && item.channel_id || '').trim();
+        if (!channelId || channelId !== String(activeChannelId || '')) return;
+        const payload = getChannelThreadEventPayload(item);
+        if (eventType === 'channel.message.created') {
+            const messageId = getChannelThreadEventMessageId(item);
+            if (messageId) {
+                messageIds.add(messageId);
+                createdIds.add(messageId);
+            } else {
+                forceFullRefresh = true;
+            }
+            return;
+        }
+        if (eventType === 'channel.message.edited') {
+            const messageId = getChannelThreadEventMessageId(item);
+            if (messageId) {
+                messageIds.add(messageId);
+                editedIds.add(messageId);
+            } else {
+                forceFullRefresh = true;
+            }
+            return;
+        }
+        if (eventType === 'channel.message.deleted') {
+            const messageId = getChannelThreadEventMessageId(item);
+            if (messageId) {
+                deletedIds.add(messageId);
+            } else {
+                forceFullRefresh = true;
+            }
+            return;
+        }
+        if (eventType === 'channel.state.updated') {
+            const reason = String(payload.reason || payload.action || '').trim().toLowerCase();
+            if (reason === 'source_advanced') {
+                const rootId = String(payload.root_message_id || payload.message_id || '').trim();
+                if (rootId) {
+                    messageIds.add(rootId);
+                    advancedIds.add(rootId);
+                } else {
+                    forceFullRefresh = true;
+                }
+            }
+        }
+    });
+    return {
+        messageIds: Array.from(messageIds),
+        createdIds: Array.from(createdIds),
+        editedIds: Array.from(editedIds),
+        deletedIds: Array.from(deletedIds),
+        advancedIds: Array.from(advancedIds),
+        forceFullRefresh,
+    };
+}
+
+function requestChannelThreadDelta(delta, options = {}) {
+    if (!currentChannelId || isSearchActive || document.hidden || channelLoadInFlight || channelRefreshInFlight) {
+        return;
+    }
+    const requestedChannelId = String(currentChannelId);
+    const messageIds = Array.from(new Set((delta && delta.messageIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    const deletedIds = Array.from(new Set((delta && delta.deletedIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if ((delta && delta.forceFullRefresh) || (!messageIds.length && !deletedIds.length)) {
+        requestChannelThreadRefresh(options);
+        return;
+    }
+
+    const applyDelta = (messages, data = {}) => {
+        if (String(currentChannelId) !== requestedChannelId) return;
+        if (data && Number(data.workspace_event_cursor || 0) > Number(channelThreadEventCursor || 0)) {
+            channelThreadEventCursor = Number(data.workspace_event_cursor || 0);
+        }
+        const applied = applyChannelMessagesDelta(messages, {
+            deletedIds,
+            createdIds: delta.createdIds || [],
+            editedIds: delta.editedIds || [],
+            advancedIds: delta.advancedIds || [],
+            forceScroll: !!options.forceScroll,
+        });
+        if (!applied && (data && data.targeted)) {
+            channelMessageSignature[requestedChannelId] = getMessagesSignature(currentChannelMessagesSnapshot);
+        }
+    };
+
+    if (!messageIds.length) {
+        applyDelta([], {});
+        return;
+    }
+
+    channelRefreshInFlight = true;
+    const query = new URLSearchParams();
+    messageIds.slice(0, 120).forEach((messageId) => query.append('ids', messageId));
+    query.set('_delta', String(Date.now()));
+    apiCall(`/ajax/channel_messages/${requestedChannelId}?${query.toString()}`)
+        .then((data) => {
+            if (String(currentChannelId) !== requestedChannelId) return;
+            const messages = Array.isArray(data && data.messages) ? data.messages : [];
+            const missingMessageIds = Array.isArray(data && data.missing_message_ids)
+                ? data.missing_message_ids.map((id) => String(id || '').trim()).filter(Boolean)
+                : [];
+            if (data && data.targeted && missingMessageIds.length) {
+                requestChannelThreadRefresh(options);
+                return;
+            }
+            applyDelta(messages, data || {});
+        })
+        .catch(() => {
+            requestChannelThreadRefresh(options);
+        })
+        .finally(() => {
+            channelRefreshInFlight = false;
+            if (!channelLoadInFlight && !channelRefreshInFlight && queuedChannelThreadRefresh && String(currentChannelId || '') === requestedChannelId) {
+                const queuedForceScroll = queuedChannelThreadRefreshForceScroll;
+                queuedChannelThreadRefresh = false;
+                queuedChannelThreadRefreshForceScroll = false;
+                window.setTimeout(() => requestChannelThreadRefresh({ forceScroll: queuedForceScroll }), 0);
+            }
+        });
+}
+
 function requestChannelThreadRefresh(options = {}) {
     const forceScroll = !!options.forceScroll;
     if (!currentChannelId) {
@@ -15871,15 +16110,11 @@ function applyChannelThreadEventItems(items) {
         return;
     }
     const activeChannelId = String(currentChannelId);
-    const hasRelevantEvent = items.some((item) => {
-        const eventType = String(item && item.event_type || '').trim().toLowerCase();
-        const channelId = String(item && item.channel_id || '').trim();
-        return channelId === activeChannelId && CHANNEL_THREAD_EVENT_TYPES.includes(eventType);
-    });
-    if (!hasRelevantEvent) {
+    const delta = collectChannelThreadDelta(items, activeChannelId);
+    if (!delta.forceFullRefresh && !delta.messageIds.length && !delta.deletedIds.length) {
         return;
     }
-    requestChannelThreadRefresh();
+    requestChannelThreadDelta(delta);
 }
 
 function pollChannelThreadEvents() {
@@ -15905,6 +16140,7 @@ function pollChannelThreadEvents() {
         })
         .then((data) => {
             if (!data || typeof data !== 'object') return;
+            channelThreadEventLastSuccessAt = Date.now();
             const nextSeq = Number(data.next_after_seq || 0);
             if (nextSeq > Number(channelThreadEventCursor || 0)) {
                 channelThreadEventCursor = nextSeq;
@@ -15940,8 +16176,11 @@ function startChannelThreadEventPolling() {
     }, 2500);
     channelThreadSafetyHandle = window.setInterval(() => {
         if (document.hidden) return;
-        requestChannelThreadRefresh();
-    }, 10000);
+        const ageMs = Date.now() - Number(channelThreadEventLastSuccessAt || 0);
+        if (!channelThreadEventLastSuccessAt || ageMs > 45000) {
+            requestChannelThreadRefresh();
+        }
+    }, 15000);
 }
 
 function pollChannelMessages() {
