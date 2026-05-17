@@ -453,6 +453,9 @@
     
     // Function to fetch user display info including avatars
     function fetchUserDisplayInfo(userIds) {
+        if (window.fetchCanopyUserDisplayInfo) {
+            return window.fetchCanopyUserDisplayInfo(userIds);
+        }
         return fetch(`/ajax/get_user_display_info?user_ids=${userIds.join(',')}`)
             .then(response => response.json())
             .then(data => {

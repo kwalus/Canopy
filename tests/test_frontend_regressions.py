@@ -1155,6 +1155,33 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("document.addEventListener('DOMContentLoaded', () => formatTimestamps());", main_js)
         self.assertIn('setInterval(() => formatTimestamps(), 30000);', main_js)
 
+    def test_user_display_info_hydration_uses_shared_cache(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
+        dashboard_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'dashboard.html').read_text(encoding='utf-8')
+
+        self.assertIn('function initCanopyUserDisplayInfoCache(global)', main_js)
+        self.assertIn('const DISPLAY_INFO_TTL_MS = 60 * 1000;', main_js)
+        self.assertIn('const DISPLAY_INFO_MAX_BATCH = 120;', main_js)
+        self.assertIn('const inFlightById = new Map();', main_js)
+        self.assertIn('function fetchDisplayInfoBatch(userIds)', main_js)
+        self.assertIn('function fetchCanopyUserDisplayInfo(userIds, options = {})', main_js)
+        self.assertIn('fallback[id] = writeCached(id, fallbackUserInfo(id));', main_js)
+        self.assertIn('inFlightById.delete(id);', main_js)
+        self.assertIn('delete _userIdentityCache[id];', main_js)
+        self.assertIn('global.fetchCanopyUserDisplayInfo = fetchCanopyUserDisplayInfo;', main_js)
+        self.assertIn('global.invalidateCanopyUserDisplayInfo = invalidateCanopyUserDisplayInfo;', main_js)
+        self.assertIn('window.fetchCanopyUserDisplayInfo([userId])', main_js)
+        self.assertIn('window.fetchCanopyUserDisplayInfo([currentUserId])', main_js)
+
+        for template in (channels_template, feed_template, dashboard_template):
+            self.assertIn('if (window.fetchCanopyUserDisplayInfo) {', template)
+            self.assertIn('return window.fetchCanopyUserDisplayInfo(userIds);', template)
+
+        self.assertNotIn("console.log('Fetching user display info for:'", channels_template)
+        self.assertNotIn("console.log('Successfully fetched user info:'", channels_template)
+
     def test_attention_bell_defaults_new_users_to_inbox_only(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn('function defaultCanopyAttentionFilters()', main_js)

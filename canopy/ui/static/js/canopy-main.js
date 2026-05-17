@@ -9544,19 +9544,18 @@
             }
         }
 
-        function _fetchUserIdentityInfo(userId) {
-            if (!userId) return Promise.resolve(null);
-            if (_userIdentityCache[userId]) {
-                return Promise.resolve(_userIdentityCache[userId]);
-            }
-            return apiCall(`/ajax/get_user_display_info?user_ids=${encodeURIComponent(userId)}`)
-                .then(data => {
-                    const users = (data && data.users && typeof data.users === 'object') ? data.users : {};
-                    const info = users[userId] || null;
-                    if (info) _userIdentityCache[userId] = info;
-                    return info;
-                });
-        }
+	        function _fetchUserIdentityInfo(userId) {
+	            if (!userId) return Promise.resolve(null);
+	            if (_userIdentityCache[userId]) {
+	                return Promise.resolve(_userIdentityCache[userId]);
+	            }
+	            return window.fetchCanopyUserDisplayInfo([userId])
+	                .then(data => {
+	                    const info = (data && data[userId]) || null;
+	                    if (info) _userIdentityCache[userId] = info;
+	                    return info;
+	                });
+	        }
 
         function copyUserId(userId, displayName, triggerEl) {
             const uid = String(userId || '').trim();
@@ -9938,12 +9937,164 @@
                         return Promise.reject(errObj);
                     }
 
-	                    console.log('apiCall success data:', payload, 'for URL:', url);
-	                    return (payload && typeof payload === 'object') ? payload : {};
-	                });
-	        }
+		                    console.log('apiCall success data:', payload, 'for URL:', url);
+		                    return (payload && typeof payload === 'object') ? payload : {};
+		                });
+		        }
 
-	        (function initWorkspaceSearch(global) {
+        (function initCanopyUserDisplayInfoCache(global) {
+            const DISPLAY_INFO_TTL_MS = 60 * 1000;
+            const DISPLAY_INFO_MAX_BATCH = 120;
+            const cache = new Map();
+            const inFlightById = new Map();
+
+            function normalizeUserIds(userIds) {
+                const source = Array.isArray(userIds) ? userIds : [userIds];
+                const seen = new Set();
+                const normalized = [];
+                source.forEach((raw) => {
+                    const id = String(raw || '').trim();
+                    if (!id || seen.has(id)) return;
+                    seen.add(id);
+                    normalized.push(id);
+                });
+                return normalized;
+            }
+
+            function fallbackUserInfo(userId) {
+                return {
+                    display_name: userId,
+                    avatar_url: null,
+                    username: userId,
+                    origin_peer: '',
+                    account_type: 'human',
+                    status: 'active',
+                    is_remote: false,
+                };
+            }
+
+            function readCached(userId, now) {
+                const entry = cache.get(userId);
+                if (!entry || !entry.value) return null;
+                if (now - entry.fetchedAt > DISPLAY_INFO_TTL_MS) return null;
+                return entry.value;
+            }
+
+            function writeCached(userId, value) {
+                const safeValue = value && typeof value === 'object' ? value : fallbackUserInfo(userId);
+                cache.set(userId, {
+                    value: {
+                        ...fallbackUserInfo(userId),
+                        ...safeValue,
+                    },
+                    fetchedAt: Date.now(),
+                });
+                return cache.get(userId).value;
+            }
+
+            function fetchDisplayInfoBatch(userIds) {
+                const ids = normalizeUserIds(userIds).slice(0, DISPLAY_INFO_MAX_BATCH);
+                if (!ids.length) return Promise.resolve({});
+                const query = ids.map((id) => encodeURIComponent(id)).join(',');
+                return apiCall(`/ajax/get_user_display_info?user_ids=${query}`)
+                    .then((data) => {
+                        const users = data && data.success && data.users && typeof data.users === 'object'
+                            ? data.users
+                            : {};
+                        const resolved = {};
+                        ids.forEach((id) => {
+                            resolved[id] = writeCached(id, users[id] || fallbackUserInfo(id));
+                        });
+                        return resolved;
+                    })
+                    .catch((error) => {
+                        console.warn('User display info lookup failed; using local fallback labels.', error);
+                        const fallback = {};
+                        ids.forEach((id) => {
+                            fallback[id] = writeCached(id, fallbackUserInfo(id));
+                        });
+                        return fallback;
+                    });
+            }
+
+            function fetchCanopyUserDisplayInfo(userIds, options = {}) {
+                const ids = normalizeUserIds(userIds);
+                if (!ids.length) return Promise.resolve({});
+                const force = !!(options && options.force);
+                const now = Date.now();
+                const result = {};
+                const missing = [];
+
+                ids.forEach((id) => {
+                    const cached = force ? null : readCached(id, now);
+                    if (cached) result[id] = cached;
+                    else missing.push(id);
+                });
+
+                if (!missing.length) return Promise.resolve(result);
+
+                const pendingIds = [];
+                const pendingPromises = [];
+                missing.forEach((id) => {
+                    const existing = !force ? inFlightById.get(id) : null;
+                    if (existing) {
+                        pendingPromises.push(existing.then((value) => {
+                            result[id] = value || fallbackUserInfo(id);
+                        }));
+                    } else {
+                        pendingIds.push(id);
+                    }
+                });
+
+                for (let i = 0; i < pendingIds.length; i += DISPLAY_INFO_MAX_BATCH) {
+                    const batchIds = pendingIds.slice(i, i + DISPLAY_INFO_MAX_BATCH);
+                    const batchPromise = fetchDisplayInfoBatch(batchIds);
+                    batchIds.forEach((id) => {
+                        const itemPromise = batchPromise
+                            .then((users) => users[id] || fallbackUserInfo(id))
+                            .finally(() => {
+                                if (inFlightById.get(id) === itemPromise) {
+                                    inFlightById.delete(id);
+                                }
+                            });
+                        inFlightById.set(id, itemPromise);
+                        pendingPromises.push(itemPromise.then((value) => {
+                            result[id] = value || fallbackUserInfo(id);
+                        }));
+                    });
+                }
+
+                return Promise.all(pendingPromises).then(() => {
+                    ids.forEach((id) => {
+                        if (!result[id]) result[id] = readCached(id, Date.now()) || fallbackUserInfo(id);
+                    });
+                    return result;
+                });
+            }
+
+            function invalidateCanopyUserDisplayInfo(userIds) {
+                normalizeUserIds(userIds).forEach((id) => {
+                    cache.delete(id);
+                    inFlightById.delete(id);
+                    if (typeof _userIdentityCache !== 'undefined' && _userIdentityCache) {
+                        delete _userIdentityCache[id];
+                    }
+                });
+            }
+
+            global.fetchCanopyUserDisplayInfo = fetchCanopyUserDisplayInfo;
+            global.invalidateCanopyUserDisplayInfo = invalidateCanopyUserDisplayInfo;
+            global.CanopyUserDisplayInfoCache = {
+                fetch: fetchCanopyUserDisplayInfo,
+                invalidate: invalidateCanopyUserDisplayInfo,
+                clear() {
+                    cache.clear();
+                    inFlightById.clear();
+                },
+            };
+        })(window);
+
+		        (function initWorkspaceSearch(global) {
 	            const SEARCH_MIN_LENGTH = 2;
 	            const SEARCH_DEBOUNCE_MS = 180;
 	            const DEFAULT_SCOPE = 'all';
@@ -11148,14 +11299,13 @@
         }
 
         // Update navbar avatar and username
-        function updateNavbarProfile() {
-            const currentUserId = (window.CANOPY_VARS && window.CANOPY_VARS.userId) || 'local_user';
-            
-            fetch(`/ajax/get_user_display_info?user_ids=${currentUserId}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success && data.users[currentUserId]) {
-                        const user = data.users[currentUserId];
+	        function updateNavbarProfile() {
+	            const currentUserId = (window.CANOPY_VARS && window.CANOPY_VARS.userId) || 'local_user';
+
+	            window.fetchCanopyUserDisplayInfo([currentUserId])
+	                .then(users => {
+	                    if (users && users[currentUserId]) {
+	                        const user = users[currentUserId];
                         
                         // Update avatar
                         const avatarElement = document.getElementById('navbar-avatar');

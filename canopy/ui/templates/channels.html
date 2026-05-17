@@ -22083,12 +22083,12 @@ function handleChannelPaste(e) {
 
 // Function to fetch user display info including avatars
 function fetchUserDisplayInfo(userIds) {
-    console.log('Fetching user display info for:', userIds);
+    if (window.fetchCanopyUserDisplayInfo) {
+        return window.fetchCanopyUserDisplayInfo(userIds);
+    }
     return apiCall(`/ajax/get_user_display_info?user_ids=${userIds.join(',')}`)
         .then(data => {
-            console.log('User display info response:', data);
             if (data.success) {
-                console.log('Successfully fetched user info:', data.users);
                 return data.users;
             } else {
                 console.error('Failed to fetch user info:', data.error);

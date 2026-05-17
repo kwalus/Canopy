@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.135] - 2026-05-16
+
+### Changed
+- **User display/avatar hydration is shared across active surfaces** - Feed, Channels, Dashboard, navbar profile, and mention identity lookups now use a short-lived client cache that batches repeated `/ajax/get_user_display_info` requests and deduplicates in-flight lookups.
+
+### Fixed
+- **Display cache invalidation clears stale identity state** - explicit invalidation now clears cached modal identity data and in-flight entries, while temporary endpoint failures reuse short-lived fallback labels instead of repeatedly retrying during active rendering.
+
 ## [0.6.134] - 2026-05-16
 
 ### Changed
