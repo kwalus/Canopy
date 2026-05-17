@@ -1531,6 +1531,112 @@
         align-items: stretch;
     }
 }
+
+/* Mobile fit polish: make admin controls scan and act without horizontal hunting. */
+@media (max-width: 768px) {
+    .admin-page-header {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.6rem;
+    }
+
+    .admin-page-header .btn,
+    .admin-page-header a.btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .admin-summary-row {
+        --bs-gutter-x: 0.55rem;
+        --bs-gutter-y: 0.55rem;
+    }
+
+    .admin-table-shell,
+    .table-responsive {
+        border-radius: 14px;
+    }
+
+    .table-responsive {
+        margin-inline: -0.4rem;
+        padding-inline: 0.4rem;
+    }
+
+    .table-responsive table {
+        min-width: 680px;
+    }
+
+    .agent-launchpad-grid,
+    .governance-toolbar,
+    .governance-stat-grid,
+    .governance-channel-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .agent-launchpad-card,
+    .agent-launchpad-intro,
+    .agent-launchpad-result,
+    .governance-shell,
+    .transport-mode-card,
+    .meshspace-template-card,
+    .workspace-shell .workspace-panel {
+        border-radius: 15px;
+    }
+
+    .governance-status-banner,
+    .governance-action-bar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .governance-status-banner .d-flex,
+    .governance-action-bar .d-flex {
+        width: 100%;
+    }
+
+    .governance-status-banner .btn,
+    .governance-action-bar .btn {
+        flex: 1 1 auto;
+        justify-content: center;
+    }
+
+    .governance-toolbar .d-flex.flex-wrap {
+        overflow-x: auto;
+        flex-wrap: nowrap !important;
+        padding-bottom: 0.14rem;
+        scrollbar-width: thin;
+    }
+
+    .governance-toolbar .d-flex.flex-wrap .btn {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    .directive-agent-list {
+        max-height: min(42vh, 360px);
+        max-height: min(42dvh, 360px);
+    }
+}
+
+@media (max-width: 420px) {
+    .admin-page-header h1 {
+        font-size: 1.12rem;
+    }
+
+    .agent-launchpad-title {
+        font-size: 1.04rem;
+    }
+
+    .agent-launchpad-copy,
+    .agent-launchpad-step,
+    .governance-helper,
+    .text-muted.small {
+        font-size: 0.78rem;
+    }
+
+    .admin-users-actions {
+        gap: 0.42rem;
+    }
+}
 </style>
 {% endblock %}
 

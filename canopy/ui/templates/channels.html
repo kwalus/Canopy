@@ -4352,6 +4352,190 @@
             max-width: 100%;
         }
     }
+
+    /* Mobile fit polish: make channels usable as a dense conversation surface. */
+    @media (max-width: 767.98px) {
+        .channel-shell,
+        #channel-main {
+            min-width: 0;
+        }
+
+        #channel-sidebar {
+            width: min(88vw, 304px);
+            min-width: min(88vw, 304px);
+            max-width: min(88vw, 304px);
+            margin-left: max(-88vw, -304px);
+            box-shadow: 14px 0 34px rgba(2, 6, 23, 0.34);
+        }
+
+        .channel-header {
+            position: sticky;
+            top: 0;
+            z-index: 18;
+        }
+
+        .channel-header-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            align-items: center;
+            width: 100%;
+        }
+
+        .channel-header-left,
+        .channel-header-right {
+            min-width: 0;
+        }
+
+        .channel-header-right {
+            justify-content: flex-end;
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            scrollbar-width: none;
+            padding-bottom: 0.08rem;
+        }
+
+        .channel-header-right::-webkit-scrollbar {
+            display: none;
+        }
+
+        .channel-header-controls,
+        .channel-header-actions {
+            flex-wrap: nowrap;
+        }
+
+        .channel-header-tool-btn,
+        .channel-header .btn.btn-sm {
+            min-width: 2.15rem;
+            min-height: 2.15rem;
+            justify-content: center;
+        }
+
+        .channel-header-search.mobile-open {
+            grid-column: 1 / -1;
+            margin-top: 0.25rem;
+        }
+
+        .channel-human-filter-banner {
+            margin: 0.38rem 0.45rem 0;
+            padding: 0.5rem 0.58rem;
+            align-items: flex-start;
+            gap: 0.38rem;
+        }
+
+        .channel-human-filter-banner .filter-detail {
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
+        #messages-container {
+            padding: 0.52rem !important;
+        }
+
+        .message-card {
+            padding: 0.62rem !important;
+            margin-bottom: 0.55rem !important;
+            border-radius: 14px !important;
+        }
+
+        .message-card.thread-reply {
+            margin-left: calc(8px + (min(var(--thread-depth, 1), 3) - 1) * 8px) !important;
+            padding-left: 0.58rem !important;
+        }
+
+        .thread-reply-context {
+            padding: 0.42rem 0.5rem;
+            gap: 0.32rem;
+        }
+
+        .thread-reply-context-preview {
+            display: none;
+        }
+
+        .message-card > .d-flex.align-items-start {
+            gap: 0.5rem;
+        }
+
+        .message-card .user-avatar {
+            width: 32px !important;
+            height: 32px !important;
+            margin-right: 0.45rem !important;
+            flex: 0 0 auto;
+        }
+
+        .message-actions > .d-flex {
+            gap: 0.32rem !important;
+            overflow-x: auto;
+            flex-wrap: nowrap !important;
+            padding-bottom: 0.14rem;
+            scrollbar-width: thin;
+        }
+
+        .message-actions .icon-action-btn {
+            flex: 0 0 auto;
+            min-width: 2.2rem;
+            min-height: 2.2rem;
+            justify-content: center;
+        }
+
+        .message-actions .icon-action-btn .action-label {
+            display: none;
+        }
+
+        .channel-composer-wrap {
+            border-top: 1px solid var(--canopy-border);
+            box-shadow: 0 -12px 30px rgba(2, 6, 23, 0.18);
+        }
+
+        #message-form .input-group {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0.34rem;
+        }
+
+        #message-form .input-group > .position-relative.flex-grow-1 {
+            width: 100%;
+        }
+
+        #message-input {
+            min-height: 42px !important;
+            font-size: 16px;
+            line-height: 1.36;
+        }
+
+        #message-form .input-group-append {
+            width: 100%;
+            overflow-x: auto;
+            justify-content: flex-end;
+            padding-bottom: 0.12rem;
+            scrollbar-width: thin;
+        }
+
+        #message-form .input-group-append .btn-group,
+        #message-form .input-group-append > .btn {
+            flex: 0 0 auto;
+        }
+
+        #message-form .input-group-append .btn-group .btn,
+        #message-form .input-group-append > .btn,
+        #message-form button[type="submit"] {
+            min-height: 38px;
+            min-width: 2.35rem;
+        }
+    }
+
+    @media (max-width: 430px) {
+        .channel-header-title h4 {
+            max-width: min(48vw, 150px);
+        }
+
+        .message-card.thread-reply {
+            margin-left: 6px !important;
+        }
+
+        .channel-human-filter-banner .filter-pill {
+            font-size: 0.68rem;
+        }
+    }
 </style>
 {% endblock %}
 

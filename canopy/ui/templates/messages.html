@@ -1996,6 +1996,165 @@
             font-size: 0.98rem;
         }
     }
+
+    /* Mobile fit polish: prioritize the active conversation and compact controls. */
+    @media (max-width: 767.98px) {
+        .messages-page.has-active-thread {
+            min-height: calc(100vh - 78px);
+            height: calc(100vh - 78px);
+            min-height: calc(100dvh - 78px);
+            height: calc(100dvh - 78px);
+        }
+
+        .messages-page.has-active-thread .messages-shell,
+        .messages-page.has-active-thread .dm-thread-pane {
+            min-height: 0;
+            height: 100%;
+        }
+
+        .messages-page.has-active-thread .dm-thread-pane {
+            border-radius: 16px;
+        }
+
+        .messages-page.has-active-thread .dm-thread-header {
+            flex: 0 0 auto;
+            align-items: center;
+            min-height: 50px;
+            padding: 0.5rem 0.62rem;
+        }
+
+        .messages-page.has-active-thread .dm-thread-header-main {
+            min-width: 0;
+            gap: 0.48rem;
+        }
+
+        .messages-page.has-active-thread .dm-thread-title-wrap {
+            min-width: 0;
+        }
+
+        .messages-page.has-active-thread .dm-thread-subtitle {
+            display: none;
+        }
+
+        .messages-page.has-active-thread .dm-thread-actions {
+            gap: 0.24rem;
+        }
+
+        .messages-page.has-active-thread .dm-thread-actions .btn {
+            min-width: 2.2rem;
+            min-height: 2.2rem;
+            padding-inline: 0.44rem;
+        }
+
+        .dm-thread-scroll {
+            min-height: 0;
+            padding: 0.58rem;
+            gap: 0.52rem;
+        }
+
+        #dm-thread-body {
+            gap: 0.28rem;
+        }
+
+        .dm-message-row {
+            gap: 0.32rem;
+        }
+
+        .dm-message-row.outbound .dm-message-avatar-wrap.spacer {
+            display: none;
+        }
+
+        .dm-message-main,
+        .dm-bubble-wrap,
+        .dm-bubble {
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .dm-bubble {
+            overflow-wrap: anywhere;
+        }
+
+        .dm-bubble-copy,
+        .dm-message-text {
+            overflow-wrap: anywhere;
+        }
+
+        .dm-bubble-footer {
+            gap: 0.32rem;
+            align-items: center;
+        }
+
+        .dm-reaction-strip {
+            max-width: 100%;
+            overflow-x: auto;
+            scrollbar-width: thin;
+        }
+
+        .dm-composer {
+            padding: 0.48rem 0.62rem max(0.58rem, calc(env(safe-area-inset-bottom) + 0.32rem));
+            gap: 0.42rem;
+        }
+
+        .dm-composer-actions {
+            gap: 0.4rem;
+        }
+
+        .dm-composer-actions-left {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            padding-bottom: 0.12rem;
+            scrollbar-width: thin;
+        }
+
+        .dm-composer-actions-left .btn {
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+
+        .dm-composer-actions-right {
+            display: grid;
+            grid-template-columns: auto minmax(5.8rem, 1fr);
+            gap: 0.45rem;
+        }
+
+        .dm-composer-actions-right .btn {
+            min-height: 42px;
+            justify-content: center;
+        }
+
+        .dm-composer-textarea {
+            min-height: 68px;
+            max-height: 32vh;
+            padding: 0.62rem 0.72rem;
+            line-height: 1.38;
+        }
+
+        .recipient-suggestions {
+            max-height: min(44vh, 320px);
+        }
+    }
+
+    @media (max-width: 420px) {
+        .messages-page.has-active-thread {
+            min-height: calc(100vh - 66px);
+            height: calc(100vh - 66px);
+            min-height: calc(100dvh - 66px);
+            height: calc(100dvh - 66px);
+        }
+
+        .dm-thread-scroll {
+            padding-inline: 0.48rem;
+        }
+
+        .dm-bubble {
+            padding: 0.56rem 0.62rem;
+        }
+
+        .dm-composer-actions-right {
+            grid-template-columns: 1fr;
+        }
+    }
 </style>
 {% endblock %}
 

@@ -1007,6 +1007,132 @@
             justify-content: flex-start;
         }
     }
+
+    /* Mobile fit polish: reduce chrome and keep file actions reachable. */
+    @media (max-width: 768px) {
+        .vault-shell {
+            gap: 0.75rem;
+        }
+
+        .vault-panel {
+            border-radius: 16px;
+            padding: 0.82rem;
+        }
+
+        .vault-hero {
+            gap: 0.75rem;
+        }
+
+        .vault-title {
+            font-size: clamp(1.35rem, 8vw, 2rem);
+            line-height: 1.02;
+        }
+
+        .vault-subtitle {
+            font-size: 0.9rem;
+        }
+
+        .vault-rule-row,
+        .vault-filter-row,
+        .vault-breadcrumb {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            scrollbar-width: thin;
+            padding-bottom: 0.12rem;
+        }
+
+        .vault-rule,
+        .vault-filter,
+        .vault-crumb {
+            flex: 0 0 auto;
+        }
+
+        .vault-dropzone {
+            min-height: 132px;
+            padding: 1rem;
+        }
+
+        .vault-drop-icon {
+            width: 3rem;
+            height: 3rem;
+            font-size: 1.35rem;
+        }
+
+        .vault-toolbar,
+        .vault-explorer-bar,
+        .vault-list-tools,
+        .vault-selection-bar,
+        .vault-digestion-head,
+        .vault-digestion-actions,
+        .vault-digestion-output-head {
+            gap: 0.55rem;
+        }
+
+        .vault-selection-bar {
+            position: sticky;
+            bottom: max(0.45rem, env(safe-area-inset-bottom));
+            z-index: 9;
+            box-shadow: 0 14px 34px rgba(2, 6, 23, 0.28);
+        }
+
+        .vault-selection-actions,
+        .vault-card-actions,
+        .vault-digestion-actions,
+        .vault-digestion-output-actions {
+            display: flex;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            scrollbar-width: thin;
+            padding-bottom: 0.1rem;
+        }
+
+        .vault-selection-actions .btn,
+        .vault-card-actions .btn,
+        .vault-card-actions a.btn,
+        .vault-digestion-actions .btn,
+        .vault-digestion-output-actions .btn {
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+
+        .vault-inline-preview-panel {
+            border-radius: 16px;
+        }
+
+        .vault-inline-preview-body {
+            max-height: min(68vh, 620px);
+            max-height: min(68dvh, 620px);
+            overflow: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+    }
+
+    @media (max-width: 420px) {
+        .vault-shell {
+            padding: 0.5rem;
+        }
+
+        .vault-panel {
+            padding: 0.68rem;
+        }
+
+        .vault-stats {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.48rem;
+        }
+
+        .vault-stat {
+            padding: 0.58rem;
+        }
+
+        .vault-card {
+            padding: 0.62rem;
+        }
+
+        .vault-card-preview {
+            min-height: 138px;
+        }
+    }
 </style>
 {% endblock %}
 

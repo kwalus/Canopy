@@ -4033,6 +4033,133 @@
         min-height: 40vh;
     }
 }
+
+/* Mobile fit polish: keep feed composition and review actions compact. */
+@media (max-width: 768px) {
+    .feed-page {
+        min-width: 0;
+    }
+
+    .feed-page-header {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .feed-page-header h1,
+    .feed-page-header p {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .feed-page-actions {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 0.15rem;
+        scrollbar-width: thin;
+    }
+
+    .feed-page-actions .btn {
+        flex: 0 0 auto;
+        white-space: nowrap;
+    }
+
+    #post-composer .card-header {
+        min-height: 44px;
+    }
+
+    .composer-action-row {
+        gap: 0.55rem !important;
+    }
+
+    .composer-action-tools {
+        display: flex;
+        flex-wrap: nowrap !important;
+        overflow-x: auto;
+        gap: 0.42rem !important;
+        padding-bottom: 0.12rem;
+        scrollbar-width: thin;
+    }
+
+    .composer-action-tools .btn {
+        flex: 0 0 auto;
+        width: auto;
+        min-width: 2.65rem;
+        padding-inline: 0.58rem;
+        white-space: nowrap;
+    }
+
+    .composer-submit-row {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center !important;
+        gap: 0.45rem !important;
+    }
+
+    .composer-submit-row .btn {
+        width: auto;
+    }
+
+    .composer-submit-row #charCounter,
+    .composer-submit-row .text-muted {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .post-card .card-header,
+    .post-card .card-body {
+        padding-inline: 0.78rem;
+    }
+
+    .post-card .message-actions,
+    .post-card [data-reaction-summary],
+    .post-card .post-action-row {
+        max-width: 100%;
+    }
+
+    .post-card .icon-action-btn .action-label {
+        display: none;
+    }
+
+    .post-card .icon-action-btn {
+        min-width: 2.25rem;
+        min-height: 2.25rem;
+        justify-content: center;
+    }
+
+    .post-repost-card {
+        padding: 0.72rem;
+        border-radius: 14px;
+    }
+
+    .post-repost-card .post-repost-meta,
+    .post-repost-card .post-repost-content {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .feed-mention-filter-banner {
+        align-items: flex-start;
+        gap: 0.45rem;
+    }
+}
+
+@media (max-width: 430px) {
+    .composer-submit-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .composer-submit-row .btn {
+        width: 100%;
+        min-height: 42px;
+    }
+
+    .feed-page-actions {
+        margin-inline: -0.15rem;
+        padding-inline: 0.15rem;
+    }
+}
 </style>
 {% endblock %}
 

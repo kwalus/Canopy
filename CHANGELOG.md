@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.136] - 2026-05-16
+
+### Changed
+- **Primary mobile surfaces fit phone-width screens more cleanly** - shared guardrails and page-specific CSS reduce chrome, prevent common horizontal overflow, compact action rows, and give Feed, Channels, DMs, Vault, and Admin controls more usable mobile layouts.
+
+### Fixed
+- **Mobile viewport sizing has older-browser fallbacks** - modal, notification, selection, DM, Vault preview, and Admin bounded panels now include `vh` fallbacks before `dvh` sizing so height limits still apply on less capable mobile browsers.
+
 ## [0.6.135] - 2026-05-16
 
 ### Changed
