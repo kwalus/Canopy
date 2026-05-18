@@ -8404,17 +8404,18 @@ def create_ui_blueprint() -> Blueprint:
                     'origin_peer': None,
                 }
                 try:
+                    profile = None
                     if profile_manager:
                         profile = profile_manager.get_profile(uid)
                         if profile:
                             display['display_name'] = profile.display_name or profile.username or uid
                             display['avatar_url'] = profile.avatar_url
                             display['origin_peer'] = getattr(profile, 'origin_peer', None)
-                    elif db_manager:
+                    if db_manager and (not profile or display.get('display_name') == uid):
                         row = db_manager.get_user(uid)
                         if row:
-                            display['display_name'] = row.get('display_name') or row.get('username') or uid
-                            display['origin_peer'] = row.get('origin_peer')
+                            display['display_name'] = row.get('display_name') or row.get('username') or display.get('display_name') or uid
+                            display['origin_peer'] = display.get('origin_peer') or row.get('origin_peer')
                 except Exception:
                     pass
                 user_display_cache[uid] = display
@@ -8496,15 +8497,31 @@ def create_ui_blueprint() -> Blueprint:
             for post in posts_obj:
                 interactions = interaction_manager.get_post_interactions(post.id) if interaction_manager else {'total_likes': 0, 'like_counts': {}, 'comment_count': 0}
                 reaction_counts = (interactions or {}).get('like_counts') or {}
+                post_metadata = post.metadata if isinstance(post.metadata, dict) else {}
+                author_display = _user_display(post.author_id) or {}
+                author_display_name = (
+                    author_display.get('display_name')
+                    or author_display.get('username')
+                    or post.author_id
+                )
+                author_origin_peer = (
+                    author_display.get('origin_peer')
+                    or post_metadata.get('origin_peer')
+                    or getattr(post, 'author_origin_peer', None)
+                    or ''
+                )
                 post_dict = {
                     'id': post.id,
                     'author_id': post.author_id,
+                    'author_display_name': author_display_name,
+                    'author_avatar_url': author_display.get('avatar_url') or '',
+                    'author_origin_peer': author_origin_peer,
                     'content': post.content,
                     'created_at': post.created_at,
                     'expires_at': post.expires_at.isoformat() if getattr(post, 'expires_at', None) else None,
                     'post_type': post.post_type.value,
                     'visibility': post.visibility.value,
-                    'metadata': post.metadata,
+                    'metadata': post_metadata,
                     'permissions': post.permissions,
                     'likes': (interactions or {}).get('total_likes', 0),
                     'comments': (interactions or {}).get('comment_count', 0),
@@ -22888,11 +22905,11 @@ def create_ui_blueprint() -> Blueprint:
             if not result:
                 return jsonify({'error': 'File not found'}), 404
 
-            thumb_data, file_info = result
+            thumb_data, file_info, thumb_mimetype = result
 
             return Response(
                 thumb_data,
-                mimetype=file_info.content_type,
+                mimetype=thumb_mimetype or file_info.content_type,
                 headers={
                     'Content-Disposition': f'inline; filename="thumb_{file_info.original_name}"',
                     'Content-Length': str(len(thumb_data)),

@@ -1311,34 +1311,94 @@ class DigestionManager:
         return []
 
     def _extract_pdf_segments(self, file_data: bytes) -> list[ExtractedSegment]:
+        pypdf_error: Optional[Exception] = None
         try:
             from pypdf import PdfReader  # type: ignore
         except Exception as exc:  # pragma: no cover - dependency may be absent in minimal envs
-            raise DigestionError(
-                "PDF Digestions require the optional pypdf dependency on this node.",
-                status_code=503,
-                reason="pdf_dependency_missing",
-            ) from exc
+            pypdf_error = exc
+        else:
+            try:
+                reader = PdfReader(io.BytesIO(file_data))
+                segments: list[ExtractedSegment] = []
+                chars = 0
+                for index, page in enumerate(reader.pages, start=1):
+                    if chars >= MAX_FILE_CHARS:
+                        break
+                    try:
+                        text = self._normalize_text(page.extract_text() or "")
+                    except Exception:
+                        text = ""
+                    if not text:
+                        continue
+                    remaining = MAX_FILE_CHARS - chars
+                    segment_text = text[:remaining]
+                    chars += len(segment_text)
+                    segments.append(ExtractedSegment(text=segment_text, page_label=f"p. {index}"))
+                if segments:
+                    return segments
+            except Exception as exc:
+                pypdf_error = exc
+
         try:
-            reader = PdfReader(io.BytesIO(file_data))
+            fallback_segments = self._extract_pdfminer_segments(file_data)
+            if fallback_segments:
+                return fallback_segments
+        except DigestionError:
+            if pypdf_error is None:
+                raise
         except Exception as exc:
-            raise DigestionError("PDF could not be read for text extraction.", status_code=415, reason="pdf_unreadable") from exc
+            logger.debug("pdfminer PDF fallback failed: %s", exc, exc_info=True)
+
+        if pypdf_error is not None:
+            raise DigestionError("PDF could not be read for text extraction.", status_code=415, reason="pdf_unreadable") from pypdf_error
+        return []
+
+    def _extract_pdfminer_segments(self, file_data: bytes) -> list[ExtractedSegment]:
+        try:
+            from pdfminer.high_level import extract_pages, extract_text  # type: ignore
+            from pdfminer.layout import LTTextContainer  # type: ignore
+        except Exception as exc:  # pragma: no cover - dependency may be absent in minimal envs
+            raise DigestionError(
+                "PDF fallback extraction requires the pdfminer.six dependency on this node.",
+                status_code=503,
+                reason="pdfminer_dependency_missing",
+            ) from exc
+
         segments: list[ExtractedSegment] = []
         chars = 0
-        for index, page in enumerate(reader.pages, start=1):
-            if chars >= MAX_FILE_CHARS:
-                break
-            try:
-                text = self._normalize_text(page.extract_text() or "")
-            except Exception:
-                text = ""
-            if not text:
-                continue
-            remaining = MAX_FILE_CHARS - chars
-            segment_text = text[:remaining]
-            chars += len(segment_text)
-            segments.append(ExtractedSegment(text=segment_text, page_label=f"p. {index}"))
-        return segments
+        try:
+            for index, page_layout in enumerate(extract_pages(io.BytesIO(file_data)), start=1):
+                if chars >= MAX_FILE_CHARS:
+                    break
+                page_parts: list[str] = []
+                stack = list(page_layout)
+                while stack:
+                    element = stack.pop(0)
+                    if isinstance(element, LTTextContainer):
+                        page_parts.append(element.get_text())
+                    elif hasattr(element, "__iter__"):
+                        try:
+                            stack[0:0] = list(element)
+                        except TypeError:
+                            pass
+                text = self._normalize_text("\n".join(page_parts))
+                if not text:
+                    continue
+                remaining = MAX_FILE_CHARS - chars
+                segment_text = text[:remaining]
+                chars += len(segment_text)
+                segments.append(ExtractedSegment(text=segment_text, page_label=f"p. {index}"))
+        except Exception as exc:
+            logger.debug("pdfminer page-layout extraction failed: %s", exc, exc_info=True)
+
+        if segments:
+            return segments
+
+        try:
+            text = self._normalize_text(extract_text(io.BytesIO(file_data)) or "")
+        except Exception as exc:
+            raise DigestionError("PDF could not be read for text extraction.", status_code=415, reason="pdf_unreadable") from exc
+        return [ExtractedSegment(text=text[:MAX_FILE_CHARS])] if text else []
 
     def _chunk_segments(
         self,

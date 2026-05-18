@@ -30,7 +30,7 @@ if 'zeroconf' not in sys.modules:
     sys.modules['zeroconf'] = zeroconf_stub
 
 from canopy.api.routes import create_api_blueprint
-from canopy.core.digestions import DigestionError, DigestionManager
+from canopy.core.digestions import DigestionError, DigestionManager, ExtractedSegment
 from canopy.core.files import FileManager
 from canopy.security.api_keys import ApiKeyInfo, Permission
 
@@ -1109,6 +1109,42 @@ class TestDigestions(unittest.TestCase):
         result = self.digestion_manager.query(digestion['id'], 'owner-user', 'silicon', top_k=3)
         self.assertTrue(result['success'])
         self.assertGreaterEqual(result['result_count'], 1)
+
+    def test_pdf_extraction_falls_back_when_pypdf_returns_no_text(self) -> None:
+        """Some Windows/user PDFs expose sources but pypdf extracts no text; fall back before giving up."""
+
+        class EmptyPdfReader:
+            def __init__(self, *_args, **_kwargs):
+                self.pages = [types.SimpleNamespace(extract_text=lambda: '')]
+
+        pypdf_stub = types.ModuleType('pypdf')
+        pypdf_stub.PdfReader = EmptyPdfReader
+
+        fallback_segments = [ExtractedSegment(text='fallback academic PDF text about silicon teleoperation latency', page_label='p. 1')]
+        with patch.dict(sys.modules, {'pypdf': pypdf_stub}):
+            with patch.object(self.digestion_manager, '_extract_pdfminer_segments', return_value=fallback_segments) as fallback:
+                segments = self.digestion_manager._extract_pdf_segments(b'%PDF-1.7 fake')
+
+        self.assertEqual(segments, fallback_segments)
+        fallback.assert_called_once()
+
+        source = self.file_manager.save_file(b'%PDF-1.7 fake', 'academic-paper.pdf', 'application/pdf', 'owner-user')
+        self.assertIsNotNone(source)
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='PDF fallback build',
+            source_file_ids=[source.id],
+            provider='local_hash',
+            chunk_size=240,
+            chunk_overlap=0,
+        )
+        with patch.dict(sys.modules, {'pypdf': pypdf_stub}):
+            with patch.object(self.digestion_manager, '_extract_pdfminer_segments', return_value=fallback_segments):
+                build = self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+
+        self.assertTrue(build['success'])
+        self.assertGreaterEqual(build['stats']['chunks'], 1)
+        self.assertGreaterEqual(build['stats']['token_estimate'], 1)
 
 
 if __name__ == '__main__':

@@ -45,12 +45,20 @@
          {% if gallery_id %}data-gallery-id="{{ gallery_id }}"{% endif %}>
         {% for img in images[:show_count] %}
             {% set has_url = img.url and img.url|trim %}
+            {% set image_type = (img.type or '')|lower %}
+            {% set image_name = (img.name or '')|lower %}
+            {% set browser_previewable = not (image_type in ['image/heic', 'image/heif'] or image_name.endswith('.heic') or image_name.endswith('.heif')) %}
             {% set image_file_id = img.id or img.file_id or img.origin_file_id or ((img.url.split('/files/')[1].split('/')[0]) if img.url and '/files/' in img.url else None) %}
-            {% if has_url %}
+            {% set thumb_url = img.thumb_url or (img.url ~ '/thumb' if has_url else '') %}
+            {% if has_url and browser_previewable %}
                 <div class="mg-cell"{% if image_file_id %} data-canopy-source-ref="attachment:{{ image_file_id }}"{% endif %} onclick="openLightbox({{ loop.index0 }}, '{{ image_urls | tojson | urlencode }}')">
-                    <img src="{{ img.url }}/thumb" alt="{{ img.name or 'image' }}" loading="lazy">
-	                    <a class="mg-download"
-	                       href="{{ img.url }}"
+                    <img src="{{ thumb_url }}" alt="{{ img.name or 'image' }}" loading="lazy" decoding="async" onerror="this.closest('.mg-cell')?.classList.add('mg-cell-image-error');">
+                    <div class="mg-image-fallback small text-muted text-center p-2">
+                        {{ img.name or 'Image' }}<br>
+                        <span class="opacity-75">Preview unavailable</span>
+                    </div>
+		                    <a class="mg-download"
+		                       href="{{ img.url }}"
 	                       download="{{ img.name or 'image' }}"
 	                       title="Download full resolution"
 	                       onclick="event.stopPropagation();">
@@ -67,10 +75,10 @@
 	                        <div class="mg-more-overlay">+{{ images|length - show_count }}</div>
 	                    {% endif %}
                 </div>
-	            {% else %}
-	                {% set img_remote_large = img.large_attachment or img.storage_mode == 'remote_large' %}
-	                {% set img_remote_payload = {
-	                    'origin_file_id': img.origin_file_id or img.id or img.file_id,
+		            {% else %}
+		                {% set img_remote_large = img.large_attachment or img.storage_mode == 'remote_large' %}
+		                {% set img_remote_payload = {
+		                    'origin_file_id': img.origin_file_id or img.id or img.file_id,
 	                    'source_peer_id': img.source_peer_id or img.origin_peer,
 	                    'name': img.name,
 	                    'type': img.type,
@@ -79,13 +87,18 @@
 	                    'large_attachment': true,
 	                    'storage_mode': img.storage_mode or 'remote_large'
 	                } %}
-	                <div class="mg-cell mg-cell-unavailable d-flex align-items-center justify-content-center p-2">
-	                    <span class="small text-muted text-center">
-	                        {{ img.name or 'Image' }}<br>
-	                        <span class="opacity-75">Not on this device yet — will appear when synced</span>
-	                        {% if img_remote_large %}
-	                            <button type="button" class="btn btn-sm btn-outline-secondary mt-2 attachment-save-vault-btn" title="Fetch and save to File Vault" onclick='event.stopPropagation(); saveAttachmentToVault({{ img_remote_payload|tojson }}, this);'>
-	                                <i class="bi bi-folder-plus"></i> Save to Vault
+		                <div class="mg-cell mg-cell-unavailable d-flex align-items-center justify-content-center p-2">
+		                    <span class="small text-muted text-center">
+		                        {{ img.name or 'Image' }}<br>
+		                        <span class="opacity-75">{% if has_url %}Preview unavailable for this image type{% else %}Not on this device yet — will appear when synced{% endif %}</span>
+		                        {% if has_url %}
+		                            <a class="btn btn-sm btn-outline-secondary mt-2" href="{{ img.url }}" download="{{ img.name or 'image' }}" onclick="event.stopPropagation();">
+		                                <i class="bi bi-download"></i> Download
+		                            </a>
+		                        {% endif %}
+		                        {% if img_remote_large %}
+		                            <button type="button" class="btn btn-sm btn-outline-secondary mt-2 attachment-save-vault-btn" title="Fetch and save to File Vault" onclick='event.stopPropagation(); saveAttachmentToVault({{ img_remote_payload|tojson }}, this);'>
+		                                <i class="bi bi-folder-plus"></i> Save to Vault
 	                            </button>
 	                        {% endif %}
 	                    </span>

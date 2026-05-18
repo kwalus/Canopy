@@ -2242,9 +2242,20 @@
                     const canReadSources = !!access.can_read_sources;
 	                    const chunks = Number(stats.chunks || 0);
 	                    const tokens = Number(stats.token_estimate || 0);
-                    const sourceCount = Array.isArray(digestion.sources) ? digestion.sources.length : 0;
-                    const provider = vaultEscape(digestion.provider || 'local');
-                    const purpose = vaultEscape(digestion.purpose || digestion.description || '');
+	                    const sourceCount = Array.isArray(digestion.sources) ? digestion.sources.length : 0;
+	                    const sourceIssues = Array.isArray(digestion.sources)
+	                        ? digestion.sources.filter(source => {
+	                            const status = String(source && source.status || '').toLowerCase();
+	                            return status === 'error' || !!String(source && source.error || '').trim();
+	                        })
+	                        : [];
+	                    const sourceIssueTitle = sourceIssues.slice(0, 6).map(source => {
+	                        const name = String(source && (source.file_name || source.source_label || source.file_id) || 'Source');
+	                        const error = String(source && source.error || source.status || 'not indexed');
+	                        return `${name}: ${error}`;
+	                    }).join(' | ');
+	                    const provider = vaultEscape(digestion.provider || 'local');
+	                    const purpose = vaultEscape(digestion.purpose || digestion.description || '');
                     const queryDisabled = chunks <= 0;
                     const queryTitle = queryDisabled
                         ? 'Build this Digestion before querying; no indexed chunks are available yet.'
@@ -2267,12 +2278,13 @@
                             ${purpose ? `<div class="small text-muted mt-1">${purpose}</div>` : ''}
                             <div class="vault-digestion-meta">
                                 <span class="vault-digestion-pill"><i class="bi bi-activity"></i>${status}</span>
-                                <span class="vault-digestion-pill"><i class="bi bi-files"></i>${sourceCount} source${sourceCount === 1 ? '' : 's'}</span>
-                                <span class="vault-digestion-pill"><i class="bi bi-braces"></i>${chunks} chunks</span>
-                                <span class="vault-digestion-pill"><i class="bi bi-file-earmark-text"></i>${tokens} tokens</span>
-                                <span class="vault-digestion-pill"><i class="bi bi-cpu"></i>${provider}</span>
-                                ${queryDisabled && hasBeenBuilt ? `<span class="vault-digestion-pill text-warning" title="No indexed chunks available. Run Build/Rebuild to index sources."><i class="bi bi-exclamation-triangle"></i>No chunks - build first</span>` : ''}
-                                ${canManage && !canReadSources ? `<span class="vault-digestion-pill text-warning" title="Source-read access is required for Extract datapoints."><i class="bi bi-shield-exclamation"></i>No source-read access</span>` : ''}
+	                                <span class="vault-digestion-pill"><i class="bi bi-files"></i>${sourceCount} source${sourceCount === 1 ? '' : 's'}</span>
+	                                <span class="vault-digestion-pill"><i class="bi bi-braces"></i>${chunks} chunks</span>
+	                                <span class="vault-digestion-pill"><i class="bi bi-file-earmark-text"></i>${tokens} tokens</span>
+	                                <span class="vault-digestion-pill"><i class="bi bi-cpu"></i>${provider}</span>
+	                                ${sourceIssues.length ? `<span class="vault-digestion-pill text-warning" title="${vaultEscape(sourceIssueTitle)}"><i class="bi bi-file-earmark-x"></i>${sourceIssues.length} source issue${sourceIssues.length === 1 ? '' : 's'}</span>` : ''}
+	                                ${queryDisabled && hasBeenBuilt ? `<span class="vault-digestion-pill text-warning" title="No indexed chunks available. Run Build/Rebuild to index sources."><i class="bi bi-exclamation-triangle"></i>No chunks - build first</span>` : ''}
+	                                ${canManage && !canReadSources ? `<span class="vault-digestion-pill text-warning" title="Source-read access is required for Extract datapoints."><i class="bi bi-shield-exclamation"></i>No source-read access</span>` : ''}
                             </div>
                             <div class="vault-digestion-actions">
                                 <button class="btn btn-sm btn-primary" type="button" data-vault-digestion-action="build" data-vault-digestion-id="${id}" aria-label="${buildLabel} ${name}" title="${buildTitle}">
@@ -2434,7 +2446,10 @@
                             body: JSON.stringify({ rebuild: false })
                         });
                         if (typeof showAlert === 'function') {
-                            showAlert(result.success ? 'Digestion built.' : 'Digestion build completed with issues.', result.success ? 'success' : 'warning');
+                            const buildErrors = Array.isArray(result.errors) ? result.errors : [];
+                            const firstError = buildErrors[0] || {};
+                            const issueText = firstError.error ? ` First issue: ${firstError.error}` : '';
+                            showAlert(result.success ? 'Digestion built.' : `Digestion build completed with issues.${issueText}`, result.success ? 'success' : 'warning');
                         }
                         await loadDigestions();
                     } catch (error) {
@@ -3182,12 +3197,12 @@
                     });
                 }
 
-                async function filesFromEntry(entry, droppedItems = []) {
+                async function filesFromEntry(entry, droppedItems = [], seenFileKeys = new Set()) {
                     if (!entry) return droppedItems;
                     if (entry.isFile) {
                         try {
                             const file = await entryFile(entry);
-                            if (file) droppedItems.push(file);
+                            pushUniqueDroppedFile(droppedItems, seenFileKeys, file);
                         } catch (error) {
                             droppedItems.push({
                                 __vaultDropError: true,
@@ -3205,7 +3220,7 @@
                         do {
                             batch = await readDirectoryEntries(reader);
                             for (const child of batch) {
-                                await filesFromEntry(child, droppedItems);
+                                await filesFromEntry(child, droppedItems, seenFileKeys);
                             }
                         } while (batch.length);
                     } catch (error) {
@@ -3218,23 +3233,48 @@
                     return droppedItems;
                 }
 
+                function vaultDroppedFileKey(file) {
+                    if (!file || file.__vaultDropError) return '';
+                    return [
+                        String(file.webkitRelativePath || file.name || ''),
+                        Number(file.size || 0),
+                        Number(file.lastModified || 0),
+                        String(file.type || ''),
+                    ].join('\u0000');
+                }
+
+                function pushUniqueDroppedFile(dropped, seenFileKeys, file) {
+                    if (!file) return;
+                    if (file.__vaultDropError) {
+                        dropped.push(file);
+                        return;
+                    }
+                    const key = vaultDroppedFileKey(file);
+                    if (key && seenFileKeys.has(key)) return;
+                    if (key) seenFileKeys.add(key);
+                    dropped.push(file);
+                }
+
                 async function filesFromDataTransfer(dataTransfer) {
                     const items = Array.from((dataTransfer && dataTransfer.items) || []);
                     const dropped = [];
+                    const seenFileKeys = new Set();
                     if (items.length) {
                         for (const item of items) {
                             if (!item || item.kind !== 'file') continue;
                             const entry = typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null;
                             if (entry) {
-                                await filesFromEntry(entry, dropped);
+                                await filesFromEntry(entry, dropped, seenFileKeys);
                                 continue;
                             }
                             const file = typeof item.getAsFile === 'function' ? item.getAsFile() : null;
-                            if (file) dropped.push(file);
+                            pushUniqueDroppedFile(dropped, seenFileKeys, file);
                         }
                     }
-                    if (!dropped.length && dataTransfer && dataTransfer.files) {
-                        dropped.push(...Array.from(dataTransfer.files || []));
+                    if (dataTransfer && dataTransfer.files) {
+                        for (const file of Array.from(dataTransfer.files || [])) {
+                            pushUniqueDroppedFile(dropped, seenFileKeys, file);
+                        }
                     }
                     return dropped.filter((item) => (item && item.__vaultDropError) || (item && item.name));
                 }

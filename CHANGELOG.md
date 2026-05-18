@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.139] - 2026-05-18
+
+### Changed
+- **PDF Digestion builds recover more text before reporting zero chunks** - PDF extraction now tries `pdfminer.six` after `pypdf` is unavailable, unreadable, or returns no text, while preserving existing extraction caps and still treating scanned/image-only PDFs as non-extractable until OCR exists.
+- **Digestion build diagnostics surface source-level failures** - Vault Digestion cards now show source issue counts and include the first backend build issue in the build toast so zero-chunk outcomes are easier to diagnose.
+
+### Fixed
+- **Feed phone images no longer fall back to loading large originals as thumbnails** - thumbnail serving now returns generated thumbnail MIME types, avoids misleading non-native thumbnail extensions, and refuses large/unsupported original-image fallback so mobile Feed views do not appear frozen by a heavy inline preview.
+- **Feed author headers render resolved identity up front** - Feed posts now carry server-resolved author name/avatar/origin fields, use safer author click handling, and escape user IDs before selector-based display hydration.
+
 ## [0.6.138] - 2026-05-18
 
 ### Changed

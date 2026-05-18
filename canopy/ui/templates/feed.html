@@ -8284,9 +8284,9 @@
         });
     }
     
-    function getPostFileIcon(type, name = '') {
-        const lowerType = String(type || '').toLowerCase();
-        const lowerName = String(name || '').toLowerCase();
+	    function getPostFileIcon(type, name = '') {
+	        const lowerType = String(type || '').toLowerCase();
+	        const lowerName = String(name || '').toLowerCase();
         if (lowerType.startsWith('image/')) return 'image';
         if (lowerType.startsWith('video/')) return 'camera-video';
         if (lowerType.startsWith('audio/')) return 'music-note';
@@ -8294,11 +8294,19 @@
         if (lowerType.includes('spreadsheet') || lowerType.includes('excel') || /\.(csv|tsv|xls|xlsx|xlsm|xlsb|ods|numbers)$/.test(lowerName)) return 'file-earmark-spreadsheet';
         if (lowerType.includes('presentation') || lowerType.includes('powerpoint') || /\.(ppt|pptx|pptm|pps|ppsx|pot|potx|odp|key)$/.test(lowerName)) return 'file-earmark-slides';
         if (lowerType.includes('wordprocessingml') || lowerType.includes('msword') || lowerType.includes('rtf') || /\.(doc|docx|docm|dot|dotx|rtf|odt|pages)$/.test(lowerName)) return 'file-earmark-word';
-        return 'file-earmark';
-    }
-    
-    // Function to fetch user display info including avatars
-    function fetchUserDisplayInfo(userIds) {
+	        return 'file-earmark';
+	    }
+
+        function feedCssAttrValue(value) {
+            const raw = String(value || '');
+            if (window.CSS && typeof window.CSS.escape === 'function') {
+                return window.CSS.escape(raw);
+            }
+            return raw.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        }
+	    
+	    // Function to fetch user display info including avatars
+	    function fetchUserDisplayInfo(userIds) {
         if (window.fetchCanopyUserDisplayInfo) {
             return window.fetchCanopyUserDisplayInfo(userIds);
         }
@@ -8344,10 +8352,10 @@
                     }
                     
                     // Update display name(s)
-                    document.querySelectorAll(`[data-user-display="${userId}"]`).forEach(displayElement => {
-                        if (displayElement && user.display_name) {
-                            displayElement.textContent = user.display_name;
-                        }
+	                    document.querySelectorAll(`[data-user-display="${feedCssAttrValue(userId)}"]`).forEach(displayElement => {
+	                        if (displayElement && user.display_name) {
+	                            displayElement.textContent = user.display_name;
+	                        }
                     });
                 }
             });

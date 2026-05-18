@@ -726,13 +726,39 @@ class FileManager:
     # ------------------------------------------------------------------
 
     THUMB_MAX_SIZE = 800  # longest side in px
+    THUMB_ORIGINAL_FALLBACK_MAX_BYTES = 1024 * 1024
     _EXIF_ORIENTATION_TAG = 274
+    _THUMB_NATIVE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+    _THUMB_INLINE_FALLBACK_TYPES = {
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'image/bmp',
+        'image/svg+xml',
+    }
+    _THUMB_MIME_BY_EXTENSION = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.bmp': 'image/bmp',
+        '.svg': 'image/svg+xml',
+    }
 
     def _thumb_path_for(self, original_path: Path) -> Path:
         """Return the expected thumbnail path for a given original file path."""
         stem = original_path.stem
-        suffix = original_path.suffix
+        suffix = original_path.suffix.lower()
+        if suffix not in self._THUMB_NATIVE_EXTENSIONS:
+            suffix = '.jpg'
         return original_path.with_name(f"{stem}_thumb{suffix}")
+
+    def _thumbnail_content_type_for(self, target_path: Path, file_info: FileInfo, *, is_thumbnail: bool) -> str:
+        if is_thumbnail:
+            return self._THUMB_MIME_BY_EXTENSION.get(target_path.suffix.lower(), 'image/jpeg')
+        return str(file_info.content_type or 'application/octet-stream')
 
     def _image_exif_orientation(self, image: Any) -> Optional[int]:
         """Return the EXIF orientation tag if present."""
@@ -748,14 +774,14 @@ class FileManager:
         if not _PILLOW_AVAILABLE or not original_path.exists() or not thumb_path.exists():
             return False
         try:
-            original = Image.open(str(original_path))
-            orientation = self._image_exif_orientation(original)
-            if orientation not in {5, 6, 7, 8}:
-                return False
-            normalized = ImageOps.exif_transpose(original)
-            thumb = Image.open(str(thumb_path))
-            expected_portrait = normalized.size[1] > normalized.size[0]
-            actual_portrait = thumb.size[1] > thumb.size[0]
+            with Image.open(str(original_path)) as original:
+                orientation = self._image_exif_orientation(original)
+                if orientation not in {5, 6, 7, 8}:
+                    return False
+                normalized = ImageOps.exif_transpose(original)
+                expected_portrait = normalized.size[1] > normalized.size[0]
+            with Image.open(str(thumb_path)) as thumb:
+                actual_portrait = thumb.size[1] > thumb.size[0]
             return expected_portrait != actual_portrait
         except Exception:
             return False
@@ -808,8 +834,10 @@ class FileManager:
     def get_thumbnail_data(self, file_id: str) -> Any:
         """Get thumbnail data for an image file.
 
-        Returns (thumb_bytes, file_info) or falls back to the original
-        if no thumbnail exists.  Returns None if file not found at all.
+        Returns (thumb_bytes, file_info, mimetype).  For small, browser-safe
+        originals, this may fall back to the original when no thumbnail exists.
+        Large or unsupported originals return None so the UI can show a download
+        fallback instead of trying to inline a heavy phone image as a thumbnail.
         """
         file_info = self.get_file(file_id)
         if not file_info:
@@ -824,16 +852,34 @@ class FileManager:
                     self._generate_thumbnail(original_path.read_bytes(), original_path, original_path.suffix)
                 except Exception as e:
                     logger.debug(f"Lazy thumbnail normalization skipped for {file_id}: {e}")
-        target = thumb_path if thumb_path.exists() else original_path
+        has_thumbnail = thumb_path.exists()
+        target = thumb_path if has_thumbnail else original_path
 
         if not target.exists():
             logger.error(f"Neither thumb nor original found for {file_id}")
             return None
 
+        if not has_thumbnail:
+            content_type = str(file_info.content_type or '').lower()
+            try:
+                target_size = target.stat().st_size
+            except OSError:
+                target_size = int(file_info.size or 0)
+            if content_type not in self._THUMB_INLINE_FALLBACK_TYPES:
+                logger.debug("Thumbnail fallback skipped for unsupported image type %s (%s)", file_id, content_type)
+                return None
+            if target_size > self.THUMB_ORIGINAL_FALLBACK_MAX_BYTES:
+                logger.debug(
+                    "Thumbnail fallback skipped for large original %s (%d bytes)",
+                    file_id,
+                    target_size,
+                )
+                return None
+
         try:
             with open(target, 'rb') as f:
                 data = f.read()
-            return data, file_info
+            return data, file_info, self._thumbnail_content_type_for(target, file_info, is_thumbnail=has_thumbnail)
         except Exception as e:
             logger.error(f"Failed to read thumbnail for {file_id}: {e}")
             return None

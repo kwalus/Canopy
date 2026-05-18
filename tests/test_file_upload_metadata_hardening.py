@@ -181,9 +181,41 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
         thumb = self.file_manager.get_thumbnail_data(info.id)
         self.assertIsNotNone(thumb)
         assert thumb is not None
-        thumb_bytes, _ = thumb
+        thumb_bytes, _, thumb_mimetype = thumb
+        self.assertEqual(thumb_mimetype, "image/jpeg")
         opened = Image.open(io.BytesIO(thumb_bytes))
         self.assertGreater(opened.size[1], opened.size[0])
+
+    def test_thumbnail_endpoint_data_does_not_fall_back_to_large_original(self) -> None:
+        image_dir = self.storage_root / "images"
+        image_dir.mkdir(parents=True, exist_ok=True)
+        file_path = image_dir / "Flarge.jpg"
+        file_path.write_bytes(b"not-a-real-jpeg" * 90000)
+        checksum = hashlib.sha256(file_path.read_bytes()).hexdigest()
+
+        self.conn.execute(
+            """
+            INSERT INTO files (
+                id, original_name, stored_name, file_path, content_type,
+                size, uploaded_by, uploaded_at, checksum
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "Flarge",
+                "phone-large.jpg",
+                "Flarge.jpg",
+                str(file_path),
+                "image/jpeg",
+                file_path.stat().st_size,
+                "user-test",
+                datetime.now(timezone.utc).isoformat(),
+                checksum,
+            ),
+        )
+        self.conn.commit()
+
+        self.assertIsNone(self.file_manager.get_thumbnail_data("Flarge"))
 
     def test_user_file_vault_lists_searches_and_counts_owned_files(self) -> None:
         self.conn.execute("INSERT INTO users (id) VALUES (?)", ('other-user',))

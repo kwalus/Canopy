@@ -8670,6 +8670,21 @@
             image-orientation: from-image;
             transition: transform 0.2s ease;
         }
+        .media-grid .mg-cell .mg-image-fallback {
+            position: absolute;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            background: var(--canopy-bg-tertiary);
+        }
+        .media-grid .mg-cell.mg-cell-image-error img {
+            display: none;
+        }
+        .media-grid .mg-cell.mg-cell-image-error .mg-image-fallback {
+            display: flex;
+        }
         .media-grid .mg-cell:hover img {
             transform: scale(1.03);
         }
