@@ -2889,7 +2889,7 @@
     </div>
     <div class="card-body">
         <div class="alert alert-info py-2 small mb-3">
-            This fallback powers <strong>Extract datapoints</strong> for Digestions. It sends only indexed chunks to the configured provider, not entire Vault files, and saved credentials stay encrypted on this node.
+            This fallback powers <strong>Extract datapoints</strong> for Digestions. It sends only indexed chunks to the configured provider, not entire Vault files, and saved credentials stay encrypted on this node. Extraction also requires source-read access to the Digestion.
         </div>
 
         <div class="row g-3 align-items-end">
@@ -2939,7 +2939,7 @@
                 </div>
             </div>
             <div class="col-md-4 small text-muted">
-                User personal extraction settings take precedence when they include their own key.
+                User personal extraction settings take precedence when they include their own key. Keep fallback disabled until credentials are ready.
             </div>
         </div>
 
@@ -5662,8 +5662,8 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         }
         if (instanceDigestionLlmApiKeyHelp) {
             instanceDigestionLlmApiKeyHelp.innerHTML = isBedrock
-                ? 'For Bedrock, use a Bedrock API key/bearer token plus <code>region</code>, or JSON/KEY=VALUE lines. Server AWS environment credentials can also satisfy the fallback.'
-                : 'Blank keeps the saved fallback key. Use clear to remove it.';
+                ? 'For Bedrock, use a Bedrock API key/bearer token plus <code>region</code>, or JSON/KEY=VALUE lines. Server AWS environment credentials can also satisfy the fallback. Extraction sends indexed chunks to the configured provider.'
+                : 'Blank keeps the saved fallback key. Use clear to remove it. Extraction sends indexed chunks to the configured provider.';
         }
         if (instanceDigestionParamInputs.max_output_tokens) {
             instanceDigestionParamInputs.max_output_tokens.max = isBedrock ? '12000' : '20000';
@@ -5719,10 +5719,16 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         applyInstanceDigestionLlmSettings(data.settings || {});
         const settings = data.settings || {};
         const available = !!(settings.enabled && settings.api_key_configured);
+        let statusMessage = 'Saved. Add credentials and enable fallback before users can rely on the instance Digestion default.';
+        if (available) {
+            statusMessage = 'Saved. Users and agents without personal extraction keys can now generate Digestion datapoints.';
+        } else if (settings.enabled && !settings.api_key_configured) {
+            statusMessage = 'Saved. Fallback is enabled, but credentials are still missing.';
+        } else if (!settings.enabled && settings.api_key_configured) {
+            statusMessage = 'Saved. Credentials are stored, but fallback remains disabled.';
+        }
         setInstanceDigestionLlmStatus(
-            available
-                ? 'Saved. Users and agents without personal extraction keys can now generate Digestion datapoints.'
-                : 'Saved. Add credentials and enable fallback before users can rely on the instance Digestion default.'
+            statusMessage
         );
     }
 

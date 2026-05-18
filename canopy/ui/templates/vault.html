@@ -685,6 +685,20 @@
     .vault-digestion-output-summary strong {
         color: var(--canopy-text-primary);
     }
+    .vault-digestion-output-preview {
+        margin-top: 0.35rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-accent) 24%, var(--canopy-border));
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 86%, transparent);
+        padding: 0.42rem 0.48rem;
+        font-family: var(--bs-font-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
+        font-size: 0.74rem;
+        line-height: 1.28;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 9.2rem;
+        overflow-y: auto;
+    }
     .vault-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
@@ -1253,7 +1267,7 @@
             <div>
                 <h2 class="h5 vault-digestion-title">Digestions</h2>
                 <p class="vault-digestion-copy">
-                    Turn selected Vault documents into a local, permissioned retrieval corpus for agents.
+                    Turn selected Vault documents into a local, permissioned retrieval corpus for agents. Extract datapoints may call an external provider with indexed chunks and requires source-read access.
                 </p>
             </div>
             <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-digestion-refresh">

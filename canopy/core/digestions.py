@@ -58,6 +58,7 @@ MAX_STRUCTURED_DATAPOINT_LLM_BATCH_CHARS = int(os.getenv("CANOPY_DIGESTION_DATAP
 MAX_STRUCTURED_DATAPOINT_LLM_CHUNK_CHARS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_CHUNK_CHARS", "2800"))
 MAX_STRUCTURED_DATAPOINTS_PER_LLM_BATCH = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_BATCH_RECORDS", "40"))
 MAX_STRUCTURED_DATAPOINT_LLM_OUTPUT_TOKENS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_OUTPUT_TOKENS", "7000"))
+DATAPOINT_MIN_TERM_OVERLAP = float(os.getenv("CANOPY_DIGESTION_DATAPOINT_MIN_TERM_OVERLAP", "0.75"))
 _SOURCE_REVEALING_OUTPUT_KINDS = {"manifest", "human_brief", STRUCTURED_DATAPOINT_OUTPUT_KIND}
 _OPENAI_EMBEDDINGS_URL = os.getenv(
     "CANOPY_DIGESTION_OPENAI_EMBEDDINGS_URL",
@@ -771,6 +772,8 @@ class DigestionManager:
     ) -> dict[str, Any]:
         """Generate reusable human/agent artifacts from the normalized Digestion."""
         digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        access = self._access_for(digestion, actor_user_id)
+        source_outputs_allowed = bool(access.get("can_read_sources"))
         requested = {str(kind or "").strip().lower() for kind in (kinds or []) if str(kind or "").strip()}
         if not requested:
             requested = {"manifest", "human_brief", "agent_context"}
@@ -781,6 +784,8 @@ class DigestionManager:
 
         outputs = []
         for kind in sorted(requested):
+            if kind in _SOURCE_REVEALING_OUTPUT_KINDS and not source_outputs_allowed:
+                continue
             if kind == "manifest":
                 outputs.append(self._upsert_output(digestion, actor_user_id, *self._build_manifest_output(digestion)))
             elif kind == "human_brief":
@@ -811,6 +816,8 @@ class DigestionManager:
             )
         llm_context = self._resolve_datapoint_llm_context(actor_user_id)
         parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
+        provider = str(llm_context.get("provider") or "openai").strip().lower()
+        max_output_tokens = self._datapoint_max_output_tokens(provider=provider, parameters=parameters)
         default_lens = str(llm_context.get("default_lens") or "").strip()
         effective_lens = str(lens or "").strip() or default_lens
         chunk_limit = self._bounded_int(
@@ -880,7 +887,7 @@ class DigestionManager:
                 "batch_chars": extraction["stats"].get("batch_char_limit"),
                 "chunk_chars": extraction["stats"].get("chunk_char_limit"),
                 "batch_records": extraction["stats"].get("batch_record_limit"),
-                "max_output_tokens": parameters.get("max_output_tokens") or MAX_STRUCTURED_DATAPOINT_LLM_OUTPUT_TOKENS,
+                "max_output_tokens": max_output_tokens,
             },
             "stats": {
                 "datapoint_count": len(datapoints),
@@ -1892,6 +1899,7 @@ Required JSON shape:
         manager = llm_context.get("manager")
         provider = str(llm_context.get("provider") or "openai").strip().lower()
         parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
+        max_output_tokens = self._datapoint_max_output_tokens(provider=provider, parameters=parameters)
         try:
             if provider == "openai":
                 return manager._call_openai(
@@ -1900,12 +1908,7 @@ Required JSON shape:
                     system_prompt=system_prompt,
                     prompt=prompt,
                     web_search_enabled=False,
-                    max_output_tokens=self._bounded_int(
-                        parameters.get("max_output_tokens"),
-                        7000,
-                        1200,
-                        20000,
-                    ),
+                    max_output_tokens=max_output_tokens,
                 )
             if provider == "bedrock":
                 return manager._call_bedrock(
@@ -1913,12 +1916,7 @@ Required JSON shape:
                     model=str(llm_context.get("model") or ""),
                     system_prompt=system_prompt,
                     prompt=prompt,
-                    max_output_tokens=self._bounded_int(
-                        parameters.get("max_output_tokens"),
-                        7000,
-                        1200,
-                        12000,
-                    ),
+                    max_output_tokens=max_output_tokens,
                 )
         except CanopyLLMError as exc:
             raise DigestionError(
@@ -1927,6 +1925,15 @@ Required JSON shape:
                 reason=f"datapoint_{getattr(exc, 'reason', 'llm_error')}",
             ) from exc
         raise DigestionError("Unsupported datapoint LLM provider.", status_code=400, reason="datapoint_unsupported_llm_provider")
+
+    def _datapoint_max_output_tokens(self, *, provider: str, parameters: dict[str, Any]) -> int:
+        max_limit = 12000 if str(provider or "").strip().lower() == "bedrock" else 20000
+        return self._bounded_int(
+            parameters.get("max_output_tokens"),
+            MAX_STRUCTURED_DATAPOINT_LLM_OUTPUT_TOKENS,
+            1200,
+            max_limit,
+        )
 
     def _parse_datapoint_llm_json(
         self,
@@ -2018,6 +2025,7 @@ Required JSON shape:
             return None
         source_refs = []
         source_chunks = []
+        source_texts: list[str] = []
         for item in evidence:
             ref = str(item.get("source_ref") or "")
             if ref and ref not in source_refs:
@@ -2025,19 +2033,34 @@ Required JSON shape:
                 entry = source_map.get(ref)
                 if entry:
                     source_chunks.append(self._datapoint_source_from_entry(entry, digestion=digestion))
+                    source_texts.append(str(entry.get("text") or ""))
         if not source_chunks:
             return None
         materials = self._llm_string_list(raw.get("materials"), limit=12)
         methods = self._llm_string_list(raw.get("methods"), limit=8)
         measurements = self._llm_string_list(raw.get("measurements"), limit=8)
-        numerical_results = self._llm_string_list(raw.get("numerical_results"), limit=10)
-        relationships = self._llm_string_list(raw.get("relationships"), limit=8)
-        uncertainty = self._llm_string_list(raw.get("limitations_or_uncertainty") or raw.get("limitations"), limit=6)
+        numerical_results = [
+            item
+            for item in self._llm_string_list(raw.get("numerical_results"), limit=10)
+            if self._datapoint_statement_supported(item, evidence=evidence, source_texts=source_texts)
+        ]
+        relationships = [
+            item
+            for item in self._llm_string_list(raw.get("relationships"), limit=8)
+            if self._datapoint_statement_supported(item, evidence=evidence, source_texts=source_texts)
+        ]
+        uncertainty = [
+            item
+            for item in self._llm_string_list(raw.get("limitations_or_uncertainty") or raw.get("limitations"), limit=6)
+            if self._datapoint_statement_supported(item, evidence=evidence, source_texts=source_texts)
+        ]
         quantitative_results = self._normalize_llm_quantitative_results(
             raw.get("quantitative_results") or raw.get("quantities") or [],
             evidence=evidence,
         )
         claim = self._llm_scalar(raw.get("claim") or raw.get("assertion") or raw.get("summary"), limit=900)
+        if claim and not self._datapoint_statement_supported(claim, evidence=evidence, source_texts=source_texts):
+            claim = ""
         subject = self._llm_scalar(raw.get("subject") or raw.get("label") or raw.get("name"), limit=240)
         tags = [
             tag.lower()
@@ -2084,6 +2107,39 @@ Required JSON shape:
             "confidence": confidence,
             "notes": "Generated by LLM extraction from supplied indexed chunks only; verify evidence quotes before downstream use.",
         }
+
+    def _datapoint_statement_supported(
+        self,
+        statement: str,
+        *,
+        evidence: list[dict[str, Any]],
+        source_texts: list[str],
+    ) -> bool:
+        candidate = self._llm_scalar(statement, limit=900)
+        if not candidate:
+            return False
+        supporting_texts = [
+            text
+            for text in (
+                [str(item.get("text") or "") for item in evidence]
+                + [str(text or "") for text in source_texts]
+            )
+            if text
+        ]
+        for source_text in supporting_texts:
+            if self._datapoint_quote_supported(candidate, source_text):
+                return True
+        candidate_terms = self._query_terms(candidate)
+        if len(candidate_terms) < 4:
+            return False
+        for source_text in supporting_texts:
+            source_terms = self._query_terms(source_text)
+            if not source_terms:
+                continue
+            overlap = len(candidate_terms & source_terms) / max(1, len(candidate_terms))
+            if overlap >= DATAPOINT_MIN_TERM_OVERLAP:
+                return True
+        return False
 
     def _normalize_llm_evidence(self, raw: Any, *, source_map: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         items = raw if isinstance(raw, list) else ([raw] if isinstance(raw, dict) else [])

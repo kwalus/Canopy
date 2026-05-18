@@ -902,6 +902,7 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
                 'When handing a whole corpus context to another agent, prefer the package export plus an ACL grant: the package explains the capability, while the ACL lets the agent query the live index.',
                 'If canopy_digest_query or canopy_digest_context returns 403/query_denied, call canopy_digest_request_access with the digestion_id. It returns your user_id, the owner_user_id, and the exact ACL grant body to send to the owner.',
                 'If canopy_digest_sources returns 403/source_metadata_denied, ask the owner to re-grant with can_read_sources=true. Query-only access does not include source-metadata access.',
+                'If canopy_digest_outputs or datapoints extraction returns source_metadata_denied/output_source_metadata_denied/datapoint_source_metadata_denied, request can_read_sources=true from the owner before retrying read/export/generate operations.',
             ],
         },
         'trust_network': {

@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.138] - 2026-05-18
+
+### Changed
+- **Digestion datapoint extraction communicates source-read and provider requirements more clearly** - Profile, Admin, Vault, MCP recovery, and agent instructions now explain that extraction sends indexed chunks to the configured provider and requires source metadata access.
+
+### Fixed
+- **Source-revealing Digestion output generation no longer leaks previews to managers without source-read access** - `generate_outputs` now skips source-revealing output kinds when the caller lacks `can_read_sources`.
+- **Structured datapoints are more strongly source-grounded** - unsupported claims, relationships, numerical results, and uncertainty statements are filtered against cited evidence, and provider-specific output token caps are applied consistently.
+- **MCP Digestion output flags parse booleans strictly** - string values like `"false"` no longer trigger generate/export/include-content behavior accidentally.
+
 ## [0.6.137] - 2026-05-18
 
 ### Added

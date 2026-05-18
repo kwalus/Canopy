@@ -90,7 +90,7 @@ def _digest_access_error(exc: DigestionError, digestion_id: str, your_user_id: s
             f"You do not have query access to Digestion {digestion_id}. "
             "Use canopy_digest_request_access to get a formatted request for the owner."
         )
-    elif reason == "source_metadata_denied":
+    elif reason in {"source_metadata_denied", "datapoint_source_metadata_denied"}:
         payload["recovery"] = (
             f"You do not have source-metadata access to Digestion {digestion_id}. "
             "Ask the owner to re-grant access with can_read_sources=true."
@@ -99,6 +99,11 @@ def _digest_access_error(exc: DigestionError, digestion_id: str, your_user_id: s
         payload["recovery"] = (
             f"This operation requires elevated access to Digestion {digestion_id}. "
             "Ask the owner to grant the needed source-metadata or manage access."
+        )
+    elif str(reason).startswith("datapoint_llm_"):
+        payload["recovery"] = (
+            "Structured datapoint extraction needs a configured Canopy AI provider credential. "
+            "Ask the operator/admin to configure Digestion AI settings, then retry with a narrower lens/max_chunks if needed."
         )
     return payload
 
@@ -144,6 +149,22 @@ def _mcp_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     except (TypeError, ValueError):
         parsed = default
     return max(minimum, min(parsed, maximum))
+
+
+def _mcp_flag(value: Any, *, default: bool = False) -> bool:
+    """Parse MCP boolean-like arguments without treating arbitrary strings as truthy."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off", ""}:
+        return False
+    return default
 
 
 def _mcp_vault_file_entry(file_info: Any) -> Dict[str, Any]:
@@ -4780,9 +4801,9 @@ class CanopyMCPServer:
                 export_ref = str(args.get("export_output_ref") or "").strip()
                 if export_ref:
                     return _mcp_json(manager.export_output_to_vault(digestion_id, self.user_id, export_ref))
-                if bool(args.get("export_package")):
+                if _mcp_flag(args.get("export_package"), default=False):
                     return _mcp_json(manager.export_package_to_vault(digestion_id, self.user_id))
-                if bool(args.get("generate")):
+                if _mcp_flag(args.get("generate"), default=False):
                     kinds = args.get("kinds") or args.get("output_kinds") or []
                     if isinstance(kinds, str):
                         kinds = [kinds]
@@ -4795,7 +4816,7 @@ class CanopyMCPServer:
                 outputs = manager.list_outputs(
                     digestion_id,
                     self.user_id,
-                    include_content=bool(args.get("include_content")),
+                    include_content=_mcp_flag(args.get("include_content"), default=False),
                 )
                 return _mcp_json({"success": True, "digestion_id": digestion_id, "outputs": outputs, "count": len(outputs)})
         except DigestionError as exc:

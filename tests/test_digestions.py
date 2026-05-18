@@ -484,6 +484,122 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(payload['extractor']['lens'], 'latency and setup-time metrics')
         self.assertEqual(call_mock.call_args.args[0]['parameters']['max_output_tokens'], 4321)
 
+    def test_structured_datapoints_drop_unsupported_claims(self) -> None:
+        source = self._save_text(
+            'unsupported-claim-corpus.txt',
+            'The benchmark measured a 42% improvement after the workflow change at 300 K.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Unsupported claim corpus',
+            source_file_ids=[source.id],
+            provider='local_hash',
+            chunk_size=320,
+            chunk_overlap=20,
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        response = json.dumps({
+            'datapoints': [
+                {
+                    'subject': 'workflow benchmark',
+                    'claim': 'The workflow doubled performance in every downstream system.',
+                    'numerical_results': ['The benchmark measured a 42% improvement after the workflow change at 300 K.'],
+                    'relationships': ['The workflow completely eliminated all errors in production.'],
+                    'evidence': [
+                        {
+                            'source_ref': 'chunk_0001',
+                            'field': 'numerical_results',
+                            'quote': 'The benchmark measured a 42% improvement after the workflow change at 300 K.',
+                        }
+                    ],
+                }
+            ]
+        })
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_datapoint_llm_context',
+            return_value=self._fake_datapoint_llm_context(),
+        ), patch.object(
+            self.digestion_manager,
+            '_call_datapoint_llm',
+            return_value=response,
+        ):
+            result = self.digestion_manager.generate_structured_datapoints(digestion['id'], 'owner-user')
+
+        self.assertTrue(result['success'])
+        output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'structured_datapoints')
+        payload = json.loads(output['content'])
+        datapoint = payload['datapoints'][0]
+        self.assertEqual(datapoint['claim'], '')
+        self.assertEqual(datapoint['relationships'], [])
+        self.assertTrue(datapoint['numerical_results'])
+
+    def test_structured_datapoints_limits_report_provider_bounded_output_tokens(self) -> None:
+        source = self._save_text(
+            'bedrock-limit-corpus.txt',
+            'The treated device increased current by 42% compared with the untreated control.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Bedrock limit corpus',
+            source_file_ids=[source.id],
+            provider='local_hash',
+            chunk_size=320,
+            chunk_overlap=20,
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        context = self._fake_datapoint_llm_context()
+        context['provider'] = 'bedrock'
+        context['parameters']['max_output_tokens'] = 999999
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_datapoint_llm_context',
+            return_value=context,
+        ), patch.object(
+            self.digestion_manager,
+            '_call_datapoint_llm',
+            return_value=self._fake_datapoint_llm_response(),
+        ):
+            result = self.digestion_manager.generate_structured_datapoints(digestion['id'], 'owner-user')
+
+        self.assertTrue(result['success'])
+        output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'structured_datapoints')
+        payload = json.loads(output['content'])
+        self.assertEqual(payload['limits']['max_output_tokens'], 12000)
+
+    def test_call_datapoint_llm_bounds_output_tokens_by_provider(self) -> None:
+        manager = MagicMock()
+        manager._call_openai.return_value = '{"datapoints":[]}'
+        manager._call_bedrock.return_value = '{"datapoints":[]}'
+
+        self.digestion_manager._call_datapoint_llm(
+            {
+                'manager': manager,
+                'provider': 'openai',
+                'model': 'gpt-test',
+                'api_key': 'openai-key',
+                'parameters': {'max_output_tokens': 999999},
+            },
+            system_prompt='system',
+            prompt='prompt',
+        )
+        self.assertEqual(manager._call_openai.call_args.kwargs['max_output_tokens'], 20000)
+
+        self.digestion_manager._call_datapoint_llm(
+            {
+                'manager': manager,
+                'provider': 'bedrock',
+                'model': 'bedrock-model',
+                'api_key': 'bedrock-secret',
+                'parameters': {'max_output_tokens': 999999},
+            },
+            system_prompt='system',
+            prompt='prompt',
+        )
+        self.assertEqual(manager._call_bedrock.call_args.kwargs['max_output_tokens'], 12000)
+
     def test_structured_datapoints_requires_configured_llm_provider(self) -> None:
         source = self._save_text(
             'requires-llm.txt',
@@ -566,6 +682,10 @@ class TestDigestions(unittest.TestCase):
                 self.digestion_manager.generate_structured_datapoints(digestion['id'], 'reader-user')
         self.assertEqual(extraction_context.exception.reason, 'datapoint_source_metadata_denied')
         context_mock.assert_not_called()
+        gen_result = self.digestion_manager.generate_outputs(digestion['id'], 'reader-user')
+        self.assertEqual({output['output_kind'] for output in gen_result['outputs']}, {'agent_context'})
+        for output_row in gen_result['outputs']:
+            self.assertNotIn('source-revealing-corpus.txt', output_row.get('preview', ''))
 
         self.digestion_manager.grant_access(
             digestion['id'],

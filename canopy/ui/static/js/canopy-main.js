@@ -2239,6 +2239,7 @@
 	                    const stats = digestion.stats || {};
 	                    const access = digestion.access || {};
 	                    const canManage = !!access.can_manage;
+                    const canReadSources = !!access.can_read_sources;
 	                    const chunks = Number(stats.chunks || 0);
 	                    const tokens = Number(stats.token_estimate || 0);
                     const sourceCount = Array.isArray(digestion.sources) ? digestion.sources.length : 0;
@@ -2248,6 +2249,12 @@
                     const queryTitle = queryDisabled
                         ? 'Build this Digestion before querying; no indexed chunks are available yet.'
                         : 'Query indexed chunks with cited retrieval.';
+                    const extractDisabled = queryDisabled || !canReadSources;
+                    const extractTitle = queryDisabled
+                        ? 'Build this Digestion before extracting structured datapoints.'
+                        : (!canReadSources
+                            ? 'Extract datapoints requires source-read access. Ask the owner to grant source metadata access for this Digestion.'
+                            : 'Create an LLM-normalized, source-grounded JSON datapoint package using your Profile > Digestion AI Extraction settings or the admin fallback. This sends indexed chunks to the configured provider.');
                     const rawStatus = String((digestion && digestion.status) || 'draft');
                     const hasBeenBuilt = rawStatus !== 'draft';
                     const buildLabel = hasBeenBuilt ? 'Rebuild' : 'Build';
@@ -2265,6 +2272,7 @@
                                 <span class="vault-digestion-pill"><i class="bi bi-file-earmark-text"></i>${tokens} tokens</span>
                                 <span class="vault-digestion-pill"><i class="bi bi-cpu"></i>${provider}</span>
                                 ${queryDisabled && hasBeenBuilt ? `<span class="vault-digestion-pill text-warning" title="No indexed chunks available. Run Build/Rebuild to index sources."><i class="bi bi-exclamation-triangle"></i>No chunks - build first</span>` : ''}
+                                ${canManage && !canReadSources ? `<span class="vault-digestion-pill text-warning" title="Source-read access is required for Extract datapoints."><i class="bi bi-shield-exclamation"></i>No source-read access</span>` : ''}
                             </div>
                             <div class="vault-digestion-actions">
                                 <button class="btn btn-sm btn-primary" type="button" data-vault-digestion-action="build" data-vault-digestion-id="${id}" aria-label="${buildLabel} ${name}" title="${buildTitle}">
@@ -2274,7 +2282,7 @@
                                     <i class="bi bi-journal-richtext"></i> Outputs
                                 </button>
 	                                ${canManage ? `
-	                                <button class="btn btn-sm btn-outline-info" type="button" data-vault-digestion-action="extract-datapoints" data-vault-digestion-id="${id}" aria-label="Extract structured datapoints for ${name}" title="${queryDisabled ? 'Build this Digestion before extracting structured datapoints.' : 'Create an LLM-normalized, source-grounded JSON datapoint package using your Profile > Digestion AI Extraction settings or the admin fallback.'}" ${queryDisabled ? 'disabled' : ''}>
+	                                <button class="btn btn-sm btn-outline-info" type="button" data-vault-digestion-action="extract-datapoints" data-vault-digestion-id="${id}" aria-label="Extract structured datapoints for ${name}" title="${extractTitle}" ${extractDisabled ? 'disabled' : ''}>
 	                                    <i class="bi bi-grid-3x3-gap"></i> Extract datapoints
 	                                </button>
 	                                ` : ''}
@@ -2440,6 +2448,8 @@
                 }
 
                 function renderDigestionOutputCard(digestionId, output) {
+                    const DATAPOINTS_PREVIEW_LENGTH = 560;
+                    const STANDARD_PREVIEW_LENGTH = 420;
                     const metadata = output && output.metadata || {};
                     const kind = String(output && output.output_kind || '');
                     const isDatapoints = kind === 'structured_datapoints';
@@ -2447,7 +2457,10 @@
                     const quantitativeCount = Number(metadata.quantitative_result_count || 0);
                     const chunkCount = Number(metadata.chunks_considered || 0);
                     const sourceCount = Number(metadata.source_count || 0);
-                    const preview = vaultEscape(output && output.preview || '').slice(0, isDatapoints ? 260 : 420);
+                    const preview = vaultEscape(output && output.preview || '').slice(
+                        0,
+                        isDatapoints ? DATAPOINTS_PREVIEW_LENGTH : STANDARD_PREVIEW_LENGTH
+                    );
                     return `
                         <div class="vault-digestion-output${isDatapoints ? ' is-datapoints' : ''}">
                             <div class="vault-digestion-output-head">
@@ -2481,7 +2494,7 @@
                                     <span><strong>${sourceCount}</strong> source${sourceCount === 1 ? '' : 's'}</span>
                                 </div>
                             ` : ''}
-                            <div>${preview || (isDatapoints ? 'Structured datapoint JSON package ready for export or agent handoff.' : '')}</div>
+                            <div class="${isDatapoints ? 'vault-digestion-output-preview' : ''}">${preview || (isDatapoints ? 'Structured datapoint JSON package ready for export or agent handoff.' : '')}</div>
                         </div>
                     `;
                 }
@@ -2546,7 +2559,18 @@
                         }
                         await loadDigestionOutputs(digestionId, null, { force: true });
                     } catch (error) {
-                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not extract structured datapoints.', 'danger');
+                        if (typeof showAlert === 'function') {
+                            const reason = String((error && error.reason) || '').trim();
+                            let message = (error && error.error) || 'Could not extract structured datapoints.';
+                            if (reason === 'no_indexed_chunks') {
+                                message = 'Build this Digestion before extracting datapoints; no indexed chunks are available yet.';
+                            } else if (reason === 'datapoint_source_metadata_denied' || reason === 'source_metadata_denied') {
+                                message = 'Extract datapoints requires source-read access. Ask the owner to grant source metadata access for this Digestion.';
+                            } else if (reason === 'datapoint_missing_api_key' || reason === 'datapoint_llm_disabled') {
+                                message = 'Digestion AI extraction is not configured. Add credentials in Profile > Digestion AI Extraction, or ask an admin to enable instance Digestion fallback.';
+                            }
+                            showAlert(message, 'danger');
+                        }
                     } finally {
                         if (button) {
                             button.disabled = false;

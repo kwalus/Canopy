@@ -811,6 +811,7 @@
                         </div>
                         <p class="text-muted small mb-3">
                             Controls the LLM used when a Digestion extracts structured datapoints from indexed Vault content. These settings are separate from <code>@Canopy</code> compose so you can use a stronger or cheaper extraction model without changing your posting assistant.
+                            Extraction may call an external provider with indexed chunks and requires source-read access on that Digestion.
                         </p>
                         {% if digestion_ai.get('instance_fallback_available') %}
                         <div class="alert alert-success py-2 small mb-3">
@@ -1586,7 +1587,7 @@ function setupDigestionLLMSettings() {
         if (keyHelp) {
             keyHelp.innerHTML = isBedrock
                 ? 'Use a Bedrock API key/bearer token plus <code>region</code>, or JSON/KEY=VALUE lines. Bedrock web search is not used for Digestion extraction.'
-                : 'Blank keeps the saved key. Without a personal key, Canopy uses the admin Digestion fallback if available.';
+                : 'Blank keeps the saved key. Without a personal key, Canopy uses the admin Digestion fallback if available. Extraction sends indexed chunks to the configured provider.';
         }
         if (paramInputs.max_output_tokens) {
             paramInputs.max_output_tokens.max = isBedrock ? '12000' : '20000';
@@ -1606,7 +1607,8 @@ function setupDigestionLLMSettings() {
     if (CANOPY_DIGESTION_LLM_SETTINGS && CANOPY_DIGESTION_LLM_SETTINGS.provider && providerInput) {
         providerInput.value = CANOPY_DIGESTION_LLM_SETTINGS.provider;
     }
-    applyProviderCopy(CANOPY_DIGESTION_LLM_SETTINGS || {});
+    let currentDigestionLlmSettings = Object.assign({}, CANOPY_DIGESTION_LLM_SETTINGS || {});
+    applyProviderCopy(currentDigestionLlmSettings);
     if (providerInput) {
         providerInput.addEventListener('change', () => applyProviderCopy({}));
     }
@@ -1622,6 +1624,15 @@ function setupDigestionLLMSettings() {
         };
         const apiKey = keyInput ? keyInput.value.trim() : '';
         if (apiKey) payload.api_key = apiKey;
+        const hasPersonalCredentials = !!(apiKey || (currentDigestionLlmSettings.api_key_configured && !payload.clear_api_key));
+        const fallbackReady = !!currentDigestionLlmSettings.instance_fallback_available;
+        if (payload.enabled && !hasPersonalCredentials && !fallbackReady) {
+            if (statusEl) {
+                statusEl.className = 'small text-danger';
+                statusEl.textContent = 'Enable failed: add personal extraction credentials, or ask an admin to configure and enable the instance Digestion fallback first.';
+            }
+            return;
+        }
         saveBtn.disabled = true;
         if (statusEl) {
             statusEl.className = 'small text-muted';
@@ -1634,18 +1645,28 @@ function setupDigestionLLMSettings() {
         })
         .then((data) => {
             const settings = data.settings || {};
+            currentDigestionLlmSettings = Object.assign({}, settings);
             if (keyInput) keyInput.value = '';
             if (clearKeyInput) clearKeyInput.checked = false;
             applyProviderCopy(settings);
             if (statusEl) {
                 statusEl.className = 'small text-success';
-                let keyText = 'Saved. Add an extraction key before running Digestion datapoints.';
+                const provider = settings.provider || (providerInput ? providerInput.value : 'openai');
+                const isBedrock = provider === 'bedrock';
+                let keyText = isBedrock
+                    ? 'Saved. Add Bedrock extraction credentials before running Digestion datapoints.'
+                    : 'Saved. Add an extraction key before running Digestion datapoints.';
                 if (settings.api_key_configured) {
-                    keyText = 'Saved. Personal Digestion extraction credentials are configured locally.';
+                    keyText = isBedrock
+                        ? 'Saved. Personal Bedrock extraction credentials are configured locally.'
+                        : 'Saved. Personal Digestion extraction credentials are configured locally.';
                 } else if (settings.instance_fallback_available) {
                     keyText = 'Saved. No personal key configured; instance Digestion fallback is available.';
                 }
-                statusEl.textContent = `${keyText} Limits will apply to future datapoint extraction runs.`;
+                const modeText = settings.enabled
+                    ? ' Personal extraction settings are enabled.'
+                    : ' Personal extraction settings are off; Canopy will use the admin fallback when available.';
+                statusEl.textContent = `${keyText}${modeText} Limits will apply to future datapoint extraction runs.`;
             }
         })
         .catch((error) => {
