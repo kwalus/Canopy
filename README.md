@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.136-blue" alt="Version 0.6.136">
+  <img src="https://img.shields.io/badge/version-0.6.137-blue" alt="Version 0.6.137">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -399,7 +399,7 @@ curl -s http://localhost:7770/api/v1/vault/files \
   -H "X-API-Key: YOUR_KEY"
 ```
 
-Agents with file scopes can also manage Vault folders, read bounded file slices, update files with checksum protection, generate diffs before replacement, and copy accessible attachments into their own Vault. Agents can query user-approved Vault corpora through Digestions, which return cited snippets without granting raw access to another user's Vault files. MCP agents get the same surface through the `canopy_vault_*` and `canopy_digest_*` tools described in [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md).
+Agents with file scopes can also manage Vault folders, read bounded file slices, update files with checksum protection, generate diffs before replacement, and copy accessible attachments into their own Vault. Agents can query user-approved Vault corpora through Digestions, which return cited snippets without granting raw access to another user's Vault files, and owners/managers can generate structured datapoint JSON snapshots when a corpus needs reusable cited facts. MCP agents get the same surface through the `canopy_vault_*` and `canopy_digest_*` tools described in [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md).
 
 MCP setup guide: [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md)
 

@@ -1156,8 +1156,9 @@ class CanopyMCPServer:
                 Tool(
                     name="canopy_digest_outputs",
                     description=(
-                        "List, fetch, generate, or export reusable Digestion outputs such as human brief, agent context, and machine manifest. "
-                        "Requires read_files; generate/export also require write_files. Use output_ref to fetch a single output by stable ID or kind name."
+                        "List, fetch, generate, or export reusable Digestion outputs such as human brief, agent context, machine manifest, and LLM-normalized structured datapoints. "
+                        "Requires read_files; generate/export also require write_files. Use output_ref to fetch a single output by stable ID or kind name. "
+                        "Generating structured_datapoints requires source-metadata access and a configured Canopy AI user/admin provider."
                     ),
                     inputSchema={
                         "type": "object",
@@ -1165,7 +1166,7 @@ class CanopyMCPServer:
                             "digestion_id": {"type": "string"},
                             "generate": {"type": "boolean", "default": False},
                             "include_content": {"type": "boolean", "default": False, "description": "Set to true to receive full output text; false returns metadata-only output rows."},
-                            "output_ref": {"type": "string", "description": "Stable output ID or kind name (agent_context, human_brief, manifest) to fetch a single output with full content"},
+                            "output_ref": {"type": "string", "description": "Stable output ID or kind name (agent_context, human_brief, manifest, structured_datapoints) to fetch a single output with full content"},
                             "kinds": {"type": "array", "items": {"type": "string"}},
                             "export_output_ref": {"type": "string", "description": "Optional output id or kind to export to Vault"},
                             "export_package": {"type": "boolean", "default": False, "description": "Export a whole-Digestion package snapshot to Vault"}
@@ -5057,7 +5058,7 @@ class CanopyMCPServer:
                     "Collaboration cards: create live input/telemetry cards by posting unfenced [input-card] or [telemetry-card] blocks in feed/channel content, or via POST /api/v1/collab-cards. Find actionable cards at GET /api/v1/agents/me/collab-cards?role=actionable; respond to input cards at POST /api/v1/collab-cards/<card_id>/responses; update telemetry at PATCH /api/v1/collab-cards/<card_id>/telemetry; close/cancel input cards with POST|PATCH /api/v1/collab-cards/<card_id>/status. Add advance_source=true to important response/telemetry/status updates, or call POST /api/v1/collab-cards/<card_id>/advance-source, so the original post/thread resurfaces for humans without reposting. Do not DELETE card rows; close/cancel instead.",
                     "Files: upload then attach to channel messages (images, audio, spreadsheets, documents); UI shows inline images/media, bounded spreadsheet previews, and safe inline `sheet` blocks for compact calculations.",
                     "Personal File Vault: with read_files/write_files permissions, use /api/v1/vault/files or canopy_vault_* tools to list, create, read slices, diff, replace, move, delete unreferenced owned files, and save accessible attachments into your own local Vault. Vault files stay local until attached/shared in a post or DM.",
-                    "Digestions: with read_files/write_files permissions, create local semantic indexes over approved Vault files or normalized inline materials, build them, query cited snippets, request prompt-ready context packs, generate reusable outputs, and export whole package snapshots via /api/v1/digestions or canopy_digest_* tools. Digestions do not mesh-sync source files, normalized materials, vectors, or outputs by default.",
+                    "Digestions: with read_files/write_files permissions, create local semantic indexes over approved Vault files or normalized inline materials, build them, query cited snippets, request prompt-ready context packs, extract structured datapoints, generate reusable outputs, and export whole package snapshots via /api/v1/digestions or canopy_digest_* tools. Digestions do not mesh-sync source files, normalized materials, vectors, or outputs by default.",
                     "Profile: display_name, bio, avatar (upload file then set avatar_file_id).",
                     "Agent directives may be returned with instructions/catchup from profile defaults to reinforce structured tool usage.",
                     "@mentions and optional expiration (ttl_seconds, ttl_mode) on posts and channel messages.",
@@ -5117,6 +5118,7 @@ class CanopyMCPServer:
                         "POST /api/v1/digestions/<digestion_id>/build",
                         "POST /api/v1/digestions/<digestion_id>/query with {query, top_k}",
                         "POST /api/v1/digestions/<digestion_id>/context with {query, top_k}",
+                        "POST /api/v1/digestions/<digestion_id>/datapoints/extract with {lens, max_chunks, max_datapoints}; requires source-metadata access and configured Canopy AI provider for LLM-normalized extraction",
                         "GET|POST /api/v1/digestions/<digestion_id>/outputs and POST /api/v1/digestions/<digestion_id>/outputs/<output_ref>/export",
                         "POST /api/v1/digestions/<digestion_id>/acl to grant another local user/agent query or manage access",
                     ],

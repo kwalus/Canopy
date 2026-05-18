@@ -640,6 +640,12 @@
         color: var(--canopy-text-secondary);
         font-size: 0.83rem;
     }
+    .vault-digestion-output.is-datapoints {
+        border-color: color-mix(in srgb, var(--canopy-accent) 38%, var(--canopy-border));
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-accent) 12%, transparent), transparent),
+            color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+    }
     .vault-digestion-output-head {
         display: flex;
         align-items: center;
@@ -659,6 +665,25 @@
         font-weight: 850;
         min-width: 0;
         overflow-wrap: anywhere;
+    }
+    .vault-digestion-output-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin: 0.35rem 0 0.45rem;
+    }
+    .vault-digestion-output-summary span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-accent) 28%, var(--canopy-border));
+        border-radius: 999px;
+        padding: 0.2rem 0.45rem;
+        background: color-mix(in srgb, var(--canopy-accent) 10%, transparent);
+        color: var(--canopy-text-secondary);
+    }
+    .vault-digestion-output-summary strong {
+        color: var(--canopy-text-primary);
     }
     .vault-grid {
         display: grid;

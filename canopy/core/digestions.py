@@ -47,7 +47,18 @@ MAX_FILE_CHARS = int(os.getenv("CANOPY_DIGESTION_MAX_FILE_CHARS", "2000000"))
 MAX_CHUNKS_PER_BUILD = int(os.getenv("CANOPY_DIGESTION_MAX_CHUNKS_PER_BUILD", "5000"))
 MAX_MATERIALS_PER_INGEST = int(os.getenv("CANOPY_DIGESTION_MAX_MATERIALS_PER_INGEST", "100"))
 MIN_LOCAL_HASH_QUERY_SCORE = float(os.getenv("CANOPY_DIGESTION_LOCAL_HASH_MIN_SCORE", "0.08") or "0.08")
-_SOURCE_REVEALING_OUTPUT_KINDS = {"manifest", "human_brief"}
+STRUCTURED_DATAPOINT_OUTPUT_KIND = "structured_datapoints"
+STRUCTURED_DATAPOINT_SCHEMA_VERSION = "canopy_structured_datapoints_v1"
+DEFAULT_STRUCTURED_DATAPOINT_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_DEFAULT_CHUNKS", "80"))
+MAX_STRUCTURED_DATAPOINT_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_MAX_CHUNKS", "240"))
+DEFAULT_STRUCTURED_DATAPOINTS_PER_RUN = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_DEFAULT_RECORDS", "400"))
+MAX_STRUCTURED_DATAPOINTS_PER_RUN = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_MAX_RECORDS", "1200"))
+MAX_STRUCTURED_DATAPOINT_LLM_BATCH_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_BATCH_CHUNKS", "6"))
+MAX_STRUCTURED_DATAPOINT_LLM_BATCH_CHARS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_BATCH_CHARS", "18000"))
+MAX_STRUCTURED_DATAPOINT_LLM_CHUNK_CHARS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_CHUNK_CHARS", "2800"))
+MAX_STRUCTURED_DATAPOINTS_PER_LLM_BATCH = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_BATCH_RECORDS", "40"))
+MAX_STRUCTURED_DATAPOINT_LLM_OUTPUT_TOKENS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_OUTPUT_TOKENS", "7000"))
+_SOURCE_REVEALING_OUTPUT_KINDS = {"manifest", "human_brief", STRUCTURED_DATAPOINT_OUTPUT_KIND}
 _OPENAI_EMBEDDINGS_URL = os.getenv(
     "CANOPY_DIGESTION_OPENAI_EMBEDDINGS_URL",
     "https://api.openai.com/v1/embeddings",
@@ -763,7 +774,7 @@ class DigestionManager:
         requested = {str(kind or "").strip().lower() for kind in (kinds or []) if str(kind or "").strip()}
         if not requested:
             requested = {"manifest", "human_brief", "agent_context"}
-        allowed = {"manifest", "human_brief", "agent_context"}
+        allowed = {"manifest", "human_brief", "agent_context", STRUCTURED_DATAPOINT_OUTPUT_KIND}
         requested = requested & allowed
         if not requested:
             raise DigestionError("No supported output kinds requested.", status_code=400, reason="unsupported_output_kind")
@@ -776,7 +787,161 @@ class DigestionManager:
                 outputs.append(self._upsert_output(digestion, actor_user_id, *self._build_human_brief_output(digestion)))
             elif kind == "agent_context":
                 outputs.append(self._upsert_output(digestion, actor_user_id, *self._build_agent_context_output(digestion)))
+            elif kind == STRUCTURED_DATAPOINT_OUTPUT_KIND:
+                outputs.append(self.generate_structured_datapoints(digestion.id, actor_user_id)["output"])
         return {"success": True, "digestion_id": digestion.id, "outputs": outputs, "count": len(outputs)}
+
+    def generate_structured_datapoints(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        max_chunks: Optional[int] = None,
+        max_datapoints: Optional[int] = None,
+        lens: str = "",
+    ) -> dict[str, Any]:
+        """Extract source-grounded structured datapoints from indexed chunks using an LLM."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        access = self._access_for(digestion, actor_user_id)
+        if not access.get("can_read_sources"):
+            raise DigestionError(
+                "Structured datapoint extraction sends indexed source chunks to the configured LLM provider. Source metadata access is required.",
+                status_code=403,
+                reason="datapoint_source_metadata_denied",
+            )
+        llm_context = self._resolve_datapoint_llm_context(actor_user_id)
+        parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
+        default_lens = str(llm_context.get("default_lens") or "").strip()
+        effective_lens = str(lens or "").strip() or default_lens
+        chunk_limit = self._bounded_int(
+            max_chunks,
+            int(parameters.get("max_chunks") or DEFAULT_STRUCTURED_DATAPOINT_CHUNKS),
+            1,
+            MAX_STRUCTURED_DATAPOINT_CHUNKS,
+        )
+        datapoint_limit = self._bounded_int(
+            max_datapoints,
+            int(parameters.get("max_datapoints") or DEFAULT_STRUCTURED_DATAPOINTS_PER_RUN),
+            1,
+            MAX_STRUCTURED_DATAPOINTS_PER_RUN,
+        )
+        rows = self._datapoint_chunk_rows(digestion.id, limit=chunk_limit)
+        if not rows:
+            raise DigestionError(
+                "Build this Digestion before extracting structured datapoints; no indexed chunks are available.",
+                status_code=400,
+                reason="no_indexed_chunks",
+            )
+
+        extraction = self._extract_structured_datapoints_with_llm(
+            digestion,
+            rows,
+            llm_context=llm_context,
+            lens=effective_lens,
+            datapoint_limit=datapoint_limit,
+        )
+        datapoints = extraction["datapoints"]
+        quantitative_result_count = sum(len(item.get("quantitative_results") or []) for item in datapoints)
+
+        field_counts = {
+            "materials": sum(len(item.get("materials") or []) for item in datapoints),
+            "methods": sum(len(item.get("methods") or []) for item in datapoints),
+            "measurements": sum(len(item.get("measurements") or []) for item in datapoints),
+            "numerical_results": sum(len(item.get("numerical_results") or []) for item in datapoints),
+            "relationships": sum(len(item.get("relationships") or []) for item in datapoints),
+            "limitations_or_uncertainty": sum(len(item.get("limitations_or_uncertainty") or []) for item in datapoints),
+        }
+        sources = self._source_summary_rows(digestion.id)
+        payload = {
+            "kind": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
+            "schema_version": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
+            "digestion": {
+                "id": digestion.id,
+                "name": digestion.name,
+                "purpose": digestion.purpose or digestion.description,
+                "status": digestion.status,
+                "built_at": digestion.built_at,
+            },
+            "extractor": {
+                "name": "canopy_llm_structured_datapoint_extractor",
+                "version": "2",
+                "mode": "source_grounded_llm",
+                "provider": llm_context.get("provider") or "",
+                "model": llm_context.get("model") or "",
+                "credential_source": llm_context.get("credential_source") or "",
+                "network_calls": True,
+                "lens": effective_lens[:800],
+                "source_boundary": "only indexed Digestion chunks are sent to the configured LLM provider; raw Vault files are not exported",
+            },
+            "limits": {
+                "max_chunks": chunk_limit,
+                "max_datapoints": datapoint_limit,
+                "batch_chunks": extraction["stats"].get("batch_chunk_limit"),
+                "batch_chars": extraction["stats"].get("batch_char_limit"),
+                "chunk_chars": extraction["stats"].get("chunk_char_limit"),
+                "batch_records": extraction["stats"].get("batch_record_limit"),
+                "max_output_tokens": parameters.get("max_output_tokens") or MAX_STRUCTURED_DATAPOINT_LLM_OUTPUT_TOKENS,
+            },
+            "stats": {
+                "datapoint_count": len(datapoints),
+                "quantitative_result_count": quantitative_result_count,
+                "source_count": len(sources),
+                "chunks_considered": len(rows),
+                "batches_considered": extraction["stats"].get("batches_considered", 0),
+                "failed_batches": extraction["stats"].get("failed_batches", 0),
+                "chunks_without_datapoints": extraction["stats"].get("chunks_without_datapoints", 0),
+                "field_counts": field_counts,
+                "errors": extraction["errors"][:8],
+            },
+            "sources": [
+                {
+                    "file_id": item.get("file_id") or "",
+                    "file_name": item.get("file_name") or "",
+                    "source_kind": item.get("source_kind") or "",
+                    "source_label": item.get("source_label") or "",
+                    "chunk_count": item.get("chunk_count") or 0,
+                }
+                for item in sources
+            ],
+            "datapoints": datapoints,
+            "reuse_guidance": [
+                "Treat each datapoint as a cited record, not as a complete reading of the underlying source.",
+                "Use source.file_name, source.page_label, source.chunk_index, and evidence[] when citing or challenging a datapoint.",
+                "If a field is empty, the extractor did not find source-grounded evidence for that field in the supplied chunks.",
+                "For live semantic retrieval, keep using the Digestion query/context endpoints; this output is a reusable structured snapshot.",
+            ],
+            "generated_at": self._now(),
+        }
+        output = self._upsert_output(
+            digestion,
+            actor_user_id,
+            STRUCTURED_DATAPOINT_OUTPUT_KIND,
+            f"{digestion.name or 'Digestion'} Structured Datapoints",
+            "application/json",
+            json.dumps(payload, indent=2, sort_keys=True),
+            {
+                "schema_version": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
+                "extractor": payload["extractor"],
+                "datapoint_count": len(datapoints),
+                "quantitative_result_count": quantitative_result_count,
+                "chunks_considered": len(rows),
+                "batches_considered": extraction["stats"].get("batches_considered", 0),
+                "failed_batches": extraction["stats"].get("failed_batches", 0),
+                "chunks_without_datapoints": extraction["stats"].get("chunks_without_datapoints", 0),
+                "field_counts": field_counts,
+                "source_count": len(sources),
+                "source_revealing": True,
+            },
+        )
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "output": output,
+            "datapoint_count": len(datapoints),
+            "quantitative_result_count": quantitative_result_count,
+            "stats": payload["stats"],
+            "preview": datapoints[:3],
+        }
 
     def list_outputs(
         self,
@@ -799,7 +964,8 @@ class DigestionManager:
                     CASE output_kind
                         WHEN 'human_brief' THEN 1
                         WHEN 'agent_context' THEN 2
-                        WHEN 'manifest' THEN 3
+                        WHEN 'structured_datapoints' THEN 3
+                        WHEN 'manifest' THEN 4
                         ELSE 9
                     END,
                     updated_at DESC
@@ -876,6 +1042,7 @@ class DigestionManager:
                 "query": f"POST /api/v1/digestions/{digestion.id}/query",
                 "context": f"POST /api/v1/digestions/{digestion.id}/context",
                 "outputs": f"GET /api/v1/digestions/{digestion.id}/outputs",
+                "structured_datapoints": f"POST /api/v1/digestions/{digestion.id}/datapoints/extract",
             },
             "mcp": {
                 "query": "canopy_digest_query",
@@ -1467,6 +1634,615 @@ class DigestionManager:
                 (digestion_id,),
             ).fetchall()
 
+    def _datapoint_chunk_rows(self, digestion_id: str, *, limit: int) -> list[Any]:
+        with self.db.get_connection() as conn:
+            return conn.execute(
+                """
+                SELECT c.id AS chunk_id, c.file_id, c.chunk_index, c.text, c.token_estimate,
+                       c.page_label, s.file_name, s.content_type, s.source_kind,
+                       s.source_label, s.source_uri
+                FROM digestion_chunks c
+                LEFT JOIN digestion_sources s ON s.digestion_id = c.digestion_id AND s.file_id = c.file_id
+                WHERE c.digestion_id = ?
+                ORDER BY COALESCE(s.file_name, c.file_id) COLLATE NOCASE, c.file_id, c.chunk_index
+                LIMIT ?
+                """,
+                (digestion_id, max(1, int(limit or 1))),
+            ).fetchall()
+
+    def _resolve_datapoint_llm_context(self, actor_user_id: str) -> dict[str, Any]:
+        from .canopy_ai import CanopyLLMError, CanopyLLMManager
+
+        try:
+            secret_key = getattr(self.config, "secret_key", "") if self.config is not None else ""
+            manager = CanopyLLMManager(self.db, secret_key or os.getenv("CANOPY_SECRET_KEY", ""))
+            settings = manager._resolve_effective_digestion_settings(actor_user_id)
+        except CanopyLLMError as exc:
+            raise DigestionError(
+                f"LLM-backed datapoint extraction is not configured: {exc}",
+                status_code=int(getattr(exc, "status_code", 400) or 400),
+                reason=f"datapoint_{getattr(exc, 'reason', 'llm_unavailable')}",
+            ) from exc
+        provider = str(settings.get("provider") or "openai").strip().lower()
+        if provider not in {"openai", "bedrock"}:
+            raise DigestionError(
+                "Structured datapoint extraction requires an OpenAI Responses or AWS Bedrock provider.",
+                status_code=400,
+                reason="datapoint_unsupported_llm_provider",
+            )
+        return {
+            "manager": manager,
+            "provider": provider,
+            "api_key": str(settings.get("api_key") or ""),
+            "model": str(settings.get("model") or ""),
+            "credential_source": str(settings.get("credential_source") or "user"),
+            "default_lens": str(settings.get("default_lens") or ""),
+            "parameters": settings.get("parameters") if isinstance(settings.get("parameters"), dict) else {},
+        }
+
+    def _extract_structured_datapoints_with_llm(
+        self,
+        digestion: Digestion,
+        rows: list[Any],
+        *,
+        llm_context: dict[str, Any],
+        lens: str,
+        datapoint_limit: int,
+    ) -> dict[str, Any]:
+        parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
+        batch_record_limit = self._bounded_int(
+            parameters.get("batch_records"),
+            MAX_STRUCTURED_DATAPOINTS_PER_LLM_BATCH,
+            1,
+            120,
+        )
+        batches = self._datapoint_llm_batches(rows, parameters=parameters)
+        if not batches:
+            raise DigestionError("No indexed chunk text is available for LLM extraction.", status_code=400, reason="no_indexed_chunks")
+
+        datapoints: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        touched_refs: set[str] = set()
+        processed_refs: set[str] = set()
+        system_prompt = self._structured_datapoint_system_prompt()
+        for batch_index, batch in enumerate(batches, start=1):
+            batch_refs = {str(entry["source_ref"]) for entry in batch}
+            processed_refs.update(batch_refs)
+            source_map = {str(entry["source_ref"]): entry for entry in batch}
+            try:
+                prompt = self._structured_datapoint_user_prompt(
+                    digestion,
+                    batch,
+                    lens=lens,
+                    batch_index=batch_index,
+                    batch_count=len(batches),
+                    remaining=max(1, int(datapoint_limit) - len(datapoints)),
+                    batch_record_limit=batch_record_limit,
+                )
+                raw = self._call_datapoint_llm(llm_context, system_prompt=system_prompt, prompt=prompt)
+                parsed = self._parse_datapoint_llm_json(raw, llm_context=llm_context, system_prompt=system_prompt)
+                normalized, record_refs = self._normalize_llm_datapoints(
+                    parsed.get("datapoints") if isinstance(parsed, dict) else [],
+                    source_map=source_map,
+                    digestion=digestion,
+                    remaining=max(0, int(datapoint_limit) - len(datapoints)),
+                )
+                datapoints.extend(normalized)
+                touched_refs.update(record_refs)
+            except DigestionError as exc:
+                errors.append({
+                    "batch_index": batch_index,
+                    "source_refs": sorted(batch_refs),
+                    "reason": getattr(exc, "reason", "datapoint_batch_failed"),
+                    "error": str(exc)[:500],
+                })
+            if len(datapoints) >= int(datapoint_limit):
+                break
+
+        if not datapoints and errors:
+            first = errors[0]
+            raise DigestionError(
+                f"LLM datapoint extraction failed before producing usable records: {first.get('error') or 'unknown error'}",
+                status_code=502,
+                reason="datapoint_llm_extraction_failed",
+            )
+        return {
+            "datapoints": datapoints[:int(datapoint_limit)],
+            "errors": errors,
+            "stats": {
+                "batches_considered": len(batches),
+                "failed_batches": len(errors),
+                "chunks_without_datapoints": len(processed_refs - touched_refs),
+                "batch_chunk_limit": self._bounded_int(
+                    parameters.get("batch_chunks"),
+                    6,
+                    1,
+                    24,
+                ),
+                "batch_char_limit": self._bounded_int(
+                    parameters.get("batch_chars"),
+                    18000,
+                    4000,
+                    60000,
+                ),
+                "chunk_char_limit": self._bounded_int(
+                    parameters.get("chunk_chars"),
+                    2800,
+                    800,
+                    8000,
+                ),
+                "batch_record_limit": batch_record_limit,
+            },
+        }
+
+    def _datapoint_llm_batches(self, rows: list[Any], *, parameters: Optional[dict[str, Any]] = None) -> list[list[dict[str, Any]]]:
+        parameters = parameters if isinstance(parameters, dict) else {}
+        batch_chunk_limit = self._bounded_int(parameters.get("batch_chunks"), 6, 1, 24)
+        batch_char_limit = self._bounded_int(parameters.get("batch_chars"), 18000, 4000, 60000)
+        chunk_char_limit = self._bounded_int(parameters.get("chunk_chars"), 2800, 800, 8000)
+        batches: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        current_chars = 0
+        for index, row in enumerate(rows, start=1):
+            text = self._normalize_text(str(row["text"] or ""))[:chunk_char_limit]
+            if not text:
+                continue
+            entry = {
+                "source_ref": f"chunk_{index:04d}",
+                "row": row,
+                "file_id": str(row["file_id"] or ""),
+                "file_name": str(row["file_name"] or row["file_id"] or ""),
+                "content_type": str(row["content_type"] or ""),
+                "source_kind": str(self._row_get(row, "source_kind", "vault_file") or "vault_file"),
+                "source_label": str(self._row_get(row, "source_label", "") or row["file_name"] or ""),
+                "source_uri": str(self._row_get(row, "source_uri", "") or ""),
+                "chunk_id": str(row["chunk_id"] or ""),
+                "chunk_index": int(row["chunk_index"] or 0),
+                "page_label": str(row["page_label"] or ""),
+                "token_estimate": int(row["token_estimate"] or 0),
+                "text": text,
+            }
+            entry_chars = len(text) + 600
+            if current and (len(current) >= batch_chunk_limit or current_chars + entry_chars > batch_char_limit):
+                batches.append(current)
+                current = []
+                current_chars = 0
+            current.append(entry)
+            current_chars += entry_chars
+        if current:
+            batches.append(current)
+        return batches
+
+    @staticmethod
+    def _structured_datapoint_system_prompt() -> str:
+        return """You are Canopy's LLM structured datapoint extraction engine.
+
+Extract reusable datapoints from supplied source chunks. Use intelligence to normalize concepts across chunks, but stay strictly source-grounded.
+
+Rules:
+- Return one valid JSON object only. No markdown fences, prose, comments, or trailing text.
+- Use only facts present in the supplied chunks. Do not infer values, units, materials, methods, or relationships that are not in evidence.
+- Every datapoint must include at least one evidence item with source_ref and a short exact quote from the source chunk.
+- Normalize labels and terminology when the source supports it, but preserve original value_text and unit strings.
+- Prefer fewer, higher-quality datapoints over noisy extraction.
+- If no datapoints are supported, return {"datapoints":[]}.
+
+Required JSON shape:
+{
+  "datapoints": [
+    {
+      "subject": "short normalized subject",
+      "claim": "one source-grounded factual assertion",
+      "materials": ["material, system, dataset, entity, or sample"],
+      "methods": ["method, protocol, setup, model, or procedure"],
+      "measurements": ["measured or observed property"],
+      "numerical_results": ["source-grounded sentence or clause containing a number"],
+      "relationships": ["comparison, trend, causal/associative relationship, or dependency"],
+      "quantitative_results": [
+        {"measurement_label":"label", "value_text":"42", "unit":"%", "evidence_sentence":"quote or close source sentence"}
+      ],
+      "limitations_or_uncertainty": ["limitations, uncertainty, caveats, or negative evidence"],
+      "evidence": [
+        {"source_ref":"chunk_0001", "quote":"short exact quote from that chunk"}
+      ],
+      "tags": ["short", "lowercase", "tags"],
+      "confidence": 0.0
+    }
+  ]
+}
+""".strip()
+
+    def _structured_datapoint_user_prompt(
+        self,
+        digestion: Digestion,
+        batch: list[dict[str, Any]],
+        *,
+        lens: str,
+        batch_index: int,
+        batch_count: int,
+        remaining: int,
+        batch_record_limit: int = MAX_STRUCTURED_DATAPOINTS_PER_LLM_BATCH,
+    ) -> str:
+        chunks = [
+            {
+                "source_ref": entry["source_ref"],
+                "file_name": entry["file_name"],
+                "source_kind": entry["source_kind"],
+                "source_label": entry["source_label"],
+                "page_label": entry["page_label"],
+                "chunk_index": entry["chunk_index"],
+                "text": entry["text"],
+            }
+            for entry in batch
+        ]
+        return (
+            f"Digestion: {digestion.name or digestion.id}\n"
+            f"Purpose: {digestion.purpose or digestion.description or 'Extract reusable source-grounded datapoints.'}\n"
+            f"Extraction lens: {str(lens or '').strip()[:500] or 'general reusable scientific/technical datapoints'}\n"
+            f"Batch: {batch_index} of {batch_count}\n"
+            f"Maximum datapoints to return for this batch: {min(max(1, int(batch_record_limit or 1)), max(1, int(remaining or 1)))}\n\n"
+            "Source chunks JSON:\n"
+            f"{json.dumps(chunks, ensure_ascii=False, indent=2)}\n\n"
+            "Return the required JSON object now."
+        )
+
+    def _call_datapoint_llm(self, llm_context: dict[str, Any], *, system_prompt: str, prompt: str) -> str:
+        from .canopy_ai import CanopyLLMError
+
+        manager = llm_context.get("manager")
+        provider = str(llm_context.get("provider") or "openai").strip().lower()
+        parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
+        try:
+            if provider == "openai":
+                return manager._call_openai(
+                    api_key=str(llm_context.get("api_key") or ""),
+                    model=str(llm_context.get("model") or "gpt-5-mini"),
+                    system_prompt=system_prompt,
+                    prompt=prompt,
+                    web_search_enabled=False,
+                    max_output_tokens=self._bounded_int(
+                        parameters.get("max_output_tokens"),
+                        7000,
+                        1200,
+                        20000,
+                    ),
+                )
+            if provider == "bedrock":
+                return manager._call_bedrock(
+                    credential_secret=str(llm_context.get("api_key") or ""),
+                    model=str(llm_context.get("model") or ""),
+                    system_prompt=system_prompt,
+                    prompt=prompt,
+                    max_output_tokens=self._bounded_int(
+                        parameters.get("max_output_tokens"),
+                        7000,
+                        1200,
+                        12000,
+                    ),
+                )
+        except CanopyLLMError as exc:
+            raise DigestionError(
+                f"LLM datapoint extraction failed: {exc}",
+                status_code=int(getattr(exc, "status_code", 502) or 502),
+                reason=f"datapoint_{getattr(exc, 'reason', 'llm_error')}",
+            ) from exc
+        raise DigestionError("Unsupported datapoint LLM provider.", status_code=400, reason="datapoint_unsupported_llm_provider")
+
+    def _parse_datapoint_llm_json(
+        self,
+        raw_text: str,
+        *,
+        llm_context: dict[str, Any],
+        system_prompt: str,
+    ) -> dict[str, Any]:
+        try:
+            parsed = self._extract_json_object(str(raw_text or ""))
+            if isinstance(parsed.get("datapoints"), list):
+                return parsed
+            raise ValueError("JSON object did not contain datapoints[]")
+        except Exception as exc:
+            repair_prompt = (
+                "The previous response was not valid for Canopy structured datapoint extraction.\n"
+                "Repair it into exactly one valid JSON object with a top-level datapoints array.\n"
+                "Do not invent new datapoints. Preserve only information present in the original response.\n\n"
+                "Invalid response:\n"
+                f"<<<\n{str(raw_text or '')[:50000]}\n>>>\n\n"
+                "Return repaired JSON only."
+            )
+            try:
+                repaired = self._call_datapoint_llm(llm_context, system_prompt=system_prompt, prompt=repair_prompt)
+                parsed = self._extract_json_object(repaired)
+                if isinstance(parsed.get("datapoints"), list):
+                    return parsed
+            except Exception as repair_exc:
+                raise DigestionError(
+                    f"LLM returned unparsable datapoint JSON and repair failed: {repair_exc}",
+                    status_code=502,
+                    reason="datapoint_llm_invalid_json",
+                ) from repair_exc
+            raise DigestionError(
+                f"LLM returned datapoint JSON without datapoints[]: {exc}",
+                status_code=502,
+                reason="datapoint_llm_invalid_schema",
+            ) from exc
+
+    @staticmethod
+    def _extract_json_object(text: str) -> dict[str, Any]:
+        raw = str(text or "").strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+            raw = re.sub(r"\s*```$", "", raw).strip()
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"\{", raw):
+            try:
+                obj, _ = decoder.raw_decode(raw[match.start():])
+            except Exception:
+                continue
+            if isinstance(obj, dict):
+                return obj
+        raise ValueError("No JSON object found")
+
+    def _normalize_llm_datapoints(
+        self,
+        raw_items: Any,
+        *,
+        source_map: dict[str, dict[str, Any]],
+        digestion: Digestion,
+        remaining: int,
+    ) -> tuple[list[dict[str, Any]], set[str]]:
+        if not isinstance(raw_items, list):
+            raise DigestionError("LLM datapoint response must include datapoints[].", status_code=502, reason="datapoint_llm_invalid_schema")
+        normalized: list[dict[str, Any]] = []
+        touched_refs: set[str] = set()
+        for raw in raw_items:
+            if len(normalized) >= int(remaining):
+                break
+            record = self._normalize_llm_datapoint_record(raw, source_map=source_map, digestion=digestion)
+            if not record:
+                continue
+            normalized.append(record)
+            touched_refs.update(str(ref) for ref in record.get("source_refs") or [])
+        return normalized, touched_refs
+
+    def _normalize_llm_datapoint_record(
+        self,
+        raw: Any,
+        *,
+        source_map: dict[str, dict[str, Any]],
+        digestion: Digestion,
+    ) -> Optional[dict[str, Any]]:
+        if not isinstance(raw, dict):
+            return None
+        evidence = self._normalize_llm_evidence(raw.get("evidence") or raw.get("citations"), source_map=source_map)
+        if not evidence:
+            return None
+        source_refs = []
+        source_chunks = []
+        for item in evidence:
+            ref = str(item.get("source_ref") or "")
+            if ref and ref not in source_refs:
+                source_refs.append(ref)
+                entry = source_map.get(ref)
+                if entry:
+                    source_chunks.append(self._datapoint_source_from_entry(entry, digestion=digestion))
+        if not source_chunks:
+            return None
+        materials = self._llm_string_list(raw.get("materials"), limit=12)
+        methods = self._llm_string_list(raw.get("methods"), limit=8)
+        measurements = self._llm_string_list(raw.get("measurements"), limit=8)
+        numerical_results = self._llm_string_list(raw.get("numerical_results"), limit=10)
+        relationships = self._llm_string_list(raw.get("relationships"), limit=8)
+        uncertainty = self._llm_string_list(raw.get("limitations_or_uncertainty") or raw.get("limitations"), limit=6)
+        quantitative_results = self._normalize_llm_quantitative_results(
+            raw.get("quantitative_results") or raw.get("quantities") or [],
+            evidence=evidence,
+        )
+        claim = self._llm_scalar(raw.get("claim") or raw.get("assertion") or raw.get("summary"), limit=900)
+        subject = self._llm_scalar(raw.get("subject") or raw.get("label") or raw.get("name"), limit=240)
+        tags = [
+            tag.lower()
+            for tag in self._llm_string_list(raw.get("tags"), limit=12, item_limit=48)
+            if tag and not tag.isdigit()
+        ]
+        confidence = self._normalize_confidence(raw.get("confidence"))
+        if confidence is None:
+            confidence = self._datapoint_confidence(
+                materials=materials,
+                methods=methods,
+                measurements=measurements,
+                numerical_results=numerical_results,
+                relationships=relationships,
+            )
+        fingerprint_basis = json.dumps(
+            {
+                "digestion_id": digestion.id,
+                "subject": subject,
+                "claim": claim,
+                "source_refs": source_refs,
+                "evidence": [item.get("text") or item.get("quote") or "" for item in evidence[:3]],
+            },
+            sort_keys=True,
+        )
+        primary_source = source_chunks[0]
+        return {
+            "id": f"Dp{hashlib.sha256(fingerprint_basis.encode('utf-8')).hexdigest()[:18]}",
+            "schema_version": "canopy_structured_datapoint_record_v1",
+            "subject": subject,
+            "claim": claim,
+            "source": primary_source,
+            "source_refs": source_refs,
+            "source_chunks": source_chunks,
+            "materials": materials,
+            "methods": methods,
+            "measurements": measurements,
+            "numerical_results": numerical_results,
+            "relationships": relationships,
+            "quantitative_results": quantitative_results,
+            "limitations_or_uncertainty": uncertainty,
+            "evidence": evidence,
+            "tags": tags,
+            "confidence": confidence,
+            "notes": "Generated by LLM extraction from supplied indexed chunks only; verify evidence quotes before downstream use.",
+        }
+
+    def _normalize_llm_evidence(self, raw: Any, *, source_map: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+        items = raw if isinstance(raw, list) else ([raw] if isinstance(raw, dict) else [])
+        evidence: list[dict[str, Any]] = []
+        for item in items[:12]:
+            if not isinstance(item, dict):
+                continue
+            ref = self._llm_scalar(
+                item.get("source_ref") or item.get("source") or item.get("chunk_ref") or item.get("chunk"),
+                limit=80,
+            )
+            if not ref and len(source_map) == 1:
+                ref = next(iter(source_map.keys()))
+            if ref not in source_map:
+                continue
+            quote = self._llm_scalar(item.get("quote") or item.get("text") or item.get("evidence"), limit=900)
+            if not quote:
+                continue
+            entry = source_map[ref]
+            if not self._datapoint_quote_supported(quote, str(entry.get("text") or "")):
+                continue
+            evidence.append({
+                "source_ref": ref,
+                "field": self._llm_scalar(item.get("field"), limit=80),
+                "text": quote,
+                "source_chunk_id": entry.get("chunk_id") or "",
+                "chunk_index": entry.get("chunk_index") or 0,
+                "page_label": entry.get("page_label") or "",
+            })
+        return evidence
+
+    @staticmethod
+    def _datapoint_quote_supported(quote: str, source_text: str) -> bool:
+        needle = re.sub(r"\s+", " ", str(quote or "")).strip().lower()
+        haystack = re.sub(r"\s+", " ", str(source_text or "")).strip().lower()
+        if not needle or not haystack:
+            return False
+        if needle in haystack:
+            return True
+        # Allow minor punctuation/formatting drift, but require most informative
+        # tokens to be present in the supplied chunk text.
+        quote_terms = {
+            token
+            for token in _TOKEN_RE.findall(needle)
+            if len(token) > 2 and token not in _COMMON_TERMS
+        }
+        if len(quote_terms) < 4:
+            return False
+        source_terms = {
+            token
+            for token in _TOKEN_RE.findall(haystack)
+            if len(token) > 2 and token not in _COMMON_TERMS
+        }
+        overlap = len(quote_terms & source_terms) / max(1, len(quote_terms))
+        return overlap >= 0.85
+
+    def _datapoint_source_from_entry(self, entry: dict[str, Any], *, digestion: Digestion) -> dict[str, Any]:
+        return {
+            "digestion_id": digestion.id,
+            "source_ref": entry.get("source_ref") or "",
+            "file_id": entry.get("file_id") or "",
+            "file_name": entry.get("file_name") or "",
+            "content_type": entry.get("content_type") or "",
+            "source_kind": entry.get("source_kind") or "vault_file",
+            "source_label": entry.get("source_label") or entry.get("file_name") or "",
+            "source_uri": entry.get("source_uri") or "",
+            "chunk_id": entry.get("chunk_id") or "",
+            "chunk_index": int(entry.get("chunk_index") or 0),
+            "page_label": entry.get("page_label") or "",
+            "token_estimate": int(entry.get("token_estimate") or 0),
+        }
+
+    def _normalize_llm_quantitative_results(self, raw: Any, *, evidence: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        items = raw if isinstance(raw, list) else ([raw] if raw else [])
+        normalized: list[dict[str, Any]] = []
+        for item in items[:24]:
+            if isinstance(item, dict):
+                value_text = self._llm_scalar(item.get("value_text") or item.get("value") or item.get("number"), limit=120)
+                unit = self._llm_scalar(item.get("unit"), limit=60)
+                label = self._llm_scalar(item.get("measurement_label") or item.get("label") or item.get("metric"), limit=160)
+                sentence = self._llm_scalar(item.get("evidence_sentence") or item.get("sentence") or item.get("context"), limit=900)
+            else:
+                value_text = self._llm_scalar(item, limit=240)
+                unit = ""
+                label = ""
+                sentence = ""
+            if not value_text:
+                continue
+            if not sentence and evidence:
+                sentence = str(evidence[0].get("text") or "")[:900]
+            normalized.append({
+                "value_text": value_text,
+                "unit": unit,
+                "measurement_label": label or "value",
+                "evidence_sentence": sentence,
+            })
+        return normalized
+
+    @staticmethod
+    def _llm_scalar(value: Any, *, limit: int = 500) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, (dict, list)):
+            text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        else:
+            text = str(value)
+        return re.sub(r"\s+", " ", text).strip()[:limit]
+
+    def _llm_string_list(self, value: Any, *, limit: int = 8, item_limit: int = 500) -> list[str]:
+        if value is None:
+            return []
+        raw_items = value if isinstance(value, list) else [value]
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            text = self._llm_scalar(item, limit=item_limit)
+            if not text:
+                continue
+            key = text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(text)
+            if len(out) >= int(limit):
+                break
+        return out
+
+    @staticmethod
+    def _normalize_confidence(value: Any) -> Optional[float]:
+        try:
+            parsed = float(value)
+        except Exception:
+            return None
+        if parsed > 1.0 and parsed <= 100.0:
+            parsed = parsed / 100.0
+        return round(max(0.0, min(parsed, 1.0)), 2)
+
+    @staticmethod
+    def _datapoint_confidence(
+        *,
+        materials: list[str],
+        methods: list[str],
+        measurements: list[str],
+        numerical_results: list[str],
+        relationships: list[str],
+    ) -> float:
+        score = 0.25
+        if materials:
+            score += 0.10
+        if methods:
+            score += 0.16
+        if measurements:
+            score += 0.16
+        if numerical_results:
+            score += 0.22
+        if relationships:
+            score += 0.11
+        return round(min(score, 0.95), 2)
+
     def _log_query(self, digestion_id: str, user_id: str, query_text: str, result_count: int) -> None:
         with self.db.get_connection() as conn:
             conn.execute(
@@ -1846,6 +2622,14 @@ Use this as a permissioned retrieval capability, not as raw file access.
             return row[key]
         except Exception:
             return default
+
+    @staticmethod
+    def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+        try:
+            parsed = int(value if value is not None else default)
+        except Exception:
+            parsed = int(default)
+        return max(int(minimum), min(parsed, int(maximum)))
 
     @staticmethod
     def _normalize_provider(provider: Optional[str]) -> str:

@@ -1,5 +1,6 @@
 """Regression tests for File Vault Digestions."""
 
+import json
 import os
 import sqlite3
 import sys
@@ -109,6 +110,108 @@ class TestDigestions(unittest.TestCase):
         )
         self.assertIsNotNone(info)
         return info
+
+    def _fake_datapoint_llm_context(self) -> dict:
+        return {
+            'manager': object(),
+            'provider': 'openai',
+            'model': 'gpt-test',
+            'api_key': 'test-key',
+            'credential_source': 'user',
+            'default_lens': 'technical datapoints',
+            'parameters': {
+                'max_chunks': 80,
+                'max_datapoints': 400,
+                'batch_chunks': 6,
+                'batch_chars': 18000,
+                'chunk_chars': 2800,
+                'batch_records': 40,
+                'max_output_tokens': 7000,
+            },
+        }
+
+    def _fake_datapoint_llm_response(self, *, source_ref: str = 'chunk_0001') -> str:
+        return json.dumps({
+            'datapoints': [
+                {
+                    'subject': 'hydrogen-passivated silicon drain current',
+                    'claim': 'Hydrogen passivation increased silicon device drain current by 42% at 300 K.',
+                    'materials': ['silicon devices', 'hydrogen passivation'],
+                    'methods': ['fabricated silicon devices using hydrogen passivation'],
+                    'measurements': ['drain current at 300 K'],
+                    'numerical_results': [
+                        'The treated device increased current by 42% compared with the untreated control.'
+                    ],
+                    'relationships': [
+                        'The treated device increased current by 42% compared with the untreated control.'
+                    ],
+                    'quantitative_results': [
+                        {
+                            'measurement_label': 'current increase',
+                            'value_text': '42',
+                            'unit': '%',
+                            'evidence_sentence': (
+                                'The treated device increased current by 42% compared with the untreated control.'
+                            ),
+                        }
+                    ],
+                    'limitations_or_uncertainty': [
+                        'The result remains preliminary because only 3 samples were evaluated.'
+                    ],
+                    'evidence': [
+                        {
+                            'source_ref': source_ref,
+                            'field': 'numerical_results',
+                            'quote': (
+                                'The treated device increased current by 42% compared with the untreated control.'
+                            ),
+                        }
+                    ],
+                    'tags': ['silicon', 'current', 'passivation'],
+                    'confidence': 0.89,
+                }
+            ]
+        })
+
+    def _fake_workflow_datapoint_llm_response(self, *, source_ref: str = 'chunk_0001') -> str:
+        quote = 'In a pilot, the workflow reduced setup time by 42% across 3 agent handoffs.'
+        return json.dumps({
+            'datapoints': [
+                {
+                    'subject': 'workflow setup time',
+                    'claim': 'The pilot workflow reduced setup time by 42% across 3 agent handoffs.',
+                    'materials': ['agent context packs'],
+                    'methods': ['pilot workflow'],
+                    'measurements': ['setup time', 'agent handoffs'],
+                    'numerical_results': [quote],
+                    'relationships': ['The workflow reduced setup time.'],
+                    'quantitative_results': [
+                        {
+                            'measurement_label': 'setup time reduction',
+                            'value_text': '42',
+                            'unit': '%',
+                            'evidence_sentence': quote,
+                        },
+                        {
+                            'measurement_label': 'agent handoffs',
+                            'value_text': '3',
+                            'unit': '',
+                            'evidence_sentence': quote,
+                        },
+                    ],
+                    'limitations_or_uncertainty': ['pilot result'],
+                    'evidence': [
+                        {
+                            'source_ref': source_ref,
+                            'field': 'numerical_results',
+                            'quote': quote,
+                        }
+                    ],
+                    'tags': ['workflow', 'handoffs'],
+                    'confidence': 0.86,
+                }
+            ]
+        })
 
     def test_local_hash_digestion_builds_and_queries_owned_vault_files(self) -> None:
         silicon = self._save_text(
@@ -275,6 +378,147 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(exported_package['success'])
         self.assertTrue(exported_package['file']['original_name'].endswith('-canopy-digestion-package.json'))
 
+    def test_structured_datapoints_output_is_source_grounded_and_source_gated(self) -> None:
+        source = self._save_text(
+            'datapoint-corpus.txt',
+            'We fabricated silicon devices using hydrogen passivation and measured drain current at 300 K. '
+            'The treated device increased current by 42% compared with the untreated control. '
+            'However, the result remains preliminary because only 3 samples were evaluated.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Datapoint corpus',
+            source_file_ids=[source.id],
+            provider='local_hash',
+            chunk_size=420,
+            chunk_overlap=20,
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_datapoint_llm_context',
+            return_value=self._fake_datapoint_llm_context(),
+        ), patch.object(
+            self.digestion_manager,
+            '_call_datapoint_llm',
+            return_value=self._fake_datapoint_llm_response(),
+        ):
+            result = self.digestion_manager.generate_structured_datapoints(
+                digestion['id'],
+                'owner-user',
+                lens='device measurements and quantitative results',
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['output']['output_kind'], 'structured_datapoints')
+        self.assertGreaterEqual(result['datapoint_count'], 1)
+        self.assertGreaterEqual(result['quantitative_result_count'], 1)
+        output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'structured_datapoints')
+        payload = json.loads(output['content'])
+        self.assertEqual(payload['kind'], 'canopy_structured_datapoints_v1')
+        datapoint = payload['datapoints'][0]
+        self.assertEqual(datapoint['source']['file_name'], 'datapoint-corpus.txt')
+        self.assertIn('42%', ' '.join(datapoint['numerical_results']))
+        self.assertTrue(any(item['field'] == 'numerical_results' for item in datapoint['evidence']))
+        self.assertEqual(payload['extractor']['mode'], 'source_grounded_llm')
+        self.assertEqual(payload['extractor']['provider'], 'openai')
+
+        self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
+        self.assertEqual(
+            {output['output_kind'] for output in self.digestion_manager.list_outputs(digestion['id'], 'reader-user')},
+            {'agent_context'},
+        )
+        with self.assertRaisesRegex(Exception, 'Source metadata access'):
+            self.digestion_manager.get_output(digestion['id'], 'reader-user', 'structured_datapoints')
+
+    def test_structured_datapoints_use_digestion_ai_parameters_when_no_request_override(self) -> None:
+        source = self._save_text(
+            'parameter-corpus.txt',
+            'The treated device increased current by 42% compared with the untreated control. ' * 20
+            + '\n\nThe untreated device remained stable at 300 K during the short test. ' * 20,
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Parameterized corpus',
+            source_file_ids=[source.id],
+            provider='local_hash',
+            chunk_size=260,
+            chunk_overlap=0,
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        context = self._fake_datapoint_llm_context()
+        context['default_lens'] = 'latency and setup-time metrics'
+        context['parameters'] = {
+            'max_chunks': 1,
+            'max_datapoints': 1,
+            'batch_chunks': 1,
+            'batch_chars': 5000,
+            'chunk_chars': 1200,
+            'batch_records': 3,
+            'max_output_tokens': 4321,
+        }
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_datapoint_llm_context',
+            return_value=context,
+        ), patch.object(
+            self.digestion_manager,
+            '_call_datapoint_llm',
+            return_value=self._fake_datapoint_llm_response(),
+        ) as call_mock:
+            result = self.digestion_manager.generate_structured_datapoints(
+                digestion['id'],
+                'owner-user',
+            )
+
+        self.assertTrue(result['success'])
+        output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'structured_datapoints')
+        payload = json.loads(output['content'])
+        self.assertEqual(payload['limits']['max_chunks'], 1)
+        self.assertEqual(payload['limits']['max_datapoints'], 1)
+        self.assertEqual(payload['limits']['batch_chunks'], 1)
+        self.assertEqual(payload['limits']['batch_records'], 3)
+        self.assertEqual(payload['limits']['max_output_tokens'], 4321)
+        self.assertEqual(payload['extractor']['lens'], 'latency and setup-time metrics')
+        self.assertEqual(call_mock.call_args.args[0]['parameters']['max_output_tokens'], 4321)
+
+    def test_structured_datapoints_requires_configured_llm_provider(self) -> None:
+        source = self._save_text(
+            'requires-llm.txt',
+            'The benchmark measured a 42% improvement after the workflow change.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Provider required corpus',
+            source_file_ids=[source.id],
+            provider='local_hash',
+            chunk_size=320,
+            chunk_overlap=20,
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+
+        with self.assertRaises(DigestionError) as context:
+            self.digestion_manager.generate_structured_datapoints(
+                digestion['id'],
+                'owner-user',
+                max_chunks=1,
+                max_datapoints=1,
+            )
+        self.assertTrue(context.exception.reason.startswith('datapoint_'))
+        self.assertIn('LLM-backed datapoint extraction is not configured', str(context.exception))
+
+    def test_structured_datapoint_evidence_requires_supported_quote(self) -> None:
+        self.assertTrue(DigestionManager._datapoint_quote_supported(
+            'The benchmark measured a 42% improvement after the workflow change.',
+            'The benchmark measured a 42% improvement after the workflow change.',
+        ))
+        self.assertFalse(DigestionManager._datapoint_quote_supported(
+            'The workflow conclusively doubled performance in every downstream system.',
+            'The benchmark measured a 42% improvement after the workflow change.',
+        ))
+
     def test_query_only_users_cannot_read_source_revealing_outputs(self) -> None:
         source = self._save_text(
             'source-revealing-corpus.txt',
@@ -313,6 +557,15 @@ class TestDigestions(unittest.TestCase):
         self.assertFalse(managed_package['sources_included'])
         with self.assertRaisesRegex(Exception, 'source metadata access'):
             self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_datapoint_llm_context',
+            return_value=self._fake_datapoint_llm_context(),
+        ) as context_mock:
+            with self.assertRaises(DigestionError) as extraction_context:
+                self.digestion_manager.generate_structured_datapoints(digestion['id'], 'reader-user')
+        self.assertEqual(extraction_context.exception.reason, 'datapoint_source_metadata_denied')
+        context_mock.assert_not_called()
 
         self.digestion_manager.grant_access(
             digestion['id'],
@@ -508,7 +761,10 @@ class TestDigestions(unittest.TestCase):
                         {
                             'kind': 'post',
                             'title': 'Agent memo',
-                            'content': 'Reusable Digestions can normalize source material into agent context packs.',
+                            'content': (
+                                'Reusable Digestions can normalize source material into agent context packs. '
+                                'In a pilot, the workflow reduced setup time by 42% across 3 agent handoffs.'
+                            ),
                         }
                     ],
                     'auto_build': True,
@@ -532,6 +788,26 @@ class TestDigestions(unittest.TestCase):
             )
             self.assertEqual(context_response.status_code, 200)
             self.assertIn('prompt_context', context_response.get_json())
+
+            with patch.object(
+                self.digestion_manager,
+                '_resolve_datapoint_llm_context',
+                return_value=self._fake_datapoint_llm_context(),
+            ), patch.object(
+                self.digestion_manager,
+                '_call_datapoint_llm',
+                return_value=self._fake_workflow_datapoint_llm_response(),
+            ):
+                datapoints_response = client.post(
+                    f'/api/v1/digestions/{digestion_id}/datapoints/extract',
+                    json={'lens': 'workflow metrics'},
+                    headers={'X-API-Key': 'owner-key'},
+                )
+            self.assertEqual(datapoints_response.status_code, 200)
+            datapoints_payload = datapoints_response.get_json() or {}
+            self.assertTrue(datapoints_payload['success'])
+            self.assertEqual(datapoints_payload['output']['output_kind'], 'structured_datapoints')
+            self.assertGreaterEqual(datapoints_payload['datapoint_count'], 1)
 
             export_response = client.post(
                 f'/api/v1/digestions/{digestion_id}/outputs/human_brief/export',

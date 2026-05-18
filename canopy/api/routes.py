@@ -11181,6 +11181,39 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API context failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/datapoints/extract', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def digestion_datapoints_extract_api(digestion_id: str):
+        """Generate a source-grounded structured datapoints output."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            max_chunks = data.get('max_chunks')
+            max_datapoints = data.get('max_datapoints')
+            result = manager.generate_structured_datapoints(
+                digestion_id,
+                g.api_key_info.user_id,
+                max_chunks=(
+                    _api_int_param(max_chunks, default=80, minimum=1, maximum=240)
+                    if max_chunks is not None
+                    else None
+                ),
+                max_datapoints=(
+                    _api_int_param(max_datapoints, default=400, minimum=1, maximum=1200)
+                    if max_datapoints is not None
+                    else None
+                ),
+                lens=str(data.get('lens') or data.get('focus') or ''),
+            )
+            return jsonify(result)
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API datapoint extraction failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/outputs', methods=['GET', 'POST'])
     @require_auth(Permission.READ_FILES)
     def digestion_outputs_api(digestion_id: str):

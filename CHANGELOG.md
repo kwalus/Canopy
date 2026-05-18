@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.137] - 2026-05-18
+
+### Added
+- **Digestions can extract LLM-normalized structured datapoints** - owners/managers can generate a source-grounded `structured_datapoints` JSON output from indexed chunks via Vault UI, REST, and MCP output generation paths. Extraction uses the configured Canopy AI personal key or admin fallback provider, records provider/model metadata, and reports datapoint, quantitative-value, scanned-chunk, source, and LLM batch counts.
+
+### Changed
+- **Agent Digestion instructions include datapoint workflows** - REST/MCP guidance now explains when to extract datapoints, how the source-metadata ACL applies, and how agents should treat datapoints as cited chunk records rather than unrestricted raw source reads.
+
+### Fixed
+- **Structured datapoint extraction preserves source-read boundaries** - generating datapoints now requires source metadata access because indexed chunks are sent to the configured LLM provider, and the new Digestion AI settings routes parse boolean string values strictly.
+
 ## [0.6.136] - 2026-05-16
 
 ### Changed

@@ -802,6 +802,139 @@
                         </div>
                     </div>
 
+                    {% set digestion_ai = canopy_digestion_llm_settings|default({}) %}
+                    {% set digestion_params = digestion_ai.get('parameters') or {} %}
+                    <div class="form-section" id="canopy-digestion-llm-section">
+                        <div class="section-title">
+                            <i class="bi bi-diagram-3"></i>
+                            Digestion AI Extraction
+                        </div>
+                        <p class="text-muted small mb-3">
+                            Controls the LLM used when a Digestion extracts structured datapoints from indexed Vault content. These settings are separate from <code>@Canopy</code> compose so you can use a stronger or cheaper extraction model without changing your posting assistant.
+                        </p>
+                        {% if digestion_ai.get('instance_fallback_available') %}
+                        <div class="alert alert-success py-2 small mb-3">
+                            <i class="bi bi-check-circle me-1"></i>
+                            Instance Digestion fallback is available. Leave personal settings off to use the admin default, or enable your own preferences below.
+                        </div>
+                        {% elif digestion_ai.get('instance_fallback_enabled') and not digestion_ai.get('instance_fallback_key_configured') %}
+                        <div class="alert alert-warning py-2 small mb-3">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            Admin Digestion fallback is enabled but no instance key is saved yet.
+                        </div>
+                        {% endif %}
+
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-3">
+                                <label class="form-label" for="canopy-digestion-llm-provider">Provider</label>
+                                <select class="form-select" id="canopy-digestion-llm-provider">
+                                    <option value="openai" selected>OpenAI Responses</option>
+                                    <option value="bedrock">AWS Bedrock</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" for="canopy-digestion-llm-model">Extraction model</label>
+                                <input type="text"
+                                       class="form-control"
+                                       id="canopy-digestion-llm-model"
+                                       list="canopy-llm-model-options"
+                                       value="{{ digestion_ai.get('model') or 'gpt-5-mini' }}"
+                                       maxlength="120"
+                                       placeholder="gpt-5.4-mini">
+                                <div class="form-text text-muted">Use a model that is reliable at JSON extraction. Web search is never used for Digestion extraction.</div>
+                            </div>
+                            <div class="col-md-5">
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           role="switch"
+                                           id="canopy-digestion-llm-enabled"
+                                           {% if digestion_ai.get('enabled') %}checked{% endif %}>
+                                    <label class="form-check-label" for="canopy-digestion-llm-enabled">Enable personal Digestion AI settings</label>
+                                </div>
+                                <div class="form-text text-muted">
+                                    {% if digestion_ai.get('api_key_configured') %}
+                                    Personal extraction credentials are saved locally and override the instance fallback.
+                                    {% elif digestion_ai.get('instance_fallback_available') %}
+                                    You can use the shared instance key while overriding model and extraction limits.
+                                    {% else %}
+                                    Add a key here or ask an admin to configure the instance Digestion fallback.
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3 mt-1">
+                            <div class="col-md-8">
+                                <label class="form-label" for="canopy-digestion-llm-api-key" id="canopy-digestion-llm-api-key-label">OpenAI API Key</label>
+                                <input type="password"
+                                       class="form-control"
+                                       id="canopy-digestion-llm-api-key"
+                                       autocomplete="off"
+                                       placeholder="{% if digestion_ai.get('api_key_configured') %}Saved key configured - leave blank to keep{% else %}Paste API key{% endif %}">
+                                <div class="form-text text-muted" id="canopy-digestion-llm-api-key-help">
+                                    Blank keeps the saved key. Without a personal key, Canopy uses the admin fallback if available.
+                                </div>
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="canopy-digestion-llm-clear-key">
+                                    <label class="form-check-label" for="canopy-digestion-llm-clear-key">Clear saved extraction key</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <label class="form-label" for="canopy-digestion-llm-default-lens">Default extraction lens</label>
+                            <textarea class="form-control"
+                                      id="canopy-digestion-llm-default-lens"
+                                      rows="2"
+                                      maxlength="800">{{ digestion_ai.get('default_lens') or '' }}</textarea>
+                            <div class="form-text text-muted">Used when the Extract datapoints button is run without a one-off lens.</div>
+                        </div>
+
+                        <div class="row g-2 mt-2">
+                            <div class="col-6 col-lg-3">
+                                <label class="form-label small" for="digestion-param-max-chunks">Max chunks</label>
+                                <input class="form-control form-control-sm" type="number" id="digestion-param-max-chunks" min="1" max="240" value="{{ digestion_params.get('max_chunks') or 80 }}">
+                            </div>
+                            <div class="col-6 col-lg-3">
+                                <label class="form-label small" for="digestion-param-max-datapoints">Max datapoints</label>
+                                <input class="form-control form-control-sm" type="number" id="digestion-param-max-datapoints" min="1" max="1200" value="{{ digestion_params.get('max_datapoints') or 400 }}">
+                            </div>
+                            <div class="col-6 col-lg-3">
+                                <label class="form-label small" for="digestion-param-batch-chunks">Chunks / call</label>
+                                <input class="form-control form-control-sm" type="number" id="digestion-param-batch-chunks" min="1" max="24" value="{{ digestion_params.get('batch_chunks') or 6 }}">
+                            </div>
+                            <div class="col-6 col-lg-3">
+                                <label class="form-label small" for="digestion-param-batch-records">Records / call</label>
+                                <input class="form-control form-control-sm" type="number" id="digestion-param-batch-records" min="1" max="120" value="{{ digestion_params.get('batch_records') or 40 }}">
+                            </div>
+                            <div class="col-6 col-lg-4">
+                                <label class="form-label small" for="digestion-param-batch-chars">Chars / call</label>
+                                <input class="form-control form-control-sm" type="number" id="digestion-param-batch-chars" min="4000" max="60000" value="{{ digestion_params.get('batch_chars') or 18000 }}">
+                            </div>
+                            <div class="col-6 col-lg-4">
+                                <label class="form-label small" for="digestion-param-chunk-chars">Chars / chunk</label>
+                                <input class="form-control form-control-sm" type="number" id="digestion-param-chunk-chars" min="800" max="8000" value="{{ digestion_params.get('chunk_chars') or 2800 }}">
+                            </div>
+                            <div class="col-12 col-lg-4">
+                                <label class="form-label small" for="digestion-param-max-output-tokens">Output tokens</label>
+                                <input class="form-control form-control-sm" type="number" id="digestion-param-max-output-tokens" min="1200" max="20000" value="{{ digestion_params.get('max_output_tokens') or 7000 }}">
+                            </div>
+                        </div>
+                        <div class="form-text text-muted mt-2">
+                            Higher values can improve coverage for large corpora but may increase provider cost and latency. Canopy still caps values server-side.
+                        </div>
+
+                        <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="canopy-digestion-llm-save-btn">
+                                <i class="bi bi-shield-lock me-1"></i>Save Digestion AI Settings
+                            </button>
+                            <span id="canopy-digestion-llm-status" class="small text-muted"></span>
+                        </div>
+                    </div>
+
                     <div class="text-end">
                         <button type="submit" class="save-button">
                             <i class="bi bi-check-circle me-2"></i>
@@ -938,6 +1071,7 @@
 <script>
 let selectedTheme = '{{ profile.theme_preference }}';
 const CANOPY_LLM_SETTINGS = {{ (canopy_llm_settings|default({}))|tojson }};
+const CANOPY_DIGESTION_LLM_SETTINGS = {{ (canopy_digestion_llm_settings|default({}))|tojson }};
 const PROFILE_CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 const PROFILE_CUSTOM_THEME = {{ profile_custom_theme|tojson }};
 const CUSTOM_THEME_STORAGE_KEY = 'canopy-custom-theme';
@@ -1029,6 +1163,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupAvatarUpload();
     setupFormValidation();
     setupCanopyLLMSettings();
+    setupDigestionLLMSettings();
 });
 
 function setupThemeSelection() {
@@ -1408,6 +1543,115 @@ function setupCanopyLLMSettings() {
             if (statusEl) {
                 statusEl.className = 'small text-danger';
                 statusEl.textContent = error.message || 'Failed to save AI compose settings';
+            }
+        })
+        .finally(() => {
+            saveBtn.disabled = false;
+        });
+    });
+}
+
+function setupDigestionLLMSettings() {
+    const saveBtn = document.getElementById('canopy-digestion-llm-save-btn');
+    if (!saveBtn) return;
+    const statusEl = document.getElementById('canopy-digestion-llm-status');
+    const providerInput = document.getElementById('canopy-digestion-llm-provider');
+    const modelInput = document.getElementById('canopy-digestion-llm-model');
+    const enabledInput = document.getElementById('canopy-digestion-llm-enabled');
+    const keyInput = document.getElementById('canopy-digestion-llm-api-key');
+    const keyLabel = document.getElementById('canopy-digestion-llm-api-key-label');
+    const keyHelp = document.getElementById('canopy-digestion-llm-api-key-help');
+    const clearKeyInput = document.getElementById('canopy-digestion-llm-clear-key');
+    const lensInput = document.getElementById('canopy-digestion-llm-default-lens');
+    const paramInputs = {
+        max_chunks: document.getElementById('digestion-param-max-chunks'),
+        max_datapoints: document.getElementById('digestion-param-max-datapoints'),
+        batch_chunks: document.getElementById('digestion-param-batch-chunks'),
+        batch_chars: document.getElementById('digestion-param-batch-chars'),
+        chunk_chars: document.getElementById('digestion-param-chunk-chars'),
+        batch_records: document.getElementById('digestion-param-batch-records'),
+        max_output_tokens: document.getElementById('digestion-param-max-output-tokens')
+    };
+
+    function applyProviderCopy(settings = {}) {
+        const provider = providerInput ? providerInput.value : (settings.provider || 'openai');
+        const isBedrock = provider === 'bedrock';
+        if (keyLabel) keyLabel.textContent = isBedrock ? 'AWS Bedrock API key or credentials' : 'OpenAI API Key';
+        if (keyInput) {
+            const configured = !!settings.api_key_configured;
+            keyInput.placeholder = configured
+                ? (isBedrock ? 'Saved AWS credentials configured - leave blank to keep' : 'Saved key configured - leave blank to keep')
+                : (isBedrock ? 'Paste AWS credential JSON or KEY=VALUE lines' : 'Paste API key');
+        }
+        if (keyHelp) {
+            keyHelp.innerHTML = isBedrock
+                ? 'Use a Bedrock API key/bearer token plus <code>region</code>, or JSON/KEY=VALUE lines. Bedrock web search is not used for Digestion extraction.'
+                : 'Blank keeps the saved key. Without a personal key, Canopy uses the admin Digestion fallback if available.';
+        }
+        if (paramInputs.max_output_tokens) {
+            paramInputs.max_output_tokens.max = isBedrock ? '12000' : '20000';
+        }
+    }
+
+    function readParameters() {
+        const params = {};
+        Object.entries(paramInputs).forEach(([key, input]) => {
+            if (!input) return;
+            const parsed = Number.parseInt(input.value, 10);
+            if (Number.isFinite(parsed)) params[key] = parsed;
+        });
+        return params;
+    }
+
+    if (CANOPY_DIGESTION_LLM_SETTINGS && CANOPY_DIGESTION_LLM_SETTINGS.provider && providerInput) {
+        providerInput.value = CANOPY_DIGESTION_LLM_SETTINGS.provider;
+    }
+    applyProviderCopy(CANOPY_DIGESTION_LLM_SETTINGS || {});
+    if (providerInput) {
+        providerInput.addEventListener('change', () => applyProviderCopy({}));
+    }
+
+    saveBtn.addEventListener('click', () => {
+        const payload = {
+            provider: providerInput ? providerInput.value : 'openai',
+            model: modelInput ? modelInput.value.trim() : '',
+            enabled: !!(enabledInput && enabledInput.checked),
+            clear_api_key: !!(clearKeyInput && clearKeyInput.checked),
+            default_lens: lensInput ? lensInput.value.trim() : '',
+            parameters: readParameters()
+        };
+        const apiKey = keyInput ? keyInput.value.trim() : '';
+        if (apiKey) payload.api_key = apiKey;
+        saveBtn.disabled = true;
+        if (statusEl) {
+            statusEl.className = 'small text-muted';
+            statusEl.textContent = 'Saving Digestion AI settings...';
+        }
+        profileFetch('/ajax/canopy_llm/digestion_settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then((data) => {
+            const settings = data.settings || {};
+            if (keyInput) keyInput.value = '';
+            if (clearKeyInput) clearKeyInput.checked = false;
+            applyProviderCopy(settings);
+            if (statusEl) {
+                statusEl.className = 'small text-success';
+                let keyText = 'Saved. Add an extraction key before running Digestion datapoints.';
+                if (settings.api_key_configured) {
+                    keyText = 'Saved. Personal Digestion extraction credentials are configured locally.';
+                } else if (settings.instance_fallback_available) {
+                    keyText = 'Saved. No personal key configured; instance Digestion fallback is available.';
+                }
+                statusEl.textContent = `${keyText} Limits will apply to future datapoint extraction runs.`;
+            }
+        })
+        .catch((error) => {
+            if (statusEl) {
+                statusEl.className = 'small text-danger';
+                statusEl.textContent = error.message || 'Failed to save Digestion AI settings';
             }
         })
         .finally(() => {

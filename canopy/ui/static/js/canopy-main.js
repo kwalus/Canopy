@@ -2273,6 +2273,11 @@
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="outputs" data-vault-digestion-id="${id}" aria-label="View outputs for ${name}">
                                     <i class="bi bi-journal-richtext"></i> Outputs
                                 </button>
+	                                ${canManage ? `
+	                                <button class="btn btn-sm btn-outline-info" type="button" data-vault-digestion-action="extract-datapoints" data-vault-digestion-id="${id}" aria-label="Extract structured datapoints for ${name}" title="${queryDisabled ? 'Build this Digestion before extracting structured datapoints.' : 'Create an LLM-normalized, source-grounded JSON datapoint package using your Profile > Digestion AI Extraction settings or the admin fallback.'}" ${queryDisabled ? 'disabled' : ''}>
+	                                    <i class="bi bi-grid-3x3-gap"></i> Extract datapoints
+	                                </button>
+	                                ` : ''}
 	                                <button class="btn btn-sm btn-outline-primary" type="button" data-vault-digestion-action="export-package" data-vault-digestion-id="${id}" aria-label="Export package for ${name}" title="Export a static snapshot of this Digestion to your Vault. Use Share access to let a recipient query the live index instead.">
 	                                    <i class="bi bi-box-arrow-up-right"></i> Package
 	                                </button>
@@ -2434,12 +2439,60 @@
                     }
                 }
 
-                async function loadDigestionOutputs(digestionId, button) {
+                function renderDigestionOutputCard(digestionId, output) {
+                    const metadata = output && output.metadata || {};
+                    const kind = String(output && output.output_kind || '');
+                    const isDatapoints = kind === 'structured_datapoints';
+                    const datapointCount = Number(metadata.datapoint_count || 0);
+                    const quantitativeCount = Number(metadata.quantitative_result_count || 0);
+                    const chunkCount = Number(metadata.chunks_considered || 0);
+                    const sourceCount = Number(metadata.source_count || 0);
+                    const preview = vaultEscape(output && output.preview || '').slice(0, isDatapoints ? 260 : 420);
+                    return `
+                        <div class="vault-digestion-output${isDatapoints ? ' is-datapoints' : ''}">
+                            <div class="vault-digestion-output-head">
+                                <div class="vault-digestion-output-title">
+                                    ${isDatapoints ? '<i class="bi bi-grid-3x3-gap me-1"></i>' : ''}
+                                    ${vaultEscape(output.title || output.output_kind || 'Output')}
+                                </div>
+                                <div class="vault-digestion-output-actions">
+                                    <button class="btn btn-sm btn-outline-secondary"
+                                            type="button"
+                                            data-vault-digestion-action="copy-output-ref"
+                                            data-vault-digestion-id="${vaultEscape(digestionId)}"
+                                            data-vault-output-kind="${vaultEscape(output.output_kind || output.id || '')}"
+                                            data-vault-output-title="${vaultEscape(output.title || output.output_kind || 'Output')}">
+                                        <i class="bi bi-clipboard"></i> Ref
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary"
+                                            type="button"
+                                            data-vault-digestion-action="export-output"
+                                            data-vault-digestion-id="${vaultEscape(digestionId)}"
+                                            data-vault-output-ref="${vaultEscape(output.id || output.output_kind || '')}">
+                                        <i class="bi bi-save"></i> Vault
+                                    </button>
+                                </div>
+                            </div>
+                            ${isDatapoints ? `
+                                <div class="vault-digestion-output-summary" aria-label="Structured datapoint summary">
+                                    <span><strong>${datapointCount}</strong> datapoint${datapointCount === 1 ? '' : 's'}</span>
+                                    <span><strong>${quantitativeCount}</strong> quantitative value${quantitativeCount === 1 ? '' : 's'}</span>
+                                    <span><strong>${chunkCount}</strong> chunk${chunkCount === 1 ? '' : 's'} scanned</span>
+                                    <span><strong>${sourceCount}</strong> source${sourceCount === 1 ? '' : 's'}</span>
+                                </div>
+                            ` : ''}
+                            <div>${preview || (isDatapoints ? 'Structured datapoint JSON package ready for export or agent handoff.' : '')}</div>
+                        </div>
+                    `;
+                }
+
+                async function loadDigestionOutputs(digestionId, button, options = {}) {
                     if (!digestionId) return;
                     const outputsEl = document.querySelector(`[data-vault-digestion-outputs="${vaultCssEscape(digestionId)}"]`);
                     if (!outputsEl) return;
+                    const force = !!(options && options.force);
                     const visible = outputsEl.classList.contains('is-visible');
-                    if (visible && outputsEl.dataset.loaded === '1') {
+                    if (visible && outputsEl.dataset.loaded === '1' && !force) {
                         outputsEl.classList.remove('is-visible');
                         return;
                     }
@@ -2462,35 +2515,38 @@
                         }
                         outputsEl.dataset.loaded = '1';
                         outputsEl.innerHTML = outputs.length
-                            ? outputs.map(output => `
-                                <div class="vault-digestion-output">
-                                    <div class="vault-digestion-output-head">
-                                        <div class="vault-digestion-output-title">${vaultEscape(output.title || output.output_kind || 'Output')}</div>
-                                        <div class="vault-digestion-output-actions">
-                                            <button class="btn btn-sm btn-outline-secondary"
-                                                    type="button"
-                                                    data-vault-digestion-action="copy-output-ref"
-                                                    data-vault-digestion-id="${vaultEscape(digestionId)}"
-                                                    data-vault-output-kind="${vaultEscape(output.output_kind || output.id || '')}"
-                                                    data-vault-output-title="${vaultEscape(output.title || output.output_kind || 'Output')}">
-                                                <i class="bi bi-clipboard"></i> Ref
-                                            </button>
-                                            <button class="btn btn-sm btn-outline-primary"
-                                                    type="button"
-                                                    data-vault-digestion-action="export-output"
-                                                    data-vault-digestion-id="${vaultEscape(digestionId)}"
-                                                    data-vault-output-ref="${vaultEscape(output.id || output.output_kind || '')}">
-                                                <i class="bi bi-save"></i> Vault
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div>${vaultEscape(output.preview || '').slice(0, 420)}</div>
-                                </div>
-                            `).join('')
+                            ? outputs.map(output => renderDigestionOutputCard(digestionId, output)).join('')
                             : '<div class="small text-muted">No reusable outputs are available yet. Build this Digestion first.</div>';
                     } catch (error) {
                         outputsEl.innerHTML = `<div class="small text-danger">${vaultEscape(error.error || 'Could not load Digestion outputs.')}</div>`;
                         if (typeof showAlert === 'function') showAlert(error.error || 'Could not load Digestion outputs.', 'danger');
+                    } finally {
+                        if (button) {
+                            button.disabled = false;
+                            button.innerHTML = original;
+                        }
+                    }
+                }
+
+                async function extractDigestionDatapoints(digestionId, button) {
+                    if (!digestionId) return;
+                    const original = button ? button.innerHTML : '';
+                    if (button) {
+                        button.disabled = true;
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Extracting';
+                    }
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/extract`, {
+                            method: 'POST',
+                            body: JSON.stringify({})
+                        });
+                        if (typeof showAlert === 'function') {
+                            const count = Number(data.datapoint_count || 0);
+                            showAlert(`Structured datapoints extracted: ${count} record${count === 1 ? '' : 's'}.`, count ? 'success' : 'warning');
+                        }
+                        await loadDigestionOutputs(digestionId, null, { force: true });
+                    } catch (error) {
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not extract structured datapoints.', 'danger');
                     } finally {
                         if (button) {
                             button.disabled = false;
@@ -3470,6 +3526,8 @@
                             buildDigestion(digestionId, actionBtn);
                         } else if (action === 'outputs') {
                             loadDigestionOutputs(digestionId, actionBtn);
+                        } else if (action === 'extract-datapoints') {
+                            extractDigestionDatapoints(digestionId, actionBtn);
 	                        } else if (action === 'export-package') {
 	                            exportDigestionPackage(digestionId, actionBtn);
 	                        } else if (action === 'share-access') {

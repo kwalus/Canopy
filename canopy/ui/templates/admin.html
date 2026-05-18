@@ -2875,6 +2875,128 @@
     </div>
 </div>
 
+{% set instance_digestion_ai = instance_digestion_llm_settings|default({}) %}
+{% set instance_digestion_params = instance_digestion_ai.get('parameters') or {} %}
+<div class="card mb-4 admin-section-instance-ai" id="instance-digestion-ai-card">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <h5 class="mb-0"><i class="bi bi-diagram-3"></i> Instance Digestion AI Fallback</h5>
+            <div class="small text-muted">Shared node-local provider for structured datapoint extraction from Digestions when users or agents do not supply their own credentials.</div>
+        </div>
+        <span class="badge bg-{{ 'success' if instance_digestion_ai.get('enabled') and instance_digestion_ai.get('api_key_configured') else 'secondary' }}" id="instance-digestion-llm-state-badge">
+            {{ 'Available' if instance_digestion_ai.get('enabled') and instance_digestion_ai.get('api_key_configured') else 'Not available' }}
+        </span>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-info py-2 small mb-3">
+            This fallback powers <strong>Extract datapoints</strong> for Digestions. It sends only indexed chunks to the configured provider, not entire Vault files, and saved credentials stay encrypted on this node.
+        </div>
+
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label" for="instance-digestion-llm-provider">Provider</label>
+                <select class="form-select form-select-sm" id="instance-digestion-llm-provider">
+                    <option value="openai" selected>OpenAI Responses</option>
+                    <option value="bedrock">AWS Bedrock</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="instance-digestion-llm-model">Default extraction model</label>
+                <input type="text"
+                       class="form-control form-control-sm"
+                       id="instance-digestion-llm-model"
+                       list="instance-llm-model-options"
+                       value="{{ instance_digestion_ai.get('model') or 'gpt-5-mini' }}"
+                       maxlength="120"
+                       placeholder="gpt-5.4-mini">
+            </div>
+            <div class="col-md-5">
+                <label class="form-label" for="instance-digestion-llm-api-key" id="instance-digestion-llm-api-key-label">OpenAI API key</label>
+                <input type="password"
+                       class="form-control form-control-sm"
+                       id="instance-digestion-llm-api-key"
+                       autocomplete="off"
+                       placeholder="{% if instance_digestion_ai.get('api_key_configured') %}Saved fallback key configured - leave blank to keep{% else %}Paste instance fallback key{% endif %}">
+                <div class="form-text text-muted" id="instance-digestion-llm-api-key-help">Blank keeps the saved fallback key. Use clear to remove it.</div>
+            </div>
+        </div>
+
+        <div class="row g-3 mt-1 align-items-center">
+            <div class="col-md-4">
+                <div class="form-check form-switch">
+                    <input class="form-check-input"
+                           type="checkbox"
+                           role="switch"
+                           id="instance-digestion-llm-enabled"
+                           {% if instance_digestion_ai.get('enabled') %}checked{% endif %}>
+                    <label class="form-check-label" for="instance-digestion-llm-enabled">Enable Digestion fallback</label>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="instance-digestion-llm-clear-key">
+                    <label class="form-check-label" for="instance-digestion-llm-clear-key">Clear saved fallback key</label>
+                </div>
+            </div>
+            <div class="col-md-4 small text-muted">
+                User personal extraction settings take precedence when they include their own key.
+            </div>
+        </div>
+
+        <div class="mt-3">
+            <label class="form-label" for="instance-digestion-llm-default-lens">Default extraction lens</label>
+            <textarea class="form-control form-control-sm"
+                      id="instance-digestion-llm-default-lens"
+                      rows="2"
+                      maxlength="800">{{ instance_digestion_ai.get('default_lens') or '' }}</textarea>
+        </div>
+
+        <div class="row g-2 mt-2">
+            <div class="col-6 col-lg-3">
+                <label class="form-label small" for="instance-digestion-param-max-chunks">Max chunks</label>
+                <input class="form-control form-control-sm" type="number" id="instance-digestion-param-max-chunks" min="1" max="240" value="{{ instance_digestion_params.get('max_chunks') or 80 }}">
+            </div>
+            <div class="col-6 col-lg-3">
+                <label class="form-label small" for="instance-digestion-param-max-datapoints">Max datapoints</label>
+                <input class="form-control form-control-sm" type="number" id="instance-digestion-param-max-datapoints" min="1" max="1200" value="{{ instance_digestion_params.get('max_datapoints') or 400 }}">
+            </div>
+            <div class="col-6 col-lg-3">
+                <label class="form-label small" for="instance-digestion-param-batch-chunks">Chunks / call</label>
+                <input class="form-control form-control-sm" type="number" id="instance-digestion-param-batch-chunks" min="1" max="24" value="{{ instance_digestion_params.get('batch_chunks') or 6 }}">
+            </div>
+            <div class="col-6 col-lg-3">
+                <label class="form-label small" for="instance-digestion-param-batch-records">Records / call</label>
+                <input class="form-control form-control-sm" type="number" id="instance-digestion-param-batch-records" min="1" max="120" value="{{ instance_digestion_params.get('batch_records') or 40 }}">
+            </div>
+            <div class="col-6 col-lg-4">
+                <label class="form-label small" for="instance-digestion-param-batch-chars">Chars / call</label>
+                <input class="form-control form-control-sm" type="number" id="instance-digestion-param-batch-chars" min="4000" max="60000" value="{{ instance_digestion_params.get('batch_chars') or 18000 }}">
+            </div>
+            <div class="col-6 col-lg-4">
+                <label class="form-label small" for="instance-digestion-param-chunk-chars">Chars / chunk</label>
+                <input class="form-control form-control-sm" type="number" id="instance-digestion-param-chunk-chars" min="800" max="8000" value="{{ instance_digestion_params.get('chunk_chars') or 2800 }}">
+            </div>
+            <div class="col-12 col-lg-4">
+                <label class="form-label small" for="instance-digestion-param-max-output-tokens">Output tokens</label>
+                <input class="form-control form-control-sm" type="number" id="instance-digestion-param-max-output-tokens" min="1200" max="20000" value="{{ instance_digestion_params.get('max_output_tokens') or 7000 }}">
+            </div>
+        </div>
+
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+            <div class="small text-muted" id="instance-digestion-llm-status" aria-live="polite">
+                {% if instance_digestion_ai.get('api_key_configured') %}
+                Digestion fallback key saved locally{% if instance_digestion_ai.get('updated_at') %} · updated {{ instance_digestion_ai.get('updated_at') }}{% endif %}.
+                {% else %}
+                No Digestion fallback key saved yet.
+                {% endif %}
+            </div>
+            <button type="button" class="btn btn-success btn-sm" id="instance-digestion-llm-save-btn">
+                <i class="bi bi-shield-lock me-1"></i>Save Digestion Fallback
+            </button>
+        </div>
+    </div>
+</div>
+
 <div class="card mb-4 admin-section-relay">
     <div class="card-header">
         <h5 class="mb-0"><i class="bi bi-arrow-left-right"></i> Mesh Relay</h5>
@@ -5372,6 +5494,26 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     const instanceLlmStateBadge = document.getElementById('instance-llm-state-badge');
     const instanceLlmApiKeyLabel = document.getElementById('instance-llm-api-key-label');
     const instanceLlmApiKeyHelp = document.getElementById('instance-llm-api-key-help');
+    const instanceDigestionLlmProvider = document.getElementById('instance-digestion-llm-provider');
+    const instanceDigestionLlmModel = document.getElementById('instance-digestion-llm-model');
+    const instanceDigestionLlmApiKey = document.getElementById('instance-digestion-llm-api-key');
+    const instanceDigestionLlmEnabled = document.getElementById('instance-digestion-llm-enabled');
+    const instanceDigestionLlmClearKey = document.getElementById('instance-digestion-llm-clear-key');
+    const instanceDigestionLlmDefaultLens = document.getElementById('instance-digestion-llm-default-lens');
+    const instanceDigestionLlmSaveBtn = document.getElementById('instance-digestion-llm-save-btn');
+    const instanceDigestionLlmStatus = document.getElementById('instance-digestion-llm-status');
+    const instanceDigestionLlmStateBadge = document.getElementById('instance-digestion-llm-state-badge');
+    const instanceDigestionLlmApiKeyLabel = document.getElementById('instance-digestion-llm-api-key-label');
+    const instanceDigestionLlmApiKeyHelp = document.getElementById('instance-digestion-llm-api-key-help');
+    const instanceDigestionParamInputs = {
+        max_chunks: document.getElementById('instance-digestion-param-max-chunks'),
+        max_datapoints: document.getElementById('instance-digestion-param-max-datapoints'),
+        batch_chunks: document.getElementById('instance-digestion-param-batch-chunks'),
+        batch_chars: document.getElementById('instance-digestion-param-batch-chars'),
+        chunk_chars: document.getElementById('instance-digestion-param-chunk-chars'),
+        batch_records: document.getElementById('instance-digestion-param-batch-records'),
+        max_output_tokens: document.getElementById('instance-digestion-param-max-output-tokens')
+    };
 
     function readMeshspaceTemplateSelection() {
         return meshspaceAgentTemplateCheckboxes
@@ -5489,9 +5631,113 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         );
     }
 
+    function setInstanceDigestionLlmStatus(text, isError = false) {
+        if (!instanceDigestionLlmStatus) return;
+        instanceDigestionLlmStatus.textContent = text || '';
+        instanceDigestionLlmStatus.classList.toggle('text-danger', !!isError);
+        instanceDigestionLlmStatus.classList.toggle('text-success', !isError && !!text);
+        instanceDigestionLlmStatus.classList.toggle('text-muted', !text);
+    }
+
+    function updateInstanceDigestionLlmBadge(settings) {
+        if (!instanceDigestionLlmStateBadge) return;
+        const available = !!(settings && settings.enabled && settings.api_key_configured);
+        instanceDigestionLlmStateBadge.textContent = available ? 'Available' : 'Not available';
+        instanceDigestionLlmStateBadge.classList.toggle('bg-success', available);
+        instanceDigestionLlmStateBadge.classList.toggle('bg-secondary', !available);
+    }
+
+    function applyInstanceDigestionLlmProviderCopy(settings = {}) {
+        const provider = instanceDigestionLlmProvider ? instanceDigestionLlmProvider.value : (settings.provider || 'openai');
+        const isBedrock = provider === 'bedrock';
+        if (instanceDigestionLlmApiKeyLabel) {
+            instanceDigestionLlmApiKeyLabel.textContent = isBedrock ? 'AWS Bedrock API key or credentials' : 'OpenAI API key';
+        }
+        if (instanceDigestionLlmApiKey) {
+            const configured = !!settings.api_key_configured;
+            const envReady = !!settings.environment_credentials_available && !settings.key_saved;
+            instanceDigestionLlmApiKey.placeholder = configured
+                ? (envReady ? 'Server AWS environment credentials detected' : 'Saved fallback credentials configured - leave blank to keep')
+                : (isBedrock ? 'Paste AWS credential JSON or KEY=VALUE lines' : 'Paste instance fallback key');
+        }
+        if (instanceDigestionLlmApiKeyHelp) {
+            instanceDigestionLlmApiKeyHelp.innerHTML = isBedrock
+                ? 'For Bedrock, use a Bedrock API key/bearer token plus <code>region</code>, or JSON/KEY=VALUE lines. Server AWS environment credentials can also satisfy the fallback.'
+                : 'Blank keeps the saved fallback key. Use clear to remove it.';
+        }
+        if (instanceDigestionParamInputs.max_output_tokens) {
+            instanceDigestionParamInputs.max_output_tokens.max = isBedrock ? '12000' : '20000';
+        }
+    }
+
+    function readInstanceDigestionParameters() {
+        const params = {};
+        Object.entries(instanceDigestionParamInputs).forEach(([key, input]) => {
+            if (!input) return;
+            const parsed = Number.parseInt(input.value, 10);
+            if (Number.isFinite(parsed)) params[key] = parsed;
+        });
+        return params;
+    }
+
+    function applyInstanceDigestionLlmSettings(settings) {
+        const safeSettings = settings || {};
+        if (instanceDigestionLlmProvider && safeSettings.provider) instanceDigestionLlmProvider.value = safeSettings.provider;
+        if (instanceDigestionLlmModel && safeSettings.model) instanceDigestionLlmModel.value = safeSettings.model;
+        if (instanceDigestionLlmEnabled) instanceDigestionLlmEnabled.checked = !!safeSettings.enabled;
+        if (instanceDigestionLlmApiKey) instanceDigestionLlmApiKey.value = '';
+        if (instanceDigestionLlmClearKey) instanceDigestionLlmClearKey.checked = false;
+        applyInstanceDigestionLlmProviderCopy(safeSettings);
+        updateInstanceDigestionLlmBadge(safeSettings);
+    }
+
+    async function saveInstanceDigestionLlmSettings() {
+        if (!instanceDigestionLlmSaveBtn) return;
+        if (!instanceDigestionLlmSaveBtn.dataset.defaultLabel) {
+            instanceDigestionLlmSaveBtn.dataset.defaultLabel = instanceDigestionLlmSaveBtn.innerHTML || 'Save Digestion Fallback';
+        }
+        instanceDigestionLlmSaveBtn.disabled = true;
+        instanceDigestionLlmSaveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Saving...';
+        setInstanceDigestionLlmStatus('Saving instance Digestion AI fallback...');
+        const payload = {
+            provider: instanceDigestionLlmProvider ? instanceDigestionLlmProvider.value : 'openai',
+            model: instanceDigestionLlmModel ? instanceDigestionLlmModel.value.trim() : '',
+            enabled: !!(instanceDigestionLlmEnabled && instanceDigestionLlmEnabled.checked),
+            clear_api_key: !!(instanceDigestionLlmClearKey && instanceDigestionLlmClearKey.checked),
+            default_lens: instanceDigestionLlmDefaultLens ? instanceDigestionLlmDefaultLens.value.trim() : '',
+            parameters: readInstanceDigestionParameters()
+        };
+        const apiKey = instanceDigestionLlmApiKey ? instanceDigestionLlmApiKey.value.trim() : '';
+        if (apiKey) payload.api_key = apiKey;
+        const { ok, data } = await api('POST', '/ajax/admin/canopy_llm/digestion_settings', payload);
+        instanceDigestionLlmSaveBtn.disabled = false;
+        instanceDigestionLlmSaveBtn.innerHTML = instanceDigestionLlmSaveBtn.dataset.defaultLabel;
+        if (!ok) {
+            setInstanceDigestionLlmStatus(data.error || 'Failed to save Digestion fallback', true);
+            return;
+        }
+        applyInstanceDigestionLlmSettings(data.settings || {});
+        const settings = data.settings || {};
+        const available = !!(settings.enabled && settings.api_key_configured);
+        setInstanceDigestionLlmStatus(
+            available
+                ? 'Saved. Users and agents without personal extraction keys can now generate Digestion datapoints.'
+                : 'Saved. Add credentials and enable fallback before users can rely on the instance Digestion default.'
+        );
+    }
+
     if (instanceLlmProvider) {
         instanceLlmProvider.addEventListener('change', () => applyInstanceLlmProviderCopy({}));
         applyInstanceLlmProviderCopy({{ (instance_llm_settings|default({}))|tojson }});
+    }
+    if (instanceDigestionLlmProvider) {
+        instanceDigestionLlmProvider.addEventListener('change', () => applyInstanceDigestionLlmProviderCopy({}));
+        applyInstanceDigestionLlmProviderCopy({{ (instance_digestion_llm_settings|default({}))|tojson }});
+        const initialDigestionSettings = {{ (instance_digestion_llm_settings|default({}))|tojson }};
+        if (initialDigestionSettings && initialDigestionSettings.provider) {
+            instanceDigestionLlmProvider.value = initialDigestionSettings.provider;
+            applyInstanceDigestionLlmProviderCopy(initialDigestionSettings);
+        }
     }
 
     function readOnlyPermissionPreset() {
@@ -5836,6 +6082,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     if (keysPresetClearBtn) keysPresetClearBtn.addEventListener('click', () => setKeyPermissionSelection([]));
     updateKeyPermissionSummary();
     if (instanceLlmSaveBtn) instanceLlmSaveBtn.addEventListener('click', saveInstanceLlmSettings);
+    if (instanceDigestionLlmSaveBtn) instanceDigestionLlmSaveBtn.addEventListener('click', saveInstanceDigestionLlmSettings);
     meshspaceAgentTemplateCheckboxes.forEach(cb => cb.addEventListener('change', updateMeshspaceTemplateSummary));
     updateMeshspaceTemplateSummary();
 

@@ -32,6 +32,7 @@ DEFAULT_BEDROCK_LLM_MODEL = (
     or 'anthropic.claude-3-5-sonnet-20240620-v1:0'
 )
 INSTANCE_LLM_SETTINGS_ID = 'default'
+INSTANCE_DIGESTION_LLM_SETTINGS_ID = 'default'
 CANOPY_LLM_PROVIDER_OPTIONS = [
     {
         'id': 'openai',
@@ -86,6 +87,20 @@ CANOPY_LLM_MODEL_OPTIONS = [
         'label': 'AWS Bedrock Nova Pro - requires Bedrock model access',
     },
 ]
+CANOPY_DIGESTION_LLM_PARAMETER_LIMITS = {
+    'max_chunks': {'default': 80, 'min': 1, 'max': 240},
+    'max_datapoints': {'default': 400, 'min': 1, 'max': 1200},
+    'batch_chunks': {'default': 6, 'min': 1, 'max': 24},
+    'batch_chars': {'default': 18000, 'min': 4000, 'max': 60000},
+    'chunk_chars': {'default': 2800, 'min': 800, 'max': 8000},
+    'batch_records': {'default': 40, 'min': 1, 'max': 120},
+    'max_output_tokens': {'default': 7000, 'min': 1200, 'max': 20000},
+}
+MAX_DIGESTION_LLM_LENS_CHARS = 800
+DEFAULT_DIGESTION_LLM_LENS = (
+    os.getenv('CANOPY_DIGESTION_DEFAULT_LENS', '').strip()
+    or 'general reusable scientific, technical, operational, and decision-support datapoints'
+)
 CANOPY_LLM_POSTING_STRUCTURE_GUIDE = """
 Canopy structured block rules:
 - Default to plain text. Only emit a structured block when the user clearly asks to create a task, request, objective, signal, or handoff.
@@ -271,6 +286,97 @@ class CanopyLLMManager:
             'provider_options': CANOPY_LLM_PROVIDER_OPTIONS,
         }
 
+    def get_digestion_settings(self, user_id: str) -> dict[str, Any]:
+        """Return node-local structured Digestion extraction settings for a user."""
+        user_id = str(user_id or '').strip()
+        defaults = self._default_digestion_settings()
+        instance_settings = self.get_instance_digestion_settings()
+        if not user_id:
+            return self._with_digestion_instance_summary(defaults, instance_settings)
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT provider, model, api_key_ciphertext, enabled, default_lens,
+                       max_chunks, max_datapoints, batch_chunks, batch_chars,
+                       chunk_chars, batch_records, max_output_tokens, updated_at
+                FROM user_digestion_llm_settings
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+        if not row:
+            return self._with_digestion_instance_summary(defaults, instance_settings)
+        provider = self._normalize_provider_for_display(self._row_value(row, 'provider', 0, 'openai'))
+        model = self._normalize_model_for_display(self._row_value(row, 'model', 1, None), provider=provider)
+        ciphertext = self._row_value(row, 'api_key_ciphertext', 2, '')
+        parameters = self._normalize_digestion_parameters({
+            'max_chunks': self._row_value(row, 'max_chunks', 5, None),
+            'max_datapoints': self._row_value(row, 'max_datapoints', 6, None),
+            'batch_chunks': self._row_value(row, 'batch_chunks', 7, None),
+            'batch_chars': self._row_value(row, 'batch_chars', 8, None),
+            'chunk_chars': self._row_value(row, 'chunk_chars', 9, None),
+            'batch_records': self._row_value(row, 'batch_records', 10, None),
+            'max_output_tokens': self._row_value(row, 'max_output_tokens', 11, None),
+        })
+        return self._with_digestion_instance_summary({
+            'provider': provider,
+            'model': model,
+            'enabled': bool(self._row_value(row, 'enabled', 3, 0)),
+            'api_key_configured': self._provider_secret_configured(provider, ciphertext, allow_environment=False),
+            'default_lens': self._normalize_digestion_lens(self._row_value(row, 'default_lens', 4, '')),
+            'parameters': parameters,
+            'updated_at': self._row_value(row, 'updated_at', 12, None),
+            'model_options': CANOPY_LLM_MODEL_OPTIONS,
+            'provider_options': CANOPY_LLM_PROVIDER_OPTIONS,
+            'parameter_limits': CANOPY_DIGESTION_LLM_PARAMETER_LIMITS,
+        }, instance_settings)
+
+    def get_instance_digestion_settings(self) -> dict[str, Any]:
+        """Return admin-managed node-local fallback settings for Digestion extraction."""
+        defaults = self._default_instance_digestion_settings()
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT provider, model, api_key_ciphertext, enabled, default_lens,
+                       max_chunks, max_datapoints, batch_chunks, batch_chars,
+                       chunk_chars, batch_records, max_output_tokens, updated_by, updated_at
+                FROM instance_digestion_llm_settings
+                WHERE id = ?
+                """,
+                (INSTANCE_DIGESTION_LLM_SETTINGS_ID,),
+            ).fetchone()
+        if not row:
+            return defaults
+        provider = self._normalize_provider_for_display(self._row_value(row, 'provider', 0, 'openai'))
+        model = self._normalize_model_for_display(self._row_value(row, 'model', 1, None), provider=provider)
+        ciphertext = self._row_value(row, 'api_key_ciphertext', 2, '')
+        parameters = self._normalize_digestion_parameters({
+            'max_chunks': self._row_value(row, 'max_chunks', 5, None),
+            'max_datapoints': self._row_value(row, 'max_datapoints', 6, None),
+            'batch_chunks': self._row_value(row, 'batch_chunks', 7, None),
+            'batch_chars': self._row_value(row, 'batch_chars', 8, None),
+            'chunk_chars': self._row_value(row, 'chunk_chars', 9, None),
+            'batch_records': self._row_value(row, 'batch_records', 10, None),
+            'max_output_tokens': self._row_value(row, 'max_output_tokens', 11, None),
+        })
+        return {
+            'provider': provider,
+            'model': model,
+            'enabled': bool(self._row_value(row, 'enabled', 3, 0)),
+            'api_key_configured': self._provider_secret_configured(provider, ciphertext, allow_environment=True),
+            'key_saved': bool(str(ciphertext or '').strip()),
+            'environment_credentials_available': bool(provider == 'bedrock' and self._bedrock_environment_credentials_available()),
+            'default_lens': self._normalize_digestion_lens(self._row_value(row, 'default_lens', 4, '')),
+            'parameters': parameters,
+            'updated_by': self._row_value(row, 'updated_by', 12, None),
+            'updated_at': self._row_value(row, 'updated_at', 13, None),
+            'model_options': CANOPY_LLM_MODEL_OPTIONS,
+            'provider_options': CANOPY_LLM_PROVIDER_OPTIONS,
+            'parameter_limits': CANOPY_DIGESTION_LLM_PARAMETER_LIMITS,
+        }
+
     def save_settings(
         self,
         user_id: str,
@@ -428,6 +534,194 @@ class CanopyLLMManager:
             )
             conn.commit()
         return self.get_instance_settings()
+
+    def save_digestion_settings(
+        self,
+        user_id: str,
+        *,
+        provider: Any = 'openai',
+        model: Any = None,
+        enabled: Any = False,
+        api_key: Optional[str] = None,
+        clear_api_key: bool = False,
+        default_lens: Any = None,
+        parameters: Optional[dict[str, Any]] = None,
+        max_chunks: Any = None,
+        max_datapoints: Any = None,
+        batch_chunks: Any = None,
+        batch_chars: Any = None,
+        chunk_chars: Any = None,
+        batch_records: Any = None,
+        max_output_tokens: Any = None,
+    ) -> dict[str, Any]:
+        """Save a user's node-local Digestion extraction provider and cost controls."""
+        user_id = str(user_id or '').strip()
+        if not user_id:
+            raise CanopyLLMError('Sign in before configuring Digestion AI extraction.', status_code=401, reason='not_authenticated')
+        provider_clean = self._normalize_provider(provider)
+        model_clean = self._normalize_model(model, provider=provider_clean)
+        lens_clean = self._normalize_digestion_lens(default_lens)
+        params_clean = self._normalize_digestion_parameters(parameters, **{
+            'max_chunks': max_chunks,
+            'max_datapoints': max_datapoints,
+            'batch_chunks': batch_chunks,
+            'batch_chars': batch_chars,
+            'chunk_chars': chunk_chars,
+            'batch_records': batch_records,
+            'max_output_tokens': max_output_tokens,
+        })
+        enabled_clean = 1 if bool(enabled) else 0
+
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            existing = conn.execute(
+                "SELECT api_key_ciphertext FROM user_digestion_llm_settings WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+            existing_ciphertext = str(self._row_value(existing, 'api_key_ciphertext', 0, '') or '').strip() if existing else ''
+            api_key_clean = str(api_key or '').strip() if api_key is not None else ''
+            if clear_api_key:
+                ciphertext = None
+            elif api_key_clean:
+                ciphertext = self._encrypt(api_key_clean)
+            else:
+                ciphertext = existing_ciphertext or None
+
+            conn.execute(
+                """
+                INSERT INTO user_digestion_llm_settings (
+                    user_id, provider, model, api_key_ciphertext, enabled, default_lens,
+                    max_chunks, max_datapoints, batch_chunks, batch_chars, chunk_chars,
+                    batch_records, max_output_tokens, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    provider = excluded.provider,
+                    model = excluded.model,
+                    api_key_ciphertext = excluded.api_key_ciphertext,
+                    enabled = excluded.enabled,
+                    default_lens = excluded.default_lens,
+                    max_chunks = excluded.max_chunks,
+                    max_datapoints = excluded.max_datapoints,
+                    batch_chunks = excluded.batch_chunks,
+                    batch_chars = excluded.batch_chars,
+                    chunk_chars = excluded.chunk_chars,
+                    batch_records = excluded.batch_records,
+                    max_output_tokens = excluded.max_output_tokens,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    user_id,
+                    provider_clean,
+                    model_clean,
+                    ciphertext,
+                    enabled_clean,
+                    lens_clean,
+                    params_clean['max_chunks'],
+                    params_clean['max_datapoints'],
+                    params_clean['batch_chunks'],
+                    params_clean['batch_chars'],
+                    params_clean['chunk_chars'],
+                    params_clean['batch_records'],
+                    params_clean['max_output_tokens'],
+                ),
+            )
+            conn.commit()
+        return self.get_digestion_settings(user_id)
+
+    def save_instance_digestion_settings(
+        self,
+        admin_user_id: str,
+        *,
+        provider: Any = 'openai',
+        model: Any = None,
+        enabled: Any = False,
+        api_key: Optional[str] = None,
+        clear_api_key: bool = False,
+        default_lens: Any = None,
+        parameters: Optional[dict[str, Any]] = None,
+        max_chunks: Any = None,
+        max_datapoints: Any = None,
+        batch_chunks: Any = None,
+        batch_chars: Any = None,
+        chunk_chars: Any = None,
+        batch_records: Any = None,
+        max_output_tokens: Any = None,
+    ) -> dict[str, Any]:
+        """Save admin-managed node-local Digestion extraction fallback settings."""
+        admin_user_id = str(admin_user_id or '').strip()
+        provider_clean = self._normalize_provider(provider)
+        model_clean = self._normalize_model(model, provider=provider_clean)
+        lens_clean = self._normalize_digestion_lens(default_lens)
+        params_clean = self._normalize_digestion_parameters(parameters, **{
+            'max_chunks': max_chunks,
+            'max_datapoints': max_datapoints,
+            'batch_chunks': batch_chunks,
+            'batch_chars': batch_chars,
+            'chunk_chars': chunk_chars,
+            'batch_records': batch_records,
+            'max_output_tokens': max_output_tokens,
+        })
+        enabled_clean = 1 if bool(enabled) else 0
+
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            existing = conn.execute(
+                "SELECT api_key_ciphertext FROM instance_digestion_llm_settings WHERE id = ?",
+                (INSTANCE_DIGESTION_LLM_SETTINGS_ID,),
+            ).fetchone()
+            existing_ciphertext = str(self._row_value(existing, 'api_key_ciphertext', 0, '') or '').strip() if existing else ''
+            api_key_clean = str(api_key or '').strip() if api_key is not None else ''
+            if clear_api_key:
+                ciphertext = None
+            elif api_key_clean:
+                ciphertext = self._encrypt(api_key_clean)
+            else:
+                ciphertext = existing_ciphertext or None
+
+            conn.execute(
+                """
+                INSERT INTO instance_digestion_llm_settings (
+                    id, provider, model, api_key_ciphertext, enabled, default_lens,
+                    max_chunks, max_datapoints, batch_chunks, batch_chars, chunk_chars,
+                    batch_records, max_output_tokens, updated_by, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    provider = excluded.provider,
+                    model = excluded.model,
+                    api_key_ciphertext = excluded.api_key_ciphertext,
+                    enabled = excluded.enabled,
+                    default_lens = excluded.default_lens,
+                    max_chunks = excluded.max_chunks,
+                    max_datapoints = excluded.max_datapoints,
+                    batch_chunks = excluded.batch_chunks,
+                    batch_chars = excluded.batch_chars,
+                    chunk_chars = excluded.chunk_chars,
+                    batch_records = excluded.batch_records,
+                    max_output_tokens = excluded.max_output_tokens,
+                    updated_by = excluded.updated_by,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    INSTANCE_DIGESTION_LLM_SETTINGS_ID,
+                    provider_clean,
+                    model_clean,
+                    ciphertext,
+                    enabled_clean,
+                    lens_clean,
+                    params_clean['max_chunks'],
+                    params_clean['max_datapoints'],
+                    params_clean['batch_chunks'],
+                    params_clean['batch_chars'],
+                    params_clean['chunk_chars'],
+                    params_clean['batch_records'],
+                    params_clean['max_output_tokens'],
+                    admin_user_id or None,
+                ),
+            )
+            conn.commit()
+        return self.get_instance_digestion_settings()
 
     def expand_prompt(
         self,
@@ -658,6 +952,73 @@ class CanopyLLMManager:
             reason='llm_disabled',
         )
 
+    def _resolve_effective_digestion_settings(self, user_id: str) -> dict[str, Any]:
+        """Resolve personal Digestion extraction settings, then admin fallback credentials."""
+        personal = self.get_digestion_settings(user_id)
+        personal_enabled = bool(personal.get('enabled'))
+        personal_key = (
+            self._get_digestion_api_key(user_id)
+            if personal_enabled and personal.get('api_key_configured')
+            else ''
+        )
+        if personal_enabled and personal_key:
+            resolved = dict(personal)
+            resolved.update({
+                'api_key': personal_key,
+                'credential_source': 'user',
+                'parameters': self._normalize_digestion_parameters(personal.get('parameters') or {}),
+            })
+            return resolved
+
+        instance_settings = self.get_instance_digestion_settings()
+        instance_provider = str(instance_settings.get('provider') or 'openai')
+        instance_key = ''
+        if instance_settings.get('enabled') and instance_settings.get('api_key_configured'):
+            instance_key = self._get_instance_digestion_api_key() if instance_settings.get('key_saved') else ''
+            if instance_provider == 'bedrock' and not instance_key and self._bedrock_environment_credentials_available():
+                instance_key = ''
+        instance_auth_available = (
+            bool(instance_key)
+            if instance_provider == 'openai'
+            else bool(instance_settings.get('api_key_configured'))
+        )
+        if instance_settings.get('enabled') and instance_auth_available:
+            use_personal_preferences = (
+                personal_enabled
+                and str(personal.get('provider') or 'openai') == instance_provider
+            )
+            return {
+                'provider': instance_provider,
+                'model': (
+                    personal.get('model')
+                    if use_personal_preferences and personal.get('model')
+                    else instance_settings.get('model')
+                ) or (DEFAULT_BEDROCK_LLM_MODEL if instance_provider == 'bedrock' else DEFAULT_CANOPY_LLM_MODEL),
+                'enabled': True,
+                'api_key': instance_key,
+                'default_lens': (
+                    personal.get('default_lens')
+                    if use_personal_preferences and personal.get('default_lens')
+                    else instance_settings.get('default_lens')
+                ) or DEFAULT_DIGESTION_LLM_LENS,
+                'parameters': self._normalize_digestion_parameters(
+                    personal.get('parameters') if use_personal_preferences else instance_settings.get('parameters')
+                ),
+                'credential_source': 'instance',
+            }
+
+        if personal_enabled:
+            raise CanopyLLMError(
+                'Add provider credentials in Profile > Digestion AI Extraction, or ask an admin to configure the instance Digestion fallback.',
+                status_code=400,
+                reason='missing_api_key',
+            )
+        raise CanopyLLMError(
+            'Digestion AI extraction is not configured. Add your own key in Profile, or ask an admin to enable the instance Digestion fallback key.',
+            status_code=400,
+            reason='llm_disabled',
+        )
+
     @staticmethod
     def _should_enable_web_search_for_prompt(prompt: Any) -> bool:
         """Avoid hosted web-search latency unless the draft asks for live/current facts."""
@@ -701,6 +1062,48 @@ class CanopyLLMManager:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_digestion_llm_settings (
+                    user_id TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL DEFAULT 'openai',
+                    model TEXT NOT NULL DEFAULT 'gpt-5-mini',
+                    api_key_ciphertext TEXT,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    default_lens TEXT,
+                    max_chunks INTEGER NOT NULL DEFAULT 80,
+                    max_datapoints INTEGER NOT NULL DEFAULT 400,
+                    batch_chunks INTEGER NOT NULL DEFAULT 6,
+                    batch_chars INTEGER NOT NULL DEFAULT 18000,
+                    chunk_chars INTEGER NOT NULL DEFAULT 2800,
+                    batch_records INTEGER NOT NULL DEFAULT 40,
+                    max_output_tokens INTEGER NOT NULL DEFAULT 7000,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS instance_digestion_llm_settings (
+                    id TEXT PRIMARY KEY,
+                    provider TEXT NOT NULL DEFAULT 'openai',
+                    model TEXT NOT NULL DEFAULT 'gpt-5-mini',
+                    api_key_ciphertext TEXT,
+                    enabled INTEGER NOT NULL DEFAULT 0,
+                    default_lens TEXT,
+                    max_chunks INTEGER NOT NULL DEFAULT 80,
+                    max_datapoints INTEGER NOT NULL DEFAULT 400,
+                    batch_chunks INTEGER NOT NULL DEFAULT 6,
+                    batch_chars INTEGER NOT NULL DEFAULT 18000,
+                    chunk_chars INTEGER NOT NULL DEFAULT 2800,
+                    batch_records INTEGER NOT NULL DEFAULT 40,
+                    max_output_tokens INTEGER NOT NULL DEFAULT 7000,
+                    updated_by TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
             columns = {
                 str(row['name'] if hasattr(row, 'keys') else row[1])
                 for row in conn.execute("PRAGMA table_info(user_llm_settings)").fetchall()
@@ -734,8 +1137,36 @@ class CanopyLLMManager:
                     "ALTER TABLE instance_llm_settings "
                     "ADD COLUMN updated_by TEXT"
                 )
+            self._ensure_digestion_settings_columns(conn, 'user_digestion_llm_settings', include_updated_by=False)
+            self._ensure_digestion_settings_columns(conn, 'instance_digestion_llm_settings', include_updated_by=True)
             conn.commit()
         self._schema_ready = True
+
+    def _ensure_digestion_settings_columns(self, conn: Any, table_name: str, *, include_updated_by: bool) -> None:
+        columns = {
+            str(row['name'] if hasattr(row, 'keys') else row[1])
+            for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        }
+        specs = {
+            'provider': "TEXT NOT NULL DEFAULT 'openai'",
+            'model': "TEXT NOT NULL DEFAULT 'gpt-5-mini'",
+            'api_key_ciphertext': "TEXT",
+            'enabled': "INTEGER NOT NULL DEFAULT 0",
+            'default_lens': "TEXT",
+            'max_chunks': "INTEGER NOT NULL DEFAULT 80",
+            'max_datapoints': "INTEGER NOT NULL DEFAULT 400",
+            'batch_chunks': "INTEGER NOT NULL DEFAULT 6",
+            'batch_chars': "INTEGER NOT NULL DEFAULT 18000",
+            'chunk_chars': "INTEGER NOT NULL DEFAULT 2800",
+            'batch_records': "INTEGER NOT NULL DEFAULT 40",
+            'max_output_tokens': "INTEGER NOT NULL DEFAULT 7000",
+            'updated_at': "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        }
+        if include_updated_by:
+            specs['updated_by'] = "TEXT"
+        for column, spec in specs.items():
+            if column not in columns:
+                conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {spec}")
 
     def _default_settings(self) -> dict[str, Any]:
         return {
@@ -768,8 +1199,55 @@ class CanopyLLMManager:
             'provider_options': CANOPY_LLM_PROVIDER_OPTIONS,
         }
 
+    def _default_digestion_settings(self) -> dict[str, Any]:
+        return {
+            'provider': 'openai',
+            'model': DEFAULT_CANOPY_LLM_MODEL,
+            'enabled': False,
+            'api_key_configured': False,
+            'default_lens': DEFAULT_DIGESTION_LLM_LENS,
+            'parameters': self._normalize_digestion_parameters({}),
+            'updated_at': None,
+            'model_options': CANOPY_LLM_MODEL_OPTIONS,
+            'provider_options': CANOPY_LLM_PROVIDER_OPTIONS,
+            'parameter_limits': CANOPY_DIGESTION_LLM_PARAMETER_LIMITS,
+        }
+
+    def _default_instance_digestion_settings(self) -> dict[str, Any]:
+        return {
+            'provider': 'openai',
+            'model': DEFAULT_CANOPY_LLM_MODEL,
+            'enabled': False,
+            'api_key_configured': False,
+            'key_saved': False,
+            'environment_credentials_available': False,
+            'default_lens': DEFAULT_DIGESTION_LLM_LENS,
+            'parameters': self._normalize_digestion_parameters({}),
+            'updated_at': None,
+            'updated_by': None,
+            'model_options': CANOPY_LLM_MODEL_OPTIONS,
+            'provider_options': CANOPY_LLM_PROVIDER_OPTIONS,
+            'parameter_limits': CANOPY_DIGESTION_LLM_PARAMETER_LIMITS,
+        }
+
     @staticmethod
     def _with_instance_summary(settings: dict[str, Any], instance_settings: dict[str, Any]) -> dict[str, Any]:
+        instance_available = bool(instance_settings.get('enabled') and instance_settings.get('api_key_configured'))
+        personal_available = bool(settings.get('enabled') and settings.get('api_key_configured'))
+        merged = dict(settings)
+        merged.update({
+            'instance_fallback_enabled': bool(instance_settings.get('enabled')),
+            'instance_fallback_key_configured': bool(instance_settings.get('api_key_configured')),
+            'instance_fallback_available': instance_available,
+            'instance_fallback_provider': instance_settings.get('provider') or 'openai',
+            'instance_fallback_model': instance_settings.get('model') or DEFAULT_CANOPY_LLM_MODEL,
+            'effective_enabled': bool(personal_available or instance_available),
+            'using_instance_fallback': bool(instance_available and not personal_available),
+        })
+        return merged
+
+    @staticmethod
+    def _with_digestion_instance_summary(settings: dict[str, Any], instance_settings: dict[str, Any]) -> dict[str, Any]:
         instance_available = bool(instance_settings.get('enabled') and instance_settings.get('api_key_configured'))
         personal_available = bool(settings.get('enabled') and settings.get('api_key_configured'))
         merged = dict(settings)
@@ -867,6 +1345,36 @@ class CanopyLLMManager:
                 raise CanopyLLMError(
                     'Saved instance fallback API key could not be decrypted on this node. '
                     'Re-enter the key in Admin > Instance AI Compose Fallback.',
+                    status_code=400,
+                    reason='api_key_decrypt_failed',
+                ) from exc
+            raise
+
+    def _get_digestion_api_key(self, user_id: str) -> str:
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            row = conn.execute(
+                "SELECT api_key_ciphertext FROM user_digestion_llm_settings WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        ciphertext = str(self._row_value(row, 'api_key_ciphertext', 0, '') or '').strip() if row else ''
+        return self._decrypt(ciphertext) if ciphertext else ''
+
+    def _get_instance_digestion_api_key(self) -> str:
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            row = conn.execute(
+                "SELECT api_key_ciphertext FROM instance_digestion_llm_settings WHERE id = ?",
+                (INSTANCE_DIGESTION_LLM_SETTINGS_ID,),
+            ).fetchone()
+        ciphertext = str(self._row_value(row, 'api_key_ciphertext', 0, '') or '').strip() if row else ''
+        try:
+            return self._decrypt(ciphertext) if ciphertext else ''
+        except CanopyLLMError as exc:
+            if exc.reason == 'api_key_decrypt_failed':
+                raise CanopyLLMError(
+                    'Saved instance Digestion fallback API key could not be decrypted on this node. '
+                    'Re-enter the key in Admin > Instance Digestion AI Fallback.',
                     status_code=400,
                     reason='api_key_decrypt_failed',
                 ) from exc
@@ -1287,6 +1795,55 @@ class CanopyLLMManager:
         return model_clean
 
     @staticmethod
+    def _normalize_model_for_display(model: Any, *, provider: str = 'openai') -> str:
+        try:
+            return CanopyLLMManager._normalize_model(model, provider=provider)
+        except CanopyLLMError:
+            return DEFAULT_BEDROCK_LLM_MODEL if provider == 'bedrock' else DEFAULT_CANOPY_LLM_MODEL
+
+    @staticmethod
+    def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
+        try:
+            parsed = int(value if value is not None and str(value).strip() != '' else default)
+        except Exception:
+            parsed = int(default)
+        return max(int(minimum), min(parsed, int(maximum)))
+
+    @classmethod
+    def _normalize_digestion_parameters(
+        cls,
+        parameters: Optional[dict[str, Any]] = None,
+        **overrides: Any,
+    ) -> dict[str, int]:
+        raw: dict[str, Any] = dict(parameters or {})
+        for key, value in overrides.items():
+            if value is not None:
+                raw[key] = value
+        normalized: dict[str, int] = {}
+        for key, spec in CANOPY_DIGESTION_LLM_PARAMETER_LIMITS.items():
+            normalized[key] = cls._bounded_int(
+                raw.get(key),
+                default=int(spec['default']),
+                minimum=int(spec['min']),
+                maximum=int(spec['max']),
+            )
+        return normalized
+
+    @staticmethod
+    def _normalize_digestion_lens(default_lens: Any) -> str:
+        lens = str(default_lens or '').replace('\r\n', '\n').replace('\r', '\n').strip()
+        lens = re.sub(r'\n{4,}', '\n\n\n', lens)
+        if not lens:
+            lens = DEFAULT_DIGESTION_LLM_LENS
+        if len(lens) > MAX_DIGESTION_LLM_LENS_CHARS:
+            raise CanopyLLMError(
+                f'Digestion extraction lens is capped at {MAX_DIGESTION_LLM_LENS_CHARS:,} characters.',
+                status_code=400,
+                reason='digestion_lens_too_long',
+            )
+        return lens
+
+    @staticmethod
     def _normalize_system_prompt(system_prompt: Any) -> str:
         prompt = str(system_prompt or '').strip() or DEFAULT_CANOPY_LLM_SYSTEM_PROMPT
         if len(prompt) > MAX_SYSTEM_PROMPT_CHARS:
@@ -1330,17 +1887,21 @@ class CanopyLLMManager:
         model: str,
         system_prompt: str,
         prompt: str,
+        max_output_tokens: Optional[int] = None,
     ) -> str:
         credentials = self._parse_bedrock_credentials(credential_secret)
         region = credentials['region']
         endpoint = (credentials.get('endpoint_url') or f'https://bedrock-runtime.{region}.amazonaws.com').rstrip('/')
         timeout = float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '90') or '90')
-        max_output_tokens = self._bounded_int_env(
-            'CANOPY_BEDROCK_MAX_TOKENS',
-            default=2600,
-            minimum=256,
-            maximum=12000,
-        )
+        if max_output_tokens is None:
+            max_output_tokens = self._bounded_int_env(
+                'CANOPY_BEDROCK_MAX_TOKENS',
+                default=2600,
+                minimum=256,
+                maximum=12000,
+            )
+        else:
+            max_output_tokens = max(256, min(int(max_output_tokens or 2600), 12000))
         payload = {
             'messages': [
                 {
@@ -1541,10 +2102,14 @@ class CanopyLLMManager:
         system_prompt: str,
         prompt: str,
         web_search_enabled: bool = False,
+        max_output_tokens: Optional[int] = None,
     ) -> str:
         base_url = os.getenv('CANOPY_OPENAI_BASE_URL', 'https://api.openai.com/v1').strip().rstrip('/')
         timeout = float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '90') or '90')
-        max_output_tokens = self._default_max_output_tokens(web_search_enabled=web_search_enabled)
+        if max_output_tokens is None:
+            max_output_tokens = self._default_max_output_tokens(web_search_enabled=web_search_enabled)
+        else:
+            max_output_tokens = max(800, min(int(max_output_tokens or 2600), 20000))
         payload = {
             'model': model,
             'instructions': system_prompt,

@@ -73,6 +73,8 @@ class _FakeLLMManager:
         self.expand_calls: list[dict[str, Any]] = []
         self.saved_payloads: list[dict[str, Any]] = []
         self.saved_instance_payloads: list[dict[str, Any]] = []
+        self.saved_digestion_payloads: list[dict[str, Any]] = []
+        self.saved_instance_digestion_payloads: list[dict[str, Any]] = []
 
     @staticmethod
     def has_canopy_trigger(content: Any) -> bool:
@@ -110,6 +112,53 @@ class _FakeLLMManager:
     def save_instance_settings(self, admin_user_id: str, **kwargs: Any) -> dict[str, Any]:
         self.saved_instance_payloads.append({'admin_user_id': admin_user_id, **kwargs})
         return self.get_instance_settings()
+
+    def get_digestion_settings(self, user_id: str) -> dict[str, Any]:
+        return {
+            'provider': 'openai',
+            'model': 'gpt-5-mini',
+            'enabled': True,
+            'api_key_configured': True,
+            'default_lens': 'technical datapoints',
+            'parameters': {
+                'max_chunks': 80,
+                'max_datapoints': 400,
+                'batch_chunks': 6,
+                'batch_chars': 18000,
+                'chunk_chars': 2800,
+                'batch_records': 40,
+                'max_output_tokens': 7000,
+            },
+            'updated_at': None,
+        }
+
+    def save_digestion_settings(self, user_id: str, **kwargs: Any) -> dict[str, Any]:
+        self.saved_digestion_payloads.append({'user_id': user_id, **kwargs})
+        return self.get_digestion_settings(user_id)
+
+    def get_instance_digestion_settings(self) -> dict[str, Any]:
+        return {
+            'provider': 'openai',
+            'model': 'gpt-5-mini',
+            'enabled': True,
+            'api_key_configured': True,
+            'default_lens': 'technical datapoints',
+            'parameters': {
+                'max_chunks': 80,
+                'max_datapoints': 400,
+                'batch_chunks': 6,
+                'batch_chars': 18000,
+                'chunk_chars': 2800,
+                'batch_records': 40,
+                'max_output_tokens': 7000,
+            },
+            'updated_at': None,
+            'updated_by': 'user-1',
+        }
+
+    def save_instance_digestion_settings(self, admin_user_id: str, **kwargs: Any) -> dict[str, Any]:
+        self.saved_instance_digestion_payloads.append({'admin_user_id': admin_user_id, **kwargs})
+        return self.get_instance_digestion_settings()
 
     def expand_prompt(
         self,
@@ -291,6 +340,73 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertEqual(context['model'], 'gpt-5.5')
         self.assertEqual(context['credential_source'], 'instance')
         self.assertIn('Personal policy.', context['system_prompt'])
+
+    def test_digestion_settings_use_encrypted_personal_key_and_parameters(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+
+        settings = manager.save_digestion_settings(
+            'user-1',
+            provider='openai',
+            model='gpt-5.4-mini',
+            enabled=True,
+            api_key='sk-digest-secret',
+            default_lens='extract device performance metrics',
+            parameters={
+                'max_chunks': 17,
+                'max_datapoints': 33,
+                'batch_chunks': 3,
+                'batch_chars': 9000,
+                'chunk_chars': 1600,
+                'batch_records': 9,
+                'max_output_tokens': 5000,
+            },
+        )
+
+        self.assertTrue(settings['enabled'])
+        self.assertTrue(settings['api_key_configured'])
+        self.assertEqual(settings['parameters']['max_chunks'], 17)
+        self.assertEqual(settings['parameters']['batch_records'], 9)
+        self.assertNotIn('api_key', settings)
+        row = self.conn.execute(
+            "SELECT api_key_ciphertext FROM user_digestion_llm_settings WHERE user_id = ?",
+            ('user-1',),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertNotIn('sk-digest-secret', row['api_key_ciphertext'])
+
+        resolved = manager._resolve_effective_digestion_settings('user-1')
+        self.assertEqual(resolved['api_key'], 'sk-digest-secret')
+        self.assertEqual(resolved['model'], 'gpt-5.4-mini')
+        self.assertEqual(resolved['credential_source'], 'user')
+        self.assertEqual(resolved['default_lens'], 'extract device performance metrics')
+
+    def test_digestion_instance_fallback_can_supply_key_for_user_preferences(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        manager.save_instance_digestion_settings(
+            'admin-1',
+            provider='openai',
+            model='gpt-5-mini',
+            enabled=True,
+            api_key='sk-instance-digest',
+            default_lens='shared extraction lens',
+            parameters={'max_chunks': 80, 'batch_records': 40},
+        )
+        manager.save_digestion_settings(
+            'user-1',
+            provider='openai',
+            model='gpt-5.5',
+            enabled=True,
+            default_lens='personal extraction lens',
+            parameters={'max_chunks': 12, 'batch_records': 6},
+        )
+
+        resolved = manager._resolve_effective_digestion_settings('user-1')
+        self.assertEqual(resolved['api_key'], 'sk-instance-digest')
+        self.assertEqual(resolved['model'], 'gpt-5.5')
+        self.assertEqual(resolved['credential_source'], 'instance')
+        self.assertEqual(resolved['default_lens'], 'personal extraction lens')
+        self.assertEqual(resolved['parameters']['max_chunks'], 12)
+        self.assertEqual(resolved['parameters']['batch_records'], 6)
 
     def test_compose_memory_adds_user_controlled_context_to_prompt(self) -> None:
         manager = CanopyLLMManager(self.db, 'test-secret')
@@ -1074,3 +1190,116 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
         self.assertEqual(self.llm_manager.saved_instance_payloads[0]['admin_user_id'], 'user-1')
         self.assertEqual(self.llm_manager.saved_instance_payloads[0]['api_key'], 'sk-instance')
         self.assertFalse(self.llm_manager.saved_instance_payloads[0]['web_search_enabled'])
+
+    def test_digestion_settings_endpoint_saves_local_settings(self) -> None:
+        csrf = self._login()
+
+        response = self.client.post(
+            '/ajax/canopy_llm/digestion_settings',
+            json={
+                'provider': 'openai',
+                'model': 'gpt-5.4-mini',
+                'enabled': True,
+                'api_key': 'sk-digest',
+                'default_lens': 'extract lab measurements',
+                'parameters': {
+                    'max_chunks': 24,
+                    'max_datapoints': 88,
+                    'batch_chunks': 4,
+                    'batch_chars': 12000,
+                    'chunk_chars': 2000,
+                    'batch_records': 12,
+                    'max_output_tokens': 6000,
+                },
+            },
+            headers={'X-CSRFToken': csrf},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        saved = self.llm_manager.saved_digestion_payloads[0]
+        self.assertEqual(saved['user_id'], 'user-1')
+        self.assertEqual(saved['api_key'], 'sk-digest')
+        self.assertTrue(saved['enabled'])
+        self.assertEqual(saved['default_lens'], 'extract lab measurements')
+        self.assertEqual(saved['parameters']['max_chunks'], 24)
+        self.assertEqual(saved['parameters']['batch_records'], 12)
+
+    def test_digestion_settings_endpoint_parses_boolean_strings_strictly(self) -> None:
+        csrf = self._login()
+
+        response = self.client.post(
+            '/ajax/canopy_llm/digestion_settings',
+            json={
+                'provider': 'openai',
+                'model': 'gpt-5.4-mini',
+                'enabled': 'false',
+                'clear_api_key': 'false',
+                'parameters': {'max_chunks': 24},
+            },
+            headers={'X-CSRFToken': csrf},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        saved = self.llm_manager.saved_digestion_payloads[0]
+        self.assertFalse(saved['enabled'])
+        self.assertFalse(saved['clear_api_key'])
+
+    def test_admin_digestion_settings_endpoint_saves_fallback_settings(self) -> None:
+        csrf = self._login()
+
+        response = self.client.post(
+            '/ajax/admin/canopy_llm/digestion_settings',
+            json={
+                'provider': 'openai',
+                'model': 'gpt-5.4-mini',
+                'enabled': True,
+                'api_key': 'sk-instance-digest',
+                'default_lens': 'extract reusable technical datapoints',
+                'parameters': {
+                    'max_chunks': 120,
+                    'max_datapoints': 600,
+                    'batch_chunks': 5,
+                    'batch_chars': 16000,
+                    'chunk_chars': 2400,
+                    'batch_records': 20,
+                    'max_output_tokens': 7000,
+                },
+            },
+            headers={'X-CSRFToken': csrf},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        saved = self.llm_manager.saved_instance_digestion_payloads[0]
+        self.assertEqual(saved['admin_user_id'], 'user-1')
+        self.assertEqual(saved['api_key'], 'sk-instance-digest')
+        self.assertTrue(saved['enabled'])
+        self.assertEqual(saved['default_lens'], 'extract reusable technical datapoints')
+        self.assertEqual(saved['parameters']['max_chunks'], 120)
+
+    def test_admin_digestion_settings_endpoint_parses_boolean_strings_strictly(self) -> None:
+        csrf = self._login()
+
+        response = self.client.post(
+            '/ajax/admin/canopy_llm/digestion_settings',
+            json={
+                'provider': 'openai',
+                'model': 'gpt-5.4-mini',
+                'enabled': 'false',
+                'clear_api_key': 'false',
+                'parameters': {'max_chunks': 80},
+            },
+            headers={'X-CSRFToken': csrf},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        saved = self.llm_manager.saved_instance_digestion_payloads[0]
+        self.assertFalse(saved['enabled'])
+        self.assertFalse(saved['clear_api_key'])
