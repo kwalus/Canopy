@@ -1121,8 +1121,10 @@
                                                         </div>
                                                     {% endif %}
                                                     {% if em.get('image_url') %}
+                                                        {% set em_image_url = em.image_url %}
+                                                        {% set em_image_preview_url = em_image_url ~ '/thumb' if em_image_url and em_image_url.startswith('/files/') and not em_image_url.endswith('/thumb') else em_image_url %}
                                                         <div class="post-repost-embed-media mt-2 text-center">
-                                                            <img src="{{ em.image_url }}" class="img-fluid rounded post-repost-embed-img" alt="">
+                                                            <img src="{{ em_image_preview_url }}" class="img-fluid rounded post-repost-embed-img" alt="" loading="lazy" decoding="async">
                                                         </div>
                                                     {% endif %}
                                                     {% if em.get('video_url') %}
@@ -1155,8 +1157,10 @@
                                                     {% if em.get('attachment_images') %}
                                                         <div class="post-repost-thumb-grid{% if em.attachment_images|length == 1 %} is-single{% endif %} mt-2">
                                                             {% for img in em.attachment_images %}
+                                                                {% set repost_img_url = img.url %}
+                                                                {% set repost_img_preview_url = img.thumb_url or (repost_img_url ~ '/thumb' if repost_img_url and repost_img_url.startswith('/files/') and not repost_img_url.endswith('/thumb') else repost_img_url) %}
                                                                 <a href="{{ ref.href }}" class="post-repost-thumb-link" title="View original post">
-                                                                    <img src="{{ img.url }}" alt="{{ img.name }}" loading="lazy">
+                                                                    <img src="{{ repost_img_preview_url }}" alt="{{ img.name }}" loading="lazy" decoding="async">
                                                                 </a>
                                                             {% endfor %}
                                                         </div>
@@ -1226,10 +1230,12 @@
                                     {% endif %}
                                 {% elif post.post_type == 'image' %}
                                     {% if post.display_content %}<div data-canopy-source-ref="content:lede"><p class="mb-2 post-text mentionable">{{ post.display_content }}</p></div>{% endif %}
-                                    {% if post.metadata and post.metadata.image_url %}
+                                    {% set post_image_url = post.metadata.image_url if post.metadata and post.metadata.image_url else '' %}
+                                    {% set post_image_preview_url = post_image_url ~ '/thumb' if post_image_url and post_image_url.startswith('/files/') and not post_image_url.endswith('/thumb') else post_image_url %}
+                                    {% if post_image_url and not (post.metadata.attachments if post.metadata else []) %}
                                         <div class="text-center">
-                                            <img src="{{ post.metadata.image_url }}" class="img-fluid rounded" 
-                                                 style="max-height: 400px;" alt="Post image">
+                                            <img src="{{ post_image_preview_url }}" class="img-fluid rounded" 
+                                                 style="max-height: 400px;" alt="Post image" loading="lazy" decoding="async">
                                         </div>
                                     {% endif %}
                                 {% elif post.post_type == 'video' %}

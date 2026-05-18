@@ -3169,6 +3169,10 @@ console.log(JSON.stringify({{
         self.assertIn('mg-cell-image-error', messages_macros)
         self.assertIn('Preview unavailable for this image type', messages_macros)
         self.assertIn('.media-grid .mg-cell .mg-image-fallback', base_template)
+        self.assertIn('{% set post_image_preview_url = post_image_url ~ \'/thumb\' if post_image_url', feed_fragment)
+        self.assertIn('{% if post_image_url and not (post.metadata.attachments if post.metadata else []) %}', feed_fragment)
+        self.assertIn('{% set em_image_preview_url = em_image_url ~ \'/thumb\' if em_image_url', feed_fragment)
+        self.assertIn('{% set repost_img_preview_url = img.thumb_url or (repost_img_url ~ \'/thumb\'', feed_fragment)
 
     def test_attachment_filters_are_wired_for_channel_threads_and_feed_posts(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')

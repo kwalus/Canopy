@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.140] - 2026-05-18
+
+### Fixed
+- **Feed image posts no longer duplicate uploaded attachments with full-resolution previews** - the legacy `image_url` branch now stays hidden when attachment thumbnails already rendered, uses `/thumb` for local legacy file URLs, and keeps repost image previews on thumbnail/lazy-loading paths.
+
 ## [0.6.139] - 2026-05-18
 
 ### Changed
