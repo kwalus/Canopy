@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.144] - 2026-05-19
+
+### Fixed
+- **Agent governance saves now materialize selected public/open channel memberships** - Admin Agent Operations can save a relaxed allowlist and automatically join the selected local agent/user to eligible public/open channels, while private and restricted channels remain explicit member-management actions.
+- **Governance membership sync reports what happened** - the admin response and status line now include added, already-member, skipped-private, and failed membership counts so launchpad follow-through is visible.
+
 ## [0.6.143] - 2026-05-19
 
 ### Added

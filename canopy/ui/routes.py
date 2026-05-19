@@ -4028,6 +4028,111 @@ def create_ui_blueprint() -> Blueprint:
             logger.warning(f"Failed to repair default channel memberships for {user_id}: {exc}")
             return False
 
+    def _sync_selected_public_channel_memberships(
+        db_manager: Any,
+        channel_manager: Any,
+        user_id: str,
+        *,
+        selected_channel_ids: list[str],
+        requester_id: str,
+    ) -> dict[str, Any]:
+        """Join a local user to explicitly selected open/public channels.
+
+        Governance allowlists are policy. Channel visibility still depends on
+        channel_members rows, so admin-selected public channels need a second
+        materialization step. Private/guarded channels remain explicit member
+        management actions and are intentionally not joined here.
+        """
+        result: dict[str, Any] = {
+            'requested_count': 0,
+            'eligible_count': 0,
+            'added_count': 0,
+            'already_member_count': 0,
+            'skipped_private_count': 0,
+            'failed_count': 0,
+            'added_channel_ids': [],
+            'failed_channel_ids': [],
+            'skipped_private_channel_ids': [],
+        }
+        if not db_manager or not channel_manager or not user_id:
+            return result
+
+        selected: list[str] = []
+        seen: set[str] = set()
+        for raw_id in selected_channel_ids or []:
+            channel_id = str(raw_id or '').strip()
+            if not channel_id or channel_id in seen:
+                continue
+            seen.add(channel_id)
+            selected.append(channel_id)
+        result['requested_count'] = len(selected)
+        if not selected:
+            return result
+
+        try:
+            channels = channel_manager.list_channels_for_governance(user_id=user_id)
+        except Exception as exc:
+            logger.warning(f"Failed to list channels while syncing memberships for {user_id}: {exc}")
+            channels = []
+
+        selected_set = set(selected)
+        candidates: list[dict[str, Any]] = []
+        for raw in channels or []:
+            if not isinstance(raw, dict):
+                continue
+            channel_id = str(raw.get('id') or '').strip()
+            if channel_id not in selected_set:
+                continue
+            is_public_open = bool(raw.get('is_public_open'))
+            if not is_public_open:
+                result['skipped_private_count'] += 1
+                result['skipped_private_channel_ids'].append(channel_id)
+                continue
+            candidates.append(raw)
+
+        result['eligible_count'] = len(candidates)
+        if not candidates:
+            return result
+
+        add_member = getattr(channel_manager, 'add_member', None)
+        for row in candidates:
+            channel_id = str(row.get('id') or '').strip()
+            if not channel_id:
+                continue
+            if bool(row.get('is_member')):
+                result['already_member_count'] += 1
+                continue
+            ok = False
+            try:
+                if callable(add_member):
+                    ok = bool(add_member(channel_id, user_id, requester_id, 'member'))
+                else:
+                    with db_manager.get_connection() as conn:
+                        conn.execute(
+                            """
+                            INSERT OR IGNORE INTO channel_members (channel_id, user_id, role)
+                            VALUES (?, ?, 'member')
+                            """,
+                            (channel_id, user_id),
+                        )
+                        conn.commit()
+                    ok = True
+            except Exception as exc:
+                logger.warning(
+                    "Failed to add selected public channel membership user=%s channel=%s: %s",
+                    user_id,
+                    channel_id,
+                    exc,
+                )
+                ok = False
+            if ok:
+                result['added_count'] += 1
+                result['added_channel_ids'].append(channel_id)
+            else:
+                result['failed_count'] += 1
+                result['failed_channel_ids'].append(channel_id)
+        return result
+
     def _build_sidebar_attention_summary(
         db_manager: Any,
         channel_manager: Any,
@@ -13417,6 +13522,7 @@ def create_ui_blueprint() -> Blueprint:
             block_public_channels = _to_bool(data.get('block_public_channels'))
             restrict_to_allowed_channels = _to_bool(data.get('restrict_to_allowed_channels'))
             enforce_now = _to_bool(data.get('enforce_now', True))
+            sync_public_memberships = _to_bool(data.get('sync_public_memberships', True))
 
             raw_allowed = data.get('allowed_channel_ids') or []
             if not isinstance(raw_allowed, list):
@@ -13469,16 +13575,49 @@ def create_ui_blueprint() -> Blueprint:
             if enforce_now:
                 enforcement_result = channel_manager.enforce_user_channel_governance(user_id)
 
+            membership_sync: dict[str, Any] = {
+                'requested_count': 0,
+                'eligible_count': 0,
+                'added_count': 0,
+                'already_member_count': 0,
+                'skipped_private_count': 0,
+                'failed_count': 0,
+                'added_channel_ids': [],
+                'failed_channel_ids': [],
+                'skipped_private_channel_ids': [],
+            }
+            if sync_public_memberships:
+                membership_sync = _sync_selected_public_channel_memberships(
+                    db_manager,
+                    channel_manager,
+                    user_id,
+                    selected_channel_ids=allowed_channel_ids,
+                    requester_id=get_current_user(),
+                )
+
             updated_user = db_manager.get_user(user_id) or user
             workspace = _build_admin_workspace_snapshot(updated_user)
             message = 'Governance policy updated'
             if enforce_now:
                 removed = int((enforcement_result or {}).get('removed_count') or 0)
                 message = f'Governance policy updated (removed {removed} disallowed memberships)'
+            added = int((membership_sync or {}).get('added_count') or 0)
+            skipped_private = int((membership_sync or {}).get('skipped_private_count') or 0)
+            failed = int((membership_sync or {}).get('failed_count') or 0)
+            if added or skipped_private or failed:
+                details = []
+                if added:
+                    details.append(f'added {added} public/open membership{"s" if added != 1 else ""}')
+                if skipped_private:
+                    details.append(f'skipped {skipped_private} private/restricted channel{"s" if skipped_private != 1 else ""}')
+                if failed:
+                    details.append(f'{failed} membership add{"s" if failed != 1 else ""} failed')
+                message = f"{message}; " + ', '.join(details)
             return jsonify({
                 'success': True,
                 'workspace': workspace,
                 'enforcement': enforcement_result,
+                'membership_sync': membership_sync,
                 'message': message,
             })
         except Exception as e:

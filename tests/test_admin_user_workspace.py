@@ -496,6 +496,18 @@ class _FakeChannelManager:
             'removed_channel_ids': ['general', 'Cpublic'] if policy.get('enabled') else [],
         }
 
+    def add_member(self, channel_id: str, target_user_id: str, requester_id: str, role: str = 'member'):
+        for row in self.channels:
+            if row['id'] != channel_id:
+                continue
+            is_public_open = row['privacy_mode'] == 'open' and row['channel_type'] in {'public', 'general'}
+            if not is_public_open:
+                return False
+            row.setdefault('members', set()).add(target_user_id)
+            row['member_count'] = max(int(row.get('member_count') or 0), len(row['members']))
+            return True
+        return False
+
     def ensure_agent_quarantine_assignment(self, user_id: str, *, updated_by=None, role='member'):
         self.quarantine_calls.append({
             'user_id': user_id,
@@ -1219,6 +1231,40 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertEqual(self.channel_manager.enforce_calls, ['agent-local'])
         enforcement = payload.get('enforcement') or {}
         self.assertEqual(enforcement.get('removed_count'), 2)
+
+    def test_admin_governance_update_joins_selected_public_channels(self) -> None:
+        csrf_token = 'csrf-governance-sync'
+        self._set_authenticated_session(csrf_token=csrf_token)
+        for row in self.channel_manager.channels:
+            if row['id'] in {'Cpublic', 'CremotePublic'}:
+                row['members'] = set()
+
+        response = self.client.post(
+            '/ajax/admin/users/agent-local/governance',
+            json={
+                'enabled': False,
+                'block_public_channels': False,
+                'restrict_to_allowed_channels': False,
+                'allowed_channel_ids': ['Cpublic', 'CremotePublic', 'Cprivate'],
+                'enforce_now': False,
+                'sync_public_memberships': True,
+            },
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        sync = payload.get('membership_sync') or {}
+        self.assertEqual(sync.get('added_count'), 2)
+        self.assertEqual(sync.get('skipped_private_count'), 1)
+        self.assertEqual(set(sync.get('added_channel_ids') or []), {'Cpublic', 'CremotePublic'})
+        members_by_channel = {
+            row['id']: set(row.get('members') or set())
+            for row in self.channel_manager.channels
+        }
+        self.assertIn('agent-local', members_by_channel['Cpublic'])
+        self.assertIn('agent-local', members_by_channel['CremotePublic'])
 
     def test_admin_governance_update_ignores_remote_private_channel_ids(self) -> None:
         csrf_token = 'csrf-governance-filter'

@@ -2133,7 +2133,7 @@
                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                             <div>
                                 <h6 class="mb-0">Channel Governance</h6>
-                                <div class="small text-muted">Search, stage, and enforce an agent's channel allowlist without wrestling a raw multi-select.</div>
+                                <div class="small text-muted">Search, stage, join open channels, and enforce an agent's channel allowlist without wrestling a raw multi-select.</div>
                             </div>
                             <div class="d-flex gap-2">
                                 <button type="button" class="btn btn-outline-success btn-sm" id="workspace-save-governance-btn">Save Governance</button>
@@ -2207,7 +2207,7 @@
                                 </div>
                             </div>
                             <div class="governance-helper mt-2">
-                                Stage selections even while allowlist mode is off. When you enable it, only the selected channels remain allowed.
+                                Stage selections even while allowlist mode is off. Saving also joins the user to selected open/public channels; private or restricted channels still require explicit member management.
                             </div>
                         </div>
                         <select class="form-select form-select-sm d-none" id="workspace-governance-allowed-channels" multiple size="6" aria-hidden="true"></select>
@@ -2218,7 +2218,7 @@
                         <div class="governance-action-bar" id="workspace-governance-action-bar">
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
                                 <div class="small text-muted">
-                                    Review the staged allowlist, then click <strong>Save Governance</strong> to persist it for this agent.
+                                    Review the staged allowlist, then click <strong>Save Governance</strong> to persist it and materialize selected public/open memberships.
                                 </div>
                                 <div class="d-flex flex-wrap gap-2">
                                     <button type="button" class="btn btn-outline-success btn-sm" id="workspace-save-governance-bottom-btn">Save Governance</button>
@@ -7048,6 +7048,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             const payload = {
                 ...currentGovernanceDraft(),
                 enforce_now: !!enforceNow,
+                sync_public_memberships: true,
             };
             const { ok, data } = await api('POST', `/ajax/admin/users/${selectedWorkspaceUserId}/governance`, payload);
             if (!ok) {
