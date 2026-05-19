@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.146] - 2026-05-19
+
+### Fixed
+- **Meshspace startup reuses the existing data-root identity** - runtime registration now adopts an already-registered meshspace with the exact same data directory instead of treating it as a conflicting new meshspace, preventing profile/avatar, session, and channel personalization from appearing lost after an update.
+- **Session cookies follow the registry-backed meshspace id** - Flask updates the active session cookie name after the meshspace registry record is applied, so recovered mesh identities keep the browser attached to the right account session.
+
 ## [0.6.145] - 2026-05-19
 
 ### Added

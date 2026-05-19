@@ -222,6 +222,17 @@ class MeshspaceFoundationTest(unittest.TestCase):
         self.assertEqual(record.get('http_port'), 7770)
         self.assertEqual(record.get('mesh_port'), 7771)
 
+    def test_runtime_registration_adopts_existing_record_for_same_data_root(self) -> None:
+        manager = self.app.config.get('MESHSPACE_REGISTRY_MANAGER')
+        config = self.app.config['CANOPY_CONFIG']
+        config.meshspace.meshspace_id = 'legacy-family-lab-alias'
+
+        refreshed = manager.ensure_runtime_registered(config, peer_id='peer-mesh-test')
+
+        self.assertEqual(refreshed.get('meshspace_id'), 'family-lab')
+        self.assertEqual(refreshed.get('data_dir'), str(self.mesh_root))
+        self.assertIsNone(manager.get_meshspace('legacy-family-lab-alias'))
+
     def test_admin_mesh_routes_render_and_create_new_meshspace(self) -> None:
         self._authenticate()
 

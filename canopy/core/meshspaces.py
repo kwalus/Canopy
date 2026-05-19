@@ -1275,6 +1275,15 @@ class MeshspaceRegistryManager:
         mesh_cfg = getattr(config, "meshspace", None)
         meshspace_id = sanitize_meshspace_id(str(getattr(mesh_cfg, "meshspace_id", "") or "default"))
         data_dir = str(getattr(config.storage, "data_dir", "") or default_meshspace_root(meshspace_id))
+        target_root = _resolved_path(data_dir)
+        for record in self.list_meshspaces():
+            existing_id = sanitize_meshspace_id(str(record.get("meshspace_id") or ""))
+            existing_root_raw = str(record.get("data_dir") or "").strip()
+            if not existing_id or not existing_root_raw:
+                continue
+            if _resolved_path(existing_root_raw) == target_root:
+                meshspace_id = existing_id
+                break
         self._validate_mesh_root(data_dir, exclude_meshspace_id=meshspace_id)
         existing = self.get_meshspace(meshspace_id) or {}
         runtime_mode = str(getattr(mesh_cfg, "runtime_mode", "") or existing.get("runtime_mode") or "meshspace")

@@ -486,6 +486,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
             meshspace_record,
             avatar_preview=meshspace_avatar_preview,
         )
+        app.config['SESSION_COOKIE_NAME'] = (
+            config.meshspace.session_cookie_name or app.config.get('SESSION_COOKIE_NAME') or 'canopy_session'
+        )
         connection_manager = getattr(p2p_manager, 'connection_manager', None)
         if connection_manager:
             connection_manager.local_meshspace_id = str(config.meshspace.meshspace_id or '').strip()
