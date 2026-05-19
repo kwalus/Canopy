@@ -7943,6 +7943,7 @@ let activeChannelLoadToken = 0;
 let channelLoadInFlight = false;
 let queuedChannelThreadRefresh = false;
 let queuedChannelThreadRefreshForceScroll = false;
+let channelBootLoadStarted = false;
 const channelMessageSignature = {};
 let channelMessageCache = {};
 let oldestLoadedMessageId = null;
@@ -22814,6 +22815,19 @@ function clearSearch() {
     if (currentChannelId) loadChannelMessages(currentChannelId, { forceScroll: true });
 }
 
+function ensureChannelBootMessagesLoaded(options = {}) {
+    if (channelBootLoadStarted || !currentChannelId) return;
+    channelBootLoadStarted = true;
+    console.log('Loading messages for channel:', currentChannelId);
+    loadChannelMessages(currentChannelId, options);
+    fetchChannelMentionCandidates(currentChannelId);
+    refreshSidebarChannelState();
+    applyChannelPrivacyFromSelection(currentChannelId);
+    applyChannelNotificationsFromSelection(currentChannelId);
+    hydrateCurrentChannelMeta();
+    applyChannelLifecycleFromSelection(currentChannelId);
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
     try {
@@ -23005,14 +23019,7 @@ document.addEventListener('DOMContentLoaded', function() {
 	        // Load messages for first channel (default) if we didn't deep-link.
         if (!didSelectFocus) {
                 if (currentChannelId) {
-	                    console.log('Loading messages for channel:', currentChannelId);
-	                    loadChannelMessages(currentChannelId);
-	                    fetchChannelMentionCandidates(currentChannelId);
-                    refreshSidebarChannelState();
-	                    applyChannelPrivacyFromSelection(currentChannelId);
-	                    applyChannelNotificationsFromSelection(currentChannelId);
-	                    hydrateCurrentChannelMeta();
-                        applyChannelLifecycleFromSelection(currentChannelId);
+                        ensureChannelBootMessagesLoaded();
 	                } else {
 	                    console.log('No current channel set');
 	                }
@@ -23023,6 +23030,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
     } catch (e) {
         console.error('Error during initialization:', e);
+        ensureChannelBootMessagesLoaded();
     }
 });
 </script>

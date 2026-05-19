@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.154] - 2026-05-19
+
+### Fixed
+- **Channels no longer stay on the welcome placeholder when sidebar boot polish fails** - the initial channel message load now runs through a guarded boot helper and retries from the initializer error handler, so bad local personalization/sidebar state cannot prevent the selected channel from loading.
+
 ## [0.6.153] - 2026-05-19
 
 ### Fixed
