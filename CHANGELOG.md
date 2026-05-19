@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.148] - 2026-05-19
+
+### Added
+- **Structured Digestion datapoint search is back online without stream package cards** - REST, UI AJAX, MCP, agent docs, and the Vault Digestion search selector now support searching extracted `structured_datapoints` while leaving the suspected Feed/Channel/DM package-card renderer disabled for a safer follow-up.
+
 ## [0.6.147] - 2026-05-19
 
 ### Fixed

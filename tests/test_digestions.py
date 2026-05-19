@@ -434,6 +434,17 @@ class TestDigestions(unittest.TestCase):
         progress = self.digestion_manager.get_operation_progress(digestion['id'], 'owner-user')
         self.assertEqual(progress['operations']['datapoints']['status'], 'completed')
 
+        search = self.digestion_manager.search_structured_datapoints(
+            digestion['id'],
+            'owner-user',
+            'drain current hydrogen passivation',
+            limit='not-a-number',
+        )
+        self.assertTrue(search['success'])
+        self.assertTrue(search['datapoints_ready'])
+        self.assertGreaterEqual(search['result_count'], 1)
+        self.assertEqual(search['results'][0]['source']['file_name'], 'datapoint-corpus.txt')
+
         self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
         self.assertEqual(
             {output['output_kind'] for output in self.digestion_manager.list_outputs(digestion['id'], 'reader-user')},
@@ -441,6 +452,8 @@ class TestDigestions(unittest.TestCase):
         )
         with self.assertRaisesRegex(Exception, 'Source metadata access'):
             self.digestion_manager.get_output(digestion['id'], 'reader-user', 'structured_datapoints')
+        with self.assertRaisesRegex(Exception, 'Source metadata access'):
+            self.digestion_manager.search_structured_datapoints(digestion['id'], 'reader-user', 'drain current')
 
     def test_structured_datapoints_use_digestion_ai_parameters_when_no_request_override(self) -> None:
         source = self._save_text(
@@ -944,6 +957,16 @@ class TestDigestions(unittest.TestCase):
             self.assertTrue(datapoints_payload['success'])
             self.assertEqual(datapoints_payload['output']['output_kind'], 'structured_datapoints')
             self.assertGreaterEqual(datapoints_payload['datapoint_count'], 1)
+
+            datapoints_search_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/datapoints/search',
+                json={'query': 'reduced setup time workflow', 'limit': 10},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(datapoints_search_response.status_code, 200)
+            datapoints_search_payload = datapoints_search_response.get_json() or {}
+            self.assertEqual(datapoints_search_payload['mode'], 'structured_datapoints')
+            self.assertGreaterEqual(datapoints_search_payload['result_count'], 1)
 
             export_response = client.post(
                 f'/api/v1/digestions/{digestion_id}/outputs/human_brief/export',

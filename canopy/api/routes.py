@@ -11175,6 +11175,27 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API query failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/datapoints/search', methods=['POST'])
+    @require_auth(Permission.READ_FILES)
+    def digestion_datapoints_search_api(digestion_id: str):
+        """Search an extracted structured datapoints output."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.search_structured_datapoints(
+                digestion_id,
+                g.api_key_info.user_id,
+                str(data.get('query') or data.get('q') or ''),
+                limit=_api_int_param(data.get('limit') or data.get('top_k'), default=25, minimum=1, maximum=80),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API datapoint search failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/context', methods=['POST'])
     @require_auth(Permission.READ_FILES)
     def digestion_context_api(digestion_id: str):
@@ -11305,6 +11326,21 @@ def create_api_blueprint() -> Blueprint:
             return _api_digestion_error(exc)
         except Exception as e:
             logger.error("Digestion API package failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/access-request', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def digestion_access_request_api(digestion_id: str):
+        """Return owner/grant instructions when a consumer needs live Digestion access."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.request_access_info(digestion_id, g.api_key_info.user_id))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API access request info failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/digestions/<digestion_id>/package/export', methods=['POST'])
