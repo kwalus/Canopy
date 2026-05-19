@@ -6957,6 +6957,21 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI package export error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not export Digestion package'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/acl', methods=['GET'])
+    @require_login
+    def ajax_digestion_list_access(digestion_id: str):
+        """List current live-access grantees for a Digestion."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.list_access(digestion_id, get_current_user()))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI ACL list error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load Digestion access'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/acl', methods=['POST'])
     @require_login
     def ajax_digestion_grant_access(digestion_id: str):
@@ -6980,6 +6995,21 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error("Digestion UI ACL error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not grant Digestion access'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/acl/<grantee_user_id>', methods=['DELETE'])
+    @require_login
+    def ajax_digestion_revoke_access(digestion_id: str, grantee_user_id: str):
+        """Revoke another local user or agent's explicit Digestion access."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.revoke_access(digestion_id, get_current_user(), grantee_user_id))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI ACL revoke error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not revoke Digestion access'}), 500
 
     @ui.route('/ajax/workspace_search', methods=['GET'])
     @require_login

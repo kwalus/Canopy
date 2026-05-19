@@ -562,6 +562,12 @@ class DigestionManager:
         grantee = self._clean_id(grantee_user_id)
         if not grantee:
             raise DigestionError("grantee_user_id is required", status_code=400, reason="missing_grantee")
+        if grantee == digestion.owner_user_id:
+            raise DigestionError(
+                "The Digestion owner already has full access and cannot be added as a separate grantee.",
+                status_code=400,
+                reason="owner_not_grantable",
+            )
         with self.db.get_connection() as conn:
             grantee_row = conn.execute("SELECT * FROM users WHERE id = ?", (grantee,)).fetchone()
             if not grantee_row:
@@ -615,6 +621,83 @@ class DigestionManager:
                 "display_name": display_name or username or grantee,
                 "account_type": account_type or "",
             },
+        }
+
+    def list_access(self, digestion_id: str, actor_user_id: str) -> dict[str, Any]:
+        """List local users and agents with explicit live access to a Digestion."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    a.grantee_user_id,
+                    a.grantee_kind,
+                    a.can_query,
+                    a.can_manage,
+                    a.can_read_sources,
+                    a.created_at AS acl_created_at,
+                    u.*
+                FROM digestion_acl a
+                LEFT JOIN users u ON u.id = a.grantee_user_id
+                WHERE a.digestion_id = ?
+                ORDER BY a.created_at ASC, a.grantee_user_id COLLATE NOCASE
+                """,
+                (digestion.id,),
+            ).fetchall()
+        entries = []
+        for row in rows:
+            row_keys = set(row.keys()) if hasattr(row, "keys") else set()
+            user_id = str(row["grantee_user_id"] or "").strip()
+            username = str((row["username"] if "username" in row_keys else "") or user_id).strip() or user_id
+            display_name = str((row["display_name"] if "display_name" in row_keys else "") or username or user_id).strip()
+            avatar_file_id = str((row["avatar_file_id"] if "avatar_file_id" in row_keys else "") or "").strip()
+            account_type = str((row["account_type"] if "account_type" in row_keys else "") or "").strip()
+            origin_peer = str((row["origin_peer"] if "origin_peer" in row_keys else "") or "").strip()
+            entries.append(
+                {
+                    "user_id": user_id,
+                    "grantee_user_id": user_id,
+                    "grantee_kind": str(row["grantee_kind"] or "user"),
+                    "username": username,
+                    "display_name": display_name or username or user_id,
+                    "account_type": account_type,
+                    "origin_peer": origin_peer,
+                    "avatar_file_id": avatar_file_id,
+                    "avatar_url": f"/files/{avatar_file_id}" if avatar_file_id else "",
+                    "can_query": bool(row["can_query"]),
+                    "can_manage": bool(row["can_manage"]),
+                    "can_read_sources": bool(row["can_read_sources"]),
+                    "created_at": str(row["acl_created_at"] or ""),
+                    "missing_local_user": "id" not in row_keys or not bool(row["id"] if "id" in row_keys else ""),
+                }
+            )
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "owner_user_id": digestion.owner_user_id,
+            "entries": entries,
+            "count": len(entries),
+        }
+
+    def revoke_access(self, digestion_id: str, actor_user_id: str, grantee_user_id: str) -> dict[str, Any]:
+        """Remove a local user's explicit live access without touching other grantees."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        grantee = self._clean_id(grantee_user_id)
+        if not grantee:
+            raise DigestionError("grantee_user_id is required", status_code=400, reason="missing_grantee")
+        if grantee == digestion.owner_user_id:
+            raise DigestionError("The Digestion owner cannot be removed from access.", status_code=400, reason="owner_not_revocable")
+        with self.db.get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM digestion_acl WHERE digestion_id = ? AND grantee_user_id = ?",
+                (digestion.id, grantee),
+            )
+            conn.commit()
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "grantee_user_id": grantee,
+            "revoked": bool(getattr(cursor, "rowcount", 0)),
         }
 
     # ------------------------------------------------------------------

@@ -11361,6 +11361,21 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API package export failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/acl', methods=['GET'])
+    @require_auth(Permission.WRITE_FILES)
+    def list_digestion_access_api(digestion_id: str):
+        """List local users and agents with explicit live access to a Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.list_access(digestion_id, g.api_key_info.user_id))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API ACL list failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/acl', methods=['POST'])
     @require_auth(Permission.WRITE_FILES)
     def grant_digestion_access_api(digestion_id: str):
@@ -11383,6 +11398,21 @@ def create_api_blueprint() -> Blueprint:
             return _api_digestion_error(exc)
         except Exception as e:
             logger.error("Digestion API ACL failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/acl/<grantee_user_id>', methods=['DELETE'])
+    @require_auth(Permission.WRITE_FILES)
+    def revoke_digestion_access_api(digestion_id: str, grantee_user_id: str):
+        """Revoke a local user or agent's explicit live access to a Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.revoke_access(digestion_id, g.api_key_info.user_id, grantee_user_id))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API ACL revoke failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/vault/files', methods=['GET'])

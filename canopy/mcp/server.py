@@ -5187,7 +5187,9 @@ class CanopyMCPServer:
                         "POST /api/v1/digestions/<digestion_id>/datapoints/extract with {lens, max_chunks, max_datapoints}; requires source-metadata access and configured Canopy AI provider for LLM-normalized extraction",
                         "POST /api/v1/digestions/<digestion_id>/datapoints/search with {query, limit}; searches extracted structured datapoints, not semantic chunks",
                         "GET|POST /api/v1/digestions/<digestion_id>/outputs and POST /api/v1/digestions/<digestion_id>/outputs/<output_ref>/export",
-                        "POST /api/v1/digestions/<digestion_id>/acl to grant another local user/agent query or manage access",
+                        "GET /api/v1/digestions/<digestion_id>/acl to audit explicit live-access grantees",
+                        "POST /api/v1/digestions/<digestion_id>/acl to add/update one local user/agent without replacing other grantees",
+                        "DELETE /api/v1/digestions/<digestion_id>/acl/<grantee_user_id> to revoke one grantee without affecting others",
                     ],
                     "mcp": [
                         "canopy_digest_list",

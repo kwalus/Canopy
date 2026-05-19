@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.162] - 2026-05-19
+
+### Added
+- **Digestion access management is now multi-recipient in the Vault UI** - the Share access drawer lists current live-access recipients, shows their query/source/manage permissions, and lets owners update or revoke one recipient without disturbing other grantees.
+- **Digestion ACLs can be audited and revoked through API routes** - UI and REST APIs now expose `GET /acl` for explicit grantee lists and `DELETE /acl/<grantee_user_id>` for single-recipient revocation, while `POST /acl` remains an add/update operation for one local user or agent.
+
+### Fixed
+- **Owner access cannot become a stuck ACL row** - Digestion owners already have full access and are now rejected as explicit grantees, preventing an owner entry that the revoke path intentionally refuses to remove.
+
 ## [0.6.161] - 2026-05-19
 
 ### Fixed

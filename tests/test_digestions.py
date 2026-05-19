@@ -350,6 +350,63 @@ class TestDigestions(unittest.TestCase):
             'private-corpus.txt',
         )
 
+    def test_digestion_acl_keeps_multiple_grantees_and_revokes_one(self) -> None:
+        source = self._save_text('multi-acl.txt', 'Multi-grantee access should preserve each recipient independently.')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Multi ACL corpus',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_read_sources=True,
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'other-user',
+            can_query=True,
+            can_manage=False,
+        )
+        with self.assertRaises(DigestionError) as owner_grant_context:
+            self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'owner-user', can_query=True)
+        self.assertEqual(owner_grant_context.exception.reason, 'owner_not_grantable')
+
+        acl = self.digestion_manager.list_access(digestion['id'], 'owner-user')
+        entries = {entry['user_id']: entry for entry in acl['entries']}
+        self.assertEqual(set(entries), {'reader-user', 'other-user'})
+        self.assertTrue(entries['reader-user']['can_read_sources'])
+        self.assertFalse(entries['other-user']['can_read_sources'])
+        self.assertTrue(self.digestion_manager.query(digestion['id'], 'reader-user', 'access')['success'])
+        self.assertTrue(self.digestion_manager.query(digestion['id'], 'other-user', 'access')['success'])
+
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+        updated_acl = self.digestion_manager.list_access(digestion['id'], 'owner-user')
+        updated_entries = {entry['user_id']: entry for entry in updated_acl['entries']}
+        self.assertEqual(set(updated_entries), {'reader-user', 'other-user'})
+        self.assertTrue(updated_entries['reader-user']['can_manage'])
+
+        revoke = self.digestion_manager.revoke_access(digestion['id'], 'owner-user', 'reader-user')
+        self.assertTrue(revoke['revoked'])
+        after_revoke = self.digestion_manager.list_access(digestion['id'], 'owner-user')
+        self.assertEqual([entry['user_id'] for entry in after_revoke['entries']], ['other-user'])
+        with self.assertRaisesRegex(Exception, 'query access'):
+            self.digestion_manager.query(digestion['id'], 'reader-user', 'access')
+        self.assertTrue(self.digestion_manager.query(digestion['id'], 'other-user', 'access')['success'])
+
     def test_material_sources_outputs_context_and_export(self) -> None:
         digestion = self.digestion_manager.create_digestion(
             'owner-user',
@@ -913,6 +970,48 @@ class TestDigestions(unittest.TestCase):
                 headers={'X-API-Key': 'reader-key'},
             )
             self.assertEqual(sources_response.status_code, 403)
+
+            second_grant_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/acl',
+                json={'grantee_user_id': 'other-user', 'can_query': True, 'can_read_sources': True},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(second_grant_response.status_code, 200)
+            acl_response = client.get(
+                f'/api/v1/digestions/{digestion_id}/acl',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(acl_response.status_code, 200)
+            acl_payload = acl_response.get_json() or {}
+            self.assertEqual(acl_payload['count'], 2)
+            self.assertEqual(
+                {entry['user_id'] for entry in acl_payload['entries']},
+                {'reader-user', 'other-user'},
+            )
+
+            revoke_response = client.delete(
+                f'/api/v1/digestions/{digestion_id}/acl/reader-user',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(revoke_response.status_code, 200)
+            self.assertTrue((revoke_response.get_json() or {})['revoked'])
+            revoked_query_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/query',
+                json={'query': 'document corpus', 'top_k': 2},
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(revoked_query_response.status_code, 403)
+            other_query_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/query',
+                json={'query': 'document corpus', 'top_k': 2},
+                headers={'X-API-Key': 'other-key'},
+            )
+            self.assertEqual(other_query_response.status_code, 200)
+            final_acl_response = client.get(
+                f'/api/v1/digestions/{digestion_id}/acl',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual([entry['user_id'] for entry in final_acl_response.get_json()['entries']], ['other-user'])
 
     def test_digestion_rest_materials_outputs_and_context(self) -> None:
         components = (

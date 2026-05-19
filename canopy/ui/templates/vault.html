@@ -570,6 +570,90 @@
         font-size: 0.78rem;
         line-height: 1.35;
     }
+    .vault-digestion-share-current {
+        display: grid;
+        gap: 0.45rem;
+        padding: 0.6rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-success) 22%, var(--canopy-border));
+        border-radius: 14px;
+        background:
+            radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--canopy-success) 12%, transparent), transparent 36%),
+            color-mix(in srgb, var(--canopy-bg-secondary) 76%, transparent);
+    }
+    .vault-digestion-share-current-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        color: var(--canopy-text-primary);
+        font-size: 0.76rem;
+        font-weight: 850;
+        letter-spacing: 0.02em;
+    }
+    .vault-digestion-share-current-head span:last-child {
+        color: var(--canopy-text-muted);
+        font-weight: 750;
+    }
+    .vault-digestion-share-list {
+        display: grid;
+        gap: 0.42rem;
+        max-height: 19rem;
+        overflow: auto;
+        padding-right: 0.12rem;
+    }
+    .vault-digestion-acl-row {
+        display: grid;
+        grid-template-columns: minmax(160px, 1.1fr) minmax(180px, 1.2fr) auto;
+        gap: 0.55rem;
+        align-items: center;
+        padding: 0.55rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--canopy-bg-card) 78%, transparent);
+    }
+    .vault-digestion-acl-person {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+    .vault-digestion-acl-perms {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.35rem 0.65rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.74rem;
+    }
+    .vault-digestion-acl-perms .form-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        min-height: 0;
+        margin: 0;
+        padding-left: 0;
+    }
+    .vault-digestion-acl-perms .form-check-input {
+        float: none;
+        margin: 0;
+    }
+    .vault-digestion-acl-warning {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        color: var(--canopy-warning);
+        font-weight: 850;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .vault-digestion-acl-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
     .vault-digestion-share-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -1413,10 +1497,14 @@
 	        .vault-digestion-create,
 	        .vault-digestion-query,
 	        .vault-digestion-share-row,
+            .vault-digestion-acl-row,
             .vault-digestion-options-grid {
-	            grid-template-columns: 1fr;
+		        grid-template-columns: 1fr;
 	        }
-    }
+        .vault-digestion-acl-actions {
+            justify-content: flex-start;
+        }
+	    }
     @media (max-width: 560px) {
         .vault-shell {
             padding: 0.75rem;

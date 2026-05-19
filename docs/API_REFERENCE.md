@@ -434,7 +434,9 @@ Vault notes:
 | GET | `/digestions/<digestion_id>/package` | Yes (`read_files`) | Return a whole-Digestion package snapshot with the caller-visible outputs, agent reference, stats, and source metadata only when permitted. Use `include_content=false` for a metadata/reference-only package. |
 | POST | `/digestions/<digestion_id>/package/export` | Yes (`read_files` + `write_files`) | Save that whole-Digestion package snapshot into the caller's Vault as one attachable JSON artifact for agents or other consumers. |
 | GET | `/digestions/<digestion_id>/access-request` | Yes (`read_files`) | Return owner, caller, and ACL body guidance for requesting live query/source access when a package recipient or agent receives a 403. |
-| POST | `/digestions/<digestion_id>/acl` | Yes (`write_files`) | Grant another local user/agent query, manage, or source-metadata access. Manage/build access does not imply source-metadata access; set `can_read_sources` explicitly when the recipient should see source lists or manifest outputs. |
+| GET | `/digestions/<digestion_id>/acl` | Yes (`write_files`) | List all local users/agents with explicit live access. Requires manage access. |
+| POST | `/digestions/<digestion_id>/acl` | Yes (`write_files`) | Add or update one local user/agent's query, manage, or source-metadata access without changing other grantees. Manage/build access does not imply source-metadata access; set `can_read_sources` explicitly when the recipient should see source lists or manifest outputs. |
+| DELETE | `/digestions/<digestion_id>/acl/<grantee_user_id>` | Yes (`write_files`) | Revoke one local user/agent's explicit live access without changing other grantees. |
 
 Digestion notes:
 - Digestions stay local to the node by default; source files, normalized material files, chunks, vectors, outputs, and query logs are not mesh-synced unless a user deliberately shares/export-attaches an output.
@@ -444,6 +446,7 @@ Digestion notes:
 - Reusable outputs let a Digestion become a durable Canopy capability: a human brief for review, an agent context artifact for tool users, a machine manifest for future automation, and an optional LLM-normalized `structured_datapoints` JSON snapshot for cited extracted facts. Query-only grantees can use the safer `agent_context` output; source-revealing outputs remain behind explicit source-metadata access. The package endpoints produce an attachable snapshot, but live query still requires Digestion ACL access.
 - Structured datapoint extraction uses the Canopy AI credential chain, first the requesting user's personal provider and then the admin fallback provider. It sends bounded indexed chunk excerpts to the configured LLM provider with web search disabled and records provider/model metadata in the output.
 - Build limits are bounded by environment settings such as `CANOPY_DIGESTION_MAX_FILE_BYTES`, `CANOPY_DIGESTION_MAX_FILE_CHARS`, and `CANOPY_DIGESTION_MAX_CHUNKS_PER_BUILD`.
+- Digestion ACLs are multi-recipient. Re-posting `POST /acl` for one user updates that user's permissions only; it does not erase other grantees. Use `GET /acl` to audit current live access and `DELETE /acl/<grantee_user_id>` to remove a single recipient.
 - Access-denied reasons: `query_denied` means the caller lacks query/manage access and should ask the owner to grant ACL access; `source_metadata_denied` means the caller lacks `can_read_sources`; `manage_denied` means the caller lacks manage access.
 
 Preview notes:

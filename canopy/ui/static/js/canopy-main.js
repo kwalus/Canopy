@@ -1865,12 +1865,13 @@
 	                    loading: false,
 	                    timer: null,
 	                    viewMode: readVaultViewMode(),
-			                    selectedIds: new Set(),
-			                    shareTimers: new Map(),
-			                    shareUsers: new Map(),
-			                    shareActiveIndex: new Map(),
-                                digestionProgressTimers: new Map(),
-			                    previewFileId: ''
+				                    selectedIds: new Set(),
+				                    shareTimers: new Map(),
+				                    shareUsers: new Map(),
+				                    shareAcl: new Map(),
+				                    shareActiveIndex: new Map(),
+	                                digestionProgressTimers: new Map(),
+				                    previewFileId: ''
 	                };
                 const grid = document.getElementById('vault-grid');
                 const empty = document.getElementById('vault-empty');
@@ -2519,14 +2520,23 @@
                                             </label>
                                         </div>
                                     </div>
-		                            <form class="vault-digestion-share" data-vault-digestion-share="${id}" hidden>
-		                                <input type="hidden" data-vault-digestion-share-grantee="${id}" name="grantee_user_id" value="">
-		                                <div class="vault-digestion-share-copy">
-		                                    Grant live local query access to a local user or agent. Package exports are static snapshots; Share access lets the recipient query the live local index directly.
-		                                </div>
-	                                <div class="vault-digestion-share-row">
-	                                    <div class="vault-digestion-share-search">
-	                                        <input class="form-control form-control-sm"
+			                            <form class="vault-digestion-share" data-vault-digestion-share="${id}" hidden>
+			                                <input type="hidden" data-vault-digestion-share-grantee="${id}" name="grantee_user_id" value="">
+			                                <div class="vault-digestion-share-copy">
+			                                    Package exports are static snapshots; Share access manages live local query access for multiple users and agents. Existing recipients stay in the list below; granting a new person does not replace anyone else.
+			                                </div>
+			                                <div class="vault-digestion-share-current" data-vault-digestion-share-current="${id}">
+			                                    <div class="vault-digestion-share-current-head">
+			                                        <span><i class="bi bi-people"></i> Current live access</span>
+			                                        <span data-vault-digestion-share-count="${id}">Open to refresh</span>
+			                                    </div>
+			                                    <div class="vault-digestion-share-list" data-vault-digestion-share-list="${id}">
+			                                        <div class="vault-digestion-share-empty">Open Share access to load current recipients.</div>
+			                                    </div>
+			                                </div>
+		                                <div class="vault-digestion-share-row">
+		                                    <div class="vault-digestion-share-search">
+		                                        <input class="form-control form-control-sm"
 	                                               type="search"
 	                                               role="combobox"
 	                                               autocomplete="off"
@@ -2538,10 +2548,10 @@
 	                                               aria-label="Search local user or agent to share ${name}">
 	                                        <div class="vault-digestion-share-results" id="vault-digestion-share-results-${id}" data-vault-digestion-share-results="${id}" hidden></div>
 	                                    </div>
-	                                    <button class="btn btn-sm btn-success" type="submit" data-vault-digestion-share-submit="${id}" disabled>
-	                                        <i class="bi bi-unlock"></i> Grant query access
-	                                    </button>
-	                                </div>
+		                                    <button class="btn btn-sm btn-success" type="submit" data-vault-digestion-share-submit="${id}" disabled>
+		                                        <i class="bi bi-unlock"></i> Add / update access
+		                                    </button>
+		                                </div>
 	                                <div class="vault-digestion-share-selected" data-vault-digestion-share-selected="${id}" hidden></div>
 	                                <div class="vault-digestion-share-options">
 	                                    <label class="form-check">
@@ -3071,15 +3081,134 @@
 		                    return Array.from((form || document).querySelectorAll('[data-vault-digestion-share-user-id]'));
 		                }
 
-		                function setDigestionShareStatus(form, message, tone = 'muted') {
-		                    const statusEl = form && form.querySelector('[data-vault-digestion-share-status]');
-		                    if (!statusEl) return;
-		                    statusEl.className = `vault-digestion-share-status text-${tone}`;
-		                    statusEl.textContent = String(message || '');
-		                }
+			                function setDigestionShareStatus(form, message, tone = 'muted') {
+			                    const statusEl = form && form.querySelector('[data-vault-digestion-share-status]');
+			                    if (!statusEl) return;
+			                    statusEl.className = `vault-digestion-share-status text-${tone}`;
+			                    statusEl.textContent = String(message || '');
+			                }
 
-		                function resetDigestionShareSelection(form, { keepInput = true, keepStatus = false } = {}) {
-		                    if (!form) return;
+			                function digestionShareAclListEl(digestionId) {
+			                    return document.querySelector(`[data-vault-digestion-share-list="${vaultCssEscape(digestionId)}"]`);
+			                }
+
+			                function digestionShareAclCountEl(digestionId) {
+			                    return document.querySelector(`[data-vault-digestion-share-count="${vaultCssEscape(digestionId)}"]`);
+			                }
+
+			                function normalizeDigestionAclEntry(entry) {
+			                    const normalized = normalizeDigestionShareUser(entry);
+			                    if (!normalized) return null;
+			                    return {
+			                        ...normalized,
+			                        can_query: entry && entry.can_query !== false,
+			                        can_manage: !!(entry && entry.can_manage),
+			                        can_read_sources: !!(entry && entry.can_read_sources),
+			                        created_at: String((entry && entry.created_at) || ''),
+			                        missing_local_user: !!(entry && entry.missing_local_user),
+			                    };
+			                }
+
+			                function digestionAclPermissionSummary(entry) {
+			                    const parts = ['Query'];
+			                    if (entry.can_read_sources) parts.push('Source metadata');
+			                    if (entry.can_manage) parts.push('Manage/build');
+			                    return parts.join(' + ');
+			                }
+
+			                function renderDigestionAclList(digestionId, entries, { loading = false, error = '' } = {}) {
+			                    const listEl = digestionShareAclListEl(digestionId);
+			                    const countEl = digestionShareAclCountEl(digestionId);
+			                    if (!listEl) return;
+			                    if (loading) {
+			                        if (countEl) countEl.textContent = 'Refreshing...';
+			                        listEl.innerHTML = '<div class="vault-digestion-share-empty"><span class="spinner-border spinner-border-sm me-1"></span>Loading current access...</div>';
+			                        return;
+			                    }
+			                    if (error) {
+			                        if (countEl) countEl.textContent = 'Unavailable';
+			                        listEl.innerHTML = `<div class="vault-digestion-share-empty text-danger">${vaultEscape(error)}</div>`;
+			                        return;
+			                    }
+			                    const safeEntries = Array.isArray(entries)
+			                        ? entries.map(normalizeDigestionAclEntry).filter(Boolean)
+			                        : [];
+			                    if (countEl) countEl.textContent = `${safeEntries.length} recipient${safeEntries.length === 1 ? '' : 's'}`;
+			                    if (!safeEntries.length) {
+			                        listEl.innerHTML = '<div class="vault-digestion-share-empty">Only the owner has live access. Add users or agents below without replacing existing grants.</div>';
+			                        return;
+			                    }
+			                    listEl.innerHTML = safeEntries.map((entry) => {
+			                        const label = userLabel(entry);
+			                        const subLabel = digestionShareIdentitySubLabel(entry) || entry.user_id;
+			                        const avatar = entry.avatar_url
+			                            ? `<img src="${vaultEscape(entry.avatar_url)}" alt="">`
+			                            : `<span>${vaultEscape(label.slice(0, 2).toUpperCase())}</span>`;
+			                        const summary = digestionAclPermissionSummary(entry);
+			                        return `
+			                            <div class="vault-digestion-acl-row"
+			                                 data-vault-digestion-acl-row
+			                                 data-vault-digestion-acl-user-id="${vaultEscape(entry.user_id)}"
+			                                 data-vault-digestion-acl-can-manage="${entry.can_manage ? 'true' : 'false'}">
+			                                <div class="vault-digestion-acl-person">
+			                                    <span class="vault-digestion-share-avatar">${avatar}</span>
+			                                    <span class="vault-digestion-share-user-copy">
+			                                        <strong>${vaultEscape(label)}</strong>
+			                                        <small>${vaultEscape(subLabel)}</small>
+			                                    </span>
+			                                </div>
+			                                <div class="vault-digestion-acl-perms" aria-label="Access permissions for ${vaultEscape(label)}" title="${vaultEscape(summary)}">
+			                                    <label class="form-check" title="Query access is active while this recipient is listed. Use Revoke to remove it.">
+			                                        <input class="form-check-input" type="checkbox" checked disabled>
+			                                        <span class="form-check-label">Query</span>
+			                                    </label>
+			                                    <label class="form-check">
+			                                        <input class="form-check-input" type="checkbox" data-vault-digestion-acl-sources ${entry.can_read_sources ? 'checked' : ''}>
+			                                        <span class="form-check-label">Sources</span>
+			                                    </label>
+			                                    <label class="form-check">
+			                                        <input class="form-check-input" type="checkbox" data-vault-digestion-acl-manage ${entry.can_manage ? 'checked' : ''}>
+			                                        <span class="form-check-label">Manage</span>
+			                                    </label>
+			                                    ${entry.missing_local_user ? '<span class="vault-digestion-acl-warning" title="This user record is no longer present locally."><i class="bi bi-exclamation-triangle"></i> Missing</span>' : ''}
+			                                </div>
+			                                <div class="vault-digestion-acl-actions">
+			                                    <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="update-access" data-vault-digestion-id="${vaultEscape(digestionId)}">
+			                                        <i class="bi bi-check2-circle"></i> Update
+			                                    </button>
+			                                    <button class="btn btn-sm btn-outline-danger" type="button" data-vault-digestion-action="revoke-access" data-vault-digestion-id="${vaultEscape(digestionId)}">
+			                                        <i class="bi bi-person-dash"></i> Revoke
+			                                    </button>
+			                                </div>
+			                            </div>
+			                        `;
+			                    }).join('');
+			                }
+
+			                async function loadDigestionAcl(digestionId, { force = false } = {}) {
+			                    const key = String(digestionId || '');
+			                    if (!key) return [];
+			                    if (!force && state.shareAcl.has(key)) {
+			                        const cached = state.shareAcl.get(key) || [];
+			                        renderDigestionAclList(key, cached);
+			                        return cached;
+			                    }
+			                    renderDigestionAclList(key, [], { loading: true });
+			                    try {
+			                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(key)}/acl`);
+			                        const entries = Array.isArray(data.entries) ? data.entries : [];
+			                        state.shareAcl.set(key, entries);
+			                        renderDigestionAclList(key, entries);
+			                        return entries;
+			                    } catch (error) {
+			                        const message = error.error || 'Could not load current Digestion access.';
+			                        renderDigestionAclList(key, [], { error: message });
+			                        return [];
+			                    }
+			                }
+
+			                function resetDigestionShareSelection(form, { keepInput = true, keepStatus = false } = {}) {
+			                    if (!form) return;
 		                    delete form.dataset.granteeUserId;
 		                    delete form.dataset.granteeUserLabel;
 		                    const hiddenInput = form.querySelector('[data-vault-digestion-share-grantee]');
@@ -3339,11 +3468,12 @@
 		                    form.classList.toggle('is-visible', willOpen);
 		                    const shareBtn = digestionList && digestionList.querySelector(`[data-vault-digestion-action="share-access"][data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
 		                    if (shareBtn) shareBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-		                    if (willOpen) {
-		                        const input = form.querySelector('[data-vault-digestion-share-search]');
-		                        global.setTimeout(() => {
-		                            if (input) {
-		                                input.focus();
+			                    if (willOpen) {
+			                        const input = form.querySelector('[data-vault-digestion-share-search]');
+			                        loadDigestionAcl(digestionId, { force: true });
+			                        global.setTimeout(() => {
+			                            if (input) {
+			                                input.focus();
 		                                searchDigestionShareUsers(digestionId, input.value, { showAll: !digestionShareSearchValue(input.value) });
 		                            }
 		                        }, 0);
@@ -3387,32 +3517,111 @@
 	                                can_manage: canManage,
 	                            })
 	                        });
-	                        const grantee = result.grantee || {};
-	                        if (grantee.user_id) {
-	                            setDigestionShareSelected(form, grantee);
-	                        }
-	                        const label = userLabel(grantee);
+		                        const grantee = result.grantee || {};
+		                        if (grantee.user_id) {
+		                            setDigestionShareSelected(form, grantee);
+		                        }
+		                        const label = userLabel(grantee);
 	                        setDigestionShareStatus(
 	                            form,
 	                            `${label} can now query this Digestion${canReadSources ? ' and read source metadata' : ''}${canManage ? ' with manage access' : ''}.`,
 	                            'success'
 	                        );
-	                        if (typeof showAlert === 'function') {
-	                            showAlert(`Digestion access granted to ${label}.`, 'success');
-	                        }
-	                    } catch (error) {
-	                        const message = error.error || 'Could not grant Digestion access.';
-	                        setDigestionShareStatus(form, message, 'danger');
+		                        if (typeof showAlert === 'function') {
+		                            showAlert(`Digestion access granted to ${label}.`, 'success');
+		                        }
+		                        await loadDigestionAcl(digestionId, { force: true });
+		                        resetDigestionShareSelection(form, { keepInput: false, keepStatus: true });
+		                        if (input) {
+		                            input.focus();
+		                            searchDigestionShareUsers(digestionId, '', { showAll: true });
+		                        }
+		                    } catch (error) {
+		                        const message = error.error || 'Could not grant Digestion access.';
+		                        setDigestionShareStatus(form, message, 'danger');
 	                        if (typeof showAlert === 'function') showAlert(message, 'danger');
 		                    } finally {
 		                        if (submitBtn) {
 		                            submitBtn.disabled = !String((hiddenInput && hiddenInput.value) || form.dataset.granteeUserId || '').trim();
 		                            submitBtn.innerHTML = original;
 		                        }
-		                    }
-	                }
+			                    }
+			                }
 
-                function digestionSearchMode(digestionId) {
+			                async function updateDigestionAclAccess(button) {
+			                    const row = button && button.closest('[data-vault-digestion-acl-row]');
+			                    const card = button && button.closest('[data-vault-digestion-id]');
+			                    const digestionId = String((button && button.getAttribute('data-vault-digestion-id')) || (card && card.getAttribute('data-vault-digestion-id')) || '');
+			                    const granteeUserId = String(row && row.getAttribute('data-vault-digestion-acl-user-id') || '').trim();
+			                    if (!digestionId || !granteeUserId || !row) return;
+			                    const form = digestionShareForm(digestionId);
+			                    const canReadSources = !!row.querySelector('[data-vault-digestion-acl-sources]')?.checked;
+			                    const canManage = !!row.querySelector('[data-vault-digestion-acl-manage]')?.checked;
+			                    const wasManage = row.getAttribute('data-vault-digestion-acl-can-manage') === 'true';
+			                    if (canManage && !wasManage && typeof global.confirm === 'function') {
+			                        const ok = global.confirm('Grant manage/build access for this Digestion? This lets the recipient rebuild outputs and change the live corpus.');
+			                        if (!ok) return;
+			                    }
+			                    const original = button.innerHTML;
+			                    button.disabled = true;
+			                    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Updating';
+			                    setDigestionShareStatus(form, 'Updating recipient access...', 'muted');
+			                    try {
+			                        const result = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/acl`, {
+			                            method: 'POST',
+			                            body: JSON.stringify({
+			                                grantee_user_id: granteeUserId,
+			                                can_query: true,
+			                                can_read_sources: canReadSources,
+			                                can_manage: canManage,
+			                            })
+			                        });
+			                        const label = userLabel(result.grantee || { user_id: granteeUserId });
+			                        await loadDigestionAcl(digestionId, { force: true });
+			                        setDigestionShareStatus(form, `${label} access updated. Other recipients were unchanged.`, 'success');
+			                    } catch (error) {
+			                        const message = error.error || 'Could not update Digestion access.';
+			                        setDigestionShareStatus(form, message, 'danger');
+			                        if (typeof showAlert === 'function') showAlert(message, 'danger');
+			                    } finally {
+			                        button.disabled = false;
+			                        button.innerHTML = original;
+			                    }
+			                }
+
+			                async function revokeDigestionAclAccess(button) {
+			                    const row = button && button.closest('[data-vault-digestion-acl-row]');
+			                    const card = button && button.closest('[data-vault-digestion-id]');
+			                    const digestionId = String((button && button.getAttribute('data-vault-digestion-id')) || (card && card.getAttribute('data-vault-digestion-id')) || '');
+			                    const granteeUserId = String(row && row.getAttribute('data-vault-digestion-acl-user-id') || '').trim();
+			                    if (!digestionId || !granteeUserId || !row) return;
+			                    const label = userLabel({ user_id: granteeUserId, display_name: row.querySelector('.vault-digestion-share-user-copy strong')?.textContent || granteeUserId });
+			                    if (typeof global.confirm === 'function') {
+			                        const ok = global.confirm(`Revoke ${label}'s live access to this Digestion? Other recipients will keep access.`);
+			                        if (!ok) return;
+			                    }
+			                    const form = digestionShareForm(digestionId);
+			                    const original = button.innerHTML;
+			                    button.disabled = true;
+			                    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Revoking';
+			                    setDigestionShareStatus(form, `Revoking ${label}...`, 'muted');
+			                    try {
+			                        await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/acl/${encodeURIComponent(granteeUserId)}`, {
+			                            method: 'DELETE',
+			                        });
+			                        await loadDigestionAcl(digestionId, { force: true });
+			                        setDigestionShareStatus(form, `${label} access revoked. Other recipients were unchanged.`, 'success');
+			                    } catch (error) {
+			                        const message = error.error || 'Could not revoke Digestion access.';
+			                        setDigestionShareStatus(form, message, 'danger');
+			                        if (typeof showAlert === 'function') showAlert(message, 'danger');
+			                    } finally {
+			                        button.disabled = false;
+			                        button.innerHTML = original;
+			                    }
+			                }
+
+	                function digestionSearchMode(digestionId) {
                     const select = document.querySelector(`[data-vault-digestion-search-mode="${vaultCssEscape(digestionId)}"]`);
                     const mode = String(select && select.value || 'rag').trim().toLowerCase();
                     return mode === 'datapoints' ? 'datapoints' : 'rag';
@@ -4302,10 +4511,14 @@
                             toggleDigestionExtractOptions(digestionId);
 	                        } else if (action === 'export-package') {
 	                            exportDigestionPackage(digestionId, actionBtn);
-	                        } else if (action === 'share-access') {
-	                            toggleDigestionShare(digestionId);
-	                        } else if (action === 'copy-agent-ref') {
-	                            copyDigestionAgentReference(digestionId);
+		                        } else if (action === 'share-access') {
+		                            toggleDigestionShare(digestionId);
+		                        } else if (action === 'update-access') {
+		                            updateDigestionAclAccess(actionBtn);
+		                        } else if (action === 'revoke-access') {
+		                            revokeDigestionAclAccess(actionBtn);
+		                        } else if (action === 'copy-agent-ref') {
+		                            copyDigestionAgentReference(digestionId);
                         } else if (action === 'open-result-source') {
                             openDigestionResultSource(actionBtn);
                         } else if (action === 'copy-result-text') {
