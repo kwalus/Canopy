@@ -453,6 +453,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('digestion-package-attachment', feed_template)
         self.assertIn('digestion-package-attachment', messages_macros)
         self.assertIn('digestion-package-attachment', channels_template)
+        self.assertNotIn('const escapeAttr =', channels_template)
         self.assertIn('Open reader', feed_template)
         self.assertIn('Open reader', messages_macros)
         self.assertIn('Open reader', channels_template)

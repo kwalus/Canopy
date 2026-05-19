@@ -17177,7 +17177,6 @@ function displayAttachments(attachments, sourceLayout) {
         }
     }
 
-    const escapeAttr = (value) => String(value || '').replace(/"/g, '&quot;');
     const buildRemoteAttachmentDownloadBtn = (att) => {
         if (!(att && (att.large_attachment || att.storage_mode === 'remote_large') && (att.origin_file_id || att.id || att.file_id) && att.source_peer_id)) {
             return '';

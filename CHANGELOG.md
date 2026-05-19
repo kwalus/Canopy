@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.153] - 2026-05-19
+
+### Fixed
+- **Channels load again after Digestion package card restore** - removes a duplicate top-level `escapeAttr` declaration in the Channels inline script that could prevent the page script from parsing and leave Channels blank/uninitialized.
+
 ## [0.6.152] - 2026-05-19
 
 ### Fixed
