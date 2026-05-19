@@ -428,6 +428,104 @@
         gap: 0.45rem;
         margin-top: 0.75rem;
     }
+    .vault-digestion-progress {
+        display: none;
+        gap: 0.38rem;
+        margin-top: 0.72rem;
+        padding: 0.66rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 32%, var(--canopy-border));
+        border-radius: 15px;
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 10%, transparent), transparent),
+            color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+    }
+    .vault-digestion-progress.is-visible {
+        display: grid;
+    }
+    .vault-digestion-progress-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        color: var(--canopy-text-primary);
+        font-size: 0.82rem;
+        font-weight: 850;
+    }
+    .vault-digestion-progress-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .vault-digestion-progress-percent {
+        color: var(--canopy-primary);
+        font-variant-numeric: tabular-nums;
+    }
+    .vault-digestion-progress-track {
+        height: 0.58rem;
+        border-radius: 999px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 82%, black);
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, transparent);
+    }
+    .vault-digestion-progress-fill {
+        width: 0%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--canopy-secondary), var(--canopy-primary), var(--canopy-accent));
+        transition: width 0.22s ease;
+    }
+    .vault-digestion-progress-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem 0.6rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.74rem;
+    }
+    .vault-digestion-progress-meta span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    .vault-digestion-options {
+        display: none;
+        gap: 0.55rem;
+        margin-top: 0.72rem;
+        padding: 0.7rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-accent) 30%, var(--canopy-border));
+        border-radius: 15px;
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-accent) 10%, transparent), transparent),
+            color-mix(in srgb, var(--canopy-bg-card) 86%, transparent);
+    }
+    .vault-digestion-options.is-visible {
+        display: grid;
+    }
+    .vault-digestion-options-grid {
+        display: grid;
+        grid-template-columns: minmax(110px, 0.6fr) minmax(120px, 0.7fr) minmax(180px, 1fr);
+        gap: 0.45rem;
+        align-items: end;
+    }
+    .vault-digestion-options label {
+        display: grid;
+        gap: 0.2rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.74rem;
+        font-weight: 760;
+    }
+    .vault-digestion-options .form-control,
+    .vault-digestion-options .form-select {
+        border-radius: 11px;
+        border-color: var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+        color: var(--canopy-text-primary);
+    }
+    .vault-digestion-options-copy {
+        color: var(--canopy-text-muted);
+        font-size: 0.76rem;
+        line-height: 1.35;
+    }
     .vault-digestion-share {
         display: none;
         margin-top: 0.75rem;
@@ -1014,7 +1112,8 @@
         }
 	        .vault-digestion-create,
 	        .vault-digestion-query,
-	        .vault-digestion-share-row {
+	        .vault-digestion-share-row,
+            .vault-digestion-options-grid {
 	            grid-template-columns: 1fr;
 	        }
     }

@@ -422,6 +422,7 @@ Vault notes:
 | POST | `/digestions/<digestion_id>/sources` | Yes (`write_files`) | Add caller-owned Vault files to a managed Digestion. |
 | POST | `/digestions/<digestion_id>/materials` | Yes (`write_files`) | Normalize inline/source materials such as posts, notes, transcripts, or pasted text into Vault-backed Digestion sources. |
 | POST | `/digestions/<digestion_id>/build` | Yes (`write_files`) | Synchronously build or rebuild the local index. |
+| GET | `/digestions/<digestion_id>/progress` | Yes (`read_files`) | Poll live build and structured-datapoint extraction progress. Returns per-operation status, phase, percent, counts, elapsed time, and bounded details for UI/agent progress reporting. |
 | POST | `/digestions/<digestion_id>/query` | Yes (`read_files`) | Query cited snippets from indexed chunks; query access does not grant raw Vault file reads. |
 | POST | `/digestions/<digestion_id>/context` | Yes (`read_files`) | Return a compact prompt-ready context pack with query citations for agents or drafting flows. |
 | POST | `/digestions/<digestion_id>/datapoints/extract` | Yes (`write_files`) | Generate an LLM-normalized, source-grounded `structured_datapoints` JSON output from indexed chunks. Requires Digestion manage access and a configured Canopy AI personal or admin fallback provider; the resulting output is source-revealing and requires source-metadata access to read/export. Optional body: `lens`, `max_chunks`, `max_datapoints`. |

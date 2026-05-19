@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.143] - 2026-05-19
+
+### Added
+- **Digestion build and datapoint extraction progress is visible while work runs** - synchronous build/extract endpoints now update process-local operation progress, with UI and REST polling endpoints for build and structured-datapoint phases, percentage, counts, elapsed time, and completion/failure state.
+- **Vault Digestions can tune structured extraction depth** - managed Digestion cards now include a compact Tune panel for max chunks, max datapoints, and extraction lens before sending indexed chunks to the configured Digestion AI provider.
+
+### Fixed
+- **Digestion progress polling preserves source-read boundaries** - query-only grantees can see safe operation status and counts without source filenames, current source labels, or source-level error details.
+
 ## [0.6.142] - 2026-05-19
 
 ### Fixed

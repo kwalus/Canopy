@@ -428,6 +428,11 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(any(item['field'] == 'numerical_results' for item in datapoint['evidence']))
         self.assertEqual(payload['extractor']['mode'], 'source_grounded_llm')
         self.assertEqual(payload['extractor']['provider'], 'openai')
+        self.assertEqual(result['progress']['status'], 'completed')
+        self.assertEqual(result['progress']['percent'], 100)
+        self.assertGreaterEqual(result['progress']['details']['datapoint_count'], 1)
+        progress = self.digestion_manager.get_operation_progress(digestion['id'], 'owner-user')
+        self.assertEqual(progress['operations']['datapoints']['status'], 'completed')
 
         self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
         self.assertEqual(
@@ -783,6 +788,12 @@ class TestDigestions(unittest.TestCase):
             )
             self.assertEqual(build_response.status_code, 200)
             self.assertTrue(build_response.get_json()['success'])
+            progress_response = client.get(
+                f'/api/v1/digestions/{digestion_id}/progress',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(progress_response.status_code, 200)
+            self.assertEqual(progress_response.get_json()['operations']['build']['status'], 'completed')
 
             blocked_query = client.post(
                 f'/api/v1/digestions/{digestion_id}/query',
@@ -1085,6 +1096,55 @@ class TestDigestions(unittest.TestCase):
 
         self.assertTrue(second['success'])
         self.assertEqual(embed_call_count[0], 0)
+
+    def test_digestion_build_progress_is_available_after_build(self) -> None:
+        """Build operations should expose progress state for UI/API polling."""
+        source = self._save_text('progress-content.txt', 'Silicon telemetry requires cited retrieval and source grounding.')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Progress test',
+            source_file_ids=[source.id],
+            provider='local_hash',
+            chunk_size=80,
+            chunk_overlap=0,
+        )
+
+        initial_progress = self.digestion_manager.get_operation_progress(digestion['id'], 'owner-user')
+        self.assertEqual(initial_progress['operations']['build']['status'], 'idle')
+
+        build = self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        self.assertTrue(build['success'])
+        self.assertEqual(build['progress']['status'], 'completed')
+        self.assertEqual(build['progress']['percent'], 100)
+        self.assertGreaterEqual(build['progress']['details']['chunk_count'], 1)
+
+        progress = self.digestion_manager.get_operation_progress(digestion['id'], 'owner-user')
+        self.assertEqual(progress['operations']['build']['status'], 'completed')
+        self.assertEqual(progress['operations']['build']['processed'], 1)
+        self.assertEqual(progress['operations']['build']['total'], 1)
+        listed = self.digestion_manager.list_digestions('owner-user')
+        self.assertIn('operation_progress', listed[0])
+
+        self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
+        self.digestion_manager._set_operation_progress(
+            digestion['id'],
+            'build',
+            status='running',
+            phase='reading_source',
+            percent=30,
+            processed=0,
+            total=1,
+            current_label='progress-content.txt',
+            message='Reading progress-content.txt.',
+            details={'errors': [{'file_id': source.id, 'error': 'private filename leaked'}], 'chunk_count': 2},
+        )
+        reader_progress = self.digestion_manager.get_operation_progress(digestion['id'], 'reader-user')
+        reader_build = reader_progress['operations']['build']
+        self.assertEqual(reader_build['status'], 'running')
+        self.assertEqual(reader_build['current_label'], '')
+        self.assertNotIn('progress-content.txt', reader_build['message'])
+        self.assertNotIn('errors', reader_build['details'])
+        self.assertEqual(reader_build['details']['chunk_count'], 2)
 
     def test_chunk_limit_build_reports_truncation_and_remains_queryable(self) -> None:
         """Chunk-limit truncation should surface clearly without making the index unusable."""

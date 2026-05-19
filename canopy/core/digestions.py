@@ -20,6 +20,7 @@ import textwrap
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import RLock
 from typing import Any, Iterable, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -123,6 +124,8 @@ class DigestionManager:
         self.db = db
         self.file_manager = file_manager
         self.config = config
+        self._progress_lock = RLock()
+        self._operation_progress: dict[str, dict[str, dict[str, Any]]] = {}
         self._ensure_tables()
 
     # ------------------------------------------------------------------
@@ -462,6 +465,10 @@ class DigestionManager:
         for row in rows:
             item = self._digestion_from_row(row).to_dict(access=self._access_from_row(row, user_id))
             item["stats"] = stats_by_id.get(item["id"], self._empty_stats())
+            item["operation_progress"] = self._progress_snapshot(
+                item["id"],
+                include_source_details=bool(item.get("access", {}).get("can_read_sources")),
+            )
             if include_sources and item.get("access", {}).get("can_read_sources"):
                 item["sources"] = self.list_sources(item["id"], user_id=user_id)
             elif include_sources:
@@ -490,7 +497,26 @@ class DigestionManager:
         data = digestion.to_dict(access=access)
         data["sources"] = self.list_sources(digestion.id, user_id=viewer) if viewer and access.get("can_read_sources") else []
         data["stats"] = self.stats(digestion.id)
+        data["operation_progress"] = self._progress_snapshot(
+            digestion.id,
+            include_source_details=bool(access.get("can_read_sources")),
+        )
         return data
+
+    def get_operation_progress(self, digestion_id: str, actor_user_id: str) -> dict[str, Any]:
+        """Return live, non-sensitive progress for Digestion build/extraction operations."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
+        access = self._access_for(digestion, actor_user_id)
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "status": digestion.status,
+            "stats": self.stats(digestion.id),
+            "operations": self._progress_snapshot(
+                digestion.id,
+                include_source_details=bool(access.get("can_read_sources")),
+            ),
+        }
 
     def list_sources(self, digestion_id: str, *, user_id: str = "") -> list[dict[str, Any]]:
         if user_id:
@@ -598,10 +624,38 @@ class DigestionManager:
         digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
         source_rows = self._source_rows(digestion.id)
         if not source_rows:
+            self._set_operation_progress(
+                digestion.id,
+                "build",
+                status="failed",
+                phase="no_sources",
+                percent=0,
+                processed=0,
+                total=0,
+                message="Add at least one source before building this Digestion.",
+            )
             raise DigestionError("Add at least one Vault file before building a Digestion.", status_code=400, reason="no_sources")
 
         started = self._now()
         self._set_status(digestion.id, "building", error=None)
+        source_total = len(source_rows)
+        self._set_operation_progress(
+            digestion.id,
+            "build",
+            status="running",
+            phase="preparing",
+            percent=2,
+            processed=0,
+            total=source_total,
+            message=f"Preparing {source_total} source{'' if source_total == 1 else 's'} for indexing.",
+            details={
+                "rebuild": bool(rebuild),
+                "chunk_size": digestion.chunk_size,
+                "chunk_overlap": digestion.chunk_overlap,
+                "provider": digestion.provider,
+                "embedding_model": digestion.embedding_model,
+            },
+        )
         total_chunks = 0
         embedded_count = 0
         errors: list[dict[str, str]] = []
@@ -620,18 +674,101 @@ class DigestionManager:
                     )
                     conn.commit()
 
-            for source in source_rows:
+            for source_index, source in enumerate(source_rows, start=1):
                 if total_chunks >= MAX_CHUNKS_PER_BUILD:
                     errors.append({"file_id": str(source["file_id"]), "error": "build_chunk_limit_reached"})
+                    self._set_operation_progress(
+                        digestion.id,
+                        "build",
+                        status="running",
+                        phase="limit_reached",
+                        percent=92,
+                        processed=source_index - 1,
+                        total=source_total,
+                        message=f"Chunk limit reached at {MAX_CHUNKS_PER_BUILD} chunks.",
+                        details={
+                            "chunk_count": total_chunks,
+                            "embedded_count": embedded_count,
+                            "errors": errors[:8],
+                        },
+                    )
                     break
                 try:
-                    file_chunks = self._index_source(digestion, source, remaining_chunks=MAX_CHUNKS_PER_BUILD - total_chunks)
+                    source_label = str(
+                        self._row_get(source, "source_label", "")
+                        or self._row_get(source, "file_name", "")
+                        or source["file_id"]
+                    )
+
+                    def source_progress(stage: str, message: str, fraction: float, extra: Optional[dict[str, Any]] = None) -> None:
+                        base = (source_index - 1) / max(1, source_total)
+                        step = max(0.0, min(float(fraction or 0), 1.0)) / max(1, source_total)
+                        percent = 4 + int((base + step) * 88)
+                        self._set_operation_progress(
+                            digestion.id,
+                            "build",
+                            status="running",
+                            phase=stage,
+                            percent=min(92, max(4, percent)),
+                            processed=source_index - 1,
+                            total=source_total,
+                            current_label=source_label,
+                            message=message,
+                            details={
+                                "chunk_count": total_chunks,
+                                "embedded_count": embedded_count,
+                                "source_index": source_index,
+                                "source_total": source_total,
+                                **(extra or {}),
+                            },
+                        )
+
+                    source_progress("reading_source", f"Reading {source_label}.", 0.05)
+                    file_chunks = self._index_source(
+                        digestion,
+                        source,
+                        remaining_chunks=MAX_CHUNKS_PER_BUILD - total_chunks,
+                        progress_callback=source_progress,
+                    )
                     total_chunks += file_chunks["chunk_count"]
                     embedded_count += file_chunks["embedded_count"]
+                    self._set_operation_progress(
+                        digestion.id,
+                        "build",
+                        status="running",
+                        phase="source_indexed",
+                        percent=min(92, 4 + int((source_index / max(1, source_total)) * 88)),
+                        processed=source_index,
+                        total=source_total,
+                        current_label=source_label,
+                        message=f"Indexed {source_label}: {file_chunks['chunk_count']} chunk{'' if file_chunks['chunk_count'] == 1 else 's'}.",
+                        details={
+                            "chunk_count": total_chunks,
+                            "embedded_count": embedded_count,
+                            "source_index": source_index,
+                            "source_total": source_total,
+                        },
+                    )
                 except Exception as exc:
                     message = str(exc)[:1000]
                     errors.append({"file_id": str(source["file_id"]), "error": message})
                     self._mark_source_error(digestion.id, str(source["file_id"]), message)
+                    self._set_operation_progress(
+                        digestion.id,
+                        "build",
+                        status="running",
+                        phase="source_error",
+                        percent=min(92, 4 + int((source_index / max(1, source_total)) * 88)),
+                        processed=source_index,
+                        total=source_total,
+                        current_label=str(self._row_get(source, "file_name", "") or source["file_id"]),
+                        message=f"Source issue: {message}",
+                        details={
+                            "chunk_count": total_chunks,
+                            "embedded_count": embedded_count,
+                            "errors": errors[:8],
+                        },
+                    )
 
             status = "ready" if total_chunks > 0 else "error"
             error_text = None if status == "ready" else "No extractable chunks were indexed."
@@ -641,10 +778,42 @@ class DigestionManager:
             self._set_status(digestion.id, status, built_at=self._now(), error=error_text)
             digestion = self._get_digestion_obj(digestion.id) or digestion
             try:
+                if total_chunks > 0:
+                    self._set_operation_progress(
+                        digestion.id,
+                        "build",
+                        status="running",
+                        phase="generating_outputs",
+                        percent=95,
+                        processed=source_total,
+                        total=source_total,
+                        message="Creating manifest, brief, and agent context outputs.",
+                        details={"chunk_count": total_chunks, "embedded_count": embedded_count, "errors": errors[:8]},
+                    )
                 outputs = self.generate_outputs(digestion.id, actor_user_id) if total_chunks > 0 else {"outputs": []}
             except Exception as exc:
                 logger.warning("Digestion output generation failed for %s: %s", digestion.id, exc, exc_info=True)
                 outputs = {"outputs": [], "error": str(exc)[:500]}
+            self._set_operation_progress(
+                digestion.id,
+                "build",
+                status="completed" if status in {"ready", "ready_with_errors"} else "failed",
+                phase=status,
+                percent=100 if status in {"ready", "ready_with_errors"} else 0,
+                processed=source_total,
+                total=source_total,
+                message=(
+                    f"Build finished with {total_chunks} indexed chunk{'' if total_chunks == 1 else 's'}."
+                    if status in {"ready", "ready_with_errors"}
+                    else "Build finished without indexed chunks."
+                ),
+                details={
+                    "chunk_count": total_chunks,
+                    "embedded_count": embedded_count,
+                    "errors": errors[:8],
+                    "final_status": status,
+                },
+            )
             return {
                 "success": status in {"ready", "ready_with_errors"},
                 "digestion_id": digestion.id,
@@ -656,10 +825,20 @@ class DigestionManager:
                 "errors": errors,
                 "outputs": outputs.get("outputs") or [],
                 "stats": self.stats(digestion.id),
+                "progress": self._progress_snapshot(digestion.id).get("build", {}),
             }
         except Exception as exc:
             message = str(exc)[:1000]
             self._set_status(digestion.id, "error", error=message)
+            self._set_operation_progress(
+                digestion.id,
+                "build",
+                status="failed",
+                phase="error",
+                percent=0,
+                message=message,
+                details={"errors": [{"error": message}]},
+            )
             raise
 
     def query(
@@ -850,13 +1029,44 @@ class DigestionManager:
         """Extract source-grounded structured datapoints from indexed chunks using an LLM."""
         digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
         access = self._access_for(digestion, actor_user_id)
+        self._set_operation_progress(
+            digestion.id,
+            "datapoints",
+            status="running",
+            phase="preflight",
+            percent=2,
+            processed=0,
+            total=0,
+            message="Checking source access and Digestion AI extraction settings.",
+            details={},
+        )
         if not access.get("can_read_sources"):
+            self._set_operation_progress(
+                digestion.id,
+                "datapoints",
+                status="failed",
+                phase="source_access_denied",
+                percent=0,
+                message="Source-read access is required for structured datapoint extraction.",
+            )
             raise DigestionError(
                 "Structured datapoint extraction sends indexed source chunks to the configured LLM provider. Source metadata access is required.",
                 status_code=403,
                 reason="datapoint_source_metadata_denied",
             )
-        llm_context = self._resolve_datapoint_llm_context(actor_user_id)
+        try:
+            llm_context = self._resolve_datapoint_llm_context(actor_user_id)
+        except DigestionError as exc:
+            self._set_operation_progress(
+                digestion.id,
+                "datapoints",
+                status="failed",
+                phase="llm_unavailable",
+                percent=0,
+                message=str(exc),
+                details={"reason": getattr(exc, "reason", "datapoint_llm_unavailable")},
+            )
+            raise
         parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
         provider = str(llm_context.get("provider") or "openai").strip().lower()
         max_output_tokens = self._datapoint_max_output_tokens(provider=provider, parameters=parameters)
@@ -876,19 +1086,75 @@ class DigestionManager:
         )
         rows = self._datapoint_chunk_rows(digestion.id, limit=chunk_limit)
         if not rows:
+            self._set_operation_progress(
+                digestion.id,
+                "datapoints",
+                status="failed",
+                phase="no_indexed_chunks",
+                percent=0,
+                message="Build this Digestion before extracting structured datapoints; no indexed chunks are available.",
+                details={"max_chunks": chunk_limit, "max_datapoints": datapoint_limit},
+            )
             raise DigestionError(
                 "Build this Digestion before extracting structured datapoints; no indexed chunks are available.",
                 status_code=400,
                 reason="no_indexed_chunks",
             )
-
-        extraction = self._extract_structured_datapoints_with_llm(
-            digestion,
-            rows,
-            llm_context=llm_context,
-            lens=effective_lens,
-            datapoint_limit=datapoint_limit,
+        estimated_batches = len(self._datapoint_llm_batches(rows, parameters=parameters))
+        self._set_operation_progress(
+            digestion.id,
+            "datapoints",
+            status="running",
+            phase="starting_batches",
+            percent=6,
+            processed=0,
+            total=estimated_batches,
+            message=(
+                f"Preparing to scan {len(rows)} indexed chunk{'' if len(rows) == 1 else 's'} "
+                f"across {estimated_batches} LLM batch{'' if estimated_batches == 1 else 'es'}."
+            ),
+            details={
+                "max_chunks": chunk_limit,
+                "max_datapoints": datapoint_limit,
+                "provider": provider,
+                "model": llm_context.get("model") or "",
+                "credential_source": llm_context.get("credential_source") or "",
+                "lens": effective_lens[:800],
+                "estimated_batches": estimated_batches,
+            },
         )
+
+        try:
+            extraction = self._extract_structured_datapoints_with_llm(
+                digestion,
+                rows,
+                llm_context=llm_context,
+                lens=effective_lens,
+                datapoint_limit=datapoint_limit,
+                progress_callback=lambda payload: self._set_operation_progress(
+                    digestion.id,
+                    "datapoints",
+                    status="running",
+                    phase=str(payload.get("phase") or "extracting"),
+                    percent=int(payload.get("percent") or 0),
+                    processed=payload.get("processed"),
+                    total=payload.get("total"),
+                    current_label=str(payload.get("current_label") or ""),
+                    message=str(payload.get("message") or ""),
+                    details=payload.get("details") if isinstance(payload.get("details"), dict) else {},
+                ),
+            )
+        except Exception as exc:
+            self._set_operation_progress(
+                digestion.id,
+                "datapoints",
+                status="failed",
+                phase="extraction_failed",
+                percent=0,
+                message=str(exc)[:1000],
+                details={"reason": getattr(exc, "reason", "datapoint_extraction_failed")},
+            )
+            raise
         datapoints = extraction["datapoints"]
         quantitative_result_count = sum(len(item.get("quantitative_results") or []) for item in datapoints)
 
@@ -982,6 +1248,27 @@ class DigestionManager:
                 "source_revealing": True,
             },
         )
+        self._set_operation_progress(
+            digestion.id,
+            "datapoints",
+            status="completed",
+            phase="completed",
+            percent=100,
+            processed=int(extraction["stats"].get("batches_considered", 0) or 0),
+            total=int(extraction["stats"].get("batches_considered", 0) or estimated_batches or 0),
+            message=f"Extracted {len(datapoints)} structured datapoint{'' if len(datapoints) == 1 else 's'}.",
+            details={
+                "datapoint_count": len(datapoints),
+                "quantitative_result_count": quantitative_result_count,
+                "chunks_considered": len(rows),
+                "batches_considered": extraction["stats"].get("batches_considered", 0),
+                "failed_batches": extraction["stats"].get("failed_batches", 0),
+                "max_chunks": chunk_limit,
+                "max_datapoints": datapoint_limit,
+                "provider": provider,
+                "model": llm_context.get("model") or "",
+            },
+        )
         return {
             "success": True,
             "digestion_id": digestion.id,
@@ -990,6 +1277,7 @@ class DigestionManager:
             "quantitative_result_count": quantitative_result_count,
             "stats": payload["stats"],
             "preview": datapoints[:3],
+            "progress": self._progress_snapshot(digestion.id).get("datapoints", {}),
         }
 
     def list_outputs(
@@ -1263,7 +1551,14 @@ class DigestionManager:
     # ------------------------------------------------------------------
     # Index internals
     # ------------------------------------------------------------------
-    def _index_source(self, digestion: Digestion, source_row: Any, *, remaining_chunks: int) -> dict[str, int]:
+    def _index_source(
+        self,
+        digestion: Digestion,
+        source_row: Any,
+        *,
+        remaining_chunks: int,
+        progress_callback: Optional[Any] = None,
+    ) -> dict[str, int]:
         file_id = str(source_row["file_id"])
         info = self.file_manager.get_file(file_id)
         if not info or str(info.uploaded_by) != str(digestion.owner_user_id):
@@ -1281,10 +1576,38 @@ class DigestionManager:
         segments = self.extract_text_segments(file_data, info)
         if not segments:
             raise DigestionError("No extractable text found in source file.", status_code=415, reason="no_extractable_text")
+        extracted_chars = sum(len(segment.text) for segment in segments)
+        if callable(progress_callback):
+            progress_callback(
+                "text_extracted",
+                f"Extracted {extracted_chars:,} characters from {info.original_name}.",
+                0.34,
+                {"extracted_chars": extracted_chars, "file_size": len(file_data)},
+            )
         chunks = self._chunk_segments(segments, digestion.chunk_size, digestion.chunk_overlap, remaining_chunks=remaining_chunks)
         if not chunks:
             raise DigestionError("No indexable chunks were produced from source file.", status_code=415, reason="no_chunks")
+        if callable(progress_callback):
+            progress_callback(
+                "chunking",
+                f"Prepared {len(chunks)} semantic chunk{'' if len(chunks) == 1 else 's'} from {info.original_name}.",
+                0.58,
+                {"source_chunk_count": len(chunks), "extracted_chars": extracted_chars},
+            )
+            progress_callback(
+                "embedding",
+                f"Embedding {len(chunks)} chunk{'' if len(chunks) == 1 else 's'} for retrieval.",
+                0.72,
+                {"source_chunk_count": len(chunks), "provider": digestion.provider, "embedding_model": digestion.embedding_model},
+            )
         vectors = self._embed_chunks(chunks, provider=digestion.provider, model=digestion.embedding_model, dimensions=digestion.embedding_dimensions)
+        if callable(progress_callback):
+            progress_callback(
+                "writing_index",
+                f"Writing {len(chunks)} indexed chunk{'' if len(chunks) == 1 else 's'} to the local retrieval store.",
+                0.9,
+                {"source_chunk_count": len(chunks), "embedded_count": len(vectors)},
+            )
         now = self._now()
         with self.db.get_connection() as conn:
             conn.execute("DELETE FROM digestion_chunks WHERE digestion_id = ? AND file_id = ?", (digestion.id, info.id))
@@ -1321,7 +1644,7 @@ class DigestionManager:
                     info.checksum,
                     info.original_name,
                     info.content_type,
-                    sum(len(segment.text) for segment in segments),
+                    extracted_chars,
                     len(chunks),
                     now,
                     digestion.id,
@@ -1797,6 +2120,7 @@ class DigestionManager:
         llm_context: dict[str, Any],
         lens: str,
         datapoint_limit: int,
+        progress_callback: Optional[Any] = None,
     ) -> dict[str, Any]:
         parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
         batch_record_limit = self._bounded_int(
@@ -1814,17 +2138,36 @@ class DigestionManager:
         touched_refs: set[str] = set()
         processed_refs: set[str] = set()
         system_prompt = self._structured_datapoint_system_prompt()
+        total_batches = len(batches)
         for batch_index, batch in enumerate(batches, start=1):
             batch_refs = {str(entry["source_ref"]) for entry in batch}
             processed_refs.update(batch_refs)
             source_map = {str(entry["source_ref"]): entry for entry in batch}
+            if callable(progress_callback):
+                progress_callback({
+                    "phase": "llm_batch",
+                    "percent": min(94, 8 + int(((batch_index - 1) / max(1, total_batches)) * 84)),
+                    "processed": batch_index - 1,
+                    "total": total_batches,
+                    "current_label": f"Batch {batch_index} of {total_batches}",
+                    "message": (
+                        f"Scanning batch {batch_index} of {total_batches} "
+                        f"({len(batch)} chunk{'' if len(batch) == 1 else 's'})."
+                    ),
+                    "details": {
+                        "batch_index": batch_index,
+                        "batch_count": total_batches,
+                        "datapoint_count": len(datapoints),
+                        "remaining_datapoints": max(0, int(datapoint_limit) - len(datapoints)),
+                    },
+                })
             try:
                 prompt = self._structured_datapoint_user_prompt(
                     digestion,
                     batch,
                     lens=lens,
                     batch_index=batch_index,
-                    batch_count=len(batches),
+                    batch_count=total_batches,
                     remaining=max(1, int(datapoint_limit) - len(datapoints)),
                     batch_record_limit=batch_record_limit,
                 )
@@ -1838,6 +2181,24 @@ class DigestionManager:
                 )
                 datapoints.extend(normalized)
                 touched_refs.update(record_refs)
+                if callable(progress_callback):
+                    progress_callback({
+                        "phase": "batch_normalized",
+                        "percent": min(96, 8 + int((batch_index / max(1, total_batches)) * 84)),
+                        "processed": batch_index,
+                        "total": total_batches,
+                        "current_label": f"Batch {batch_index} of {total_batches}",
+                        "message": (
+                            f"Batch {batch_index} normalized; {len(datapoints)} datapoint"
+                            f"{'' if len(datapoints) == 1 else 's'} retained so far."
+                        ),
+                        "details": {
+                            "batch_index": batch_index,
+                            "batch_count": total_batches,
+                            "datapoint_count": len(datapoints),
+                            "failed_batches": len(errors),
+                        },
+                    })
             except DigestionError as exc:
                 errors.append({
                     "batch_index": batch_index,
@@ -1845,6 +2206,22 @@ class DigestionManager:
                     "reason": getattr(exc, "reason", "datapoint_batch_failed"),
                     "error": str(exc)[:500],
                 })
+                if callable(progress_callback):
+                    progress_callback({
+                        "phase": "batch_error",
+                        "percent": min(96, 8 + int((batch_index / max(1, total_batches)) * 84)),
+                        "processed": batch_index,
+                        "total": total_batches,
+                        "current_label": f"Batch {batch_index} of {total_batches}",
+                        "message": f"Batch {batch_index} had an extraction issue and was skipped.",
+                        "details": {
+                            "batch_index": batch_index,
+                            "batch_count": total_batches,
+                            "datapoint_count": len(datapoints),
+                            "failed_batches": len(errors),
+                            "last_error": str(exc)[:500],
+                        },
+                    })
             if len(datapoints) >= int(datapoint_limit):
                 break
 
@@ -2680,6 +3057,137 @@ Use this as a permissioned retrieval capability, not as raw file access.
                 (message[:1000], self._now(), digestion_id, file_id),
             )
             conn.commit()
+
+    def _set_operation_progress(
+        self,
+        digestion_id: str,
+        operation: str,
+        *,
+        status: str,
+        phase: str = "",
+        percent: int = 0,
+        processed: Optional[int] = None,
+        total: Optional[int] = None,
+        current_label: str = "",
+        message: str = "",
+        details: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        digestion_id = self._clean_id(digestion_id)
+        operation = str(operation or "").strip().lower() or "operation"
+        now = self._now()
+        bounded_percent = max(0, min(int(percent or 0), 100))
+        with self._progress_lock:
+            by_operation = self._operation_progress.setdefault(digestion_id, {})
+            existing = dict(by_operation.get(operation) or {})
+            started_at = str(existing.get("started_at") or now)
+            finished_at = now if str(status or "").lower() in {"completed", "failed", "cancelled"} else ""
+            payload = {
+                "operation": operation,
+                "status": str(status or "running"),
+                "phase": str(phase or ""),
+                "percent": bounded_percent,
+                "processed": 0 if processed is None else max(0, int(processed or 0)),
+                "total": 0 if total is None else max(0, int(total or 0)),
+                "current_label": str(current_label or ""),
+                "message": str(message or ""),
+                "started_at": started_at,
+                "updated_at": now,
+                "finished_at": finished_at or str(existing.get("finished_at") or ""),
+                "elapsed_seconds": self._elapsed_seconds(started_at, now),
+                "details": details if isinstance(details, dict) else dict(existing.get("details") or {}),
+            }
+            by_operation[operation] = payload
+            return dict(payload)
+
+    def _progress_snapshot(self, digestion_id: str, *, include_source_details: bool = True) -> dict[str, Any]:
+        digestion_id = self._clean_id(digestion_id)
+        with self._progress_lock:
+            operations = {
+                str(operation): dict(payload or {})
+                for operation, payload in (self._operation_progress.get(digestion_id) or {}).items()
+            }
+        for operation in ("build", "datapoints"):
+            operations.setdefault(operation, self._idle_progress(operation))
+        if not include_source_details:
+            operations = {
+                operation: self._public_progress_payload(payload)
+                for operation, payload in operations.items()
+            }
+        return operations
+
+    def _idle_progress(self, operation: str) -> dict[str, Any]:
+        return {
+            "operation": operation,
+            "status": "idle",
+            "phase": "idle",
+            "percent": 0,
+            "processed": 0,
+            "total": 0,
+            "current_label": "",
+            "message": "",
+            "started_at": "",
+            "updated_at": "",
+            "finished_at": "",
+            "elapsed_seconds": 0,
+            "details": {},
+        }
+
+    @staticmethod
+    def _public_progress_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        """Strip source metadata from progress visible to query-only grantees."""
+        public = dict(payload or {})
+        public["current_label"] = ""
+        public["message"] = DigestionManager._public_progress_message(public)
+        details = public.get("details") if isinstance(public.get("details"), dict) else {}
+        allowed_keys = {
+            "chunk_count",
+            "embedded_count",
+            "datapoint_count",
+            "quantitative_result_count",
+            "chunks_considered",
+            "batches_considered",
+            "failed_batches",
+            "max_chunks",
+            "max_datapoints",
+            "estimated_batches",
+            "provider",
+            "model",
+            "credential_source",
+            "final_status",
+            "reason",
+        }
+        public["details"] = {key: details[key] for key in allowed_keys if key in details}
+        return public
+
+    @staticmethod
+    def _public_progress_message(payload: dict[str, Any]) -> str:
+        operation = str(payload.get("operation") or "operation")
+        status = str(payload.get("status") or "idle")
+        phase = str(payload.get("phase") or "")
+        processed = int(payload.get("processed") or 0)
+        total = int(payload.get("total") or 0)
+        if status == "idle":
+            return ""
+        if status == "completed":
+            return "Operation completed."
+        if status == "failed":
+            return "Operation failed."
+        if operation == "build":
+            return f"Building Digestion source {processed + 1} of {total}." if total else "Building Digestion."
+        if operation == "datapoints":
+            if phase in {"llm_batch", "batch_normalized", "batch_error"} and total:
+                return f"Extracting datapoints batch {min(processed + 1, total)} of {total}."
+            return "Extracting structured datapoints."
+        return "Operation running."
+
+    @staticmethod
+    def _elapsed_seconds(started_at: str, now: str) -> int:
+        try:
+            started = datetime.fromisoformat(str(started_at or ""))
+            current = datetime.fromisoformat(str(now or ""))
+            return max(0, int((current - started).total_seconds()))
+        except Exception:
+            return 0
 
     # ------------------------------------------------------------------
     # Utility helpers

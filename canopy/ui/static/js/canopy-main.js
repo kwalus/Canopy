@@ -1866,6 +1866,7 @@
 			                    shareTimers: new Map(),
 			                    shareUsers: new Map(),
 			                    shareActiveIndex: new Map(),
+                                digestionProgressTimers: new Map(),
 			                    previewFileId: ''
 	                };
                 const grid = document.getElementById('vault-grid');
@@ -2243,6 +2244,92 @@
                     ].join('\n');
                 }
 
+                function digestionOperationProgress(digestion, operation) {
+                    const progress = digestion && digestion.operation_progress && typeof digestion.operation_progress === 'object'
+                        ? digestion.operation_progress
+                        : {};
+                    const item = progress[operation] && typeof progress[operation] === 'object' ? progress[operation] : {};
+                    return {
+                        operation,
+                        status: String(item.status || 'idle'),
+                        phase: String(item.phase || ''),
+                        percent: Math.max(0, Math.min(Number(item.percent || 0), 100)),
+                        processed: Math.max(0, Number(item.processed || 0)),
+                        total: Math.max(0, Number(item.total || 0)),
+                        current_label: String(item.current_label || ''),
+                        message: String(item.message || ''),
+                        elapsed_seconds: Math.max(0, Number(item.elapsed_seconds || 0)),
+                        details: item.details && typeof item.details === 'object' ? item.details : {},
+                    };
+                }
+
+                function digestionProgressVisible(progress) {
+                    const status = String(progress && progress.status || 'idle');
+                    return status && status !== 'idle';
+                }
+
+                function digestionProgressActive(progress) {
+                    return String(progress && progress.status || '') === 'running';
+                }
+
+                function formatVaultDuration(seconds) {
+                    const total = Math.max(0, Number(seconds || 0));
+                    if (total < 60) return `${Math.floor(total)}s`;
+                    const mins = Math.floor(total / 60);
+                    const secs = Math.floor(total % 60);
+                    return `${mins}m ${secs}s`;
+                }
+
+                function renderDigestionProgress(operation, label, progress) {
+                    const safeProgress = progress || {};
+                    const visible = digestionProgressVisible(safeProgress);
+                    const percent = Math.round(Math.max(0, Math.min(Number(safeProgress.percent || 0), 100)));
+                    const processed = Number(safeProgress.processed || 0);
+                    const total = Number(safeProgress.total || 0);
+                    const status = String(safeProgress.status || 'idle');
+                    const message = String(safeProgress.message || '').trim() || (status === 'completed' ? `${label} complete.` : `${label} queued.`);
+                    const countText = total > 0 ? `${processed}/${total}` : '';
+                    return `
+                        <div class="vault-digestion-progress${visible ? ' is-visible' : ''}"
+                             data-vault-digestion-progress="${vaultEscape(operation)}"
+                             aria-live="polite"
+                             ${visible ? '' : 'hidden'}>
+                            <div class="vault-digestion-progress-head">
+                                <div class="vault-digestion-progress-label">
+                                    ${digestionProgressActive(safeProgress) ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>' : ''}
+                                    ${vaultEscape(label)} · ${vaultEscape(message)}
+                                </div>
+                                <div class="vault-digestion-progress-percent">${percent}%</div>
+                            </div>
+                            <div class="vault-digestion-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" aria-label="${vaultEscape(label)}">
+                                <div class="vault-digestion-progress-fill" style="width:${percent}%"></div>
+                            </div>
+                            <div class="vault-digestion-progress-meta">
+                                ${countText ? `<span><i class="bi bi-list-check"></i>${vaultEscape(countText)}</span>` : ''}
+                                ${safeProgress.current_label ? `<span><i class="bi bi-file-earmark-text"></i>${vaultEscape(safeProgress.current_label)}</span>` : ''}
+                                ${safeProgress.elapsed_seconds ? `<span><i class="bi bi-clock"></i>${formatVaultDuration(safeProgress.elapsed_seconds)}</span>` : ''}
+                                ${safeProgress.phase ? `<span><i class="bi bi-gear"></i>${vaultEscape(String(safeProgress.phase).replace(/_/g, ' '))}</span>` : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                function defaultDatapointMaxChunks(digestion) {
+                    const stats = digestionStats(digestion);
+                    const chunks = Math.max(0, Number(stats.chunks || 0));
+                    return Math.max(1, Math.min(chunks || 80, 240));
+                }
+
+                function updateDigestionInState(digestionId, patch) {
+                    const id = String(digestionId || '');
+                    const index = state.digestions.findIndex(item => String(item.id || '') === id);
+                    if (index < 0) return;
+                    state.digestions[index] = {
+                        ...state.digestions[index],
+                        ...(patch || {}),
+                    };
+                }
+
 		                function renderDigestionCard(digestion) {
 		                    const id = vaultEscape(digestion.id || '');
 		                    const name = vaultEscape(digestion.name || 'Untitled Digestion');
@@ -2283,6 +2370,10 @@
                     const buildTitle = hasBeenBuilt
                         ? 'Re-index all sources and refresh embedded chunks.'
                         : 'Index sources and create embedded chunks for querying.';
+                    const buildProgress = digestionOperationProgress(digestion, 'build');
+                    const datapointProgress = digestionOperationProgress(digestion, 'datapoints');
+                    const maxChunksDefault = defaultDatapointMaxChunks(digestion);
+                    const maxDatapointsDefault = Math.min(400, Math.max(50, maxChunksDefault * 4));
                     return `
                         <article class="vault-digestion-card" data-vault-digestion-id="${id}">
                             <div class="vault-digestion-card-title">${name}</div>
@@ -2308,6 +2399,9 @@
 	                                <button class="btn btn-sm btn-outline-info" type="button" data-vault-digestion-action="extract-datapoints" data-vault-digestion-id="${id}" aria-label="Extract structured datapoints for ${name}" title="${extractTitle}" ${extractDisabled ? 'disabled' : ''}>
 	                                    <i class="bi bi-grid-3x3-gap"></i> Extract datapoints
 	                                </button>
+                                    <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="extract-options" data-vault-digestion-id="${id}" aria-label="Tune extraction scope for ${name}" title="Set extraction depth, maximum records, and the datapoint lens before running.">
+                                        <i class="bi bi-sliders"></i> Tune
+                                    </button>
 	                                ` : ''}
 	                                <button class="btn btn-sm btn-outline-primary" type="button" data-vault-digestion-action="export-package" data-vault-digestion-id="${id}" aria-label="Export package for ${name}" title="Export a static snapshot of this Digestion to your Vault. Use Share access to let a recipient query the live index instead.">
 	                                    <i class="bi bi-box-arrow-up-right"></i> Package
@@ -2321,7 +2415,44 @@
 	                                    <i class="bi bi-clipboard"></i> Agent ref
 	                                </button>
 	                            </div>
+                                ${renderDigestionProgress('build', 'Build', buildProgress)}
+                                ${renderDigestionProgress('datapoints', 'Datapoint extraction', datapointProgress)}
 	                            ${canManage ? `
+                                    <div class="vault-digestion-options" data-vault-digestion-extract-options="${id}" hidden>
+                                        <div class="vault-digestion-options-copy">
+                                            Control cost and depth before LLM extraction. Chunks are sent in batches from this Digestion only; lower limits are faster, higher limits scan more of the corpus.
+                                        </div>
+                                        <div class="vault-digestion-options-grid">
+                                            <label>
+                                                Chunks to scan
+                                                <input class="form-control form-control-sm"
+                                                       type="number"
+                                                       min="1"
+                                                       max="240"
+                                                       step="1"
+                                                       value="${maxChunksDefault}"
+                                                       data-vault-digestion-extract-max-chunks="${id}">
+                                            </label>
+                                            <label>
+                                                Max datapoints
+                                                <input class="form-control form-control-sm"
+                                                       type="number"
+                                                       min="1"
+                                                       max="1200"
+                                                       step="1"
+                                                       value="${maxDatapointsDefault}"
+                                                       data-vault-digestion-extract-max-datapoints="${id}">
+                                            </label>
+                                            <label>
+                                                Extraction lens / focus
+                                                <input class="form-control form-control-sm"
+                                                       type="text"
+                                                       maxlength="240"
+                                                       placeholder="e.g. methods, metrics, limits, costs"
+                                                       data-vault-digestion-extract-lens="${id}">
+                                            </label>
+                                        </div>
+                                    </div>
 		                            <form class="vault-digestion-share" data-vault-digestion-share="${id}" hidden>
 		                                <input type="hidden" data-vault-digestion-share-grantee="${id}" name="grantee_user_id" value="">
 		                                <div class="vault-digestion-share-copy">
@@ -2391,6 +2522,81 @@
                         return;
                     }
                     digestionList.innerHTML = state.digestions.map(renderDigestionCard).join('');
+                    state.digestions.forEach((digestion) => {
+                        const digestionId = String(digestion && digestion.id || '');
+                        if (!digestionId) return;
+                        if (digestionProgressActive(digestionOperationProgress(digestion, 'build'))) {
+                            watchDigestionProgress(digestionId, 'build');
+                        }
+                        if (digestionProgressActive(digestionOperationProgress(digestion, 'datapoints'))) {
+                            watchDigestionProgress(digestionId, 'datapoints');
+                        }
+                    });
+                }
+
+                function updateDigestionProgressNodes(digestionId, operations) {
+                    const card = digestionList && digestionList.querySelector(`[data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
+                    if (!card) return;
+                    ['build', 'datapoints'].forEach((operation) => {
+                        const progressEl = card.querySelector(`[data-vault-digestion-progress="${operation}"]`);
+                        if (!progressEl) return;
+                        const progress = operations && operations[operation] ? operations[operation] : { operation, status: 'idle' };
+                        const label = operation === 'build' ? 'Build' : 'Datapoint extraction';
+                        progressEl.outerHTML = renderDigestionProgress(operation, label, progress);
+                    });
+                }
+
+                function applyDigestionProgressPayload(digestionId, data) {
+                    const operations = data && data.operations && typeof data.operations === 'object' ? data.operations : {};
+                    const patch = { operation_progress: operations };
+                    if (data && data.status) patch.status = data.status;
+                    if (data && data.stats) patch.stats = data.stats;
+                    updateDigestionInState(digestionId, patch);
+                    updateDigestionProgressNodes(digestionId, operations);
+                    return operations;
+                }
+
+                async function refreshDigestionProgress(digestionId) {
+                    if (!digestionId) return {};
+                    const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/progress`);
+                    return applyDigestionProgressPayload(digestionId, data);
+                }
+
+                function stopDigestionProgressWatch(digestionId, operation) {
+                    const key = `${digestionId}:${operation}`;
+                    const timer = state.digestionProgressTimers.get(key);
+                    if (timer) global.clearInterval(timer);
+                    state.digestionProgressTimers.delete(key);
+                }
+
+                function watchDigestionProgress(digestionId, operation) {
+                    const key = `${digestionId}:${operation}`;
+                    if (state.digestionProgressTimers.has(key)) return;
+                    let quietErrors = 0;
+                    let pollCount = 0;
+                    const poll = async () => {
+                        pollCount += 1;
+                        try {
+                            const operations = await refreshDigestionProgress(digestionId);
+                            quietErrors = 0;
+                            const progress = operations && operations[operation] ? operations[operation] : {};
+                            const status = String(progress.status || 'idle');
+                            if (status && status !== 'running' && pollCount > 1) {
+                                stopDigestionProgressWatch(digestionId, operation);
+                                loadDigestions().catch((error) => console.warn('Digestion refresh after progress failed:', error));
+                                if (operation === 'datapoints' && status === 'completed') {
+                                    loadDigestionOutputs(digestionId, null, { force: true }).catch((error) => console.warn('Digestion outputs refresh failed:', error));
+                                }
+                            }
+                        } catch (error) {
+                            quietErrors += 1;
+                            if (quietErrors >= 3) {
+                                stopDigestionProgressWatch(digestionId, operation);
+                            }
+                        }
+                    };
+                    state.digestionProgressTimers.set(key, global.setInterval(poll, 900));
+                    global.setTimeout(poll, 250);
                 }
 
                 async function loadDigestions() {
@@ -2451,6 +2657,7 @@
                         button.disabled = true;
                         button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Building';
                     }
+                    watchDigestionProgress(digestionId, 'build');
                     try {
                         const result = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/build`, {
                             method: 'POST',
@@ -2462,6 +2669,9 @@
                             const issueText = firstError.error ? ` First issue: ${firstError.error}` : '';
                             showAlert(result.success ? 'Digestion built.' : `Digestion build completed with issues.${issueText}`, result.success ? 'success' : 'warning');
                         }
+                        try {
+                            await refreshDigestionProgress(digestionId);
+                        } catch (_) {}
                         await loadDigestions();
                     } catch (error) {
                         if (typeof showAlert === 'function') showAlert(error.error || 'Could not build Digestion.', 'danger');
@@ -2567,6 +2777,39 @@
                     }
                 }
 
+                function toggleDigestionExtractOptions(digestionId) {
+                    const panel = document.querySelector(`[data-vault-digestion-extract-options="${vaultCssEscape(digestionId)}"]`);
+                    if (!panel) return;
+                    const nextVisible = panel.hidden;
+                    panel.hidden = !nextVisible;
+                    panel.classList.toggle('is-visible', nextVisible);
+                    if (nextVisible) {
+                        const firstInput = panel.querySelector('[data-vault-digestion-extract-max-chunks]');
+                        global.setTimeout(() => {
+                            if (firstInput) firstInput.focus();
+                        }, 0);
+                    }
+                }
+
+                function readDigestionExtractOptions(digestionId) {
+                    const id = vaultCssEscape(digestionId);
+                    const maxChunksEl = document.querySelector(`[data-vault-digestion-extract-max-chunks="${id}"]`);
+                    const maxDatapointsEl = document.querySelector(`[data-vault-digestion-extract-max-datapoints="${id}"]`);
+                    const lensEl = document.querySelector(`[data-vault-digestion-extract-lens="${id}"]`);
+                    const clampInt = (value, fallback, min, max) => {
+                        const parsed = parseInt(value, 10);
+                        if (!Number.isFinite(parsed)) return fallback;
+                        return Math.max(min, Math.min(parsed, max));
+                    };
+                    const digestion = findDigestion(digestionId) || {};
+                    const fallbackChunks = defaultDatapointMaxChunks(digestion);
+                    return {
+                        max_chunks: clampInt(maxChunksEl && maxChunksEl.value, fallbackChunks, 1, 240),
+                        max_datapoints: clampInt(maxDatapointsEl && maxDatapointsEl.value, Math.min(400, Math.max(50, fallbackChunks * 4)), 1, 1200),
+                        lens: String(lensEl && lensEl.value || '').trim(),
+                    };
+                }
+
                 async function extractDigestionDatapoints(digestionId, button) {
                     if (!digestionId) return;
                     const original = button ? button.innerHTML : '';
@@ -2574,15 +2817,20 @@
                         button.disabled = true;
                         button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Extracting';
                     }
+                    const options = readDigestionExtractOptions(digestionId);
+                    watchDigestionProgress(digestionId, 'datapoints');
                     try {
                         const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/extract`, {
                             method: 'POST',
-                            body: JSON.stringify({})
+                            body: JSON.stringify(options)
                         });
                         if (typeof showAlert === 'function') {
                             const count = Number(data.datapoint_count || 0);
                             showAlert(`Structured datapoints extracted: ${count} record${count === 1 ? '' : 's'}.`, count ? 'success' : 'warning');
                         }
+                        try {
+                            await refreshDigestionProgress(digestionId);
+                        } catch (_) {}
                         await loadDigestionOutputs(digestionId, null, { force: true });
                     } catch (error) {
                         if (typeof showAlert === 'function') {
@@ -3603,6 +3851,8 @@
                             loadDigestionOutputs(digestionId, actionBtn);
                         } else if (action === 'extract-datapoints') {
                             extractDigestionDatapoints(digestionId, actionBtn);
+                        } else if (action === 'extract-options') {
+                            toggleDigestionExtractOptions(digestionId);
 	                        } else if (action === 'export-package') {
 	                            exportDigestionPackage(digestionId, actionBtn);
 	                        } else if (action === 'share-access') {

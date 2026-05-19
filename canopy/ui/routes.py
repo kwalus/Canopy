@@ -6589,6 +6589,21 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI build error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not build Digestion'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/progress', methods=['GET'])
+    @require_login
+    def ajax_digestion_progress(digestion_id: str):
+        """Return live Digestion operation progress for build and extraction."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.get_operation_progress(digestion_id, get_current_user()))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI progress error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load Digestion progress'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/materials', methods=['POST'])
     @require_login
     def ajax_add_digestion_materials(digestion_id: str):
