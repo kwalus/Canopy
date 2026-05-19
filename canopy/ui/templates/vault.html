@@ -1149,6 +1149,22 @@
     .vault-inline-preview-panel.is-expanded {
         position: relative;
         z-index: 5;
+        box-shadow:
+            0 0 0 2px color-mix(in srgb, var(--canopy-primary) 32%, transparent),
+            0 28px 70px color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-shadow));
+    }
+    .vault-inline-preview-panel.is-preview-jump {
+        animation: vaultPreviewAttention 1.15s ease-out 1;
+    }
+    @keyframes vaultPreviewAttention {
+        0% {
+            box-shadow:
+                0 0 0 4px color-mix(in srgb, var(--canopy-accent) 58%, transparent),
+                0 28px 70px color-mix(in srgb, var(--canopy-accent) 24%, var(--canopy-shadow));
+        }
+        100% {
+            box-shadow: 0 24px 50px var(--canopy-shadow);
+        }
     }
     .vault-inline-preview-panel[hidden] {
         display: none !important;
@@ -1211,9 +1227,12 @@
         height: min(74vh, 860px);
         min-height: 560px;
     }
+    .vault-inline-preview-panel.is-expanded .file-preview-container.pdf-preview {
+        overflow: visible;
+    }
     .vault-inline-preview-panel.is-expanded .pdf-preview-frame {
-        height: min(92vh, 1180px);
-        min-height: min(92vh, 980px);
+        height: clamp(900px, 88vw, 1500px) !important;
+        min-height: 900px !important;
     }
     .vault-inline-preview-media {
         display: block;
@@ -1496,9 +1515,8 @@
         }
 
         .vault-inline-preview-panel.is-expanded .pdf-preview-frame {
-            height: min(86vh, 920px);
-            height: min(86dvh, 920px);
-            min-height: min(86dvh, 760px);
+            height: min(125dvh, 1100px) !important;
+            min-height: 760px !important;
         }
     }
 
@@ -1696,7 +1714,7 @@
 	                </form>
 	            </div>
 	        </div>
-	        <section class="vault-inline-preview-panel" id="vault-inline-preview-panel" hidden aria-live="polite" aria-label="Vault file preview">
+	        <section class="vault-inline-preview-panel" id="vault-inline-preview-panel" hidden aria-live="polite" aria-label="Vault file preview" tabindex="-1">
 	            <div class="vault-inline-preview-head">
 	                <div>
 	                    <div class="vault-inline-preview-kicker"><i class="bi bi-eye"></i> Vault preview</div>

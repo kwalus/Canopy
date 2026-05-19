@@ -1991,6 +1991,11 @@
 	                            ? '<i class="bi bi-arrows-angle-contract"></i> Compact height'
 	                            : '<i class="bi bi-arrows-fullscreen"></i> Full-page height';
 	                    }
+	                    if (isExpanded) {
+	                        global.setTimeout(() => {
+	                            inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	                        }, 0);
+	                    }
 	                }
 
 	                function setVaultInlinePreviewExpandAvailable(available) {
@@ -1999,6 +2004,20 @@
 	                    if (!available) {
 	                        setVaultInlinePreviewExpanded(false);
 	                    }
+	                }
+
+	                function emphasizeVaultInlinePreview() {
+	                    if (!inlinePreviewPanel) return;
+	                    inlinePreviewPanel.classList.remove('is-preview-jump');
+	                    // Restart the attention animation when source-result buttons target the same preview twice.
+	                    void inlinePreviewPanel.offsetWidth;
+	                    inlinePreviewPanel.classList.add('is-preview-jump');
+	                    try {
+	                        inlinePreviewPanel.focus({ preventScroll: true });
+	                    } catch (_) {}
+	                    global.setTimeout(() => {
+	                        if (inlinePreviewPanel) inlinePreviewPanel.classList.remove('is-preview-jump');
+	                    }, 1300);
 	                }
 
 	                function vaultInlinePreviewMeta(file) {
@@ -2056,6 +2075,7 @@
 	                    const name = vaultFileName(file);
 	                    const type = vaultFileContentType(file);
 	                    const pageNumber = Number(options.page || 0);
+	                    const scrollBlock = options.scrollBlock || 'start';
 	                    const isPdf = typeof global.canopyIsPdfPreviewable === 'function' && global.canopyIsPdfPreviewable(name, type);
 	                    setVaultInlinePreviewExpanded(false);
 	                    setVaultInlinePreviewExpandAvailable(false);
@@ -2077,19 +2097,21 @@
 	                    if (mediaHtml) {
 	                        inlinePreviewBody.dataset.loadedFileId = id;
 	                        inlinePreviewBody.innerHTML = mediaHtml;
-	                        inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	                        inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
+	                        if (options.flash) emphasizeVaultInlinePreview();
 	                        return;
 	                    }
 	                    if (isPdf) {
 	                        inlinePreviewBody.dataset.loadedFileId = id;
 	                        inlinePreviewBody.innerHTML = renderVaultInlinePdfPreview(file, { page: pageNumber });
 	                        setVaultInlinePreviewExpandAvailable(true);
-	                        inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	                        inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
+	                        if (options.flash) emphasizeVaultInlinePreview();
 	                        return;
 	                    }
 
 	                    inlinePreviewBody.innerHTML = '<div class="vault-inline-preview-message"><span class="spinner-border spinner-border-sm me-1"></span>Loading preview...</div>';
-	                    inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	                    inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
 	                    try {
 	                        const payload = await apiCall(vaultFilePreviewUrl(file));
 	                        if (state.previewFileId !== id) return;
@@ -3483,19 +3505,19 @@
                     };
                 }
 
-                function canPreviewDigestionSource(source, canReadSources = false) {
-                    return !!(canReadSources && source && source.file_id);
+                function canPreviewDigestionSource(source) {
+                    return !!(source && source.file_id);
                 }
 
                 function renderDigestionResultActions(source, text, detailId = '', options = {}) {
                     const safeSource = vaultEscape(JSON.stringify(source || {}));
                     const safeText = vaultEscape(String(text || ''));
                     const page = digestionPageNumber(source && source.page_label);
-                    const canPreview = canPreviewDigestionSource(source, !!options.canReadSources);
+                    const canPreview = canPreviewDigestionSource(source);
                     const sourceDisabled = canPreview ? '' : ' disabled';
                     const sourceTitle = canPreview
-                        ? (page ? `Preview source at page ${page}` : 'Preview source')
-                        : 'Source preview requires source metadata access for this Digestion.';
+                        ? (page ? `Preview source at page ${page}. File access is still enforced by the Vault.` : 'Preview source. File access is still enforced by the Vault.')
+                        : 'This result does not include a source file reference to preview.';
                     const detailButton = detailId ? `
                         <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="toggle-result-detail" data-vault-digestion-detail="${vaultEscape(detailId)}">
                             <i class="bi bi-sliders me-1"></i>Details
@@ -3537,7 +3559,9 @@
                     const file = digestionSourceFile(source);
                     const page = digestionPageNumber(source.page_label);
                     if (file.id) {
-                        previewVaultFileInline(file, { page });
+                        previewVaultFileInline(file, { page, scrollBlock: 'center', flash: true });
+                    } else if (typeof showAlert === 'function') {
+                        showAlert('This result does not include a source file reference to preview.', 'warning');
                     }
                 }
 
@@ -4200,6 +4224,8 @@
 		                        }
 		                        const actionBtn = event.target.closest('[data-vault-digestion-action]');
 	                        if (!actionBtn || !digestionList.contains(actionBtn)) return;
+	                        event.preventDefault();
+	                        event.stopPropagation();
 	                        const digestionId = actionBtn.getAttribute('data-vault-digestion-id') || '';
 	                        const action = actionBtn.getAttribute('data-vault-digestion-action') || '';
                         if (action === 'build') {
@@ -4273,7 +4299,8 @@
 	                    inlinePreviewClose.addEventListener('click', closeVaultInlinePreview);
 	                }
 	                if (inlinePreviewExpand) {
-	                    inlinePreviewExpand.addEventListener('click', () => {
+	                    inlinePreviewExpand.addEventListener('click', (event) => {
+	                        event.preventDefault();
 	                        const expanded = !!(inlinePreviewPanel && inlinePreviewPanel.classList.contains('is-expanded'));
 	                        setVaultInlinePreviewExpanded(!expanded);
 	                    });

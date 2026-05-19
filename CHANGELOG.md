@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.160] - 2026-05-19
+
+### Fixed
+- **Vault Digestion source previews are visibly targeted from result cards** - `Preview p. N` now scrolls the Vault preview panel into view, focuses it safely, and flashes the panel so repeated result clicks produce clear feedback.
+- **Vault PDF full-page height is visibly larger** - the PDF expand toggle now uses Vault-specific iframe sizing overrides with stronger desktop and mobile heights so generic attachment-preview CSS cannot keep the reader cramped.
+- **Digestion source preview buttons no longer feel inert from stale card access state** - result buttons enable whenever a result includes a source file reference, while Vault file endpoints still enforce actual file access.
+
 ## [0.6.159] - 2026-05-19
 
 ### Added
