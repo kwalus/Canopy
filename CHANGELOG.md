@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.147] - 2026-05-19
+
+### Fixed
+- **Backed out the 0.6.145 Digestion reader/search UI while preserving the meshspace identity fix** - restores the known-good 0.6.144 front-end behavior for Channels, profile personalization, and channel grouping while keeping the 0.6.146 data-root/session guard.
+
 ## [0.6.146] - 2026-05-19
 
 ### Fixed
