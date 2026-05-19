@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.158] - 2026-05-19
+
+### Fixed
+- **Vault multi-file Finder drops keep every selected file on macOS** - the Vault drop handler now snapshots all `DataTransferItem`, `FileSystemEntry`, and fallback `FileList` handles synchronously before any async directory/file reads, avoiding protected drag-store behavior that could leave only the first file uploadable.
+- **Vault drop snapshots tolerate protected or quirky drag items** - guarded entry/file access skips unreadable items without aborting the whole drop, while existing file-key dedupe prevents duplicate uploads when browsers expose files through both `items` and `files`.
+
 ## [0.6.157] - 2026-05-19
 
 ### Fixed

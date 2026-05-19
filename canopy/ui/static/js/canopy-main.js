@@ -3624,26 +3624,60 @@
                     dropped.push(file);
                 }
 
+                function snapshotDataTransferFiles(dataTransfer) {
+                    const snapshot = [];
+                    if (!dataTransfer) return snapshot;
+                    // Some macOS/browser DataTransfer stores become protected after the first async read.
+                    // Capture every File/Entry handle synchronously before directory traversal awaits.
+                    let transferItems = [];
+                    try {
+                        transferItems = Array.from(dataTransfer.items || []);
+                    } catch (_) {
+                        transferItems = [];
+                    }
+                    for (const item of transferItems) {
+                        if (!item || item.kind !== 'file') continue;
+                        let entry = null;
+                        try {
+                            entry = typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null;
+                        } catch (_) {
+                            entry = null;
+                        }
+                        if (entry) {
+                            snapshot.push({ entry });
+                            continue;
+                        }
+                        let file = null;
+                        try {
+                            file = typeof item.getAsFile === 'function' ? item.getAsFile() : null;
+                        } catch (_) {
+                            file = null;
+                        }
+                        if (file) snapshot.push({ file });
+                    }
+                    let transferFiles = [];
+                    try {
+                        transferFiles = Array.from(dataTransfer.files || []);
+                    } catch (_) {
+                        transferFiles = [];
+                    }
+                    for (const file of transferFiles) {
+                        if (file) snapshot.push({ file });
+                    }
+                    return snapshot;
+                }
+
                 async function filesFromDataTransfer(dataTransfer) {
-                    const items = Array.from((dataTransfer && dataTransfer.items) || []);
+                    const items = snapshotDataTransferFiles(dataTransfer);
                     const dropped = [];
                     const seenFileKeys = new Set();
-                    if (items.length) {
-                        for (const item of items) {
-                            if (!item || item.kind !== 'file') continue;
-                            const entry = typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null;
-                            if (entry) {
-                                await filesFromEntry(entry, dropped, seenFileKeys);
-                                continue;
-                            }
-                            const file = typeof item.getAsFile === 'function' ? item.getAsFile() : null;
-                            pushUniqueDroppedFile(dropped, seenFileKeys, file);
+                    for (const item of items) {
+                        if (!item) continue;
+                        if (item.entry) {
+                            await filesFromEntry(item.entry, dropped, seenFileKeys);
+                            continue;
                         }
-                    }
-                    if (dataTransfer && dataTransfer.files) {
-                        for (const file of Array.from(dataTransfer.files || [])) {
-                            pushUniqueDroppedFile(dropped, seenFileKeys, file);
-                        }
+                        pushUniqueDroppedFile(dropped, seenFileKeys, item.file);
                     }
                     return dropped.filter((item) => (item && item.__vaultDropError) || (item && item.name));
                 }

@@ -317,11 +317,21 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('pickerState.currentFolderId', main_js)
         self.assertIn('for (const file of files)', main_js)
         self.assertIn('function dataTransferHasExternalFiles(dataTransfer)', main_js)
+        self.assertIn('function snapshotDataTransferFiles(dataTransfer)', main_js)
         self.assertIn('async function filesFromDataTransfer(dataTransfer)', main_js)
         self.assertIn('async function filesFromEntry(entry, droppedItems = [], seenFileKeys = new Set())', main_js)
         self.assertIn('function vaultDroppedFileKey(file)', main_js)
         self.assertIn('function pushUniqueDroppedFile(dropped, seenFileKeys, file)', main_js)
-        self.assertIn('for (const file of Array.from(dataTransfer.files || []))', main_js)
+        self.assertLess(
+            main_js.index('function snapshotDataTransferFiles(dataTransfer)'),
+            main_js.index('async function filesFromDataTransfer(dataTransfer)'),
+        )
+        self.assertIn('transferItems = Array.from(dataTransfer.items || []);', main_js)
+        self.assertIn('entry = typeof item.webkitGetAsEntry === \'function\' ? item.webkitGetAsEntry() : null;', main_js)
+        self.assertIn('file = typeof item.getAsFile === \'function\' ? item.getAsFile() : null;', main_js)
+        self.assertIn('transferFiles = Array.from(dataTransfer.files || []);', main_js)
+        self.assertIn('const items = snapshotDataTransferFiles(dataTransfer);', main_js)
+        self.assertIn('for (const file of transferFiles)', main_js)
         self.assertIn('const probe = size > 0 && typeof file.slice === \'function\' ? file.slice(0, Math.min(size, 1)) : file;', main_js)
         self.assertIn('await probe.arrayBuffer();', main_js)
         self.assertIn("form.append('files', uploadFile", main_js)
