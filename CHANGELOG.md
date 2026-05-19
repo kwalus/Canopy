@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.151] - 2026-05-19
+
+### Added
+- **DM-posted Digestion packages can be queried from the reader preview** - package previews now include an `Ask live Digestion` box that queries the local live index when ACL access exists and shows clear owner/access guidance when the package is only a snapshot or the viewer lacks query permission.
+
+### Fixed
+- **Digestion package reader fit and alignment is tighter** - card headers, actions, stats, and query controls now wrap more cleanly in DM/feed/channel previews and smaller viewports.
+
 ## [0.6.150] - 2026-05-19
 
 ### Fixed

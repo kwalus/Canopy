@@ -8416,6 +8416,7 @@
                 const title = _escapeHtml(digestion.name || 'Canopy Digestion');
                 const purpose = _escapeHtml(digestion.purpose || 'Reusable Digestion package');
                 const digestionId = String(digestion.id || agentReference.digestion_id || '').trim();
+                const queryEndpoint = digestionId ? `/ajax/digestions/${encodeURIComponent(digestionId)}/query` : '';
                 const rawSummary = registerFilePreviewText(previewId, JSON.stringify({
                     digestion,
                     stats,
@@ -8447,8 +8448,35 @@
                             </div>
                             <div class="digestion-package-access">
                                 <strong>${_escapeHtml(accessLabel)}</strong>
-                                <span>Packages are portable snapshots. For live RAG queries, the owner must share access to the local Digestion index.</span>
+                                <span>Packages are portable snapshots. Use live query when this Canopy has the Digestion and your account has ACL access.</span>
                             </div>
+                            ${digestionId ? `
+                                <form class="digestion-package-live-query"
+                                      data-digestion-package-query-form
+                                      data-digestion-id="${_escapeAttr(digestionId)}"
+                                      data-query-endpoint="${_escapeAttr(queryEndpoint)}"
+                                      onsubmit="queryDigestionPackage(event, this)">
+                                    <div class="digestion-package-live-query-head">
+                                        <div>
+                                            <strong>Ask live Digestion</strong>
+                                            <span>Runs against the local index when ACL access is available.</span>
+                                        </div>
+                                        <span class="digestion-package-query-badge">RAG</span>
+                                    </div>
+                                    <div class="digestion-package-query-row">
+                                        <input class="form-control form-control-sm"
+                                               type="search"
+                                               name="query"
+                                               autocomplete="off"
+                                               placeholder="Ask about this Digestion..."
+                                               aria-label="${_escapeAttr(`Ask live Digestion ${digestion.name || 'Canopy Digestion'}`)}">
+                                        <button class="btn btn-sm btn-success" type="submit">
+                                            <i class="bi bi-search"></i> Query
+                                        </button>
+                                    </div>
+                                    <div class="digestion-package-query-results" data-digestion-package-query-results aria-live="polite"></div>
+                                </form>
+                            ` : ''}
                             ${outputs.length ? `
                                 <div class="digestion-package-section">
                                     <div class="digestion-package-section-title">Reusable outputs</div>
@@ -8498,6 +8526,98 @@
                 navigator.clipboard.writeText(digestionId).then(() => {
                     if (typeof showAlert === 'function') showAlert('Digestion ID copied.', 'success');
                 }).catch(() => {});
+            };
+
+            function renderDigestionPackageQueryResults(data) {
+                const results = Array.isArray(data && data.results) ? data.results : [];
+                const warning = String(data && data.warning || '').trim();
+                if (!results.length) {
+                    return `<div class="small ${warning ? 'text-warning' : 'text-muted'}">${_escapeHtml(warning || 'No matching snippets found in the live Digestion index.')}</div>`;
+                }
+                return results.slice(0, 5).map((item) => {
+                    const label = item.file_name || item.file_id || 'Source';
+                    const meta = [
+                        item.page_label ? String(item.page_label) : '',
+                        Number(item.chunk_index || 0) ? `chunk ${Number(item.chunk_index || 0)}` : '',
+                        Number(item.score || 0) ? `score ${Number(item.score || 0).toFixed(3)}` : '',
+                    ].filter(Boolean).join(' · ');
+                    return `
+                        <div class="digestion-package-query-result">
+                            <div><strong>${_escapeHtml(label)}</strong>${meta ? `<span>${_escapeHtml(meta)}</span>` : ''}</div>
+                            <p>${_escapeHtml(String(item.snippet || '').slice(0, 700))}</p>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            async function renderDigestionPackageAccessGuidance(digestionId, resultsEl, fallbackMessage) {
+                if (!resultsEl) return;
+                let guidance = '';
+                try {
+                    const info = await apiCall(`/ajax/digestions/${encodeURIComponent(digestionId)}/access-request`);
+                    const owner = info && info.owner_user_id ? `Owner: ${_escapeHtml(info.owner_user_id)}` : '';
+                    const endpoint = info && info.acl_grant_endpoint ? _escapeHtml(info.acl_grant_endpoint) : '';
+                    guidance = `
+                        <div class="digestion-package-query-denied">
+                            <strong>Live query needs ACL access.</strong>
+                            <span>${_escapeHtml(info && info.guidance || fallbackMessage || 'Ask the owner to grant query access to this Digestion.')}</span>
+                            ${owner ? `<code>${owner}</code>` : ''}
+                            ${endpoint ? `<code>${endpoint}</code>` : ''}
+                        </div>
+                    `;
+                } catch (_) {
+                    guidance = `
+                        <div class="digestion-package-query-denied">
+                            <strong>Live query is not available here.</strong>
+                            <span>${_escapeHtml(fallbackMessage || 'This package is a snapshot. The live Digestion may be on another Canopy instance or may need ACL access.')}</span>
+                        </div>
+                    `;
+                }
+                resultsEl.innerHTML = guidance;
+            }
+
+            global.queryDigestionPackage = async function(event, form) {
+                if (event && event.preventDefault) event.preventDefault();
+                const queryForm = form || (event && event.target);
+                if (!queryForm) return;
+                const digestionId = String(queryForm.dataset && queryForm.dataset.digestionId || '').trim();
+                const endpoint = String(queryForm.dataset && queryForm.dataset.queryEndpoint || '').trim();
+                const input = queryForm.querySelector('input[name="query"]');
+                const button = queryForm.querySelector('button[type="submit"]');
+                const resultsEl = queryForm.querySelector('[data-digestion-package-query-results]');
+                const query = String(input && input.value || '').trim();
+                if (!digestionId || !endpoint || !query) {
+                    if (input) input.focus();
+                    return;
+                }
+                const original = button ? button.innerHTML : '';
+                if (button) {
+                    button.disabled = true;
+                    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Querying';
+                }
+                if (resultsEl) {
+                    resultsEl.innerHTML = '<div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Querying live Digestion...</div>';
+                }
+                try {
+                    const data = await apiCall(endpoint, {
+                        method: 'POST',
+                        body: JSON.stringify({ query, top_k: 5 })
+                    });
+                    if (resultsEl) resultsEl.innerHTML = renderDigestionPackageQueryResults(data || {});
+                } catch (error) {
+                    const reason = String(error && error.reason || '').trim();
+                    const message = String(error && (error.error || error.message) || 'Could not query this Digestion.').trim();
+                    if (reason === 'query_denied' || reason === 'manage_denied' || reason === 'not_found') {
+                        await renderDigestionPackageAccessGuidance(digestionId, resultsEl, message);
+                    } else if (resultsEl) {
+                        resultsEl.innerHTML = `<div class="small text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${_escapeHtml(message)}</div>`;
+                    }
+                } finally {
+                    if (button) {
+                        button.disabled = false;
+                        button.innerHTML = original;
+                    }
+                }
             };
 
             function canopySpreadsheetColumnLabel(index) {
