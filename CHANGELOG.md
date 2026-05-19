@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.159] - 2026-05-19
+
+### Added
+- **Vault Digestion query results are richer reader cards** - semantic chunk hits now highlight exact query terms, expose copy actions, and can preview source PDFs at detected page anchors when the viewer has source metadata access.
+- **Structured datapoint results show compact evidence and details** - datapoint search now returns bounded structured fields and content type metadata so Vault cards can render quantitative chips, evidence highlights, tags, and collapsed field-detail panels.
+- **Vault PDF previews can expand to full-page height** - PDF inline previews now get a Vault-only Full-page height toggle while non-PDF previews keep the existing compact controls.
+
+### Fixed
+- **Narrow layouts wrap progress and message text safely** - Vault Digestion progress rows, channel messages, and shared rich text surfaces now shrink and wrap long labels, URLs, IDs, paths, and inline code without breaking their containers.
+- **Digestion source preview actions respect source-read access** - result preview buttons are disabled unless the viewer has source metadata access, while copy/detail actions remain available for query results.
+
 ## [0.6.158] - 2026-05-19
 
 ### Fixed

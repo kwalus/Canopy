@@ -477,6 +477,9 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(search['datapoints_ready'])
         self.assertGreaterEqual(search['result_count'], 1)
         self.assertEqual(search['results'][0]['source']['file_name'], 'datapoint-corpus.txt')
+        self.assertIn('content_type', search['results'][0]['source'])
+        self.assertIn('structured_fields', search['results'][0])
+        self.assertIn('numerical_results', search['results'][0]['structured_fields'])
 
         self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
         self.assertEqual(

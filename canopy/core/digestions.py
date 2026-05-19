@@ -1005,6 +1005,16 @@ class DigestionManager:
                     else 0
                 ),
             }
+            structured_fields: dict[str, list[str]] = {}
+            for field_name in field_counts:
+                values = item.get(field_name)
+                if not isinstance(values, list):
+                    continue
+                structured_fields[field_name] = [
+                    str(value)[:360]
+                    for value in values
+                    if str(value or "").strip()
+                ][:6]
             score = 1.0 if phrase_match else (overlap / max(1, len(query_terms)))
             results.append(
                 {
@@ -1017,10 +1027,12 @@ class DigestionManager:
                     "source": {
                         "file_id": str(source.get("file_id") or ""),
                         "file_name": str(source.get("file_name") or ""),
+                        "content_type": str(source.get("content_type") or ""),
                         "page_label": str(source.get("page_label") or ""),
                         "chunk_index": source.get("chunk_index"),
                     },
                     "field_counts": field_counts,
+                    "structured_fields": structured_fields,
                     "quantitative_results": item.get("quantitative_results")[:4]
                     if isinstance(item.get("quantitative_results"), list)
                     else [],

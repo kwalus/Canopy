@@ -388,9 +388,10 @@
     }
     .vault-digestion-list {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
         gap: 0.75rem;
         align-items: start;
+        min-width: 0;
     }
     .vault-digestion-card {
         position: relative;
@@ -439,6 +440,9 @@
         gap: 0.38rem;
         margin-top: 0.72rem;
         padding: 0.66rem;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
         border: 1px solid color-mix(in srgb, var(--canopy-primary) 32%, var(--canopy-border));
         border-radius: 15px;
         background:
@@ -450,25 +454,31 @@
     }
     .vault-digestion-progress-head {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
         gap: 0.75rem;
+        min-width: 0;
         color: var(--canopy-text-primary);
         font-size: 0.82rem;
         font-weight: 850;
     }
     .vault-digestion-progress-label {
+        flex: 1 1 12rem;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
     .vault-digestion-progress-percent {
+        flex: 0 0 auto;
         color: var(--canopy-primary);
         font-variant-numeric: tabular-nums;
     }
     .vault-digestion-progress-track {
         height: 0.58rem;
+        min-width: 0;
+        max-width: 100%;
         border-radius: 999px;
         overflow: hidden;
         background: color-mix(in srgb, var(--canopy-bg-secondary) 82%, black);
@@ -485,6 +495,7 @@
         display: flex;
         flex-wrap: wrap;
         gap: 0.35rem 0.6rem;
+        min-width: 0;
         color: var(--canopy-text-muted);
         font-size: 0.74rem;
     }
@@ -492,6 +503,14 @@
         display: inline-flex;
         align-items: center;
         gap: 0.25rem;
+        min-width: 0;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        line-height: 1.25;
+    }
+    .vault-digestion-progress-meta span i {
+        flex: 0 0 auto;
     }
     .vault-digestion-options {
         display: none;
@@ -827,6 +846,78 @@
         color: var(--canopy-text-secondary);
         line-height: 1.42;
     }
+    .vault-digestion-highlight {
+        border-radius: 0.32rem;
+        padding: 0.02rem 0.16rem;
+        color: var(--canopy-text-primary);
+        background: color-mix(in srgb, var(--canopy-warning) 34%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-warning) 28%, transparent);
+    }
+    .vault-digestion-result-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.38rem;
+        margin-top: 0.55rem;
+    }
+    .vault-digestion-result-actions .btn {
+        border-radius: 999px;
+        font-size: 0.74rem;
+        font-weight: 800;
+        padding: 0.24rem 0.55rem;
+    }
+    .vault-digestion-quant-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        margin-top: 0.5rem;
+    }
+    .vault-digestion-quant-list span {
+        display: inline-flex;
+        max-width: 100%;
+        border: 1px solid color-mix(in srgb, var(--canopy-accent) 28%, var(--canopy-border));
+        border-radius: 12px;
+        padding: 0.34rem 0.48rem;
+        color: var(--canopy-text-primary);
+        background: color-mix(in srgb, var(--canopy-accent) 10%, var(--canopy-bg-card));
+        font-size: 0.76rem;
+        font-weight: 750;
+    }
+    .vault-digestion-result-detail {
+        margin-top: 0.55rem;
+        border: 1px solid var(--canopy-border);
+        border-radius: 14px;
+        padding: 0.58rem;
+        background: color-mix(in srgb, var(--canopy-bg-card) 82%, transparent);
+    }
+    .vault-digestion-detail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.5rem;
+    }
+    .vault-digestion-detail-row {
+        min-width: 0;
+        border: 1px solid color-mix(in srgb, var(--canopy-secondary) 18%, var(--canopy-border));
+        border-radius: 12px;
+        padding: 0.5rem;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 54%, transparent);
+    }
+    .vault-digestion-detail-row strong {
+        display: block;
+        margin-bottom: 0.28rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.68rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+    .vault-digestion-detail-row ul {
+        margin: 0;
+        padding-left: 1rem;
+    }
+    .vault-digestion-detail-row li {
+        margin: 0.16rem 0;
+        color: var(--canopy-text-secondary);
+        line-height: 1.35;
+    }
     .vault-digestion-evidence {
         display: grid;
         gap: 0.35rem;
@@ -1055,6 +1146,10 @@
         margin-bottom: 1rem;
         border-color: color-mix(in srgb, var(--canopy-secondary) 34%, var(--canopy-border));
     }
+    .vault-inline-preview-panel.is-expanded {
+        position: relative;
+        z-index: 5;
+    }
     .vault-inline-preview-panel[hidden] {
         display: none !important;
     }
@@ -1106,8 +1201,19 @@
         background:
             linear-gradient(180deg, color-mix(in srgb, var(--canopy-bg-secondary) 72%, transparent), color-mix(in srgb, var(--canopy-bg-card) 88%, transparent));
     }
+    .vault-inline-preview-panel.is-expanded .vault-inline-preview-body {
+        max-height: none;
+    }
     .vault-inline-preview-body .file-preview-container {
         margin: 0;
+    }
+    .vault-inline-preview-body .pdf-preview-frame {
+        height: min(74vh, 860px);
+        min-height: 560px;
+    }
+    .vault-inline-preview-panel.is-expanded .pdf-preview-frame {
+        height: min(92vh, 1180px);
+        min-height: min(92vh, 980px);
     }
     .vault-inline-preview-media {
         display: block;
@@ -1382,6 +1488,18 @@
             overflow: auto;
             -webkit-overflow-scrolling: touch;
         }
+
+        .vault-inline-preview-body .pdf-preview-frame {
+            height: min(68vh, 640px);
+            height: min(68dvh, 640px);
+            min-height: 360px;
+        }
+
+        .vault-inline-preview-panel.is-expanded .pdf-preview-frame {
+            height: min(86vh, 920px);
+            height: min(86dvh, 920px);
+            min-height: min(86dvh, 760px);
+        }
     }
 
     @media (max-width: 420px) {
@@ -1586,6 +1704,9 @@
 	                    <div class="vault-inline-preview-meta" id="vault-inline-preview-meta"></div>
 	                </div>
 	                <div class="vault-inline-preview-actions">
+	                    <button class="btn btn-sm btn-outline-primary" type="button" id="vault-inline-preview-expand" hidden aria-pressed="false">
+	                        <i class="bi bi-arrows-fullscreen"></i> Full-page height
+	                    </button>
 	                    <a class="btn btn-sm btn-outline-secondary" id="vault-inline-preview-open" href="#" target="_blank" rel="noopener">
 	                        <i class="bi bi-box-arrow-up-right"></i> Open in new tab
 	                    </a>

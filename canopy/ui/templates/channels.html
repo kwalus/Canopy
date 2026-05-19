@@ -1320,6 +1320,7 @@
     
     .message-item {
         transition: all 0.3s ease;
+        min-width: 0;
     }
     
     .message-item:hover {
@@ -1327,18 +1328,35 @@
         border-radius: 8px;
     }
 
+    .message-item > .d-flex,
+    .message-item > .d-flex > .flex-grow-1 {
+        min-width: 0;
+        max-width: 100%;
+    }
+
     .message-content {
         word-wrap: break-word;
-        overflow-wrap: break-word;
+        overflow-wrap: anywhere;
         word-break: break-word;
+        min-width: 0;
         max-width: 100%;
     }
 
     .message-content p,
-    .message-content .rich-content {
+    .message-content .rich-content,
+    .message-content [data-canopy-source-ref] {
         word-wrap: break-word;
-        overflow-wrap: break-word;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        min-width: 0;
         max-width: 100%;
+    }
+
+    .message-content a,
+    .message-content code,
+    .message-content .canopy-inline-code {
+        overflow-wrap: anywhere;
+        word-break: break-word;
     }
 
     .channel-selection-dock {

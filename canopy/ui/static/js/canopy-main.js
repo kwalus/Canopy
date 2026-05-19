@@ -1903,6 +1903,7 @@
 	                const inlinePreviewBody = document.getElementById('vault-inline-preview-body');
 	                const inlinePreviewOpen = document.getElementById('vault-inline-preview-open');
 	                const inlinePreviewDownload = document.getElementById('vault-inline-preview-download');
+	                const inlinePreviewExpand = document.getElementById('vault-inline-preview-expand');
 	                const inlinePreviewClose = document.getElementById('vault-inline-preview-close');
 
 	                function vaultFileName(file) {
@@ -1971,11 +1972,33 @@
 	                function closeVaultInlinePreview() {
 	                    state.previewFileId = '';
 	                    if (inlinePreviewPanel) inlinePreviewPanel.hidden = true;
+	                    setVaultInlinePreviewExpanded(false);
+	                    setVaultInlinePreviewExpandAvailable(false);
 	                    if (inlinePreviewBody) {
 	                        inlinePreviewBody.innerHTML = '';
 	                        delete inlinePreviewBody.dataset.loadedFileId;
 	                    }
 	                    setVaultPreviewCardState('');
+	                }
+
+	                function setVaultInlinePreviewExpanded(expanded) {
+	                    if (!inlinePreviewPanel) return;
+	                    const isExpanded = !!expanded;
+	                    inlinePreviewPanel.classList.toggle('is-expanded', isExpanded);
+	                    if (inlinePreviewExpand) {
+	                        inlinePreviewExpand.setAttribute('aria-pressed', isExpanded ? 'true' : 'false');
+	                        inlinePreviewExpand.innerHTML = isExpanded
+	                            ? '<i class="bi bi-arrows-angle-contract"></i> Compact height'
+	                            : '<i class="bi bi-arrows-fullscreen"></i> Full-page height';
+	                    }
+	                }
+
+	                function setVaultInlinePreviewExpandAvailable(available) {
+	                    if (!inlinePreviewExpand) return;
+	                    inlinePreviewExpand.hidden = !available;
+	                    if (!available) {
+	                        setVaultInlinePreviewExpanded(false);
+	                    }
 	                }
 
 	                function vaultInlinePreviewMeta(file) {
@@ -2002,14 +2025,23 @@
 	                    return '';
 	                }
 
-	                function renderVaultInlinePdfPreview(file) {
+	                function vaultPdfPreviewUrl(file, pageNumber = 0) {
+	                    const raw = vaultFileUrl(file);
+	                    const page = Number(pageNumber || 0);
+	                    if (!raw || !page || page < 1) return raw;
+	                    const base = raw.split('#')[0];
+	                    return `${base}#page=${Math.floor(page)}&toolbar=1&navpanes=0&view=FitH`;
+	                }
+
+	                function renderVaultInlinePdfPreview(file, options = {}) {
 	                    if (typeof global.renderPdfAttachmentPreviewHtml === 'function') {
-	                        return global.renderPdfAttachmentPreviewHtml(vaultFileUrl(file), vaultFileName(file));
+	                        return global.renderPdfAttachmentPreviewHtml(vaultPdfPreviewUrl(file, options.page || 0), vaultFileName(file));
 	                    }
 	                    return `<div class="vault-inline-preview-message">PDF preview is not available on this page. Use Open in new tab.</div>`;
 	                }
 
 	                async function previewVaultFileInline(file) {
+	                    const options = arguments.length > 1 && arguments[1] ? arguments[1] : {};
 	                    const id = vaultFileId(file);
 	                    if (!id || !inlinePreviewPanel || !inlinePreviewBody) {
 	                        openVaultFileInNewTab(file);
@@ -2022,10 +2054,18 @@
 
 	                    const url = vaultFileUrl(file);
 	                    const name = vaultFileName(file);
+	                    const type = vaultFileContentType(file);
+	                    const pageNumber = Number(options.page || 0);
+	                    const isPdf = typeof global.canopyIsPdfPreviewable === 'function' && global.canopyIsPdfPreviewable(name, type);
+	                    setVaultInlinePreviewExpanded(false);
+	                    setVaultInlinePreviewExpandAvailable(false);
+	                    const openUrl = (pageNumber && isPdf)
+	                        ? vaultPdfPreviewUrl(file, pageNumber)
+	                        : url;
 	                    state.previewFileId = id;
 	                    if (inlinePreviewTitle) inlinePreviewTitle.textContent = name;
 	                    if (inlinePreviewMeta) inlinePreviewMeta.textContent = vaultInlinePreviewMeta(file);
-	                    if (inlinePreviewOpen) inlinePreviewOpen.href = url || '#';
+	                    if (inlinePreviewOpen) inlinePreviewOpen.href = openUrl || '#';
 	                    if (inlinePreviewDownload) {
 	                        inlinePreviewDownload.href = url || '#';
 	                        inlinePreviewDownload.setAttribute('download', name);
@@ -2033,7 +2073,6 @@
 	                    inlinePreviewPanel.hidden = false;
 	                    setVaultPreviewCardState(id);
 
-	                    const type = vaultFileContentType(file);
 	                    const mediaHtml = renderVaultInlineMediaPreview(file);
 	                    if (mediaHtml) {
 	                        inlinePreviewBody.dataset.loadedFileId = id;
@@ -2041,9 +2080,10 @@
 	                        inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 	                        return;
 	                    }
-	                    if (typeof global.canopyIsPdfPreviewable === 'function' && global.canopyIsPdfPreviewable(name, type)) {
+	                    if (isPdf) {
 	                        inlinePreviewBody.dataset.loadedFileId = id;
-	                        inlinePreviewBody.innerHTML = renderVaultInlinePdfPreview(file);
+	                        inlinePreviewBody.innerHTML = renderVaultInlinePdfPreview(file, { page: pageNumber });
+	                        setVaultInlinePreviewExpandAvailable(true);
 	                        inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 	                        return;
 	                    }
@@ -3382,32 +3422,182 @@
                     `;
                 }
 
-                function renderRagDigestionResults(data) {
+                function digestionQueryTerms(query) {
+                    const raw = String(query || '').toLowerCase();
+                    const matches = raw.match(/[a-z0-9][a-z0-9_./+-]{2,}/g) || [];
+                    const stop = new Set(['with', 'that', 'from', 'this', 'what', 'when', 'where', 'into', 'about', 'using', 'these', 'those', 'their', 'there']);
+                    return Array.from(new Set(matches.filter(term => !stop.has(term))))
+                        .sort((a, b) => b.length - a.length)
+                        .slice(0, 18);
+                }
+
+                function escapeRegexTerm(value) {
+                    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                }
+
+                function highlightDigestionMatches(text, query) {
+                    const value = String(text || '');
+                    if (!value) return '';
+                    const terms = digestionQueryTerms(query);
+                    if (!terms.length) return vaultEscape(value);
+                    const pattern = new RegExp(terms.map(escapeRegexTerm).join('|'), 'gi');
+                    let html = '';
+                    let lastIndex = 0;
+                    value.replace(pattern, (match, offset) => {
+                        html += vaultEscape(value.slice(lastIndex, offset));
+                        html += `<mark class="vault-digestion-highlight">${vaultEscape(match)}</mark>`;
+                        lastIndex = offset + match.length;
+                        return match;
+                    });
+                    html += vaultEscape(value.slice(lastIndex));
+                    return html;
+                }
+
+                function digestionResultSource(result) {
+                    const item = result && typeof result === 'object' ? result : {};
+                    const source = item.source && typeof item.source === 'object' ? item.source : {};
+                    return {
+                        file_id: String(item.file_id || source.file_id || ''),
+                        file_name: String(item.file_name || source.file_name || item.filename || 'Source'),
+                        content_type: String(item.content_type || source.content_type || ''),
+                        page_label: String(item.page_label || source.page_label || ''),
+                        chunk_index: item.chunk_index !== undefined ? item.chunk_index : source.chunk_index,
+                    };
+                }
+
+                function digestionPageNumber(pageLabel) {
+                    const match = String(pageLabel || '').match(/(?:page|p\.?)?\s*(\d+)/i);
+                    const page = match ? Number(match[1]) : 0;
+                    return Number.isFinite(page) && page > 0 ? Math.floor(page) : 0;
+                }
+
+                function digestionSourceFile(source) {
+                    return {
+                        id: source.file_id || '',
+                        file_id: source.file_id || '',
+                        name: source.file_name || source.file_id || 'Source',
+                        filename: source.file_name || source.file_id || 'Source',
+                        original_name: source.file_name || source.file_id || 'Source',
+                        content_type: source.content_type || '',
+                        type: source.content_type || '',
+                    };
+                }
+
+                function canPreviewDigestionSource(source, canReadSources = false) {
+                    return !!(canReadSources && source && source.file_id);
+                }
+
+                function renderDigestionResultActions(source, text, detailId = '', options = {}) {
+                    const safeSource = vaultEscape(JSON.stringify(source || {}));
+                    const safeText = vaultEscape(String(text || ''));
+                    const page = digestionPageNumber(source && source.page_label);
+                    const canPreview = canPreviewDigestionSource(source, !!options.canReadSources);
+                    const sourceDisabled = canPreview ? '' : ' disabled';
+                    const sourceTitle = canPreview
+                        ? (page ? `Preview source at page ${page}` : 'Preview source')
+                        : 'Source preview requires source metadata access for this Digestion.';
+                    const detailButton = detailId ? `
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="toggle-result-detail" data-vault-digestion-detail="${vaultEscape(detailId)}">
+                            <i class="bi bi-sliders me-1"></i>Details
+                        </button>
+                    ` : '';
+                    return `
+                        <div class="vault-digestion-result-actions">
+                            <button class="btn btn-sm btn-outline-primary" type="button" data-vault-digestion-action="open-result-source" data-vault-digestion-source="${safeSource}" title="${vaultEscape(sourceTitle)}"${sourceDisabled}>
+                                <i class="bi bi-file-earmark-text me-1"></i>${page ? `Preview p. ${page}` : 'Preview source'}
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="copy-result-text" data-vault-digestion-copy-text="${safeText}">
+                                <i class="bi bi-clipboard me-1"></i>Copy result
+                            </button>
+                            ${detailButton}
+                        </div>
+                    `;
+                }
+
+                function formatDigestionQuantitativeResult(value) {
+                    if (value && typeof value === 'object' && !Array.isArray(value)) {
+                        const label = String(value.measurement_label || value.metric || value.name || '').trim();
+                        const valueText = String(value.value_text || value.value || value.result || '').trim();
+                        const unit = String(value.unit || '').trim();
+                        const evidence = String(value.evidence_sentence || value.evidence || '').trim();
+                        const primary = [label, [valueText, unit].filter(Boolean).join(' ')].filter(Boolean).join(': ');
+                        return primary || evidence || JSON.stringify(value);
+                    }
+                    return String(value || '');
+                }
+
+                function openDigestionResultSource(button) {
+                    if (!button) return;
+                    let source = {};
+                    try {
+                        source = JSON.parse(button.getAttribute('data-vault-digestion-source') || '{}');
+                    } catch (_) {
+                        source = {};
+                    }
+                    const file = digestionSourceFile(source);
+                    const page = digestionPageNumber(source.page_label);
+                    if (file.id) {
+                        previewVaultFileInline(file, { page });
+                    }
+                }
+
+                function toggleDigestionResultDetail(button) {
+                    const detailId = button && button.getAttribute('data-vault-digestion-detail');
+                    const detail = detailId ? document.getElementById(detailId) : null;
+                    if (!detail) return;
+                    const expanded = detail.hidden;
+                    detail.hidden = !expanded;
+                    button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                }
+
+                function renderDatapointStructuredFields(item, query = '') {
+                    const fields = item && item.structured_fields && typeof item.structured_fields === 'object' ? item.structured_fields : {};
+                    const rows = Object.entries(fields)
+                        .filter(([, values]) => Array.isArray(values) && values.length)
+                        .map(([key, values]) => `
+                            <div class="vault-digestion-detail-row">
+                                <strong>${vaultEscape(key.replace(/_/g, ' '))}</strong>
+                                <ul>
+                                    ${values.slice(0, 5).map(value => `<li>${highlightDigestionMatches(value, query)}</li>`).join('')}
+                                </ul>
+                            </div>
+                        `);
+                    return rows.length ? rows.join('') : '<div class="small text-muted">No structured field detail was returned for this datapoint.</div>';
+                }
+
+                function renderRagDigestionResults(data, options = {}) {
                     const results = Array.isArray(data.results) ? data.results : [];
                     const warning = String(data.warning || '').trim();
+                    const query = String(data.query || '');
                     if (!results.length) {
                         return `${renderDigestionResultHeader(data || {}, 'rag')}<div class="small ${warning ? 'text-warning' : 'text-muted'}">${vaultEscape(warning || 'No matching snippets found in indexed chunks.')}</div>`;
                     }
                     return `
                         ${renderDigestionResultHeader(data || {}, 'rag')}
                         ${warning ? `<div class="small text-warning mb-2">${vaultEscape(warning)}</div>` : ''}
-                        ${results.map((item) => `
-                            <div class="vault-digestion-result">
-                                <div class="vault-digestion-result-source">
-                                    <strong>${vaultEscape(item.file_name || item.file_id || 'Source')}</strong>
-                                    ${item.page_label ? `<span>${vaultEscape(item.page_label)}</span>` : ''}
-                                    ${Number(item.chunk_index || 0) ? `<span>chunk ${Number(item.chunk_index || 0)}</span>` : ''}
-                                    ${Number(item.score || 0) ? `<span>score ${Number(item.score || 0).toFixed(3)}</span>` : ''}
+                        ${results.map((item) => {
+                            const source = digestionResultSource(item);
+                            const snippet = String(item.snippet || '').slice(0, 1100);
+                            return `
+                                <div class="vault-digestion-result">
+                                    <div class="vault-digestion-result-source">
+                                        <strong>${vaultEscape(item.file_name || item.file_id || 'Source')}</strong>
+                                        ${item.page_label ? `<span>${vaultEscape(item.page_label)}</span>` : ''}
+                                        ${Number(item.chunk_index || 0) ? `<span>chunk ${Number(item.chunk_index || 0)}</span>` : ''}
+                                        ${Number(item.score || 0) ? `<span>score ${Number(item.score || 0).toFixed(3)}</span>` : ''}
+                                    </div>
+                                    <div class="vault-digestion-result-snippet">${highlightDigestionMatches(snippet, query)}</div>
+                                    ${renderDigestionResultActions(source, snippet, '', options)}
                                 </div>
-                                <div class="vault-digestion-result-snippet">${vaultEscape(item.snippet || '').slice(0, 1100)}</div>
-                            </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     `;
                 }
 
-                function renderDatapointDigestionResults(data) {
+                function renderDatapointDigestionResults(data, options = {}) {
                     const results = Array.isArray(data.results) ? data.results : [];
                     const warning = String(data.warning || '').trim();
+                    const query = String(data.query || '');
                     if (!results.length) {
                         return `${renderDigestionResultHeader(data || {}, 'datapoints')}<div class="small ${warning ? 'text-warning' : 'text-muted'}">${vaultEscape(warning || 'No matching structured datapoints found. Try a broader concept, material, method, metric, or tag.')}</div>`;
                     }
@@ -3424,6 +3614,14 @@
                                 .join('');
                             const evidence = Array.isArray(item.evidence) ? item.evidence : [];
                             const tags = Array.isArray(item.tags) ? item.tags : [];
+                            const sourceInfo = digestionResultSource({ source, content_type: source.content_type });
+                            const detailId = `vault-digestion-datapoint-${vaultEscape(String(data.digestion_id || 'digestion').replace(/[^A-Za-z0-9_-]/g, '-'))}-${Number(item.datapoint_index || 0)}`;
+                            const quantitative = Array.isArray(item.quantitative_results) ? item.quantitative_results : [];
+                            const resultText = [
+                                item.claim || item.subject || 'Structured datapoint',
+                                item.snippet || '',
+                                evidence.join('\n')
+                            ].filter(Boolean).join('\n\n');
                             return `
                                 <div class="vault-digestion-result is-datapoint">
                                     <div class="vault-digestion-result-source">
@@ -3432,18 +3630,29 @@
                                         ${source.file_name ? `<span>${vaultEscape(source.file_name)}</span>` : ''}
                                         ${source.page_label ? `<span>${vaultEscape(source.page_label)}</span>` : ''}
                                     </div>
-                                    <div class="vault-digestion-result-snippet">${vaultEscape(item.snippet || '').slice(0, 900)}</div>
+                                    <div class="vault-digestion-result-snippet">${highlightDigestionMatches(String(item.snippet || '').slice(0, 900), query)}</div>
                                     ${fieldBadges || tags.length ? `
                                         <div class="vault-digestion-result-badges mt-1">
                                             ${fieldBadges}
                                             ${tags.slice(0, 5).map(tag => `<span>#${vaultEscape(tag)}</span>`).join('')}
                                         </div>
                                     ` : ''}
-                                    ${evidence.length ? `
-                                        <div class="vault-digestion-evidence">
-                                            ${evidence.slice(0, 2).map(quote => `<blockquote>${vaultEscape(quote)}</blockquote>`).join('')}
+                                    ${quantitative.length ? `
+                                        <div class="vault-digestion-quant-list">
+                                            ${quantitative.slice(0, 3).map(value => `<span>${highlightDigestionMatches(formatDigestionQuantitativeResult(value).slice(0, 220), query)}</span>`).join('')}
                                         </div>
                                     ` : ''}
+                                    ${evidence.length ? `
+                                        <div class="vault-digestion-evidence">
+                                            ${evidence.slice(0, 2).map(quote => `<blockquote>${highlightDigestionMatches(quote, query)}</blockquote>`).join('')}
+                                        </div>
+                                    ` : ''}
+                                    ${renderDigestionResultActions(sourceInfo, resultText, detailId, options)}
+                                    <div class="vault-digestion-result-detail" id="${detailId}" hidden>
+                                        <div class="vault-digestion-detail-grid">
+                                            ${renderDatapointStructuredFields(item, query)}
+                                        </div>
+                                    </div>
                                 </div>
                             `;
                         }).join('')}
@@ -3459,6 +3668,10 @@
                     );
                     if (!query || !query.trim()) return;
                     const mode = digestionSearchMode(digestionId);
+                    const digestion = findDigestion(digestionId) || {};
+                    const renderOptions = {
+                        canReadSources: !!(digestion.access && digestion.access.can_read_sources),
+                    };
                     const resultsEl = document.querySelector(`[data-vault-digestion-results="${vaultCssEscape(digestionId)}"]`);
                     if (resultsEl) {
                         resultsEl.classList.add('is-visible');
@@ -3475,8 +3688,8 @@
                         if (resultsEl) {
                             resultsEl.classList.add('is-visible');
                             resultsEl.innerHTML = mode === 'datapoints'
-                                ? renderDatapointDigestionResults(data || {})
-                                : renderRagDigestionResults(data || {});
+                                ? renderDatapointDigestionResults(data || {}, renderOptions)
+                                : renderRagDigestionResults(data || {}, renderOptions);
                         }
                     } catch (error) {
                         if (resultsEl) {
@@ -4003,6 +4216,12 @@
 	                            toggleDigestionShare(digestionId);
 	                        } else if (action === 'copy-agent-ref') {
 	                            copyDigestionAgentReference(digestionId);
+                        } else if (action === 'open-result-source') {
+                            openDigestionResultSource(actionBtn);
+                        } else if (action === 'copy-result-text') {
+                            copyText(actionBtn.getAttribute('data-vault-digestion-copy-text') || '', 'Digestion result');
+                        } else if (action === 'toggle-result-detail') {
+                            toggleDigestionResultDetail(actionBtn);
                         } else if (action === 'copy-output-ref') {
                             copyDigestionOutputReference(
                                 digestionId,
@@ -4052,6 +4271,12 @@
 	                }
 	                if (inlinePreviewClose) {
 	                    inlinePreviewClose.addEventListener('click', closeVaultInlinePreview);
+	                }
+	                if (inlinePreviewExpand) {
+	                    inlinePreviewExpand.addEventListener('click', () => {
+	                        const expanded = !!(inlinePreviewPanel && inlinePreviewPanel.classList.contains('is-expanded'));
+	                        setVaultInlinePreviewExpanded(!expanded);
+	                    });
 	                }
 	                if (dropzone && uploadInput) {
                     let externalDragDepth = 0;
