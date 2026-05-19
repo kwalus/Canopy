@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 import zipfile
 from datetime import date, datetime, time
@@ -231,6 +232,9 @@ MAX_DOCUMENT_PREVIEW_BYTES = 16 * 1024 * 1024
 MAX_DOCUMENT_PREVIEW_CHARS = 40_000
 MAX_PRESENTATION_SLIDES = 20
 MAX_SPREADSHEET_PREVIEW_BYTES = 12 * 1024 * 1024
+MAX_DIGESTION_PACKAGE_PREVIEW_BYTES = 4 * 1024 * 1024
+MAX_DIGESTION_PACKAGE_OUTPUTS = 6
+MAX_DIGESTION_PACKAGE_SOURCES = 10
 MAX_SHEETS = 3
 MAX_ROWS = 60
 MAX_COLS = 14
@@ -265,6 +269,17 @@ def is_canopy_module_bundle(filename: str | None, content_type: str | None) -> b
     lower_name = str(filename or "").strip().lower()
     lower_type = str(content_type or "").strip().lower()
     return lower_type == "text/html" and any(lower_name.endswith(suffix) for suffix in CANOPY_MODULE_SUFFIXES)
+
+
+def is_digestion_package(filename: str | None, content_type: str | None) -> bool:
+    lower_name = str(filename or "").strip().lower()
+    ctype = _normalized_mime_type(content_type)
+    return (
+        lower_name.endswith("-canopy-digestion-package.json")
+        or lower_name.endswith(".canopy-digestion-package.json")
+        or (lower_name.endswith(".json") and "digestion-package" in lower_name)
+        or (ctype == "application/vnd.canopy.digestion-package+json")
+    )
 
 
 def is_markdown_previewable(filename: str | None, content_type: str | None) -> bool:
@@ -461,6 +476,99 @@ def _build_text_preview(file_data: bytes, filename: str, content_type: str) -> d
         "limits": {
             "max_bytes": MAX_TEXT_PREVIEW_BYTES,
             "max_chars": MAX_TEXT_PREVIEW_CHARS,
+        },
+    }
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0
+
+
+def _digestion_package_output_summary(output: Any) -> dict[str, Any]:
+    output = output if isinstance(output, dict) else {}
+    metadata = output.get("metadata") if isinstance(output.get("metadata"), dict) else {}
+    return {
+        "kind": str(output.get("output_kind") or output.get("kind") or ""),
+        "title": str(output.get("title") or output.get("output_kind") or "Output"),
+        "content_type": str(output.get("content_type") or ""),
+        "size_chars": _safe_int(output.get("size_chars") or len(str(output.get("content") or ""))),
+        "datapoint_count": _safe_int(metadata.get("datapoint_count")),
+        "quantitative_result_count": _safe_int(metadata.get("quantitative_result_count")),
+        "preview": str(output.get("preview") or output.get("content") or "")[:700],
+    }
+
+
+def _build_digestion_package_preview(file_data: bytes, filename: str, content_type: str) -> dict[str, Any]:
+    if len(file_data) > MAX_DIGESTION_PACKAGE_PREVIEW_BYTES:
+        return {
+            "previewable": False,
+            "kind": "digestion_package",
+            "error": (
+                f"Digestion package preview is limited to {MAX_DIGESTION_PACKAGE_PREVIEW_BYTES // (1024 * 1024)} MB. "
+                "Download or open the package to inspect the full snapshot."
+            ),
+        }
+    try:
+        payload = json.loads(_decode_text_bytes(file_data))
+    except Exception:
+        return _build_text_preview(file_data, filename, content_type)
+    if not isinstance(payload, dict) or payload.get("kind") != "canopy_digestion_package_v1":
+        return _build_text_preview(file_data, filename, content_type)
+
+    digestion = payload.get("digestion") if isinstance(payload.get("digestion"), dict) else {}
+    stats = payload.get("stats") if isinstance(payload.get("stats"), dict) else {}
+    live_access = payload.get("live_query_access") if isinstance(payload.get("live_query_access"), dict) else {}
+    agent_reference = payload.get("agent_reference") if isinstance(payload.get("agent_reference"), dict) else {}
+    outputs = payload.get("outputs") if isinstance(payload.get("outputs"), list) else []
+    sources = payload.get("sources") if isinstance(payload.get("sources"), list) else []
+    guidance = payload.get("reuse_guidance") if isinstance(payload.get("reuse_guidance"), list) else []
+    return {
+        "previewable": True,
+        "kind": "digestion_package",
+        "filename": filename,
+        "digestion": {
+            "id": str(digestion.get("id") or payload.get("digestion_id") or ""),
+            "name": str(digestion.get("name") or "Canopy Digestion"),
+            "purpose": str(digestion.get("purpose") or digestion.get("description") or ""),
+            "status": str(digestion.get("status") or ""),
+            "owner_user_id": str(digestion.get("owner_user_id") or ""),
+            "access_scope": str(digestion.get("access_scope") or ""),
+        },
+        "stats": {
+            "chunks": _safe_int(stats.get("chunks")),
+            "token_estimate": _safe_int(stats.get("token_estimate")),
+            "source_count": len(sources),
+            "output_count": len(outputs),
+        },
+        "live_query_access": {
+            "recipient_query_requires_acl": bool(live_access.get("recipient_query_requires_acl")),
+            "recipient_live_query_implied": bool(live_access.get("recipient_live_query_implied")),
+            "package_access_reflects": str(live_access.get("package_access_reflects") or ""),
+        },
+        "agent_reference": {
+            "digestion_id": str(agent_reference.get("digestion_id") or digestion.get("id") or ""),
+            "query_endpoint": str(agent_reference.get("query_endpoint") or ""),
+            "context_endpoint": str(agent_reference.get("context_endpoint") or ""),
+        },
+        "outputs": [_digestion_package_output_summary(output) for output in outputs[:MAX_DIGESTION_PACKAGE_OUTPUTS]],
+        "sources": [
+            {
+                "file_name": str(source.get("file_name") or source.get("source_label") or source.get("file_id") or "Source"),
+                "chunk_count": _safe_int(source.get("chunk_count")),
+                "source_kind": str(source.get("source_kind") or ""),
+            }
+            for source in sources[:MAX_DIGESTION_PACKAGE_SOURCES]
+            if isinstance(source, dict)
+        ],
+        "reuse_guidance": [str(item)[:300] for item in guidance[:4]],
+        "truncated": len(outputs) > MAX_DIGESTION_PACKAGE_OUTPUTS or len(sources) > MAX_DIGESTION_PACKAGE_SOURCES,
+        "limits": {
+            "max_bytes": MAX_DIGESTION_PACKAGE_PREVIEW_BYTES,
+            "max_outputs": MAX_DIGESTION_PACKAGE_OUTPUTS,
+            "max_sources": MAX_DIGESTION_PACKAGE_SOURCES,
         },
     }
 
@@ -693,6 +801,8 @@ def build_file_preview(file_data: bytes, filename: str, content_type: str) -> di
             "kind": "module",
             "error": "Canopy Module bundles open in the deck, not the generic file preview.",
         }
+    if is_digestion_package(filename, content_type):
+        return _build_digestion_package_preview(file_data, filename, content_type)
     if is_spreadsheet_previewable(filename, content_type):
         if _file_extension(filename) in {".csv", ".tsv"} or str(content_type or "").lower() == "text/csv":
             return _build_csv_preview(file_data, filename, content_type)

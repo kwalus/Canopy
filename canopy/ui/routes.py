@@ -6755,6 +6755,27 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI query error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not query Digestion'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/datapoints/search', methods=['POST'])
+    @require_login
+    def ajax_digestion_datapoints_search(digestion_id: str):
+        """Search an extracted structured datapoints output from the web UI."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.search_structured_datapoints(
+                digestion_id,
+                get_current_user(),
+                str(data.get('query') or data.get('q') or ''),
+                limit=_ajax_optional_int(data.get('limit') or data.get('top_k'), minimum=1, maximum=80) or 25,
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI datapoint search error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not search structured datapoints'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/context', methods=['POST'])
     @require_login
     def ajax_digestion_context(digestion_id: str):
@@ -6875,6 +6896,21 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error("Digestion UI package error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not load Digestion package'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/access-request', methods=['GET'])
+    @require_login
+    def ajax_digestion_access_request(digestion_id: str):
+        """Return owner/grant instructions for live Digestion access."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.request_access_info(digestion_id, get_current_user()))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI access request error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load Digestion access guidance'}), 500
 
     @ui.route('/ajax/digestions/<digestion_id>/package/export', methods=['POST'])
     @require_login

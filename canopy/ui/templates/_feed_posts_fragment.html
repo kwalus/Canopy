@@ -212,7 +212,8 @@
                                             {% set pdf_preview = lower_name.endswith('.pdf') or (attachment.type or '') == 'application/pdf' %}
                                             {% set document_preview = lower_name.endswith('.docx') or lower_name.endswith('.docm') or lower_name.endswith('.dotx') or lower_name.endswith('.pptx') or lower_name.endswith('.pptm') or lower_name.endswith('.ppsx') or lower_name.endswith('.potx') or lower_name.endswith('.rtf') or lower_name.endswith('.odt') or lower_name.endswith('.odp') %}
                                             {% set code_preview = lower_name.endswith('.c') or lower_name.endswith('.h') or lower_name.endswith('.cpp') or lower_name.endswith('.hpp') or lower_name.endswith('.cs') or lower_name.endswith('.dockerfile') or lower_name.endswith('.makefile') or lower_name.endswith('.go') or lower_name.endswith('.java') or lower_name.endswith('.jsx') or lower_name.endswith('.tsx') or lower_name.endswith('.mjs') or lower_name.endswith('.cjs') or lower_name.endswith('.kt') or lower_name.endswith('.kts') or lower_name.endswith('.php') or lower_name.endswith('.ps1') or lower_name.endswith('.rb') or lower_name.endswith('.rs') or lower_name.endswith('.sql') or lower_name.endswith('.svelte') or lower_name.endswith('.swift') or lower_name.endswith('.vue') %}
-                                            {% set previewable = attachment_file_id and (lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or pdf_preview or document_preview or code_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
+                                            {% set digestion_package = lower_name.endswith('-canopy-digestion-package.json') or lower_name.endswith('.canopy-digestion-package.json') or (lower_name.endswith('.json') and 'digestion-package' in lower_name) %}
+                                            {% set previewable = attachment_file_id and (digestion_package or lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or pdf_preview or document_preview or code_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
                                             {% set preview_id = 'feed-attachment-preview-' ~ post.id ~ '-' ~ loop.index0 %}
                                             {% set module_title = (attachment.name or 'Canopy Module')|replace('.canopy-module.html', '')|replace('.canopy-module.htm', '')|replace('-', ' ')|replace('_', ' ')|title %}
                                             {% set module_manifest = {
@@ -293,6 +294,50 @@
                                                         {% endif %}
                                                     </div>
                                                 </div>
+                                            </div>
+                                            {% elif digestion_package %}
+                                            <div class="attachment-item stream-card mb-2 p-3 rounded digestion-package-attachment"{% if attachment_file_id %} data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
+                                                <div class="stream-card-header">
+                                                    <div class="stream-card-identity">
+                                                        <div class="stream-card-icon"><i class="bi bi-diagram-3"></i></div>
+                                                        <div>
+                                                            <div class="stream-card-title">Canopy Digestion Package</div>
+                                                            <div class="stream-card-subtitle">Portable snapshot for humans and agents; preview to inspect sources, outputs, and live-query access notes.</div>
+                                                            <div class="stream-meta-row mt-2">
+                                                                <span class="stream-meta-chip">Digestion</span>
+                                                                <span class="stream-meta-chip">RAG package</span>
+                                                                <span class="stream-meta-chip">Agent-readable</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="stream-meta-chip" data-state="telemetry">Reader</span>
+                                                </div>
+                                                <div class="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
+                                                    <span class="small text-muted">{{ attachment.name }}</span>
+                                                    <div class="stream-card-actions">
+                                                        {% if attachment_file_id %}
+                                                        <button type="button"
+                                                                class="btn btn-sm btn-outline-success"
+                                                                data-preview-toggle="{{ preview_id }}"
+                                                                data-preview-label="Open reader"
+                                                                data-preview-expanded-label="Hide reader"
+                                                                onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ attachment_file_id }}/preview')">
+                                                            <i class="bi bi-eye"></i> <span class="preview-label">Open reader</span>
+                                                        </button>
+                                                        {% endif %}
+                                                        {% if attachment.url %}
+                                                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)' title="Save to File Vault">
+                                                            <i class="bi bi-folder-plus"></i> Save to Vault
+                                                        </button>
+                                                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+                                                            <i class="bi bi-download"></i> Download
+                                                        </a>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                                {% if previewable %}
+                                                <div id="{{ preview_id }}" class="file-preview-wrapper mt-2" style="display:none;"></div>
+                                                {% endif %}
                                             </div>
                                             {% else %}
                                             <div class="attachment-item mb-2 p-2 border rounded"{% if attachment_file_id %} data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>

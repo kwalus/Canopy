@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.145] - 2026-05-19
+
+### Added
+- **Digestion packages now open as human reader cards** - exported `*-canopy-digestion-package.json` Vault, Feed, Channel, and DM attachments render as branded reusable Digestion packages with source/output/access guidance instead of anonymous JSON blobs.
+- **Vault Digestion search makes the search surface explicit** - Digestion cards now let users choose semantic RAG chunk retrieval or structured datapoint search, with result headers that explain counts, citations, and whether the query used embeddings or a source-gated output.
+- **Agents can search structured Digestion datapoints directly** - REST, UI AJAX, MCP, and agent documentation now expose `/datapoints/search` / `canopy_digest_datapoints_search` for LLM-normalized extracted records while preserving source-metadata access checks.
+
+### Fixed
+- **Digestion package reader actions use safer metadata handling** - reader-card copy actions now keep package IDs in data attributes instead of interpolating them into JavaScript string literals, and malformed datapoint search limits fall back to bounded defaults.
+
 ## [0.6.144] - 2026-05-19
 
 ### Fixed

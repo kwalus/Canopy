@@ -2352,14 +2352,14 @@
 	                        const error = String(source && source.error || source.status || 'not indexed');
 	                        return `${name}: ${error}`;
 	                    }).join(' | ');
-	                    const provider = vaultEscape(digestion.provider || 'local');
-	                    const purpose = vaultEscape(digestion.purpose || digestion.description || '');
-                    const queryDisabled = chunks <= 0;
-                    const queryTitle = queryDisabled
-                        ? 'Build this Digestion before querying; no indexed chunks are available yet.'
-                        : 'Query indexed chunks with cited retrieval.';
-                    const extractDisabled = queryDisabled || !canReadSources;
-                    const extractTitle = queryDisabled
+                    const provider = vaultEscape(digestion.provider || 'local');
+                    const purpose = vaultEscape(digestion.purpose || digestion.description || '');
+                    const ragNoChunks = chunks <= 0;
+                    const queryTitle = ragNoChunks
+                        ? 'Semantic RAG may return no chunks until this Digestion is built. Datapoint search requires an extracted structured datapoints output.'
+                        : 'Search semantic chunks or extracted datapoints with cited results.';
+                    const extractDisabled = ragNoChunks || !canReadSources;
+                    const extractTitle = ragNoChunks
                         ? 'Build this Digestion before extracting structured datapoints.'
                         : (!canReadSources
                             ? 'Extract datapoints requires source-read access. Ask the owner to grant source metadata access for this Digestion.'
@@ -2490,15 +2490,26 @@
 	                                <div class="vault-digestion-share-status" data-vault-digestion-share-status="${id}" aria-live="polite"></div>
 	                            </form>
 	                            ` : ''}
+                                <div class="vault-digestion-query-toolbar" aria-label="Digestion search controls">
+                                    <label class="vault-digestion-search-mode">
+                                        <span>Search surface</span>
+                                        <select class="form-select form-select-sm" data-vault-digestion-search-mode="${id}" title="Choose whether this search uses embedded chunks or extracted structured datapoints.">
+                                            <option value="rag">Semantic RAG chunks</option>
+                                            <option value="datapoints">Structured datapoints</option>
+                                        </select>
+                                    </label>
+                                    <div class="vault-digestion-search-help">
+                                        RAG searches indexed source chunks. Datapoints searches the LLM-normalized extraction output.
+                                    </div>
+                                </div>
 	                            <form class="vault-digestion-query" data-vault-digestion-query-form="${id}">
                                 <input class="form-control form-control-sm"
                                        type="search"
                                        data-vault-digestion-query="${id}"
-                                       placeholder="${queryDisabled ? 'Build before querying...' : 'Ask this Digestion...'}"
+                                       placeholder="${ragNoChunks ? 'Build before querying...' : 'Ask this Digestion...'}"
                                        aria-label="Query ${name}"
-                                       title="${queryTitle}"
-                                       ${queryDisabled ? 'disabled' : ''}>
-                                <button class="btn btn-sm btn-outline-secondary" type="submit" title="${queryTitle}" ${queryDisabled ? 'disabled' : ''}>
+                                       title="${queryTitle}">
+                                <button class="btn btn-sm btn-outline-secondary" type="submit" title="${queryTitle}">
                                     <i class="bi bi-search"></i> Query
                                 </button>
                             </form>
@@ -3335,6 +3346,107 @@
 		                    }
 	                }
 
+                function digestionSearchMode(digestionId) {
+                    const select = document.querySelector(`[data-vault-digestion-search-mode="${vaultCssEscape(digestionId)}"]`);
+                    const mode = String(select && select.value || 'rag').trim().toLowerCase();
+                    return mode === 'datapoints' ? 'datapoints' : 'rag';
+                }
+
+                function renderDigestionResultHeader(data, mode) {
+                    const stats = data && data.stats && typeof data.stats === 'object' ? data.stats : {};
+                    const chunks = Number(data.indexed_chunks || stats.chunks || 0);
+                    const tokens = Number(stats.token_estimate || 0);
+                    const resultCount = Number(data.result_count || 0);
+                    const datapointCount = Number(data.datapoint_count || 0);
+                    const provider = vaultEscape(data.provider || '');
+                    const model = vaultEscape(data.embedding_model || '');
+                    const title = mode === 'datapoints' ? 'Structured datapoint search' : 'Semantic RAG search';
+                    const subtitle = mode === 'datapoints'
+                        ? `${resultCount} match${resultCount === 1 ? '' : 'es'} across ${datapointCount} extracted datapoint${datapointCount === 1 ? '' : 's'}`
+                        : `${resultCount} cited chunk${resultCount === 1 ? '' : 's'} from ${chunks} indexed chunk${chunks === 1 ? '' : 's'}`;
+                    return `
+                        <div class="vault-digestion-result-head">
+                            <div>
+                                <strong>${title}</strong>
+                                <span>${vaultEscape(subtitle)}</span>
+                            </div>
+                            <div class="vault-digestion-result-badges">
+                                ${tokens ? `<span>${tokens.toLocaleString()} token est.</span>` : ''}
+                                ${provider ? `<span>${provider}${model ? ` / ${model}` : ''}</span>` : ''}
+                                ${mode === 'datapoints' ? '<span>source-gated output</span>' : '<span>embedding retrieval</span>'}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                function renderRagDigestionResults(data) {
+                    const results = Array.isArray(data.results) ? data.results : [];
+                    const warning = String(data.warning || '').trim();
+                    if (!results.length) {
+                        return `${renderDigestionResultHeader(data || {}, 'rag')}<div class="small ${warning ? 'text-warning' : 'text-muted'}">${vaultEscape(warning || 'No matching snippets found in indexed chunks.')}</div>`;
+                    }
+                    return `
+                        ${renderDigestionResultHeader(data || {}, 'rag')}
+                        ${warning ? `<div class="small text-warning mb-2">${vaultEscape(warning)}</div>` : ''}
+                        ${results.map((item) => `
+                            <div class="vault-digestion-result">
+                                <div class="vault-digestion-result-source">
+                                    <strong>${vaultEscape(item.file_name || item.file_id || 'Source')}</strong>
+                                    ${item.page_label ? `<span>${vaultEscape(item.page_label)}</span>` : ''}
+                                    ${Number(item.chunk_index || 0) ? `<span>chunk ${Number(item.chunk_index || 0)}</span>` : ''}
+                                    ${Number(item.score || 0) ? `<span>score ${Number(item.score || 0).toFixed(3)}</span>` : ''}
+                                </div>
+                                <div class="vault-digestion-result-snippet">${vaultEscape(item.snippet || '').slice(0, 1100)}</div>
+                            </div>
+                        `).join('')}
+                    `;
+                }
+
+                function renderDatapointDigestionResults(data) {
+                    const results = Array.isArray(data.results) ? data.results : [];
+                    const warning = String(data.warning || '').trim();
+                    if (!results.length) {
+                        return `${renderDigestionResultHeader(data || {}, 'datapoints')}<div class="small ${warning ? 'text-warning' : 'text-muted'}">${vaultEscape(warning || 'No matching structured datapoints found. Try a broader concept, material, method, metric, or tag.')}</div>`;
+                    }
+                    return `
+                        ${renderDigestionResultHeader(data || {}, 'datapoints')}
+                        ${warning ? `<div class="small text-warning mb-2">${vaultEscape(warning)}</div>` : ''}
+                        ${results.map((item) => {
+                            const source = item && item.source && typeof item.source === 'object' ? item.source : {};
+                            const fieldCounts = item && item.field_counts && typeof item.field_counts === 'object' ? item.field_counts : {};
+                            const fieldBadges = Object.entries(fieldCounts)
+                                .filter(([, value]) => Number(value || 0) > 0)
+                                .slice(0, 5)
+                                .map(([key, value]) => `<span>${vaultEscape(key.replace(/_/g, ' '))}: ${Number(value || 0)}</span>`)
+                                .join('');
+                            const evidence = Array.isArray(item.evidence) ? item.evidence : [];
+                            const tags = Array.isArray(item.tags) ? item.tags : [];
+                            return `
+                                <div class="vault-digestion-result is-datapoint">
+                                    <div class="vault-digestion-result-source">
+                                        <strong>${vaultEscape(item.claim || item.subject || 'Structured datapoint')}</strong>
+                                        ${Number(item.score || 0) ? `<span>score ${Number(item.score || 0).toFixed(3)}</span>` : ''}
+                                        ${source.file_name ? `<span>${vaultEscape(source.file_name)}</span>` : ''}
+                                        ${source.page_label ? `<span>${vaultEscape(source.page_label)}</span>` : ''}
+                                    </div>
+                                    <div class="vault-digestion-result-snippet">${vaultEscape(item.snippet || '').slice(0, 900)}</div>
+                                    ${fieldBadges || tags.length ? `
+                                        <div class="vault-digestion-result-badges mt-1">
+                                            ${fieldBadges}
+                                            ${tags.slice(0, 5).map(tag => `<span>#${vaultEscape(tag)}</span>`).join('')}
+                                        </div>
+                                    ` : ''}
+                                    ${evidence.length ? `
+                                        <div class="vault-digestion-evidence">
+                                            ${evidence.slice(0, 2).map(quote => `<blockquote>${vaultEscape(quote)}</blockquote>`).join('')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                    `;
+                }
+
 	                async function queryDigestion(digestionId, queryText = '') {
                     if (!digestionId) return;
                     const query = String(
@@ -3343,30 +3455,25 @@
                         || ''
                     );
                     if (!query || !query.trim()) return;
+                    const mode = digestionSearchMode(digestionId);
                     const resultsEl = document.querySelector(`[data-vault-digestion-results="${vaultCssEscape(digestionId)}"]`);
                     if (resultsEl) {
                         resultsEl.classList.add('is-visible');
-                        resultsEl.innerHTML = '<div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Searching...</div>';
+                        resultsEl.innerHTML = `<div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Searching ${mode === 'datapoints' ? 'structured datapoints' : 'semantic chunks'}...</div>`;
                     }
                     try {
-                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/query`, {
+                        const endpoint = mode === 'datapoints'
+                            ? `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/search`
+                            : `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/query`;
+                        const data = await apiCall(endpoint, {
                             method: 'POST',
-                            body: JSON.stringify({ query: query.trim(), top_k: 5 })
+                            body: JSON.stringify({ query: query.trim(), top_k: mode === 'datapoints' ? 25 : 5, limit: 25 })
                         });
-                        const results = Array.isArray(data.results) ? data.results : [];
-                        const warning = String(data.warning || '').trim();
                         if (resultsEl) {
                             resultsEl.classList.add('is-visible');
-                            resultsEl.innerHTML = results.length
-                                ? `${warning ? `<div class="small text-warning mb-2">${vaultEscape(warning)}</div>` : ''}${results.map((item) => `
-                                    <div class="vault-digestion-result">
-                                        <strong>${vaultEscape(item.file_name || item.file_id || 'Source')}</strong>
-                                        ${item.page_label ? `<span class="text-muted"> ${vaultEscape(item.page_label)}</span>` : ''}
-                                        ${Number(item.score || 0) ? `<span class="text-muted small ms-1">score ${Number(item.score || 0).toFixed(3)}</span>` : ''}
-                                        <div>${vaultEscape(item.snippet || '').slice(0, 900)}</div>
-                                    </div>
-                                `).join('')}`
-                                : `<div class="small ${warning ? 'text-warning' : 'text-muted'}">${vaultEscape(warning || 'No matching snippets found.')}</div>`;
+                            resultsEl.innerHTML = mode === 'datapoints'
+                                ? renderDatapointDigestionResults(data || {})
+                                : renderRagDigestionResults(data || {});
                         }
                     } catch (error) {
                         if (resultsEl) {
@@ -8298,6 +8405,101 @@
                 return `<div data-preview-pane="raw" hidden><pre class="file-preview-raw-text"><code>${_escapeHtml(String(text || ''))}</code></pre></div>`;
             }
 
+            function renderDigestionPackagePreviewHtml(previewId, payload) {
+                const digestion = payload && payload.digestion && typeof payload.digestion === 'object' ? payload.digestion : {};
+                const stats = payload && payload.stats && typeof payload.stats === 'object' ? payload.stats : {};
+                const liveAccess = payload && payload.live_query_access && typeof payload.live_query_access === 'object' ? payload.live_query_access : {};
+                const agentReference = payload && payload.agent_reference && typeof payload.agent_reference === 'object' ? payload.agent_reference : {};
+                const outputs = Array.isArray(payload && payload.outputs) ? payload.outputs : [];
+                const sources = Array.isArray(payload && payload.sources) ? payload.sources : [];
+                const guidance = Array.isArray(payload && payload.reuse_guidance) ? payload.reuse_guidance : [];
+                const title = _escapeHtml(digestion.name || 'Canopy Digestion');
+                const purpose = _escapeHtml(digestion.purpose || 'Reusable Digestion package');
+                const digestionId = String(digestion.id || agentReference.digestion_id || '').trim();
+                const rawSummary = registerFilePreviewText(previewId, JSON.stringify({
+                    digestion,
+                    stats,
+                    live_query_access: liveAccess,
+                    agent_reference: agentReference,
+                    outputs,
+                    sources,
+                    reuse_guidance: guidance
+                }, null, 2));
+                const accessLabel = liveAccess.recipient_query_requires_acl
+                    ? 'Live query requires owner ACL grant'
+                    : (liveAccess.recipient_live_query_implied ? 'Live query available to recipient' : 'Snapshot package');
+                return `
+                    <div class="file-preview-container digestion-package-preview">
+                        <div data-preview-pane="rendered">
+                            <div class="digestion-package-hero">
+                                <div>
+                                    <div class="digestion-package-kicker"><i class="bi bi-diagram-3 me-1"></i>Canopy Digestion Package</div>
+                                    <h4>${title}</h4>
+                                    <p>${purpose}</p>
+                                </div>
+                                <span class="digestion-package-status">${_escapeHtml(digestion.status || 'package')}</span>
+                            </div>
+                            <div class="digestion-package-stats" aria-label="Digestion package statistics">
+                                <span><strong>${Number(stats.source_count || sources.length || 0).toLocaleString()}</strong> sources</span>
+                                <span><strong>${Number(stats.chunks || 0).toLocaleString()}</strong> chunks</span>
+                                <span><strong>${Number(stats.token_estimate || 0).toLocaleString()}</strong> token est.</span>
+                                <span><strong>${Number(stats.output_count || outputs.length || 0).toLocaleString()}</strong> outputs</span>
+                            </div>
+                            <div class="digestion-package-access">
+                                <strong>${_escapeHtml(accessLabel)}</strong>
+                                <span>Packages are portable snapshots. For live RAG queries, the owner must share access to the local Digestion index.</span>
+                            </div>
+                            ${outputs.length ? `
+                                <div class="digestion-package-section">
+                                    <div class="digestion-package-section-title">Reusable outputs</div>
+                                    <div class="digestion-package-output-grid">
+                                        ${outputs.map((output) => `
+                                            <div class="digestion-package-output">
+                                                <strong>${_escapeHtml(output.title || output.kind || 'Output')}</strong>
+                                                <span>${_escapeHtml(output.kind || output.content_type || '')}</span>
+                                                ${Number(output.datapoint_count || 0) ? `<em>${Number(output.datapoint_count || 0)} datapoints</em>` : ''}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${sources.length ? `
+                                <div class="digestion-package-section">
+                                    <div class="digestion-package-section-title">Source snapshot</div>
+                                    <div class="digestion-package-source-list">
+                                        ${sources.map((source) => `
+                                            <span title="${_escapeAttr(source.file_name || '')}">${_escapeHtml(source.file_name || 'Source')}${Number(source.chunk_count || 0) ? ` · ${Number(source.chunk_count || 0)} chunks` : ''}</span>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${guidance.length ? `
+                                <div class="digestion-package-section">
+                                    <div class="digestion-package-section-title">How to reuse</div>
+                                    <ul class="digestion-package-guidance">
+                                        ${guidance.map(item => `<li>${_escapeHtml(item)}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="digestion-package-actions">
+                            ${digestionId ? `<button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" data-digestion-package-id="${_escapeAttr(digestionId)}" onclick="copyDigestionPackageId(this)"><i class="bi bi-clipboard me-1"></i>Copy ID</button>` : ''}
+                            <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" onclick="copyFilePreviewText('${_escapeAttr(previewId)}', 'Digestion package summary')"><i class="bi bi-clipboard me-1"></i>Copy summary</button>
+                            ${renderPreviewModeButtons(previewId, 'Reader', 'Raw summary')}
+                        </div>
+                        ${renderRawTextPreviewPane(rawSummary)}
+                    </div>
+                `;
+            }
+
+            global.copyDigestionPackageId = function(button) {
+                const digestionId = String(button && button.dataset && button.dataset.digestionPackageId || '').trim();
+                if (!digestionId || !navigator.clipboard) return;
+                navigator.clipboard.writeText(digestionId).then(() => {
+                    if (typeof showAlert === 'function') showAlert('Digestion ID copied.', 'success');
+                }).catch(() => {});
+            };
+
             function canopySpreadsheetColumnLabel(index) {
                 let label = '';
                 let value = Number(index) + 1;
@@ -8406,6 +8608,9 @@
                 if (!payload || payload.previewable === false) {
                     const reason = _escapeHtml((payload && (payload.error || payload.message)) || 'Inline preview is not available for this file.');
                     return `<div class="text-muted p-2"><i class="bi bi-file-earmark me-1"></i>${reason}</div>`;
+                }
+                if (payload.kind === 'digestion_package') {
+                    return renderDigestionPackagePreviewHtml(previewId, payload);
                 }
                 if (payload.kind === 'spreadsheet') {
                     return renderSpreadsheetPreviewHtml(previewId, payload);
