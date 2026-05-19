@@ -16875,6 +16875,16 @@ function displayAttachments(attachments, sourceLayout) {
         const fileId = String((att && (att.id || att.file_id || att.origin_file_id)) || fileIdFromAttachmentUrl(att) || '').trim();
         return fileId ? ` data-canopy-source-ref="attachment:${_escapeAttr(fileId)}"` : '';
     };
+    const isChannelDigestionPackageAttachment = (att) => {
+        const nameLc = String((att && att.name) || '').toLowerCase();
+        const mime = String((att && att.type) || '').toLowerCase();
+        return (
+            nameLc.endsWith('-canopy-digestion-package.json')
+            || nameLc.endsWith('.canopy-digestion-package.json')
+            || (nameLc.endsWith('.json') && nameLc.includes('digestion-package'))
+            || mime === 'application/vnd.canopy.digestion-package+json'
+        );
+    };
 
     const buildModuleAttachmentManifest = (att) => {
         const fileId = String((att && (att.id || att.file_id || att.origin_file_id)) || fileIdFromAttachmentUrl(att) || '').trim();
@@ -17256,9 +17266,48 @@ function displayAttachments(attachments, sourceLayout) {
     // Render non-image, non-audio, non-video attachments
     others.forEach(att => {
         const hasUrl = att.url && String(att.url).trim();
-        const safeName = (att.name || 'file').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-        const escapedUrl = hasUrl ? String(att.url).replace(/"/g, '&quot;').replace(/'/g, "\\'") : '';
+        const safeName = _escapeHtml(att.name || 'file');
+        const safeDownloadName = _escapeAttr(att.name || 'file');
+        const escapedUrl = hasUrl ? _escapeAttr(att.url) : '';
         const attachmentFileId = String(att.id || att.file_id || '').trim() || ((hasUrl && /^\/files\/([^/?#]+)/.test(att.url)) ? String(att.url).match(/^\/files\/([^/?#]+)/)[1] : '');
+        if (isChannelDigestionPackageAttachment(att)) {
+            const previewId = 'file-preview-' + (++_previewIdCounter);
+            const previewBtn = attachmentFileId
+                ? `<button type="button" class="btn btn-sm btn-outline-success" data-preview-toggle="${previewId}" data-preview-label="Open reader" data-preview-expanded-label="Hide reader" onclick="toggleAttachmentPreview('${previewId}', '/ajax/files/${encodeURIComponent(attachmentFileId)}/preview')"><i class="bi bi-eye me-1"></i><span class="preview-label">Open reader</span></button>`
+                : '';
+            const downloadBtn = hasUrl ? `
+                <div class="d-flex align-items-center gap-2">
+                    ${buildSaveToVaultButton(att)}
+                    <a href="${escapedUrl}" class="btn btn-sm btn-outline-primary" download="${safeDownloadName}"><i class="bi bi-download"></i> Download</a>
+                    <button class="btn btn-sm btn-outline-secondary" data-access-url="${escapedUrl}" onclick="openFileAccessInspector(this.dataset.accessUrl || '')" title="Inspect access"><i class="bi bi-shield-lock"></i></button>
+                </div>
+            ` : notOnDeviceMsg(att);
+            html += `
+                <div class="attachment-item stream-card digestion-package-attachment mb-2 p-3 rounded"${buildAttachmentSourceRefAttr(att)}>
+                    <div class="stream-card-header">
+                        <div class="stream-card-identity">
+                            <div class="stream-card-icon"><i class="bi bi-diagram-3"></i></div>
+                            <div>
+                                <div class="stream-card-title">Canopy Digestion Package</div>
+                                <div class="stream-card-subtitle">Portable snapshot for humans and agents; preview to inspect sources, outputs, and access notes.</div>
+                                <div class="stream-meta-row mt-2">
+                                    <span class="stream-meta-chip">Digestion</span>
+                                    <span class="stream-meta-chip">RAG package</span>
+                                    <span class="stream-meta-chip">Agent-readable</span>
+                                </div>
+                            </div>
+                        </div>
+                        <span class="stream-meta-chip" data-state="telemetry">Reader</span>
+                    </div>
+                    <div class="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
+                        <span class="small text-muted">${safeName}</span>
+                        <div class="stream-card-actions">${previewBtn}${downloadBtn}</div>
+                    </div>
+                    ${attachmentFileId ? `<div id="${previewId}" class="file-preview-wrapper mt-2" style="display:none;"></div>` : ''}
+                </div>
+            `;
+            return;
+        }
         const spreadsheetPreview = isSpreadsheetPreviewable(att.name, att.type);
         const pdfPreview = isPdfPreviewable(att.name, att.type);
         const documentPreview = isDocumentPreviewable(att.name, att.type);

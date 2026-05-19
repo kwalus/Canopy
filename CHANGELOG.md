@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.149] - 2026-05-19
+
+### Added
+- **Digestion package reader cards are restored across Vault, Feed, Channels, and DMs** - exported `*-canopy-digestion-package.json` files once again render as branded human-reader cards with source/output/access guidance, copy actions, preview toggles, and bounded summary payloads.
+
 ## [0.6.148] - 2026-05-19
 
 ### Added

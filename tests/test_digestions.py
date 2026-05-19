@@ -31,6 +31,7 @@ if 'zeroconf' not in sys.modules:
 
 from canopy.api.routes import create_api_blueprint
 from canopy.core.digestions import DigestionError, DigestionManager, ExtractedSegment
+from canopy.core.file_preview import build_file_preview
 from canopy.core.files import FileManager
 from canopy.security.api_keys import ApiKeyInfo, Permission
 
@@ -129,6 +130,38 @@ class TestDigestions(unittest.TestCase):
                 'max_output_tokens': 7000,
             },
         }
+
+    def test_digestion_package_file_preview_is_bounded_reader_payload(self) -> None:
+        payload = {
+            'kind': 'canopy_digestion_package_v1',
+            'digestion': {'id': 'dig_123', 'name': 'Materials Digest', 'purpose': 'Human-reader test'},
+            'stats': {'source_count': 2, 'chunks': 9, 'token_estimate': 1200, 'output_count': 1},
+            'live_query_access': {'recipient_query_requires_acl': True},
+            'agent_reference': {'digestion_id': 'dig_123', 'query_endpoint': '/api/v1/digestions/dig_123/query'},
+            'outputs': [
+                {'kind': 'structured_datapoints', 'title': 'Datapoints', 'metadata': {'datapoint_count': 4}},
+            ],
+            'sources': [
+                {'file_name': 'paper-a.pdf', 'chunk_count': 5},
+                {'file_name': 'paper-b.pdf', 'chunk_count': 4},
+            ],
+            'reuse_guidance': ['Use the package summary for handoff.', 'Ask the owner for live query ACL.'],
+            'content': 'full package content should not be echoed by preview',
+        }
+
+        preview = build_file_preview(
+            json.dumps(payload).encode('utf-8'),
+            'materials-canopy-digestion-package.json',
+            'application/json',
+        )
+
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'digestion_package')
+        self.assertEqual(preview['digestion']['id'], 'dig_123')
+        self.assertEqual(preview['stats']['chunks'], 9)
+        self.assertEqual(preview['outputs'][0]['datapoint_count'], 4)
+        self.assertEqual(preview['sources'][0]['file_name'], 'paper-a.pdf')
+        self.assertNotIn('content', preview)
 
     def _fake_datapoint_llm_response(self, *, source_ref: str = 'chunk_0001') -> str:
         return json.dumps({

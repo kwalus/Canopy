@@ -8405,6 +8405,101 @@
                 return `<div data-preview-pane="raw" hidden><pre class="file-preview-raw-text"><code>${_escapeHtml(String(text || ''))}</code></pre></div>`;
             }
 
+            function renderDigestionPackagePreviewHtml(previewId, payload) {
+                const digestion = payload && payload.digestion && typeof payload.digestion === 'object' ? payload.digestion : {};
+                const stats = payload && payload.stats && typeof payload.stats === 'object' ? payload.stats : {};
+                const liveAccess = payload && payload.live_query_access && typeof payload.live_query_access === 'object' ? payload.live_query_access : {};
+                const agentReference = payload && payload.agent_reference && typeof payload.agent_reference === 'object' ? payload.agent_reference : {};
+                const outputs = Array.isArray(payload && payload.outputs) ? payload.outputs : [];
+                const sources = Array.isArray(payload && payload.sources) ? payload.sources : [];
+                const guidance = Array.isArray(payload && payload.reuse_guidance) ? payload.reuse_guidance : [];
+                const title = _escapeHtml(digestion.name || 'Canopy Digestion');
+                const purpose = _escapeHtml(digestion.purpose || 'Reusable Digestion package');
+                const digestionId = String(digestion.id || agentReference.digestion_id || '').trim();
+                const rawSummary = registerFilePreviewText(previewId, JSON.stringify({
+                    digestion,
+                    stats,
+                    live_query_access: liveAccess,
+                    agent_reference: agentReference,
+                    outputs,
+                    sources,
+                    reuse_guidance: guidance
+                }, null, 2));
+                const accessLabel = liveAccess.recipient_query_requires_acl
+                    ? 'Live query requires owner ACL grant'
+                    : (liveAccess.recipient_live_query_implied ? 'Live query available to recipient' : 'Snapshot package');
+                return `
+                    <div class="file-preview-container digestion-package-preview">
+                        <div data-preview-pane="rendered">
+                            <div class="digestion-package-hero">
+                                <div>
+                                    <div class="digestion-package-kicker"><i class="bi bi-diagram-3 me-1"></i>Canopy Digestion Package</div>
+                                    <h4>${title}</h4>
+                                    <p>${purpose}</p>
+                                </div>
+                                <span class="digestion-package-status">${_escapeHtml(digestion.status || 'package')}</span>
+                            </div>
+                            <div class="digestion-package-stats" aria-label="Digestion package statistics">
+                                <span><strong>${Number(stats.source_count || sources.length || 0).toLocaleString()}</strong> sources</span>
+                                <span><strong>${Number(stats.chunks || 0).toLocaleString()}</strong> chunks</span>
+                                <span><strong>${Number(stats.token_estimate || 0).toLocaleString()}</strong> token est.</span>
+                                <span><strong>${Number(stats.output_count || outputs.length || 0).toLocaleString()}</strong> outputs</span>
+                            </div>
+                            <div class="digestion-package-access">
+                                <strong>${_escapeHtml(accessLabel)}</strong>
+                                <span>Packages are portable snapshots. For live RAG queries, the owner must share access to the local Digestion index.</span>
+                            </div>
+                            ${outputs.length ? `
+                                <div class="digestion-package-section">
+                                    <div class="digestion-package-section-title">Reusable outputs</div>
+                                    <div class="digestion-package-output-grid">
+                                        ${outputs.map((output) => `
+                                            <div class="digestion-package-output">
+                                                <strong>${_escapeHtml(output.title || output.kind || 'Output')}</strong>
+                                                <span>${_escapeHtml(output.kind || output.content_type || '')}</span>
+                                                ${Number(output.datapoint_count || 0) ? `<em>${Number(output.datapoint_count || 0)} datapoints</em>` : ''}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${sources.length ? `
+                                <div class="digestion-package-section">
+                                    <div class="digestion-package-section-title">Source snapshot</div>
+                                    <div class="digestion-package-source-list">
+                                        ${sources.map((source) => `
+                                            <span title="${_escapeAttr(source.file_name || '')}">${_escapeHtml(source.file_name || 'Source')}${Number(source.chunk_count || 0) ? ` · ${Number(source.chunk_count || 0)} chunks` : ''}</span>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${guidance.length ? `
+                                <div class="digestion-package-section">
+                                    <div class="digestion-package-section-title">How to reuse</div>
+                                    <ul class="digestion-package-guidance">
+                                        ${guidance.map(item => `<li>${_escapeHtml(item)}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="digestion-package-actions">
+                            ${digestionId ? `<button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" data-digestion-package-id="${_escapeAttr(digestionId)}" onclick="copyDigestionPackageId(this)"><i class="bi bi-clipboard me-1"></i>Copy ID</button>` : ''}
+                            <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" onclick="copyFilePreviewText('${_escapeAttr(previewId)}', 'Digestion package summary')"><i class="bi bi-clipboard me-1"></i>Copy summary</button>
+                            ${renderPreviewModeButtons(previewId, 'Reader', 'Raw summary')}
+                        </div>
+                        ${renderRawTextPreviewPane(rawSummary)}
+                    </div>
+                `;
+            }
+
+            global.copyDigestionPackageId = function(button) {
+                const digestionId = String(button && button.dataset && button.dataset.digestionPackageId || '').trim();
+                if (!digestionId || !navigator.clipboard) return;
+                navigator.clipboard.writeText(digestionId).then(() => {
+                    if (typeof showAlert === 'function') showAlert('Digestion ID copied.', 'success');
+                }).catch(() => {});
+            };
+
             function canopySpreadsheetColumnLabel(index) {
                 let label = '';
                 let value = Number(index) + 1;
@@ -8513,6 +8608,9 @@
                 if (!payload || payload.previewable === false) {
                     const reason = _escapeHtml((payload && (payload.error || payload.message)) || 'Inline preview is not available for this file.');
                     return `<div class="text-muted p-2"><i class="bi bi-file-earmark me-1"></i>${reason}</div>`;
+                }
+                if (payload.kind === 'digestion_package') {
+                    return renderDigestionPackagePreviewHtml(previewId, payload);
                 }
                 if (payload.kind === 'spreadsheet') {
                     return renderSpreadsheetPreviewHtml(previewId, payload);
