@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.157] - 2026-05-19
+
+### Fixed
+- **Vault Digestion cards fit their query controls cleanly** - the search-surface selector now uses a bounded grid layout, clamps or hides helper copy on narrow cards, and keeps card/popover stacking local so controls no longer overlap or balloon vertically.
+
 ## [0.6.156] - 2026-05-19
 
 ### Fixed
