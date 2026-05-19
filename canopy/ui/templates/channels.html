@@ -8181,6 +8181,20 @@ function bindChannelItemHandlers() {
     });
 }
 
+document.addEventListener('click', function(event) {
+    if (event.defaultPrevented) return;
+    const item = event.target && event.target.closest ? event.target.closest('.channel-item[data-channel-id]') : null;
+    if (!item) return;
+    if (event.target.closest('.channel-row-actions, .channel-tools-toggle, .channel-pin-btn, button, a, input, textarea, select')) {
+        return;
+    }
+    event.preventDefault();
+    const channelId = item.dataset.channelId;
+    const channelNameEl = item.querySelector('.channel-name');
+    const channelName = channelNameEl ? channelNameEl.textContent : 'Unknown';
+    selectChannel(channelId, channelName);
+});
+
 function syncChannelNameOverflowState(nameEl) {
     if (!nameEl) return;
     const inner = nameEl.querySelector('.channel-name-inner');

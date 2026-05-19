@@ -457,6 +457,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('let channelBootLoadStarted = false;', channels_template)
         self.assertIn('function ensureChannelBootMessagesLoaded(options = {})', channels_template)
         self.assertIn("console.error('Error during initialization:', e);\n        ensureChannelBootMessagesLoaded();", channels_template)
+        self.assertIn("document.addEventListener('click', function(event) {", channels_template)
+        self.assertIn("event.target.closest('.channel-item[data-channel-id]')", channels_template)
         self.assertIn('Open reader', feed_template)
         self.assertIn('Open reader', messages_macros)
         self.assertIn('Open reader', channels_template)

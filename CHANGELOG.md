@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.155] - 2026-05-19
+
+### Fixed
+- **Channel switching still works when the page initializer falls back** - Channels now has a delegated row-click handler independent of the fragile sidebar personalization init path, so strict-CSP browsers can switch channels even if the normal per-row binding step is skipped.
+
 ## [0.6.154] - 2026-05-19
 
 ### Fixed
