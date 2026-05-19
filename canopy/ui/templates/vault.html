@@ -781,6 +781,11 @@
     }
     .vault-digestion-results.is-visible {
         display: block;
+        max-height: min(72vh, 780px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 0.28rem;
+        scrollbar-gutter: stable;
     }
     .vault-digestion-result {
         border-left: 3px solid var(--canopy-secondary);
@@ -864,6 +869,29 @@
         font-size: 0.74rem;
         font-weight: 800;
         padding: 0.24rem 0.55rem;
+    }
+    .vault-digestion-source-preview {
+        display: none;
+        margin-top: 0.58rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
+        border-radius: 14px;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 78%, transparent);
+    }
+    .vault-digestion-source-preview.is-visible {
+        display: block;
+    }
+    .vault-digestion-source-preview .file-preview-container {
+        margin: 0;
+        max-height: min(62vh, 640px);
+        overflow: auto;
+    }
+    .vault-digestion-source-preview .file-preview-container.pdf-preview {
+        max-height: none;
+    }
+    .vault-digestion-source-preview .pdf-preview-frame {
+        height: min(58vh, 620px);
+        min-height: 420px;
     }
     .vault-digestion-quant-list {
         display: flex;
@@ -1223,11 +1251,19 @@
     .vault-inline-preview-body .file-preview-container {
         margin: 0;
     }
+    .vault-inline-preview-body .file-preview-container.pdf-preview {
+        max-height: none;
+        overflow: visible;
+    }
     .vault-inline-preview-body .pdf-preview-frame {
         height: min(74vh, 860px);
         min-height: 560px;
     }
+    .vault-inline-preview-panel.is-expanded .vault-inline-preview-body {
+        overflow: visible;
+    }
     .vault-inline-preview-panel.is-expanded .file-preview-container.pdf-preview {
+        max-height: none !important;
         overflow: visible;
     }
     .vault-inline-preview-panel.is-expanded .pdf-preview-frame {

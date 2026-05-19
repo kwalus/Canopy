@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.161] - 2026-05-19
+
+### Fixed
+- **Digestion result source previews open inline where users click** - chunk and datapoint result cards now render PDF/media/text previews directly under the selected result, close sibling inline previews, and keep the shared Vault preview synchronized without yanking the viewport away when inline rendering succeeds.
+- **Long Digestion query results stay scroll-contained** - RAG and structured datapoint result panes now use a bounded scroll area so large result sets do not turn the whole Vault page into an oversized vertical panel.
+- **Vault PDF expansion no longer clips on the outer preview container** - Vault-specific PDF preview containers now remove the global file-preview height cap so the expanded PDF iframe can actually use the larger reading height.
+- **Structured datapoint count chips explain their context** - field-count badges now include hover titles with extracted item counts and short examples when available.
+
 ## [0.6.160] - 2026-05-19
 
 ### Fixed

@@ -2076,6 +2076,7 @@
 	                    const type = vaultFileContentType(file);
 	                    const pageNumber = Number(options.page || 0);
 	                    const scrollBlock = options.scrollBlock || 'start';
+	                    const shouldScroll = options.suppressScroll !== true;
 	                    const isPdf = typeof global.canopyIsPdfPreviewable === 'function' && global.canopyIsPdfPreviewable(name, type);
 	                    setVaultInlinePreviewExpanded(false);
 	                    setVaultInlinePreviewExpandAvailable(false);
@@ -2097,21 +2098,21 @@
 	                    if (mediaHtml) {
 	                        inlinePreviewBody.dataset.loadedFileId = id;
 	                        inlinePreviewBody.innerHTML = mediaHtml;
-	                        inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
-	                        if (options.flash) emphasizeVaultInlinePreview();
+	                        if (shouldScroll) inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
+	                        if (options.flash && shouldScroll) emphasizeVaultInlinePreview();
 	                        return;
 	                    }
 	                    if (isPdf) {
 	                        inlinePreviewBody.dataset.loadedFileId = id;
 	                        inlinePreviewBody.innerHTML = renderVaultInlinePdfPreview(file, { page: pageNumber });
 	                        setVaultInlinePreviewExpandAvailable(true);
-	                        inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
-	                        if (options.flash) emphasizeVaultInlinePreview();
+	                        if (shouldScroll) inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
+	                        if (options.flash && shouldScroll) emphasizeVaultInlinePreview();
 	                        return;
 	                    }
 
 	                    inlinePreviewBody.innerHTML = '<div class="vault-inline-preview-message"><span class="spinner-border spinner-border-sm me-1"></span>Loading preview...</div>';
-	                    inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
+	                    if (shouldScroll) inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
 	                    try {
 	                        const payload = await apiCall(vaultFilePreviewUrl(file));
 	                        if (state.previewFileId !== id) return;
@@ -3533,6 +3534,7 @@
                             </button>
                             ${detailButton}
                         </div>
+                        <div class="vault-digestion-source-preview" data-vault-digestion-source-preview hidden></div>
                     `;
                 }
 
@@ -3548,7 +3550,63 @@
                     return String(value || '');
                 }
 
-                function openDigestionResultSource(button) {
+                function digestionFieldBadgeTitle(key, value, item) {
+                    const label = String(key || '').replace(/_/g, ' ');
+                    const count = Number(value || 0);
+                    const fields = item && item.structured_fields && typeof item.structured_fields === 'object' ? item.structured_fields : {};
+                    const examples = Array.isArray(fields[key]) ? fields[key].filter(Boolean).slice(0, 2) : [];
+                    const prefix = `${label}: ${count} extracted ${count === 1 ? 'item' : 'items'}.`;
+                    const suffix = examples.length
+                        ? ` Examples: ${examples.map(example => String(example).slice(0, 120)).join(' | ')}`
+                        : ' Open Details to inspect extracted values.';
+                    return `${prefix}${suffix}`;
+                }
+
+                function resetSiblingDigestionSourcePreviews(previewEl) {
+                    const resultsRoot = previewEl && previewEl.closest('[data-vault-digestion-results]');
+                    if (!resultsRoot) return;
+                    resultsRoot.querySelectorAll('[data-vault-digestion-source-preview]').forEach((el) => {
+                        if (el === previewEl) return;
+                        el.hidden = true;
+                        el.classList.remove('is-visible');
+                        el.innerHTML = '';
+                    });
+                }
+
+                async function renderInlineDigestionSourcePreview(button, file, page = 0) {
+                    const resultCard = button && button.closest('.vault-digestion-result');
+                    const previewEl = resultCard && resultCard.querySelector('[data-vault-digestion-source-preview]');
+                    if (!previewEl) return false;
+                    resetSiblingDigestionSourcePreviews(previewEl);
+                    previewEl.hidden = false;
+                    previewEl.classList.add('is-visible');
+                    previewEl.innerHTML = '<div class="vault-inline-preview-message"><span class="spinner-border spinner-border-sm me-1"></span>Loading source preview...</div>';
+                    const name = vaultFileName(file);
+                    const type = vaultFileContentType(file);
+                    try {
+                        if (typeof global.canopyIsPdfPreviewable === 'function' && global.canopyIsPdfPreviewable(name, type)) {
+                            previewEl.innerHTML = renderVaultInlinePdfPreview(file, { page });
+                        } else {
+                            const mediaHtml = renderVaultInlineMediaPreview(file);
+                            if (mediaHtml) {
+                                previewEl.innerHTML = mediaHtml;
+                            } else {
+                                const payload = await apiCall(vaultFilePreviewUrl(file));
+                                const previewId = `digestion-source-preview-${vaultFileId(file).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+                                previewEl.innerHTML = typeof global.renderFilePreviewPayloadHtml === 'function'
+                                    ? `<div id="${vaultEscape(previewId)}">${global.renderFilePreviewPayloadHtml(previewId, payload || {})}</div>`
+                                    : '<div class="vault-inline-preview-message">Preview renderer is not available. Use Open in new tab.</div>';
+                            }
+                        }
+                        previewEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        return true;
+                    } catch (error) {
+                        previewEl.innerHTML = `<div class="vault-inline-preview-message text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${vaultEscape(error.error || error.message || 'Could not load source preview.')}</div>`;
+                        return false;
+                    }
+                }
+
+                async function openDigestionResultSource(button) {
                     if (!button) return;
                     let source = {};
                     try {
@@ -3559,7 +3617,13 @@
                     const file = digestionSourceFile(source);
                     const page = digestionPageNumber(source.page_label);
                     if (file.id) {
-                        previewVaultFileInline(file, { page, scrollBlock: 'center', flash: true });
+                        const renderedInline = await renderInlineDigestionSourcePreview(button, file, page);
+                        previewVaultFileInline(file, {
+                            page,
+                            scrollBlock: 'center',
+                            flash: !renderedInline,
+                            suppressScroll: renderedInline,
+                        });
                     } else if (typeof showAlert === 'function') {
                         showAlert('This result does not include a source file reference to preview.', 'warning');
                     }
@@ -3634,7 +3698,7 @@
                             const fieldBadges = Object.entries(fieldCounts)
                                 .filter(([, value]) => Number(value || 0) > 0)
                                 .slice(0, 5)
-                                .map(([key, value]) => `<span>${vaultEscape(key.replace(/_/g, ' '))}: ${Number(value || 0)}</span>`)
+                                .map(([key, value]) => `<span title="${vaultEscape(digestionFieldBadgeTitle(key, value, item))}">${vaultEscape(key.replace(/_/g, ' '))}: ${Number(value || 0)}</span>`)
                                 .join('');
                             const evidence = Array.isArray(item.evidence) ? item.evidence : [];
                             const tags = Array.isArray(item.tags) ? item.tags : [];
