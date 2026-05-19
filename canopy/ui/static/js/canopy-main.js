@@ -2385,7 +2385,7 @@
 	                                <span class="vault-digestion-pill"><i class="bi bi-file-earmark-text"></i>${tokens} tokens</span>
 	                                <span class="vault-digestion-pill"><i class="bi bi-cpu"></i>${provider}</span>
 	                                ${sourceIssues.length ? `<span class="vault-digestion-pill text-warning" title="${vaultEscape(sourceIssueTitle)}"><i class="bi bi-file-earmark-x"></i>${sourceIssues.length} source issue${sourceIssues.length === 1 ? '' : 's'}</span>` : ''}
-	                                ${queryDisabled && hasBeenBuilt ? `<span class="vault-digestion-pill text-warning" title="No indexed chunks available. Run Build/Rebuild to index sources."><i class="bi bi-exclamation-triangle"></i>No chunks - build first</span>` : ''}
+	                                ${ragNoChunks && hasBeenBuilt ? `<span class="vault-digestion-pill text-warning" title="No indexed chunks available. Run Build/Rebuild to index sources."><i class="bi bi-exclamation-triangle"></i>No chunks - build first</span>` : ''}
 	                                ${canManage && !canReadSources ? `<span class="vault-digestion-pill text-warning" title="Source-read access is required for Extract datapoints."><i class="bi bi-shield-exclamation"></i>No source-read access</span>` : ''}
                             </div>
                             <div class="vault-digestion-actions">

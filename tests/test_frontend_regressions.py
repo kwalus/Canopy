@@ -427,6 +427,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('/datapoints/search', main_js)
         self.assertIn('Structured datapoint search', main_js)
         self.assertIn('Semantic RAG may return no chunks until this Digestion is built.', main_js)
+        self.assertIn('ragNoChunks && hasBeenBuilt', main_js)
+        self.assertNotIn('queryDisabled', main_js)
         self.assertIn('Build before querying...', main_js)
         self.assertIn('const warning = String(data.warning || \'\').trim();', main_js)
         self.assertIn('score ${Number(item.score || 0).toFixed(3)}', main_js)

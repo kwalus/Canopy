@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.150] - 2026-05-19
+
+### Fixed
+- **Vault Digestion cards render again for existing Digestions** - fixes a stale `queryDisabled` reference in the Digestion card template that could throw during Vault initialization, hiding existing Digestions and preventing the file-selection New Digestion action from wiring up.
+
 ## [0.6.149] - 2026-05-19
 
 ### Added
