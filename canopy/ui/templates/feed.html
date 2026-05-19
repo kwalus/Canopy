@@ -4175,6 +4175,7 @@
 	    let tagSuggestionsLoaded = false;
 	    let feedMentionCandidates = null;
 	    let feedMentionLoading = false;
+        let feedMentionLoadPromise = null;
         let feedMentionCandidatesFetchedAt = 0;
         const FEED_MENTION_CACHE_TTL_MS = 30000;
         let feedMentionContext = null;
@@ -4392,9 +4393,9 @@
             if (!forceRefresh && Array.isArray(feedMentionCandidates) && isFresh) {
                 return Promise.resolve(feedMentionCandidates || []);
             }
-            if (feedMentionLoading) return Promise.resolve(feedMentionCandidates || []);
+            if (feedMentionLoading && feedMentionLoadPromise) return feedMentionLoadPromise;
             feedMentionLoading = true;
-            return apiCall('/ajax/mention_suggestions')
+            feedMentionLoadPromise = apiCall('/ajax/mention_suggestions')
                 .then(data => {
                     feedMentionLoading = false;
                     if (data && data.success && Array.isArray(data.users)) {
@@ -4425,7 +4426,12 @@
                         requestAnimationFrame(() => applyFeedMentionFilter(feedMentionCandidates));
                     }
                     return feedMentionCandidates;
+                })
+                .finally(() => {
+                    feedMentionLoading = false;
+                    feedMentionLoadPromise = null;
                 });
+            return feedMentionLoadPromise;
         }
 
         function getFeedMentionMatches(candidates, query, limit) {
@@ -4779,7 +4785,9 @@
             updateFeedMentionFilterUI(candidates);
             if (!Array.isArray(feedMentionCandidates)) {
                 resultsEl.innerHTML = '<div class="small text-muted px-1 py-2">Loading people and agents…</div>';
-                fetchFeedMentionCandidates().then(renderFeedMentionFilterPicker);
+                if (!feedMentionLoading) {
+                    fetchFeedMentionCandidates().then(renderFeedMentionFilterPicker);
+                }
                 return;
             }
             const activeConfig = feedMentionFilterState;

@@ -122,6 +122,16 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('No source-read access', main_js)
         self.assertIn("reason === 'datapoint_source_metadata_denied' || reason === 'source_metadata_denied'", main_js)
 
+    def test_feed_mention_picker_reuses_inflight_candidate_fetch(self) -> None:
+        feed_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
+
+        self.assertIn('let feedMentionLoadPromise = null;', feed_template)
+        self.assertIn('if (feedMentionLoading && feedMentionLoadPromise) return feedMentionLoadPromise;', feed_template)
+        self.assertIn('feedMentionLoadPromise = apiCall', feed_template)
+        self.assertIn('feedMentionLoadPromise = null;', feed_template)
+        self.assertIn('if (!feedMentionLoading) {\n                    fetchFeedMentionCandidates().then(renderFeedMentionFilterPicker);', feed_template)
+        self.assertNotIn('if (feedMentionLoading) return Promise.resolve(feedMentionCandidates || []);', feed_template)
+
     def test_admin_exposes_instance_backup_controls(self) -> None:
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
         ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')

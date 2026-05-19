@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.142] - 2026-05-19
+
+### Fixed
+- **Feed mention-filter loading no longer spins the browser renderer** - concurrent mention candidate loads now share one in-flight promise, and the picker shows its loading state without recursively scheduling immediate render/fetch microtasks while the request is pending.
+
 ## [0.6.141] - 2026-05-18
 
 ### Fixed
