@@ -116,6 +116,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Extract datapoints may call an external provider with indexed chunks and requires source-read access.', vault_template)
         self.assertIn('.vault-digestion-output-preview', vault_template)
         self.assertIn('const canReadSources = !!access.can_read_sources;', main_js)
+        self.assertIn('function digestionStats(digestion)', main_js)
+        self.assertIn('stats.chunks ?? item.chunk_count ?? item.indexed_chunks ?? 0', main_js)
         self.assertIn('const extractDisabled = queryDisabled || !canReadSources;', main_js)
         self.assertIn('No source-read access', main_js)
         self.assertIn("reason === 'datapoint_source_metadata_denied' || reason === 'source_metadata_denied'", main_js)

@@ -2190,9 +2190,20 @@
                     return state.digestions.find(item => String(item.id || '') === wanted) || null;
                 }
 
+                function digestionStats(digestion) {
+                    const item = digestion || {};
+                    const stats = item.stats && typeof item.stats === 'object' ? item.stats : {};
+                    return {
+                        ...stats,
+                        chunks: Number(stats.chunks ?? item.chunk_count ?? item.indexed_chunks ?? 0),
+                        token_estimate: Number(stats.token_estimate ?? item.token_estimate ?? 0),
+                        sources_by_status: stats.sources_by_status || item.sources_by_status || {},
+                    };
+                }
+
                 function digestionAgentReferenceText(digestion) {
                     const item = digestion || {};
-                    const stats = item.stats || {};
+                    const stats = digestionStats(item);
                     const sources = Array.isArray(item.sources) ? item.sources.length : 0;
                     const id = String(item.id || '').trim();
                     return [
@@ -2232,12 +2243,12 @@
                     ].join('\n');
                 }
 
-	                function renderDigestionCard(digestion) {
-	                    const id = vaultEscape(digestion.id || '');
-	                    const name = vaultEscape(digestion.name || 'Untitled Digestion');
-	                    const status = vaultEscape(digestionStatusLabel(digestion));
-	                    const stats = digestion.stats || {};
-	                    const access = digestion.access || {};
+		                function renderDigestionCard(digestion) {
+		                    const id = vaultEscape(digestion.id || '');
+		                    const name = vaultEscape(digestion.name || 'Untitled Digestion');
+		                    const status = vaultEscape(digestionStatusLabel(digestion));
+		                    const stats = digestionStats(digestion);
+		                    const access = digestion.access || {};
 	                    const canManage = !!access.can_manage;
                     const canReadSources = !!access.can_read_sources;
 	                    const chunks = Number(stats.chunks || 0);

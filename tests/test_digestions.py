@@ -235,6 +235,11 @@ class TestDigestions(unittest.TestCase):
         build = self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
         self.assertTrue(build['success'])
         self.assertGreaterEqual(build['chunk_count'], 2)
+        listed = self.digestion_manager.list_digestions('owner-user', include_sources=True)
+        listed_item = next(item for item in listed if item['id'] == digestion['id'])
+        self.assertGreaterEqual(listed_item['stats']['chunks'], build['chunk_count'])
+        self.assertGreaterEqual(listed_item['stats']['token_estimate'], 1)
+        self.assertIn('indexed', listed_item['stats']['sources_by_status'])
 
         result = self.digestion_manager.query(digestion['id'], 'owner-user', 'quantum silicon hyperfine', top_k=3)
         self.assertTrue(result['success'])

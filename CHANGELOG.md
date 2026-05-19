@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.141] - 2026-05-18
+
+### Fixed
+- **Vault Digestion cards now refresh with authoritative build stats** - `list_digestions()` includes batched chunk, token, and source-status stats so a successful build no longer refreshes the UI back to `0 chunks` or keeps datapoint extraction disabled when indexed chunks exist.
+- **Digestion stat rendering is more tolerant of API shape drift** - Vault UI stat reads now accept nested `stats`, top-level `chunk_count`, or top-level `indexed_chunks` fields instead of silently falling back to zero.
+
 ## [0.6.140] - 2026-05-18
 
 ### Fixed

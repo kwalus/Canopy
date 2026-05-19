@@ -458,8 +458,10 @@ class DigestionManager:
                 (user_id, user_id),
             ).fetchall()
         result: list[dict[str, Any]] = []
+        stats_by_id = self.stats_many([str(row["id"] or "") for row in rows])
         for row in rows:
             item = self._digestion_from_row(row).to_dict(access=self._access_from_row(row, user_id))
+            item["stats"] = stats_by_id.get(item["id"], self._empty_stats())
             if include_sources and item.get("access", {}).get("can_read_sources"):
                 item["sources"] = self.list_sources(item["id"], user_id=user_id)
             elif include_sources:
@@ -748,20 +750,60 @@ class DigestionManager:
         }
 
     def stats(self, digestion_id: str) -> dict[str, Any]:
-        with self.db.get_connection() as conn:
-            chunk_row = conn.execute(
-                "SELECT COUNT(*) AS count, COALESCE(SUM(token_estimate), 0) AS tokens FROM digestion_chunks WHERE digestion_id = ?",
-                (digestion_id,),
-            ).fetchone()
-            source_rows = conn.execute(
-                "SELECT status, COUNT(*) AS count FROM digestion_sources WHERE digestion_id = ? GROUP BY status",
-                (digestion_id,),
-            ).fetchall()
+        return self.stats_many([digestion_id]).get(str(digestion_id or ""), self._empty_stats())
+
+    @staticmethod
+    def _empty_stats() -> dict[str, Any]:
         return {
-            "chunks": int((chunk_row["count"] if chunk_row else 0) or 0),
-            "token_estimate": int((chunk_row["tokens"] if chunk_row else 0) or 0),
-            "sources_by_status": {str(row["status"]): int(row["count"] or 0) for row in source_rows},
+            "chunks": 0,
+            "token_estimate": 0,
+            "sources_by_status": {},
         }
+
+    def stats_many(self, digestion_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
+        ids: list[str] = []
+        seen: set[str] = set()
+        for raw_id in digestion_ids or []:
+            digestion_id = self._clean_id(raw_id)
+            if not digestion_id or digestion_id in seen:
+                continue
+            seen.add(digestion_id)
+            ids.append(digestion_id)
+        if not ids:
+            return {}
+        stats_by_id = {digestion_id: self._empty_stats() for digestion_id in ids}
+        placeholders = ",".join("?" for _ in ids)
+        with self.db.get_connection() as conn:
+            chunk_rows = conn.execute(
+                f"""
+                SELECT digestion_id, COUNT(*) AS count, COALESCE(SUM(token_estimate), 0) AS tokens
+                FROM digestion_chunks
+                WHERE digestion_id IN ({placeholders})
+                GROUP BY digestion_id
+                """,
+                ids,
+            ).fetchall()
+            source_rows = conn.execute(
+                f"""
+                SELECT digestion_id, status, COUNT(*) AS count
+                FROM digestion_sources
+                WHERE digestion_id IN ({placeholders})
+                GROUP BY digestion_id, status
+                """,
+                ids,
+            ).fetchall()
+        for row in chunk_rows:
+            digestion_id = str(row["digestion_id"] or "")
+            if digestion_id not in stats_by_id:
+                continue
+            stats_by_id[digestion_id]["chunks"] = int((row["count"] if row else 0) or 0)
+            stats_by_id[digestion_id]["token_estimate"] = int((row["tokens"] if row else 0) or 0)
+        for row in source_rows:
+            digestion_id = str(row["digestion_id"] or "")
+            if digestion_id not in stats_by_id:
+                continue
+            stats_by_id[digestion_id]["sources_by_status"][str(row["status"])] = int(row["count"] or 0)
+        return stats_by_id
 
     def generate_outputs(
         self,
