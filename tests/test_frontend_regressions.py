@@ -268,6 +268,10 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('vaultUpload:', base_template)
         self.assertIn('vaultSaveAttachment:', base_template)
         self.assertIn('mg-save-vault', base_template)
+        self.assertIn('current_user_avatar_url', base_template)
+        self.assertIn('current_user_avatar_url', ui_routes)
+        self.assertIn('current_user_display_name', ui_routes)
+        self.assertIn("f\"/files/{avatar_file_id}\"", ui_routes)
 
         self.assertIn('data-vault-page', vault_template)
         self.assertIn('vault-dropzone', vault_template)

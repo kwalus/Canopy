@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.152] - 2026-05-19
+
+### Fixed
+- **Navbar profile avatar renders from the server again** - the base layout now injects the current user's avatar URL from the profile/database context so the avatar image appears immediately instead of depending on async user-display hydration.
+
 ## [0.6.151] - 2026-05-19
 
 ### Added

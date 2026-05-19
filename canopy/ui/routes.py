@@ -1716,6 +1716,36 @@ def create_ui_blueprint() -> Blueprint:
                 'sidebar_dm_event_cursor': int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0),
                 'sidebar_local_peer_id': local_peer_id,
             }
+            current_user_avatar_url = ''
+            current_user_display_name = ''
+            if current_user_id:
+                try:
+                    profile = profile_manager.get_profile(current_user_id) if profile_manager else None
+                except Exception:
+                    profile = None
+                if profile:
+                    current_user_avatar_url = str(getattr(profile, 'avatar_url', None) or '').strip()
+                    current_user_display_name = str(
+                        getattr(profile, 'display_name', None)
+                        or getattr(profile, 'username', None)
+                        or ''
+                    ).strip()
+                if not current_user_avatar_url and db_manager:
+                    try:
+                        user_row = db_manager.get_user(current_user_id)
+                    except Exception:
+                        user_row = None
+                    avatar_file_id = str((user_row or {}).get('avatar_file_id') or '').strip()
+                    if avatar_file_id:
+                        current_user_avatar_url = f"/files/{avatar_file_id}"
+                    if not current_user_display_name and user_row:
+                        current_user_display_name = str(
+                            user_row.get('display_name')
+                            or user_row.get('username')
+                            or ''
+                        ).strip()
+            out['current_user_avatar_url'] = current_user_avatar_url
+            out['current_user_display_name'] = current_user_display_name
             out['sidebar_attention_summary'] = attention_snapshot['summary']
             out['sidebar_attention_rev'] = attention_snapshot['summary_rev']
             out['sidebar_attention_items'] = attention_snapshot['items']
