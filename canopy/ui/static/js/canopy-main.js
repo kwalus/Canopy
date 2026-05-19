@@ -1,4 +1,7 @@
 /* Canopy common UI JavaScript — extracted from base.html */
+        var global = (typeof globalThis !== 'undefined')
+            ? globalThis
+            : ((typeof window !== 'undefined') ? window : this);
         // Common utility functions
         function parseCanopyTimestamp(timestamp) {
             if (timestamp === null || timestamp === undefined || timestamp === '') return null;
@@ -9599,9 +9602,9 @@
                 );
             }
 
-            let _channelIndexPromise = null;
-            let _channelIndexMap = null;
-            let _channelIndexList = null;
+            var _channelIndexPromise = null;
+            var _channelIndexMap = null;
+            var _channelIndexList = null;
 
             function setChannelIndex(channels) {
                 _channelIndexList = Array.isArray(channels) ? channels : [];

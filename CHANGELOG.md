@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.156] - 2026-05-19
+
+### Fixed
+- **General channel messages render again after Digestion reader restore** - the shared frontend script now defines a browser-safe `global` alias before Digestion package preview handlers attach to it, preventing an early script abort that left channel-index state uninitialized.
+- **Channel hashtag linkification no longer throws from a partially initialized script** - the channel index cache uses hoisted state so message rendering can safely fall back to plain text instead of failing the whole message list.
+
 ## [0.6.155] - 2026-05-19
 
 ### Fixed
