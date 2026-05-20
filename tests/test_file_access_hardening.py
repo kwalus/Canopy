@@ -227,6 +227,30 @@ class TestEvaluateFileAccessDenyByDefault(unittest.TestCase):
         self.assertTrue(result.evidences)
         self.assertTrue(result.evidences[0].can_view)
 
+    def test_explicit_vault_file_acl_grants_read_access(self):
+        """Owner-managed Vault ACL grants access without requiring a parent post."""
+        result = evaluate_file_access(
+            db_manager=_make_db_manager(rows={
+                'vault_file_acl': [
+                    {
+                        'file_id': 'vault-file',
+                        'grantee_user_id': 'member-user',
+                        'can_read': 1,
+                        'can_manage': 0,
+                        'granted_by': 'owner-user',
+                    }
+                ],
+            }),
+            file_id='vault-file',
+            viewer_user_id='member-user',
+            file_uploaded_by='owner-user',
+        )
+
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.reason, 'vault-file-acl')
+        self.assertTrue(result.evidences)
+        self.assertEqual(result.evidences[0].source_type, 'vault_file_acl')
+
     def test_owner_grants(self):
         """File owner always gets access."""
         result = evaluate_file_access(

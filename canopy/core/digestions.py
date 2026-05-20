@@ -413,6 +413,125 @@ class DigestionManager:
             conn.commit()
         return {"success": True, "added": added, "skipped": skipped, "digestion_id": digestion.id}
 
+    def merge_sources_from_digestion(
+        self,
+        target_digestion_id: str,
+        source_digestion_id: str,
+        actor_user_id: str,
+    ) -> dict[str, Any]:
+        """Copy source references from one accessible Digestion into another.
+
+        This intentionally does not merge or delete Digestion records. It makes the
+        target dirty so the owner can rebuild with the expanded source set.
+        """
+        target = self._require_digestion(target_digestion_id, actor_user_id, manage=True)
+        source = self._require_digestion(source_digestion_id, actor_user_id, query=True)
+        if target.id == source.id:
+            raise DigestionError("Drop a different Digestion to merge sources.", status_code=400, reason="same_digestion")
+        source_access = self._access_for(source, actor_user_id)
+        if not source_access.get("can_read_sources"):
+            raise DigestionError(
+                "Merging Digestions requires source metadata access to the source Digestion.",
+                status_code=403,
+                reason="source_metadata_denied",
+            )
+
+        now = self._now()
+        added = 0
+        updated = 0
+        skipped: list[dict[str, str]] = []
+        with self.db.get_connection() as conn:
+            source_rows = conn.execute(
+                """
+                SELECT file_id, file_checksum, file_name, content_type, source_kind,
+                       source_label, source_uri, source_metadata_json
+                FROM digestion_sources
+                WHERE digestion_id = ?
+                ORDER BY file_name COLLATE NOCASE, file_id
+                """,
+                (source.id,),
+            ).fetchall()
+            existing_ids = {
+                str(row["file_id"] or "")
+                for row in conn.execute(
+                    "SELECT file_id FROM digestion_sources WHERE digestion_id = ?",
+                    (target.id,),
+                ).fetchall()
+            }
+            for row in source_rows:
+                file_id = self._clean_id(row["file_id"] if "file_id" in row.keys() else "")
+                if not file_id:
+                    skipped.append({"file_id": "", "reason": "missing_file_id"})
+                    continue
+                info = self.file_manager.get_file(file_id)
+                if not info:
+                    skipped.append({"file_id": file_id, "reason": "file_not_found"})
+                    continue
+                if str(info.uploaded_by) != str(target.owner_user_id):
+                    skipped.append({"file_id": file_id, "reason": "not_owned_by_target_owner"})
+                    continue
+                try:
+                    metadata = json.loads(row["source_metadata_json"] or "{}")
+                except Exception:
+                    metadata = {}
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                metadata.update({
+                    "ingest_path": "digestion_merge",
+                    "merged_from_digestion_id": source.id,
+                    "merged_from_digestion_name": source.name,
+                })
+                was_existing = file_id in existing_ids
+                conn.execute(
+                    """
+                    INSERT INTO digestion_sources (
+                        digestion_id, file_id, file_checksum, file_name, content_type,
+                        status, extracted_chars, chunk_count, error, updated_at,
+                        source_kind, source_label, source_uri, source_metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, 'pending', 0, 0, NULL, ?, ?, ?, ?, ?)
+                    ON CONFLICT(digestion_id, file_id) DO UPDATE SET
+                        file_checksum = excluded.file_checksum,
+                        file_name = excluded.file_name,
+                        content_type = excluded.content_type,
+                        status = 'pending',
+                        error = NULL,
+                        source_kind = excluded.source_kind,
+                        source_label = excluded.source_label,
+                        source_uri = excluded.source_uri,
+                        source_metadata_json = excluded.source_metadata_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        target.id,
+                        info.id,
+                        info.checksum,
+                        info.original_name,
+                        info.content_type,
+                        now,
+                        str(row["source_kind"] or "vault_file"),
+                        str(row["source_label"] or info.original_name),
+                        str(row["source_uri"] or ""),
+                        json.dumps(metadata, sort_keys=True),
+                    ),
+                )
+                if was_existing:
+                    updated += 1
+                else:
+                    added += 1
+                    existing_ids.add(file_id)
+            if added or updated:
+                conn.execute("UPDATE digestions SET status = ?, updated_at = ? WHERE id = ?", ("draft", now, target.id))
+            conn.commit()
+        return {
+            "success": True,
+            "digestion_id": target.id,
+            "target_digestion_id": target.id,
+            "source_digestion_id": source.id,
+            "added": added,
+            "updated": updated,
+            "skipped": skipped,
+        }
+
     def add_materials(self, digestion_id: str, actor_user_id: str, materials: Iterable[dict[str, Any]]) -> dict[str, Any]:
         """Add inline/source materials by normalizing them into Vault-backed source files.
 

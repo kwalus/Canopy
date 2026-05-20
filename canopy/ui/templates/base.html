@@ -290,6 +290,123 @@
             color: var(--canopy-text-primary);
             font-size: 0.92em;
         }
+        .canopy-reaction-roster-popover {
+            position: absolute;
+            z-index: 12050;
+            display: none;
+            pointer-events: auto;
+        }
+        .canopy-reaction-roster-popover.is-visible {
+            display: block;
+        }
+        .canopy-reaction-roster-card {
+            max-height: min(22rem, calc(100vh - 2rem));
+            overflow: auto;
+            padding: 0.75rem;
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 62%, var(--canopy-primary) 38%);
+            border-radius: 18px;
+            background:
+                linear-gradient(145deg,
+                    color-mix(in srgb, var(--canopy-bg-card) 94%, var(--canopy-primary) 6%),
+                    color-mix(in srgb, var(--canopy-bg-card) 92%, var(--canopy-accent) 8%)
+                );
+            color: var(--canopy-text-primary);
+            box-shadow: 0 24px 52px rgba(2, 8, 23, 0.32);
+            backdrop-filter: blur(18px);
+        }
+        .canopy-reaction-roster-title {
+            font-size: 0.72rem;
+            font-weight: 900;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--canopy-primary);
+            margin-bottom: 0.5rem;
+        }
+        .canopy-reaction-roster-group + .canopy-reaction-roster-group {
+            margin-top: 0.65rem;
+            padding-top: 0.65rem;
+            border-top: 1px solid color-mix(in srgb, var(--canopy-border) 72%, transparent);
+        }
+        .canopy-reaction-roster-group header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-bottom: 0.38rem;
+            font-weight: 850;
+        }
+        .canopy-reaction-roster-group header strong {
+            min-width: 1.6rem;
+            padding: 0.12rem 0.42rem;
+            border-radius: 999px;
+            text-align: center;
+            background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-tertiary) 82%);
+            color: var(--canopy-text-primary);
+        }
+        .canopy-reaction-roster-actor {
+            display: grid;
+            grid-template-columns: 2rem minmax(0, 1fr);
+            gap: 0.5rem;
+            align-items: center;
+            padding: 0.3rem 0;
+        }
+        .canopy-reaction-roster-avatar {
+            width: 2rem;
+            height: 2rem;
+            border-radius: 12px;
+            overflow: hidden;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, var(--canopy-primary) 28%);
+            background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-tertiary) 82%);
+            color: var(--canopy-text-primary);
+            font-weight: 900;
+            font-size: 0.76rem;
+        }
+        .canopy-reaction-roster-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .canopy-reaction-roster-copy {
+            min-width: 0;
+        }
+        .canopy-reaction-roster-copy strong {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 0.9rem;
+        }
+        .canopy-reaction-roster-copy div {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            min-height: 1rem;
+        }
+        .canopy-reaction-roster-copy small,
+        .canopy-reaction-roster-empty,
+        .canopy-reaction-roster-more {
+            color: var(--canopy-text-secondary);
+            font-size: 0.76rem;
+            margin: 0;
+        }
+        .canopy-reaction-roster-badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 0.05rem 0.34rem;
+            background: color-mix(in srgb, var(--canopy-accent) 18%, var(--canopy-bg-tertiary) 82%);
+            color: var(--canopy-text-primary);
+            font-size: 0.66rem;
+            font-weight: 850;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .canopy-reaction-roster-more {
+            padding-top: 0.22rem;
+        }
     </style>
     
     <style>

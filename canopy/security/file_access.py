@@ -204,6 +204,33 @@ def evaluate_file_access(
     try:
         with db_manager.get_connection() as conn:
             try:
+                has_vault_file_acl = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vault_file_acl'"
+                ).fetchone()
+            except Exception:
+                has_vault_file_acl = None
+            if has_vault_file_acl:
+                acl_row = conn.execute(
+                    """
+                    SELECT can_read, can_manage, granted_by
+                    FROM vault_file_acl
+                    WHERE file_id = ? AND grantee_user_id = ?
+                    LIMIT 1
+                    """,
+                    (file_id, viewer_user_id),
+                ).fetchone()
+                if acl_row:
+                    can_view = bool(_row_value(acl_row, 'can_read', 0) or _row_value(acl_row, 'can_manage', 0))
+                    evidences.append(FileAccessEvidence(
+                        source_type='vault_file_acl',
+                        source_id=file_id,
+                        detail=f"granted_by:{_row_value(acl_row, 'granted_by', '')}",
+                        can_view=can_view,
+                    ))
+                    if can_view:
+                        return FileAccessResult(True, 'vault-file-acl', evidences[:max_evidence])
+
+            try:
                 has_digestion_figures = conn.execute(
                     "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digestion_pdf_figures'"
                 ).fetchone()
@@ -418,6 +445,34 @@ def evaluate_file_access_for_peer(
 
     try:
         with db_manager.get_connection() as conn:
+            try:
+                has_vault_file_acl = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'vault_file_acl'"
+                ).fetchone()
+            except Exception:
+                has_vault_file_acl = None
+            if has_vault_file_acl:
+                acl_row = conn.execute(
+                    """
+                    SELECT a.file_id, a.grantee_user_id
+                    FROM vault_file_acl a
+                    JOIN users u ON u.id = a.grantee_user_id
+                    WHERE a.file_id = ?
+                      AND a.can_read = 1
+                      AND u.origin_peer = ?
+                    LIMIT 1
+                    """,
+                    (file_id, requester_peer_id),
+                ).fetchone()
+                if acl_row:
+                    evidences.append(FileAccessEvidence(
+                        source_type='vault_file_acl',
+                        source_id=file_id,
+                        detail=f"peer:{requester_peer_id} grantee:{_row_value(acl_row, 'grantee_user_id', '')}",
+                        can_view=True,
+                    ))
+                    return FileAccessResult(True, 'vault-file-acl-peer', evidences[:max_evidence])
+
             channel_rows = conn.execute(
                 """
                 SELECT m.id, m.channel_id, m.attachments, m.content, c.privacy_mode

@@ -12338,6 +12338,10 @@ function buildChannelReactionSummaryHtml(messageId, counts, userReaction) {
                 <button type="button"
                         class="reaction-summary-pill${isSelected ? ' is-selected' : ''}"
                         onclick="toggleLike(${reactionInlineArg(messageId)}, ${reactionInlineArg(type)})"
+                        data-reaction-roster-trigger="1"
+                        data-reaction-surface="channel_message"
+                        data-item-id="${reactionEscapeAttr(messageId)}"
+                        data-reaction-type="${reactionEscapeAttr(type)}"
                         title="${reactionEscapeAttr(reaction.label)}"
                         aria-label="${reactionEscapeAttr(`${reaction.label} reaction, ${count}`)}"
                         aria-pressed="${isSelected ? 'true' : 'false'}">
@@ -22523,6 +22527,9 @@ function updateLikeButton(messageId, liked, interactions, userReaction) {
             choice.setAttribute('aria-pressed', selected ? 'true' : 'false');
         });
         updateChannelReactionSummary(control, counts, liked ? reactionKey : '');
+        if (window.CanopyReactionDetails) {
+            window.CanopyReactionDetails.invalidate('channel_message', messageId);
+        }
     }
 
     if (liked) {

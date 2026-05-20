@@ -54,6 +54,10 @@ class _FakeApiKeyManager:
             'vault-key': {Permission.READ_FILES, Permission.WRITE_FILES},
             'read-key': {Permission.READ_FILES},
             'write-key': {Permission.WRITE_FILES},
+            'other-read-key': {Permission.READ_FILES},
+        }
+        key_users = {
+            'other-read-key': 'other-user',
         }
         perms = key_perms.get(raw_key)
         if not perms:
@@ -62,7 +66,7 @@ class _FakeApiKeyManager:
             return None
         return ApiKeyInfo(
             id=f'key-{raw_key}',
-            user_id='user-test',
+            user_id=key_users.get(raw_key, 'user-test'),
             key_hash='hash',
             permissions=perms,
             created_at=datetime.now(timezone.utc),
@@ -83,9 +87,24 @@ class TestAgentVaultApi(unittest.TestCase):
         self.addCleanup(self.tempdir.cleanup)
         self.conn = sqlite3.connect(':memory:')
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, avatar_file_id TEXT, origin_peer TEXT)")
-        self.conn.execute("INSERT INTO users (id) VALUES (?)", ('user-test',))
-        self.conn.execute("INSERT INTO users (id) VALUES (?)", ('other-user',))
+        self.conn.execute("""
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT,
+                display_name TEXT,
+                avatar_file_id TEXT,
+                origin_peer TEXT,
+                account_type TEXT
+            )
+        """)
+        self.conn.execute(
+            "INSERT INTO users (id, username, display_name, account_type) VALUES (?, ?, ?, ?)",
+            ('user-test', 'owner', 'Vault Owner', 'human'),
+        )
+        self.conn.execute(
+            "INSERT INTO users (id, username, display_name, account_type) VALUES (?, ?, ?, ?)",
+            ('other-user', 'gene', 'Gene Agent', 'agent'),
+        )
         self.conn.execute("CREATE TABLE channel_messages (id TEXT PRIMARY KEY, attachments TEXT, content TEXT)")
         self.conn.execute("CREATE TABLE feed_posts (id TEXT PRIMARY KEY, metadata TEXT, content TEXT)")
         self.conn.execute("CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT, content TEXT)")
@@ -208,6 +227,60 @@ class TestAgentVaultApi(unittest.TestCase):
         self.assertEqual(final_read.status_code, 200)
         self.assertEqual(self._json(final_read)['content'], '# Plan\n\nnew line\n')
 
+    def test_vault_file_acl_grants_agent_read_content_without_ownership(self) -> None:
+        file_info = self.file_manager.save_file(
+            b'shared file body',
+            'shared-notes.txt',
+            'text/plain',
+            'user-test',
+        )
+        self.assertIsNotNone(file_info)
+        assert file_info is not None
+
+        denied = self.client.get(
+            f'/api/v1/vault/files/{file_info.id}/content?mode=text',
+            headers={'X-API-Key': 'other-read-key'},
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        grant = self.client.post(
+            f'/api/v1/vault/files/{file_info.id}/acl',
+            json={'grantee_user_id': 'other-user'},
+            headers={'X-API-Key': 'vault-key'},
+        )
+        self.assertEqual(grant.status_code, 200)
+        grant_payload = self._json(grant)
+        self.assertEqual(grant_payload['count'], 1)
+        self.assertEqual(grant_payload['grantee']['user_id'], 'other-user')
+
+        read = self.client.get(
+            f'/api/v1/vault/files/{file_info.id}/content?mode=text',
+            headers={'X-API-Key': 'other-read-key'},
+        )
+        self.assertEqual(read.status_code, 200)
+        self.assertEqual(self._json(read)['content'], 'shared file body')
+
+        diff = self.client.post(
+            f'/api/v1/vault/files/{file_info.id}/diff',
+            json={'content': 'shared file body updated'},
+            headers={'X-API-Key': 'other-read-key'},
+        )
+        self.assertEqual(diff.status_code, 200)
+        self.assertIn('+shared file body updated', self._json(diff)['diff'])
+
+        revoke = self.client.delete(
+            f'/api/v1/vault/files/{file_info.id}/acl/other-user',
+            headers={'X-API-Key': 'vault-key'},
+        )
+        self.assertEqual(revoke.status_code, 200)
+        self.assertEqual(self._json(revoke)['count'], 0)
+
+        denied_after_revoke = self.client.get(
+            f'/api/v1/vault/files/{file_info.id}/content?mode=text',
+            headers={'X-API-Key': 'other-read-key'},
+        )
+        self.assertEqual(denied_after_revoke.status_code, 403)
+
     def test_save_attachment_to_vault_requires_read_and_copies_accessible_file(self) -> None:
         source = self.file_manager.save_file(
             b'shared attachment body',
@@ -242,6 +315,41 @@ class TestAgentVaultApi(unittest.TestCase):
         assert copied is not None
         self.assertEqual(copied.uploaded_by, 'user-test')
         self.assertEqual(self.file_manager.get_file_data(copied.id)[0], b'shared attachment body')  # type: ignore[index]
+
+
+class TestVaultFileAclLegacyUserSchema(unittest.TestCase):
+    def test_acl_listing_handles_optional_user_columns_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            conn = sqlite3.connect(':memory:')
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT)")
+                conn.executemany(
+                    "INSERT INTO users (id, username) VALUES (?, ?)",
+                    [('owner-user', 'owner'), ('agent-user', 'agent')],
+                )
+                conn.commit()
+                db_manager = _FakeDbManager(conn)
+                file_manager = FileManager(db_manager, str(Path(tempdir) / 'files'))
+                file_info = file_manager.save_file(
+                    b'legacy schema shared body',
+                    'legacy-schema.txt',
+                    'text/plain',
+                    'owner-user',
+                )
+                self.assertIsNotNone(file_info)
+                assert file_info is not None
+
+                entry = file_manager.grant_vault_file_access(file_info.id, 'owner-user', 'agent-user')
+                self.assertEqual(entry['user_id'], 'agent-user')
+                self.assertEqual(entry['display_name'], 'agent')
+                self.assertEqual(entry['account_type'], 'human')
+                self.assertEqual(entry['origin_peer'], '')
+
+                entries = file_manager.list_vault_file_access(file_info.id, 'owner-user')
+                self.assertEqual([item['user_id'] for item in entries], ['agent-user'])
+            finally:
+                conn.close()
 
 
 if __name__ == '__main__':

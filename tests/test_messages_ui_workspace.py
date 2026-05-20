@@ -412,6 +412,26 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('aria-pressed="true"', body)
         self.assertIn('❤️', body)
 
+    def test_dm_reaction_details_return_visible_reactor_roster(self) -> None:
+        self.interaction_manager.toggle_like('DM-root', 'owner', 'eyes')
+        self.interaction_manager.toggle_like('DM-root', 'peer-a', 'check')
+
+        response = self.client.get('/ajax/reactions/dm_message/DM-root')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        details = payload.get('reactions') or {}
+        self.assertEqual(details.get('total'), 2)
+        self.assertEqual((details.get('counts') or {}).get('eyes'), 1)
+        self.assertEqual((details.get('counts') or {}).get('check'), 1)
+        reactors = {
+            actor.get('user_id'): actor
+            for group in details.get('groups') or []
+            for actor in group.get('reactors') or []
+        }
+        self.assertEqual((reactors.get('owner') or {}).get('display_name'), 'Owner')
+        self.assertEqual((reactors.get('peer-a') or {}).get('display_name'), 'Alice')
+        self.assertEqual((reactors.get('peer-a') or {}).get('account_type'), 'agent')
+
     def test_dm_custom_reaction_keys_round_trip_with_fallback_label(self) -> None:
         self.assertEqual(normalize_reaction_key(':Lab Team:'), 'custom:lab-team')
 

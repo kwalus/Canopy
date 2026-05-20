@@ -748,6 +748,48 @@ def _api_get_owned_vault_file(file_manager: Any, user_id: str, file_id: str) -> 
     return file_info
 
 
+def _api_get_readable_vault_file(
+    file_manager: Any,
+    db_manager: Any,
+    user_id: str,
+    file_id: str,
+    *,
+    trust_manager: Optional[Any] = None,
+    feed_manager: Optional[Any] = None,
+) -> tuple[Any, Optional[str]]:
+    """Return a Vault file if the API caller can read it by ownership, ACL, or content scope."""
+    file_info = file_manager.get_file(str(file_id or '').strip()) if file_manager else None
+    if not file_info:
+        return None, 'File not found'
+    try:
+        owner_id = db_manager.get_instance_owner_user_id() if db_manager else None
+    except Exception:
+        owner_id = None
+    uploader_is_peer = False
+    try:
+        uploader = str(getattr(file_info, 'uploaded_by', '') or '').strip()
+        row = db_manager.get_user(uploader) if db_manager and uploader else None
+        uploader_is_peer = bool(row and row.get('origin_peer'))
+    except Exception:
+        uploader_is_peer = False
+    is_local_admin = (
+        bool(owner_id and owner_id == user_id)
+        and not uploader_is_peer
+    )
+    access = evaluate_file_access(
+        db_manager=db_manager,
+        file_id=str(getattr(file_info, 'id', '') or file_id),
+        viewer_user_id=user_id,
+        file_uploaded_by=getattr(file_info, 'uploaded_by', None),
+        is_admin=is_local_admin,
+        trust_manager=trust_manager,
+        feed_manager=feed_manager,
+    )
+    if not access.allowed:
+        return None, f'Access denied: {access.reason}'
+    return file_info, None
+
+
 def _api_vault_read_disk_slice(file_manager: Any, file_info: Any, *, offset: int, max_bytes: int) -> tuple[bytes, int, int]:
     disk_path = file_manager._resolve_file_disk_path(file_info.file_path)
     if not disk_path.exists():
@@ -2668,7 +2710,7 @@ def create_api_blueprint() -> Blueprint:
         if source_type == 'direct_message':
             with db_manager.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT sender_id, recipient_id FROM messages WHERE id = ?",
+                    "SELECT sender_id, recipient_id, metadata FROM messages WHERE id = ?",
                     (source_id,)
                 ).fetchone()
                 if not row:
@@ -2680,7 +2722,14 @@ def create_api_blueprint() -> Blueprint:
                 if recipient_id is None:
                     # Broadcast-style records are visible in the message feed.
                     return True
-                return bool(recipient_id == user_id)
+                if recipient_id == user_id:
+                    return True
+                try:
+                    meta = json.loads(row['metadata'] or '{}') if row['metadata'] else {}
+                except Exception:
+                    meta = {}
+                group_members = meta.get('group_members') if isinstance(meta, dict) else None
+                return bool(isinstance(group_members, list) and user_id in {str(member) for member in group_members})
         return False
 
     def _resolve_source_payload(
@@ -9276,6 +9325,45 @@ def create_api_blueprint() -> Blueprint:
             logger.error(f"get_reaction_options_api failed: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    def _normalize_reaction_item_type(raw_type: Any) -> Optional[str]:
+        value = str(raw_type or '').strip().lower()
+        if value in {'post', 'feed', 'feed_post'}:
+            return 'feed_post'
+        if value in {'message', 'channel', 'channel_message'}:
+            return 'channel_message'
+        if value in {'dm', 'dm_message', 'direct_message'}:
+            return 'direct_message'
+        return None
+
+    @api.route('/reactions/<item_type>/<item_id>', methods=['GET'])
+    @require_auth()
+    def get_reaction_details_api(item_type: str, item_id: str):
+        """Return reaction counts and reactor identity details for agents."""
+        try:
+            db_manager, _, _, _, _, _, feed_manager, interaction_manager, _, _, _ = _get_app_components_any(current_app)
+            user_id = g.api_key_info.user_id
+            source_type = _normalize_reaction_item_type(item_type)
+            clean_item_id = str(item_id or '').strip()
+            if not source_type or not clean_item_id:
+                return jsonify({'error': 'Unsupported reaction item type'}), 400
+
+            required_permission = Permission.READ_FEED if source_type == 'feed_post' else Permission.READ_MESSAGES
+            if not getattr(g.api_key_info, 'has_permission', lambda _perm: False)(required_permission):
+                return jsonify({'error': 'Invalid or insufficient permissions'}), 403
+            if not _can_user_access_source(db_manager, feed_manager, user_id, source_type, clean_item_id):
+                return jsonify({'error': 'Access denied'}), 403
+
+            try:
+                limit = int(request.args.get('limit') or 80)
+            except Exception:
+                limit = 80
+            details = interaction_manager.get_reaction_details(clean_item_id, limit=limit)
+            details['item_type'] = source_type
+            return jsonify({'success': True, 'reactions': details})
+        except Exception as e:
+            logger.error(f"get_reaction_details_api failed: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/custom-emojis', methods=['GET'])
     @api.route('/emojis/custom', methods=['GET'])
     @require_auth(Permission.READ_MESSAGES)
@@ -11085,6 +11173,28 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API add sources failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/merge', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def merge_digestion_sources_api(digestion_id: str):
+        """Copy source references from one accessible Digestion into another."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        source_digestion_id = data.get('source_digestion_id') or data.get('from_digestion_id') or data.get('digestion_id')
+        try:
+            result = manager.merge_sources_from_digestion(
+                digestion_id,
+                source_digestion_id,
+                g.api_key_info.user_id,
+            )
+            return jsonify(result)
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API merge sources failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/materials', methods=['POST'])
     @require_auth(Permission.WRITE_FILES)
     def add_digestion_materials_api(digestion_id: str):
@@ -11526,14 +11636,97 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/vault/files/<file_id>', methods=['GET'])
     @require_auth(Permission.READ_FILES)
     def get_vault_file_api(file_id: str):
-        """Return metadata for a user-owned Vault file."""
+        """Return metadata for a Vault file readable by ownership or explicit sharing."""
+        db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        file_info, error = _api_get_readable_vault_file(
+            file_manager,
+            db_manager,
+            g.api_key_info.user_id,
+            file_id,
+            trust_manager=trust_manager,
+            feed_manager=feed_manager,
+        )
+        if not file_info:
+            status = 404 if error == 'File not found' else 403
+            return jsonify({'error': error or 'File not found or not shared with this key'}), status
+        return jsonify({'success': True, 'file': _api_vault_file_entry(file_info)})
+
+    @api.route('/vault/files/<file_id>/acl', methods=['GET'])
+    @require_auth(Permission.WRITE_FILES)
+    def list_vault_file_access_api(file_id: str):
+        """List explicit recipients for a user-owned Vault file."""
         _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
         if not file_manager:
             return jsonify({'error': 'File manager unavailable'}), 503
-        file_info = _api_get_owned_vault_file(file_manager, g.api_key_info.user_id, file_id)
-        if not file_info:
-            return jsonify({'error': 'File not found in your Vault'}), 404
-        return jsonify({'success': True, 'file': _api_vault_file_entry(file_info)})
+        try:
+            entries = file_manager.list_vault_file_access(file_id, g.api_key_info.user_id)
+            return jsonify({
+                'success': True,
+                'file_id': file_id,
+                'entries': entries,
+                'count': len(entries),
+            })
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as e:
+            logger.error("Vault API ACL list failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/files/<file_id>/acl', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def grant_vault_file_access_api(file_id: str):
+        """Grant another local user or agent explicit read access to a Vault file."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            data = request.get_json(silent=True) or {}
+            entry = file_manager.grant_vault_file_access(
+                file_id,
+                g.api_key_info.user_id,
+                str(data.get('grantee_user_id') or data.get('user_id') or ''),
+                can_read=True if 'can_read' not in data else _as_bool(data.get('can_read')),
+                can_manage=_as_bool(data.get('can_manage')),
+            )
+            entries = file_manager.list_vault_file_access(file_id, g.api_key_info.user_id)
+            return jsonify({
+                'success': True,
+                'file_id': file_id,
+                'grantee': entry,
+                'entries': entries,
+                'count': len(entries),
+                'message': 'Vault file access updated.',
+            })
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as e:
+            logger.error("Vault API ACL grant failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/vault/files/<file_id>/acl/<grantee_user_id>', methods=['DELETE'])
+    @require_auth(Permission.WRITE_FILES)
+    def revoke_vault_file_access_api(file_id: str, grantee_user_id: str):
+        """Revoke one recipient's explicit Vault file access."""
+        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        if not file_manager:
+            return jsonify({'error': 'File manager unavailable'}), 503
+        try:
+            file_manager.revoke_vault_file_access(file_id, g.api_key_info.user_id, grantee_user_id)
+            entries = file_manager.list_vault_file_access(file_id, g.api_key_info.user_id)
+            return jsonify({
+                'success': True,
+                'file_id': file_id,
+                'entries': entries,
+                'count': len(entries),
+                'message': 'Vault file access revoked.',
+            })
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as e:
+            logger.error("Vault API ACL revoke failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/vault/files/<file_id>', methods=['DELETE'])
     @require_auth(Permission.WRITE_FILES)
@@ -11578,14 +11771,22 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/vault/files/<file_id>/content', methods=['GET'])
     @require_auth(Permission.READ_FILES)
     def get_vault_file_content_api(file_id: str):
-        """Return bounded content from a user-owned Vault file."""
-        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        """Return bounded content from a readable Vault file."""
+        db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
         if not file_manager:
             return jsonify({'error': 'File manager unavailable'}), 503
         try:
-            file_info = _api_get_owned_vault_file(file_manager, g.api_key_info.user_id, file_id)
+            file_info, error = _api_get_readable_vault_file(
+                file_manager,
+                db_manager,
+                g.api_key_info.user_id,
+                file_id,
+                trust_manager=trust_manager,
+                feed_manager=feed_manager,
+            )
             if not file_info:
-                return jsonify({'error': 'File not found in your Vault'}), 404
+                status = 404 if error == 'File not found' else 403
+                return jsonify({'error': error or 'File not found or not shared with this key'}), status
             mode = str(request.args.get('mode') or 'text').strip().lower()
             force = str(request.args.get('force') or '').strip().lower() in {'1', 'true', 'yes'}
             offset = _api_int_param(request.args.get('offset'), default=0, minimum=0, maximum=10 * 1024 * 1024 * 1024)
@@ -11706,13 +11907,21 @@ def create_api_blueprint() -> Blueprint:
     @require_auth(Permission.READ_FILES)
     def diff_vault_file_api(file_id: str):
         """Return a unified diff between a Vault text file and proposed content."""
-        _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+        db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
         if not file_manager:
             return jsonify({'error': 'File manager unavailable'}), 503
         try:
-            file_info = _api_get_owned_vault_file(file_manager, g.api_key_info.user_id, file_id)
+            file_info, error = _api_get_readable_vault_file(
+                file_manager,
+                db_manager,
+                g.api_key_info.user_id,
+                file_id,
+                trust_manager=trust_manager,
+                feed_manager=feed_manager,
+            )
             if not file_info:
-                return jsonify({'error': 'File not found in your Vault'}), 404
+                status = 404 if error == 'File not found' else 403
+                return jsonify({'error': error or 'File not found or not shared with this key'}), status
             if not _api_is_textual_file(file_info.original_name, file_info.content_type):
                 return jsonify({'error': 'Diff is available only for text-like Vault files.'}), 415
             if int(getattr(file_info, 'size', 0) or 0) > _API_VAULT_TEXT_REPLACE_BYTES:

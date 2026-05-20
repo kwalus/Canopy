@@ -424,6 +424,23 @@ class FileManager:
                         FOREIGN KEY (parent_id) REFERENCES vault_folders (id) ON DELETE CASCADE,
                         UNIQUE(user_id, parent_id, name)
                     );
+
+                    -- Explicit per-file Vault sharing.  Vault files remain
+                    -- owner-private unless a row here, or content-scoped
+                    -- evidence elsewhere, grants a recipient read access.
+                    CREATE TABLE IF NOT EXISTS vault_file_acl (
+                        file_id TEXT NOT NULL,
+                        grantee_user_id TEXT NOT NULL,
+                        granted_by TEXT NOT NULL,
+                        can_read INTEGER NOT NULL DEFAULT 1,
+                        can_manage INTEGER NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (file_id, grantee_user_id),
+                        FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE CASCADE,
+                        FOREIGN KEY (grantee_user_id) REFERENCES users (id),
+                        FOREIGN KEY (granted_by) REFERENCES users (id)
+                    );
                     
                     -- File access log (optional, for tracking downloads)
                     CREATE TABLE IF NOT EXISTS file_access_log (
@@ -442,6 +459,8 @@ class FileManager:
                     CREATE INDEX IF NOT EXISTS idx_files_content_type ON files(content_type);
                     CREATE INDEX IF NOT EXISTS idx_files_uploaded_at ON files(uploaded_at);
                     CREATE INDEX IF NOT EXISTS idx_vault_folders_user_parent ON vault_folders(user_id, parent_id);
+                    CREATE INDEX IF NOT EXISTS idx_vault_file_acl_grantee ON vault_file_acl(grantee_user_id, file_id);
+                    CREATE INDEX IF NOT EXISTS idx_vault_file_acl_file ON vault_file_acl(file_id);
                     CREATE INDEX IF NOT EXISTS idx_file_access_log_file_id ON file_access_log(file_id);
 
                     -- Remote transfer tracking for large attachments fetched over P2P.
@@ -1444,6 +1463,206 @@ class FileManager:
         except Exception as e:
             logger.error(f"Failed to get file data for {file_id}: {e}", exc_info=True)
             return None
+
+    def _vault_file_acl_entry_from_row(self, row: Any) -> Dict[str, Any]:
+        """Return a JSON-ready Vault file ACL entry from a DB row."""
+        user_id = str(row['grantee_user_id'] or '').strip()
+        username = str((row['username'] if 'username' in row.keys() else '') or '').strip()
+        display_name = str((row['display_name'] if 'display_name' in row.keys() else '') or '').strip()
+        avatar_file_id = str((row['avatar_file_id'] if 'avatar_file_id' in row.keys() else '') or '').strip()
+        account_type = str((row['account_type'] if 'account_type' in row.keys() else '') or '').strip()
+        origin_peer = str((row['origin_peer'] if 'origin_peer' in row.keys() else '') or '').strip()
+        return {
+            'file_id': str(row['file_id'] or '').strip(),
+            'user_id': user_id,
+            'grantee_user_id': user_id,
+            'username': username or user_id,
+            'display_name': display_name or username or user_id,
+            'avatar_url': f"/files/{avatar_file_id}" if avatar_file_id else '',
+            'account_type': account_type,
+            'origin_peer': origin_peer,
+            'is_remote': bool(origin_peer),
+            'can_read': bool(row['can_read']),
+            'can_manage': bool(row['can_manage']),
+            'granted_by': str(row['granted_by'] or '').strip(),
+            'created_at': str(row['created_at'] or ''),
+            'updated_at': str(row['updated_at'] or ''),
+            'missing_local_user': not bool(username or display_name),
+        }
+
+    def _ensure_user_owns_file(self, file_id: str, owner_user_id: str) -> FileInfo:
+        file_info = self.get_file(str(file_id or '').strip())
+        if not file_info or str(file_info.uploaded_by or '') != str(owner_user_id or ''):
+            raise ValueError('File was not found in your Vault.')
+        return file_info
+
+    def list_vault_file_access(self, file_id: str, owner_user_id: str) -> List[Dict[str, Any]]:
+        """List explicit recipients for an owner-managed Vault file."""
+        file_info = self._ensure_user_owns_file(file_id, owner_user_id)
+        try:
+            with self.db.get_connection() as conn:
+                try:
+                    user_columns = {
+                        str(row['name'])
+                        for row in conn.execute("PRAGMA table_info(users)").fetchall()
+                    }
+                except Exception:
+                    user_columns = set()
+                username_expr = "u.username" if "username" in user_columns else "''"
+                display_name_expr = "u.display_name" if "display_name" in user_columns else "''"
+                avatar_expr = "u.avatar_file_id" if "avatar_file_id" in user_columns else "''"
+                account_type_expr = "u.account_type" if "account_type" in user_columns else "'human'"
+                origin_peer_expr = "u.origin_peer" if "origin_peer" in user_columns else "''"
+                display_sort_expr = "u.display_name" if "display_name" in user_columns else "''"
+                username_sort_expr = "u.username" if "username" in user_columns else "''"
+                rows = conn.execute(
+                    f"""
+                    SELECT
+                        a.file_id,
+                        a.grantee_user_id,
+                        a.granted_by,
+                        a.can_read,
+                        a.can_manage,
+                        a.created_at,
+                        a.updated_at,
+                        {username_expr} AS username,
+                        {display_name_expr} AS display_name,
+                        {avatar_expr} AS avatar_file_id,
+                        {account_type_expr} AS account_type,
+                        {origin_peer_expr} AS origin_peer
+                    FROM vault_file_acl a
+                    LEFT JOIN users u ON u.id = a.grantee_user_id
+                    WHERE a.file_id = ?
+                    ORDER BY LOWER(COALESCE(NULLIF({display_sort_expr}, ''), NULLIF({username_sort_expr}, ''), a.grantee_user_id))
+                    """,
+                    (file_info.id,),
+                ).fetchall()
+            return [self._vault_file_acl_entry_from_row(row) for row in rows]
+        except Exception as e:
+            logger.error("Failed to list Vault file access for %s: %s", file_id, e, exc_info=True)
+            raise ValueError('Could not load file access.') from e
+
+    def count_vault_file_access(self, file_id: str, owner_user_id: str) -> int:
+        """Return explicit recipient count for an owner-managed Vault file."""
+        file_info = self._ensure_user_owns_file(file_id, owner_user_id)
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS count FROM vault_file_acl WHERE file_id = ? AND can_read = 1",
+                    (file_info.id,),
+                ).fetchone()
+            return int((row['count'] if row and 'count' in row.keys() else 0) or 0)
+        except Exception:
+            return 0
+
+    def count_vault_file_access_map(self, owner_user_id: str, file_ids: List[str]) -> Dict[str, int]:
+        """Return explicit recipient counts keyed by file ID for owned Vault files."""
+        clean_ids = []
+        for raw in file_ids or []:
+            file_id = str(raw or '').strip()
+            if file_id and file_id not in clean_ids:
+                clean_ids.append(file_id)
+        if not owner_user_id or not clean_ids:
+            return {}
+        try:
+            placeholders = ",".join("?" for _ in clean_ids)
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    f"""
+                    SELECT f.id AS file_id, COUNT(a.grantee_user_id) AS count
+                    FROM files f
+                    LEFT JOIN vault_file_acl a
+                      ON a.file_id = f.id
+                     AND a.can_read = 1
+                    WHERE f.uploaded_by = ?
+                      AND f.id IN ({placeholders})
+                    GROUP BY f.id
+                    """,
+                    [owner_user_id] + clean_ids,
+                ).fetchall()
+            return {str(row['file_id']): int(row['count'] or 0) for row in rows}
+        except Exception as e:
+            logger.debug("Failed to count Vault file ACLs for %s: %s", owner_user_id, e)
+            return {}
+
+    def grant_vault_file_access(
+        self,
+        file_id: str,
+        owner_user_id: str,
+        grantee_user_id: str,
+        *,
+        can_read: bool = True,
+        can_manage: bool = False,
+    ) -> Dict[str, Any]:
+        """Grant or update explicit access to an owner-managed Vault file."""
+        file_info = self._ensure_user_owns_file(file_id, owner_user_id)
+        grantee = str(grantee_user_id or '').strip()
+        if not grantee:
+            raise ValueError('Choose a user or agent to share with.')
+        if grantee == str(owner_user_id or '').strip():
+            raise ValueError('The owner already has full access to this file.')
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            with self.db.get_connection() as conn:
+                user_row = conn.execute(
+                    "SELECT id FROM users WHERE id = ? LIMIT 1",
+                    (grantee,),
+                ).fetchone()
+                if not user_row:
+                    raise ValueError('That local user or agent was not found.')
+                conn.execute(
+                    """
+                    INSERT INTO vault_file_acl (
+                        file_id, grantee_user_id, granted_by, can_read, can_manage, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(file_id, grantee_user_id) DO UPDATE SET
+                        granted_by = excluded.granted_by,
+                        can_read = excluded.can_read,
+                        can_manage = excluded.can_manage,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        file_info.id,
+                        grantee,
+                        str(owner_user_id or '').strip(),
+                        1 if can_read else 0,
+                        1 if can_manage else 0,
+                        now,
+                        now,
+                    ),
+                )
+                conn.commit()
+            entry = next(
+                (item for item in self.list_vault_file_access(file_info.id, owner_user_id) if item.get('user_id') == grantee),
+                None,
+            )
+            if not entry:
+                raise ValueError('File access was saved but could not be reloaded.')
+            return entry
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error("Failed to grant Vault file access for %s: %s", file_id, e, exc_info=True)
+            raise ValueError('Could not grant file access.') from e
+
+    def revoke_vault_file_access(self, file_id: str, owner_user_id: str, grantee_user_id: str) -> bool:
+        """Revoke explicit access from one recipient without changing others."""
+        file_info = self._ensure_user_owns_file(file_id, owner_user_id)
+        grantee = str(grantee_user_id or '').strip()
+        if not grantee:
+            raise ValueError('Recipient user id is required.')
+        try:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    "DELETE FROM vault_file_acl WHERE file_id = ? AND grantee_user_id = ?",
+                    (file_info.id, grantee),
+                )
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error("Failed to revoke Vault file access for %s: %s", file_id, e, exc_info=True)
+            raise ValueError('Could not revoke file access.') from e
     
     def log_file_access(self, file_id: str, accessed_by: str, ip_address: Optional[str] = None,
                        user_agent: Optional[str] = None) -> None:
@@ -1497,6 +1716,7 @@ class FileManager:
             
             # Delete from database (file_access_log references files, so delete it first)
             with self.db.get_connection() as conn:
+                conn.execute("DELETE FROM vault_file_acl WHERE file_id = ?", (file_id,))
                 conn.execute("DELETE FROM file_access_log WHERE file_id = ?", (file_id,))
                 conn.execute("DELETE FROM files WHERE id = ?", (file_id,))
                 conn.commit()

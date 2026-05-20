@@ -4096,6 +4096,9 @@
                     <button type="button"
                             class="dm-reaction-pill${selected}"
                             data-reaction-type="${dmEscapeAttr(reaction.type)}"
+                            data-reaction-roster-trigger="1"
+                            data-reaction-surface="dm_message"
+                            data-item-id="${dmEscapeAttr(messageId)}"
                             onclick="toggleDmReaction(${JSON.stringify(String(messageId))}, ${JSON.stringify(reaction.type)})"
                             title="${dmEscapeAttr(reaction.label)}"
                             aria-label="${dmEscapeAttr(`${reaction.label} reaction, ${count}`)}"
@@ -4174,6 +4177,9 @@
         const pills = strip.querySelector('[data-dm-reaction-pills]');
         if (pills) {
             pills.innerHTML = renderDmReactionPills(messageId, normalizedCounts, normalizedReaction);
+        }
+        if (window.CanopyReactionDetails) {
+            window.CanopyReactionDetails.invalidate('dm_message', messageId);
         }
         strip.querySelectorAll('.dm-reaction-choice').forEach((choice) => {
             const selected = choice.dataset.reactionType === normalizedReaction;

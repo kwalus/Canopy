@@ -631,6 +631,128 @@ class InteractionManager:
         except Exception as e:
             logger.error(f"Failed to batch fetch message interactions: {e}", exc_info=True)
             return result
+
+    def get_reaction_details(self, item_id: str, limit: int = 80) -> Dict[str, Any]:
+        """Return reaction counts plus the users behind each reaction.
+
+        The ``likes`` table is intentionally shared by feed posts, channel
+        messages, and DMs. Callers are responsible for source access checks
+        before exposing this roster.
+        """
+        clean_item_id = str(item_id or '').strip()
+        if not clean_item_id:
+            return {
+                'item_id': '',
+                'total': 0,
+                'counts': {},
+                'groups': [],
+                'recent_reactions': [],
+                'truncated': False,
+            }
+        try:
+            bounded_limit = max(1, min(int(limit or 80), 200))
+        except Exception:
+            bounded_limit = 80
+
+        try:
+            with self.db.get_connection() as conn:
+                count_rows = conn.execute("""
+                    SELECT reaction_type, COUNT(*) AS count
+                    FROM likes
+                    WHERE message_id = ?
+                    GROUP BY reaction_type
+                """, (clean_item_id,)).fetchall()
+                counts = {
+                    str(row['reaction_type'] or InteractionType.LIKE.value): int(row['count'] or 0)
+                    for row in count_rows
+                }
+                total = sum(counts.values())
+
+                try:
+                    user_columns = {
+                        str(row['name'])
+                        for row in conn.execute("PRAGMA table_info(users)").fetchall()
+                    }
+                except Exception:
+                    user_columns = set()
+                username_expr = "u.username" if "username" in user_columns else "''"
+                display_name_expr = "u.display_name" if "display_name" in user_columns else "''"
+                avatar_expr = "u.avatar_file_id" if "avatar_file_id" in user_columns else "''"
+                account_type_expr = "u.account_type" if "account_type" in user_columns else "'human'"
+                origin_peer_expr = "u.origin_peer" if "origin_peer" in user_columns else "''"
+                rows = conn.execute(f"""
+                    SELECT
+                        l.user_id,
+                        l.reaction_type,
+                        l.created_at,
+                        {username_expr} AS username,
+                        {display_name_expr} AS display_name,
+                        {avatar_expr} AS avatar_file_id,
+                        {account_type_expr} AS account_type,
+                        {origin_peer_expr} AS origin_peer
+                    FROM likes l
+                    LEFT JOIN users u ON u.id = l.user_id
+                    WHERE l.message_id = ?
+                    ORDER BY l.created_at DESC
+                    LIMIT ?
+                """, (clean_item_id, bounded_limit)).fetchall()
+
+            groups_by_type: Dict[str, Dict[str, Any]] = {
+                reaction_type: {
+                    'reaction_type': reaction_type,
+                    'count': count,
+                    'reactors': [],
+                }
+                for reaction_type, count in counts.items()
+            }
+            recent_reactions: List[Dict[str, Any]] = []
+            for row in rows:
+                user_id = str(row['user_id'] or '').strip()
+                reaction_type = str(row['reaction_type'] or InteractionType.LIKE.value).strip() or InteractionType.LIKE.value
+                username = str(row['username'] or '').strip()
+                display_name = str(row['display_name'] or '').strip() or username or user_id
+                avatar_file_id = str(row['avatar_file_id'] or '').strip()
+                actor = {
+                    'user_id': user_id,
+                    'username': username or user_id,
+                    'display_name': display_name,
+                    'avatar_url': f"/files/{avatar_file_id}" if avatar_file_id else '',
+                    'account_type': str(row['account_type'] or 'human').strip().lower() or 'human',
+                    'origin_peer': str(row['origin_peer'] or '').strip(),
+                    'reaction_type': reaction_type,
+                    'created_at': str(row['created_at'] or '').strip(),
+                }
+                groups_by_type.setdefault(reaction_type, {
+                    'reaction_type': reaction_type,
+                    'count': counts.get(reaction_type, 0),
+                    'reactors': [],
+                })['reactors'].append(actor)
+                recent_reactions.append(actor)
+
+            groups = sorted(
+                groups_by_type.values(),
+                key=lambda group: (-int(group.get('count') or 0), str(group.get('reaction_type') or '')),
+            )
+            return {
+                'item_id': clean_item_id,
+                'total': total,
+                'counts': counts,
+                'groups': groups,
+                'recent_reactions': recent_reactions,
+                'truncated': total > len(recent_reactions),
+                'limit': bounded_limit,
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch reaction details for {clean_item_id}: {e}", exc_info=True)
+            return {
+                'item_id': clean_item_id,
+                'total': 0,
+                'counts': {},
+                'groups': [],
+                'recent_reactions': [],
+                'truncated': False,
+                'limit': bounded_limit,
+            }
     
     @log_performance('interactions')
     def get_message_comments(self, message_id: str, limit: int = 50) -> List[Comment]:

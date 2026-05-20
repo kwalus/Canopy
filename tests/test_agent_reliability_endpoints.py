@@ -539,6 +539,7 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         self.assertIn('hundred', reactions.get('standard_reaction_keys') or [])
         self.assertIn('idk', reactions.get('standard_reaction_keys') or [])
         self.assertEqual((reactions.get('endpoints') or {}).get('direct_message', {}).get('path'), '/api/v1/messages/<message_id>/like')
+        self.assertEqual((reactions.get('endpoints') or {}).get('details', {}).get('path'), '/api/v1/reactions/<item_type>/<item_id>')
         self.assertEqual((reactions.get('endpoints') or {}).get('list_custom_emojis', {}).get('path'), '/api/v1/custom-emojis')
         self.assertIn('custom:<slug>', reactions.get('custom_reactions') or '')
 

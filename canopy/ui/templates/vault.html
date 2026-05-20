@@ -425,6 +425,29 @@
         background:
             radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--canopy-secondary) 16%, transparent), transparent 34%),
             color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
+        transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease, background 0.16s ease;
+    }
+    .vault-digestion-card[draggable="true"] {
+        cursor: grab;
+    }
+    .vault-digestion-card.is-dragging {
+        opacity: 0.72;
+        transform: scale(0.995);
+        cursor: grabbing;
+    }
+    .vault-digestion-card.is-drag-over {
+        border-color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-border));
+        box-shadow:
+            0 0 0 3px color-mix(in srgb, var(--canopy-primary) 20%, transparent),
+            0 22px 56px color-mix(in srgb, var(--canopy-shadow) 72%, transparent);
+        background:
+            radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--canopy-primary) 22%, transparent), transparent 38%),
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-success) 10%, transparent), transparent),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 86%, transparent);
+    }
+    .vault-digestion-card.is-drop-busy {
+        pointer-events: none;
+        opacity: 0.82;
     }
     .vault-digestion-card-title {
         color: var(--canopy-text-primary);
@@ -462,12 +485,54 @@
         text-overflow: ellipsis;
         white-space: nowrap;
     }
-    .vault-digestion-actions {
+    .vault-digestion-drop-hint {
         display: flex;
-        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.42rem;
+        margin-top: 0.62rem;
+        padding: 0.46rem 0.58rem;
+        border: 1px dashed color-mix(in srgb, var(--canopy-primary) 36%, var(--canopy-border));
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--canopy-primary) 8%, transparent);
+        color: var(--canopy-text-secondary);
+        font-size: 0.75rem;
+        line-height: 1.28;
+    }
+    .vault-digestion-drop-hint i {
+        flex: 0 0 auto;
+        color: var(--canopy-primary);
+    }
+    .vault-digestion-card.is-drag-over .vault-digestion-drop-hint {
+        border-color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-success) 16%, transparent);
+        color: var(--canopy-text-primary);
+    }
+    .vault-digestion-actions {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(8.2rem, 1fr));
         gap: 0.45rem;
         margin-top: 0.75rem;
+        align-items: stretch;
+    }
+    .vault-digestion-actions .vault-digestion-btn {
+        display: inline-flex;
         align-items: center;
+        justify-content: center;
+        gap: 0.34rem;
+        min-width: 0;
+        min-height: 2.18rem;
+        border-radius: 13px;
+        padding-inline: 0.7rem;
+        font-weight: 820;
+        line-height: 1.12;
+        white-space: normal;
+        text-align: center;
+    }
+    .vault-digestion-actions .vault-digestion-btn i {
+        flex: 0 0 auto;
+    }
+    .vault-digestion-actions .vault-digestion-btn.is-primary {
+        box-shadow: 0 10px 24px color-mix(in srgb, var(--canopy-primary) 24%, transparent);
     }
     .vault-digestion-progress {
         display: none;
@@ -637,7 +702,7 @@
     }
     .vault-digestion-acl-row {
         display: grid;
-        grid-template-columns: minmax(160px, 1.1fr) minmax(180px, 1.2fr) auto;
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) auto;
         gap: 0.55rem;
         align-items: center;
         padding: 0.55rem;
@@ -822,6 +887,248 @@
         font-size: 0.78rem;
         font-weight: 750;
     }
+    .vault-share-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 1.35rem;
+        height: 1.35rem;
+        margin-left: 0.28rem;
+        padding: 0 0.32rem;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canopy-success) 24%, transparent);
+        color: var(--canopy-text-primary);
+        border: 1px solid color-mix(in srgb, var(--canopy-success) 44%, transparent);
+        font-size: 0.68rem;
+        font-weight: 900;
+        line-height: 1;
+    }
+    .vault-file-share {
+        grid-column: 1 / -1;
+        display: none;
+        gap: 0.55rem;
+        margin: 0 0.9rem 0.85rem;
+        padding: 0.75rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-success) 30%, var(--canopy-border));
+        border-radius: 16px;
+        background:
+            radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--canopy-success) 14%, transparent), transparent 42%),
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-secondary) 9%, transparent), transparent),
+            color-mix(in srgb, var(--canopy-bg-card) 90%, transparent);
+        box-shadow: 0 18px 42px color-mix(in srgb, var(--canopy-shadow) 62%, transparent);
+    }
+    .vault-file-share.is-visible {
+        display: grid;
+    }
+    .vault-file-share-copy {
+        color: var(--canopy-text-secondary);
+        font-size: 0.78rem;
+        line-height: 1.35;
+    }
+    .vault-file-share-current {
+        display: grid;
+        gap: 0.45rem;
+        padding: 0.6rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-success) 22%, var(--canopy-border));
+        border-radius: 14px;
+        background:
+            radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--canopy-success) 12%, transparent), transparent 36%),
+            color-mix(in srgb, var(--canopy-bg-secondary) 78%, transparent);
+    }
+    .vault-file-share-current-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        color: var(--canopy-text-primary);
+        font-size: 0.76rem;
+        font-weight: 850;
+        letter-spacing: 0.02em;
+    }
+    .vault-file-share-current-head span:last-child {
+        color: var(--canopy-text-muted);
+        font-weight: 750;
+    }
+    .vault-file-share-list {
+        display: grid;
+        gap: 0.42rem;
+        max-height: 17rem;
+        overflow: auto;
+        padding-right: 0.12rem;
+    }
+    .vault-file-acl-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.55rem;
+        align-items: center;
+        padding: 0.55rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--canopy-bg-card) 78%, transparent);
+    }
+    .vault-file-acl-person {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+    }
+    .vault-file-acl-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+    .vault-file-acl-perm,
+    .vault-file-acl-warning {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        border-radius: 999px;
+        padding: 0.18rem 0.5rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-success) 28%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-success) 12%, transparent);
+        color: var(--canopy-text-secondary);
+        font-size: 0.72rem;
+        font-weight: 820;
+    }
+    .vault-file-acl-warning {
+        border-color: color-mix(in srgb, var(--canopy-warning) 38%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-warning) 14%, transparent);
+        color: var(--canopy-warning);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .vault-file-share-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.45rem;
+        align-items: start;
+    }
+    .vault-file-share-search {
+        position: relative;
+        min-width: 0;
+    }
+    .vault-file-share-search .form-control {
+        border-radius: 12px;
+        border-color: color-mix(in srgb, var(--canopy-success) 28%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-bg-card) 90%, transparent);
+        color: var(--canopy-text-primary);
+    }
+    .vault-file-share-results {
+        position: absolute;
+        z-index: 70;
+        top: calc(100% + 0.35rem);
+        left: 0;
+        right: 0;
+        max-height: 280px;
+        overflow: auto;
+        border: 1px solid var(--canopy-border);
+        border-radius: 14px;
+        padding: 0.35rem;
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 96%, black);
+        box-shadow: 0 18px 40px var(--canopy-shadow);
+    }
+    .vault-file-share-empty {
+        padding: 0.55rem 0.65rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.8rem;
+    }
+    .vault-file-share-user {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 0.5rem;
+        align-items: center;
+        width: 100%;
+        border: 0;
+        border-radius: 12px;
+        padding: 0.45rem;
+        background: transparent;
+        color: var(--canopy-text-primary);
+        text-align: left;
+    }
+    .vault-file-share-user:hover,
+    .vault-file-share-user:focus,
+    .vault-file-share-user.is-active {
+        background: color-mix(in srgb, var(--canopy-primary) 16%, transparent);
+        outline: none;
+    }
+    .vault-file-share-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: var(--canopy-gradient-primary);
+        color: white;
+        font-size: 0.76rem;
+        font-weight: 850;
+    }
+    .vault-file-share-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .vault-file-share-user-copy {
+        min-width: 0;
+        display: grid;
+        gap: 0.05rem;
+    }
+    .vault-file-share-user-copy strong,
+    .vault-file-share-user-copy small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .vault-file-share-user-copy small,
+    .vault-file-share-selected small {
+        color: var(--canopy-text-muted);
+    }
+    .vault-file-share-selected {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        width: fit-content;
+        max-width: 100%;
+        padding: 0.35rem 0.55rem;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canopy-success) 16%, transparent);
+        color: var(--canopy-text-primary);
+        font-size: 0.78rem;
+    }
+    .vault-file-share-selected span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .vault-file-share-selected button {
+        border: 0;
+        background: transparent;
+        color: inherit;
+        padding: 0;
+        line-height: 1;
+        opacity: 0.72;
+    }
+    .vault-file-share-selected button:hover,
+    .vault-file-share-selected button:focus {
+        opacity: 1;
+        outline: none;
+    }
+    .vault-file-share-selected button:focus-visible {
+        opacity: 1;
+        outline: 2px solid var(--canopy-primary);
+        outline-offset: 2px;
+        border-radius: 4px;
+    }
+    .vault-file-share-status {
+        min-height: 1rem;
+        font-size: 0.78rem;
+        font-weight: 750;
+    }
     .vault-digestion-query {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -880,6 +1187,14 @@
         border-color: var(--canopy-border);
         background: color-mix(in srgb, var(--canopy-bg-card) 86%, transparent);
         color: var(--canopy-text-primary);
+    }
+    .vault-digestion-query .btn,
+    .vault-digestion-create .btn,
+    .vault-digestion-share .btn,
+    .vault-digestion-options .btn {
+        border-radius: 12px;
+        min-height: 2.12rem;
+        font-weight: 800;
     }
     .vault-digestion-create {
         display: none;
@@ -1567,11 +1882,14 @@
 	        .vault-digestion-create,
 	        .vault-digestion-query,
 	        .vault-digestion-share-row,
+            .vault-file-share-row,
             .vault-digestion-acl-row,
+            .vault-file-acl-row,
             .vault-digestion-options-grid {
 		        grid-template-columns: 1fr;
 	        }
-        .vault-digestion-acl-actions {
+        .vault-digestion-acl-actions,
+        .vault-file-acl-actions {
             justify-content: flex-start;
         }
 	    }

@@ -7162,6 +7162,10 @@
                     <button type="button"
                             class="reaction-summary-pill${isSelected ? ' is-selected' : ''}"
                             onclick="toggleLike(${reactionInlineArg(itemId)}, ${reactionInlineArg(type)})"
+                            data-reaction-roster-trigger="1"
+                            data-reaction-surface="feed_post"
+                            data-item-id="${reactionEscapeAttr(itemId)}"
+                            data-reaction-type="${reactionEscapeAttr(type)}"
                             title="${reactionEscapeAttr(reaction.label)}"
                             aria-label="${reactionEscapeAttr(`${reaction.label} reaction, ${count}`)}"
                             aria-pressed="${isSelected ? 'true' : 'false'}">
@@ -7325,6 +7329,9 @@
                 choice.setAttribute('aria-pressed', selected ? 'true' : 'false');
             });
             updateReactionSummary(control, counts, liked ? reactionKey : '');
+            if (window.CanopyReactionDetails) {
+                window.CanopyReactionDetails.invalidate('feed_post', postId);
+            }
         }
         
         if (liked) {

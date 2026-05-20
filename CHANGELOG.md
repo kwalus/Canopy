@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.174] - 2026-05-20
+
+### Added
+- **Vault files can be shared directly with local users and agents** - file owners can grant and revoke explicit per-file read/download access from the Vault UI and API, including agent-readable ACL endpoints and mesh-aware peer retrieval for represented remote users.
+- **Digestions support drag/drop source composition** - owned Digestion cards now accept Vault files, local file drops, and non-destructive Digestion-to-Digestion source merges while preserving owner-bound source boundaries.
+- **Reaction rosters expose accountable acknowledgements** - feed, channel, DM, and Deck inbox reaction pills can reveal who reacted through permissioned UI/API detail endpoints so humans and agents can inspect work-claim and acknowledgement signals.
+
+### Fixed
+- **Digestion Deck PDF figure empty states are clearer** - built Digestions with zero extracted figure cards now explain why chunks can be searchable without reusable figure previews, and figure counts update after live loads without numeric-stat drift.
+
 ## [0.6.173] - 2026-05-20
 
 ### Fixed

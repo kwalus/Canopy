@@ -2160,6 +2160,27 @@ def create_ui_blueprint() -> Blueprint:
         }
         return entry
 
+    def _annotate_vault_file_access_counts(
+        file_manager: Any,
+        owner_user_id: str,
+        entries: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not file_manager or not entries:
+            return entries
+        try:
+            counts = file_manager.count_vault_file_access_map(
+                owner_user_id,
+                [str(entry.get('id') or '') for entry in entries],
+            )
+        except Exception:
+            counts = {}
+        for entry in entries:
+            count = int(counts.get(str(entry.get('id') or ''), 0) or 0)
+            entry['shared_count'] = count
+            entry['access_count'] = count
+            entry['is_shared'] = count > 0
+        return entries
+
     def _vault_folder_to_entry(folder: Any) -> dict[str, Any]:
         created_at = getattr(folder, 'created_at', None)
         updated_at = getattr(folder, 'updated_at', None)
@@ -3448,7 +3469,7 @@ def create_ui_blueprint() -> Blueprint:
         if source_type == 'direct_message':
             with db_manager.get_connection() as conn:
                 row = conn.execute(
-                    "SELECT sender_id, recipient_id FROM messages WHERE id = ?",
+                    "SELECT sender_id, recipient_id, metadata FROM messages WHERE id = ?",
                     (source_id,)
                 ).fetchone()
                 if not row:
@@ -3459,7 +3480,14 @@ def create_ui_blueprint() -> Blueprint:
                     return True
                 if recipient_id is None:
                     return True
-                return bool(recipient_id == user_id)
+                if recipient_id == user_id:
+                    return True
+                try:
+                    meta = json.loads(row['metadata'] or '{}') if row['metadata'] else {}
+                except Exception:
+                    meta = {}
+                group_members = meta.get('group_members') if isinstance(meta, dict) else None
+                return bool(isinstance(group_members, list) and user_id in {str(member) for member in group_members})
         return False
 
     def _ctx_resolve_source_payload(
@@ -6567,10 +6595,10 @@ def create_ui_blueprint() -> Blueprint:
             digestion_manager = current_app.config.get('DIGESTION_MANAGER')
             user_id = get_current_user()
             current_folder_id = ''
-            initial_files = [
+            initial_files = _annotate_vault_file_access_counts(file_manager, user_id, [
                 _file_info_to_vault_entry(info)
                 for info in file_manager.list_user_files(user_id, limit=48, folder_id=current_folder_id)
-            ] if file_manager else []
+            ]) if file_manager else []
             initial_folders = [
                 _vault_folder_to_entry(folder)
                 for folder in file_manager.list_user_folders(user_id, current_folder_id)
@@ -6607,7 +6635,7 @@ def create_ui_blueprint() -> Blueprint:
             folder_id = str(request.args.get('folder_id') or '').strip()
             if folder_id and not file_manager.get_user_folder(user_id, folder_id):
                 return jsonify({'success': False, 'error': 'Folder not found'}), 404
-            files = [
+            files = _annotate_vault_file_access_counts(file_manager, user_id, [
                 _file_info_to_vault_entry(info)
                 for info in file_manager.list_user_files(
                     user_id,
@@ -6617,7 +6645,7 @@ def create_ui_blueprint() -> Blueprint:
                     category=category,
                     folder_id=folder_id,
                 )
-            ]
+            ])
             folders = [] if query else [
                 _vault_folder_to_entry(folder)
                 for folder in file_manager.list_user_folders(user_id, folder_id)
@@ -6637,6 +6665,84 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Vault list error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/vault/files/<file_id>/acl', methods=['GET'])
+    @require_login
+    def ajax_vault_file_list_access(file_id: str):
+        """List explicit recipients for a current-user Vault file."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            entries = file_manager.list_vault_file_access(file_id, user_id)
+            return jsonify({
+                'success': True,
+                'file_id': file_id,
+                'entries': entries,
+                'count': len(entries),
+            })
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 404
+        except Exception as e:
+            logger.error("Vault file ACL list error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load file access'}), 500
+
+    @ui.route('/ajax/vault/files/<file_id>/acl', methods=['POST'])
+    @require_login
+    def ajax_vault_file_grant_access(file_id: str):
+        """Grant another local user or agent read access to a Vault file."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            data = request.get_json(silent=True) or {}
+            entry = file_manager.grant_vault_file_access(
+                file_id,
+                user_id,
+                str(data.get('grantee_user_id') or data.get('user_id') or ''),
+                can_read=True if 'can_read' not in data else _ui_as_bool(data.get('can_read')),
+                can_manage=_ui_as_bool(data.get('can_manage')),
+            )
+            entries = file_manager.list_vault_file_access(file_id, user_id)
+            return jsonify({
+                'success': True,
+                'file_id': file_id,
+                'grantee': entry,
+                'entries': entries,
+                'count': len(entries),
+                'message': 'Vault file access updated.',
+            })
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        except Exception as e:
+            logger.error("Vault file ACL grant error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not grant file access'}), 500
+
+    @ui.route('/ajax/vault/files/<file_id>/acl/<grantee_user_id>', methods=['DELETE'])
+    @require_login
+    def ajax_vault_file_revoke_access(file_id: str, grantee_user_id: str):
+        """Revoke one recipient's explicit Vault file access."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            file_manager.revoke_vault_file_access(file_id, user_id, grantee_user_id)
+            entries = file_manager.list_vault_file_access(file_id, user_id)
+            return jsonify({
+                'success': True,
+                'file_id': file_id,
+                'entries': entries,
+                'count': len(entries),
+                'message': 'Vault file access revoked.',
+            })
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        except Exception as e:
+            logger.error("Vault file ACL revoke error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not revoke file access'}), 500
 
     def _ajax_digestion_error(exc: DigestionError):
         return jsonify({
@@ -6745,6 +6851,50 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error("Digestion UI progress error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not load Digestion progress'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/sources', methods=['POST'])
+    @require_login
+    def ajax_add_digestion_sources(digestion_id: str):
+        """Add current user's Vault files to an existing Digestion."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        source_file_ids = data.get('source_file_ids') or data.get('file_ids') or data.get('file_id') or []
+        if isinstance(source_file_ids, str):
+            source_file_ids = [source_file_ids]
+        try:
+            return jsonify(manager.add_sources(
+                digestion_id,
+                get_current_user(),
+                source_file_ids if isinstance(source_file_ids, list) else [],
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI add sources error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not add files to Digestion'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/merge', methods=['POST'])
+    @require_login
+    def ajax_merge_digestion_sources(digestion_id: str):
+        """Copy source references from one Digestion into another."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        source_digestion_id = data.get('source_digestion_id') or data.get('from_digestion_id') or data.get('digestion_id')
+        try:
+            return jsonify(manager.merge_sources_from_digestion(
+                digestion_id,
+                source_digestion_id,
+                get_current_user(),
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI merge sources error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not merge Digestion sources'}), 500
 
     @ui.route('/ajax/digestions/<digestion_id>/materials', methods=['POST'])
     @require_login
@@ -23197,7 +23347,41 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Thumbnail serving error: {e}")
             return jsonify({'error': 'Internal server error'}), 500
 
+    def _normalize_reaction_item_type(raw_type: Any) -> Optional[str]:
+        value = str(raw_type or '').strip().lower()
+        if value in {'post', 'feed', 'feed_post'}:
+            return 'feed_post'
+        if value in {'message', 'channel', 'channel_message'}:
+            return 'channel_message'
+        if value in {'dm', 'dm_message', 'direct_message'}:
+            return 'direct_message'
+        return None
+
     # Like/Comment endpoints
+    @ui.route('/ajax/reactions/<item_type>/<item_id>', methods=['GET'])
+    @require_login
+    def ajax_reaction_details(item_type: str, item_id: str):
+        """Return the visible user roster behind reaction counts."""
+        try:
+            db_manager, _, _, _, _, _, feed_manager, interaction_manager, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            source_type = _normalize_reaction_item_type(item_type)
+            clean_item_id = str(item_id or '').strip()
+            if not source_type or not clean_item_id:
+                return jsonify({'error': 'Unsupported reaction item type'}), 400
+            if not _ctx_can_access_source(db_manager, feed_manager, user_id, source_type, clean_item_id):
+                return jsonify({'error': 'Access denied'}), 403
+            try:
+                limit = int(request.args.get('limit') or 80)
+            except Exception:
+                limit = 80
+            details = interaction_manager.get_reaction_details(clean_item_id, limit=limit)
+            details['item_type'] = source_type
+            return jsonify({'success': True, 'reactions': details})
+        except Exception as e:
+            logger.error(f"Reaction details error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/toggle_like', methods=['POST'])
     @require_login
     def ajax_toggle_like():

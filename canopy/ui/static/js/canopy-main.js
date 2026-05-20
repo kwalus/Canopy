@@ -1073,6 +1073,7 @@
             const VAULT_VIEW_STORAGE_KEY = 'canopy:vault:viewMode';
             const VAULT_VIEW_MODES = new Set(['list', 'icons', 'preview']);
             const VAULT_FILE_DRAG_TYPE = 'application/x-canopy-vault-file-id';
+            const VAULT_DIGESTION_DRAG_TYPE = 'application/x-canopy-digestion-id';
 
             function vaultUrls() {
                 const urls = (global.CANOPY_VARS && global.CANOPY_VARS.urls) || {};
@@ -1805,6 +1806,11 @@
 	                const isInFolder = !!String(file.folder_id || '').trim();
 	                const previewable = isVaultInlinePreviewable(file);
 	                const actionLabel = previewable ? 'Preview' : 'Open';
+	                const sharedCount = Math.max(0, Number(file.shared_count || file.access_count || 0));
+	                const sharedLabel = `${sharedCount} recipient${sharedCount === 1 ? '' : 's'}`;
+	                const shareBadge = sharedCount
+	                    ? `<span class="vault-share-count" aria-label="${vaultEscape(sharedLabel)}">${sharedCount > 99 ? '99+' : vaultEscape(sharedCount)}</span>`
+	                    : '';
 	                return `
 	                    <article class="vault-card${selected ? ' is-selected' : ''}" data-vault-file-id="${id}" data-vault-open-url="${url}" data-vault-previewable="${previewable ? 'true' : 'false'}" draggable="true" role="button" tabindex="0" aria-label="${actionLabel} ${name}">
 	                        <label class="vault-select-wrap" title="Select ${name}" aria-label="Select ${name}">
@@ -1827,6 +1833,9 @@
 	                            <a class="btn btn-sm btn-outline-secondary" href="${url}" target="_blank" rel="noopener" title="Open ${name} in a new tab">
 	                                <i class="bi bi-box-arrow-up-right"></i> <span>New tab</span>
 	                            </a>
+	                            <button class="btn btn-sm btn-outline-success" type="button" data-vault-action="share" data-vault-id="${id}" aria-expanded="false" title="Share ${name} with a local user or agent">
+	                                <i class="bi bi-person-plus"></i> <span>Share</span>${shareBadge}
+	                            </button>
                             ${isInFolder ? `
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-action="move-root" data-vault-id="${id}">
                                     <i class="bi bi-house-door"></i> <span>Move Home</span>
@@ -1836,6 +1845,36 @@
                                 <i class="bi bi-trash"></i>
                             </button>
                         </div>
+	                        <form class="vault-file-share" data-vault-file-share="${id}" hidden>
+	                            <div class="vault-file-share-copy">
+	                                Share this Vault file with a local user or agent. Grants are additive, owner-controlled, and let recipients read/download the file without reposting it.
+	                            </div>
+	                            <div class="vault-file-share-current">
+	                                <div class="vault-file-share-current-head">
+	                                    <span><i class="bi bi-people"></i> Current file access</span>
+	                                    <span data-vault-file-share-count="${id}">${sharedCount ? vaultEscape(sharedLabel) : 'Open to refresh'}</span>
+	                                </div>
+	                                <div class="vault-file-share-list" data-vault-file-share-list="${id}">
+	                                    <div class="vault-file-share-empty">Open Share to load recipients.</div>
+	                                </div>
+	                            </div>
+	                            <div class="vault-file-share-row">
+	                                <div class="vault-file-share-search">
+	                                    <input class="form-control form-control-sm" type="search" role="combobox" autocomplete="off"
+	                                           data-vault-file-share-search="${id}"
+	                                           aria-controls="vault-file-share-results-${id}"
+	                                           aria-expanded="false"
+	                                           placeholder="Search @agent or user"
+	                                           aria-label="Search local user or agent to share ${name}">
+	                                    <div class="vault-file-share-results" id="vault-file-share-results-${id}" data-vault-file-share-results="${id}" hidden></div>
+	                                </div>
+	                                <button class="btn btn-sm btn-success" type="submit" data-vault-file-share-submit="${id}" disabled>
+	                                    <i class="bi bi-unlock"></i> Grant access
+	                                </button>
+	                            </div>
+	                            <div class="vault-file-share-selected" data-vault-file-share-selected="${id}" hidden></div>
+	                            <div class="vault-file-share-status" data-vault-file-share-status="${id}" aria-live="polite"></div>
+	                        </form>
                     </article>
                 `;
             }
@@ -1870,6 +1909,10 @@
 				                    shareUsers: new Map(),
 				                    shareAcl: new Map(),
 				                    shareActiveIndex: new Map(),
+				                    fileShareTimers: new Map(),
+				                    fileShareUsers: new Map(),
+				                    fileShareAcl: new Map(),
+				                    fileShareActiveIndex: new Map(),
 	                                digestionProgressTimers: new Map(),
 				                    previewFileId: ''
 	                };
@@ -2278,6 +2321,21 @@
                     return types.includes(VAULT_FILE_DRAG_TYPE);
                 }
 
+                function isVaultDigestionDragEvent(event) {
+                    const types = Array.from((event && event.dataTransfer && event.dataTransfer.types) || []);
+                    return types.includes(VAULT_DIGESTION_DRAG_TYPE);
+                }
+
+                function vaultFileIdFromDataTransfer(dataTransfer) {
+                    if (!dataTransfer) return '';
+                    return String(dataTransfer.getData(VAULT_FILE_DRAG_TYPE) || dataTransfer.getData('text/plain') || '').trim();
+                }
+
+                function digestionIdFromDataTransfer(dataTransfer) {
+                    if (!dataTransfer) return '';
+                    return String(dataTransfer.getData(VAULT_DIGESTION_DRAG_TYPE) || '').trim();
+                }
+
                 function findDigestion(digestionId) {
                     const wanted = String(digestionId || '');
                     return state.digestions.find(item => String(item.id || '') === wanted) || null;
@@ -2448,6 +2506,7 @@
 		                    const stats = digestionStats(digestion);
 		                    const access = digestion.access || {};
 	                    const canManage = !!access.can_manage;
+                    const canDropSources = canManage && String(access.role || '') === 'owner';
                     const canReadSources = !!access.can_read_sources;
 		                    const chunks = Number(stats.chunks || 0);
 		                    const tokens = Number(stats.token_estimate || 0);
@@ -2489,7 +2548,7 @@
                     const maxChunksDefault = defaultDatapointMaxChunks(digestion);
                     const maxDatapointsDefault = Math.min(400, Math.max(50, maxChunksDefault * 4));
                     return `
-                        <article class="vault-digestion-card" data-vault-digestion-id="${id}">
+                        <article class="vault-digestion-card" data-vault-digestion-id="${id}" data-vault-digestion-can-manage="${canManage ? 'true' : 'false'}" data-vault-digestion-can-drop="${canDropSources ? 'true' : 'false'}" draggable="${canDropSources ? 'true' : 'false'}" aria-label="Digestion ${name}. ${canDropSources ? 'Drop Vault files or another Digestion here to expand it.' : 'Read-only or shared Digestion.'}">
                             <div class="vault-digestion-card-title">${name}</div>
                             ${purpose ? `<div class="small text-muted mt-1">${purpose}</div>` : ''}
 	                            <div class="vault-digestion-meta">
@@ -2504,33 +2563,39 @@
 		                                ${ragNoChunks && hasBeenBuilt ? `<span class="vault-digestion-pill text-warning" title="No indexed chunks available. Run Build/Rebuild to index sources."><i class="bi bi-exclamation-triangle"></i>No chunks - build first</span>` : ''}
 	                                ${canManage && !canReadSources ? `<span class="vault-digestion-pill text-warning" title="Source-read access is required for Extract datapoints."><i class="bi bi-shield-exclamation"></i>No source-read access</span>` : ''}
                             </div>
+                            ${canDropSources ? `
+                            <div class="vault-digestion-drop-hint" data-vault-digestion-drop-hint="${id}">
+                                <i class="bi bi-plus-square-dotted"></i>
+                                <span>Drop Vault files or local files to add sources. Drop another Digestion to merge sources.</span>
+                            </div>
+                            ` : ''}
                             <div class="vault-digestion-actions">
-                                <button class="btn btn-sm btn-outline-light" type="button" data-vault-digestion-action="open-deck" data-vault-digestion-id="${id}" aria-label="Open ${name} in Canopy Deck" title="Open this Digestion in a larger Deck workspace for search, datapoint charts, and management.">
+                                <button class="btn btn-sm btn-outline-light vault-digestion-btn" type="button" data-vault-digestion-action="open-deck" data-vault-digestion-id="${id}" aria-label="Open ${name} in Canopy Deck" title="Open this Digestion in a larger Deck workspace for search, datapoint charts, and management.">
                                     <i class="bi bi-window-sidebar"></i> Deck
                                 </button>
-                                <button class="btn btn-sm btn-primary" type="button" data-vault-digestion-action="build" data-vault-digestion-id="${id}" aria-label="${buildLabel} ${name}" title="${buildTitle}">
+                                <button class="btn btn-sm btn-primary vault-digestion-btn is-primary" type="button" data-vault-digestion-action="build" data-vault-digestion-id="${id}" aria-label="${buildLabel} ${name}" title="${buildTitle}">
                                     <i class="bi bi-hammer"></i> ${buildLabel}
                                 </button>
-                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="outputs" data-vault-digestion-id="${id}" aria-label="View outputs for ${name}">
+                                <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="outputs" data-vault-digestion-id="${id}" aria-label="View outputs for ${name}">
                                     <i class="bi bi-journal-richtext"></i> Outputs
                                 </button>
 	                                ${canManage ? `
-	                                <button class="btn btn-sm btn-outline-info" type="button" data-vault-digestion-action="extract-datapoints" data-vault-digestion-id="${id}" aria-label="Extract structured datapoints for ${name}" title="${extractTitle}" ${extractDisabled ? 'disabled' : ''}>
+	                                <button class="btn btn-sm btn-outline-info vault-digestion-btn" type="button" data-vault-digestion-action="extract-datapoints" data-vault-digestion-id="${id}" aria-label="Extract structured datapoints for ${name}" title="${extractTitle}" ${extractDisabled ? 'disabled' : ''}>
 	                                    <i class="bi bi-grid-3x3-gap"></i> Extract datapoints
 	                                </button>
-                                    <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="extract-options" data-vault-digestion-id="${id}" aria-label="Tune extraction scope for ${name}" title="Set extraction depth, maximum records, and the datapoint lens before running.">
+                                    <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="extract-options" data-vault-digestion-id="${id}" aria-label="Tune extraction scope for ${name}" title="Set extraction depth, maximum records, and the datapoint lens before running.">
                                         <i class="bi bi-sliders"></i> Tune
                                     </button>
 	                                ` : ''}
-	                                <button class="btn btn-sm btn-outline-primary" type="button" data-vault-digestion-action="export-package" data-vault-digestion-id="${id}" aria-label="Export package for ${name}" title="Export a static snapshot of this Digestion to your Vault. Use Share access to let a recipient query the live index instead.">
+	                                <button class="btn btn-sm btn-outline-primary vault-digestion-btn" type="button" data-vault-digestion-action="export-package" data-vault-digestion-id="${id}" aria-label="Export package for ${name}" title="Export a static snapshot of this Digestion to your Vault. Use Share access to let a recipient query the live index instead.">
 	                                    <i class="bi bi-box-arrow-up-right"></i> Package
 	                                </button>
 	                                ${canManage ? `
-	                                <button class="btn btn-sm btn-outline-success" type="button" data-vault-digestion-action="share-access" data-vault-digestion-id="${id}" aria-label="Share live query access for ${name}" aria-expanded="false">
+	                                <button class="btn btn-sm btn-outline-success vault-digestion-btn" type="button" data-vault-digestion-action="share-access" data-vault-digestion-id="${id}" aria-label="Share live query access for ${name}" aria-expanded="false">
 	                                    <i class="bi bi-person-check"></i> Share access
 	                                </button>
 	                                ` : ''}
-	                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="copy-agent-ref" data-vault-digestion-id="${id}" aria-label="Copy agent reference for ${name}">
+	                                <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="copy-agent-ref" data-vault-digestion-id="${id}" aria-label="Copy agent reference for ${name}">
 	                                    <i class="bi bi-clipboard"></i> Agent ref
 	                                </button>
 	                            </div>
@@ -2786,6 +2851,131 @@
                         if (typeof showAlert === 'function') showAlert(error.error || 'Could not create Digestion.', 'danger');
                     } finally {
                         if (selectionDigest) selectionDigest.disabled = selectedVaultFiles().length === 0;
+                    }
+                }
+
+                function digestionCanManage(digestionId) {
+                    const digestion = findDigestion(digestionId);
+                    return !!(digestion && digestion.access && digestion.access.can_manage);
+                }
+
+                function digestionCanAcceptDroppedSources(digestionId) {
+                    const digestion = findDigestion(digestionId);
+                    return !!(digestion && digestion.access && digestion.access.can_manage && String(digestion.access.role || '') === 'owner');
+                }
+
+                function setDigestionDropBusy(digestionId, busy) {
+                    const card = digestionList && digestionList.querySelector(`[data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
+                    if (!card) return;
+                    card.classList.toggle('is-drop-busy', !!busy);
+                    card.setAttribute('aria-busy', busy ? 'true' : 'false');
+                }
+
+                async function addFilesToDigestion(digestionId, fileIds, options = {}) {
+                    const ids = Array.from(new Set((fileIds || []).map(id => String(id || '').trim()).filter(Boolean)));
+                    if (!digestionId || !ids.length) return null;
+                    if (!digestionCanAcceptDroppedSources(digestionId)) {
+                        if (typeof showAlert === 'function') showAlert('Only the Digestion owner can add dropped Vault files to this corpus.', 'warning');
+                        return null;
+                    }
+                    setDigestionDropBusy(digestionId, true);
+                    try {
+                        const result = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/sources`, {
+                            method: 'POST',
+                            body: JSON.stringify({ source_file_ids: ids })
+                        });
+                        const added = Number(result.added || 0);
+                        const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
+                        if (typeof showAlert === 'function' && !(options && options.quiet)) {
+                            if (added) {
+                                showAlert(`${added} source${added === 1 ? '' : 's'} added to Digestion${skipped ? `; ${skipped} skipped` : ''}. Rebuild when ready.`, skipped ? 'warning' : 'success');
+                            } else {
+                                showAlert(skipped ? "No sources were added; selected files may already be present or outside this Digestion owner's Vault." : 'No sources were added.', 'warning');
+                            }
+                        }
+                        await loadDigestions();
+                        return result;
+                    } catch (error) {
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not add sources to Digestion.', 'danger');
+                        return null;
+                    } finally {
+                        setDigestionDropBusy(digestionId, false);
+                    }
+                }
+
+                async function uploadExternalFilesToDigestion(digestionId, dataTransfer) {
+                    if (!digestionId || !dataTransfer) return;
+                    if (!digestionCanAcceptDroppedSources(digestionId)) {
+                        if (typeof showAlert === 'function') showAlert('Only the Digestion owner can add dropped local files to this corpus.', 'warning');
+                        return;
+                    }
+                    const droppedFiles = await filesFromDataTransfer(dataTransfer);
+                    if (!droppedFiles.length) {
+                        if (typeof showAlert === 'function') showAlert('No readable files were found in that drop. Try selecting the files directly.', 'warning');
+                        return;
+                    }
+                    setDigestionDropBusy(digestionId, true);
+                    try {
+                        const uploadResult = await uploadFiles(droppedFiles, { quiet: true, refresh: false });
+                        const saved = Array.isArray(uploadResult && uploadResult.savedFiles) ? uploadResult.savedFiles : [];
+                        const failed = Array.isArray(uploadResult && uploadResult.failedFiles) ? uploadResult.failedFiles : [];
+                        const savedIds = saved.map(vaultFileId).filter(Boolean);
+                        if (savedIds.length) {
+                            await addFilesToDigestion(digestionId, savedIds, { quiet: true });
+                            if (typeof showAlert === 'function') {
+                                showAlert(`${savedIds.length} uploaded file${savedIds.length === 1 ? '' : 's'} added to Digestion${failed.length ? `; ${failed.length} upload failed` : ''}. Rebuild when ready.`, failed.length ? 'warning' : 'success');
+                            }
+                        } else if (failed.length && typeof showAlert === 'function') {
+                            const first = failed[0] || {};
+                            showAlert(`${first.name || 'Upload'}: ${first.error || 'Upload failed.'}`, 'danger');
+                        }
+                        await loadFiles({ append: false });
+                    } finally {
+                        setDigestionDropBusy(digestionId, false);
+                    }
+                }
+
+                async function mergeDigestionsByDrop(targetDigestionId, sourceDigestionId) {
+                    if (!targetDigestionId || !sourceDigestionId || targetDigestionId === sourceDigestionId) return;
+                    const target = findDigestion(targetDigestionId);
+                    const source = findDigestion(sourceDigestionId);
+                    if (!target || !source) {
+                        if (typeof showAlert === 'function') showAlert('Could not find both Digestions in the current Vault list.', 'warning');
+                        return;
+                    }
+                    if (!digestionCanAcceptDroppedSources(targetDigestionId)) {
+                        if (typeof showAlert === 'function') showAlert('Only the target Digestion owner can merge sources by drag and drop.', 'warning');
+                        return;
+                    }
+                    if (!(source.access && source.access.can_read_sources)) {
+                        if (typeof showAlert === 'function') showAlert('Merging requires source metadata access to the source Digestion.', 'warning');
+                        return;
+                    }
+                    const ok = global.confirm(`Merge sources from "${source.name || 'source Digestion'}" into "${target.name || 'target Digestion'}"? This copies source references and leaves both Digestions in place.`);
+                    if (!ok) return;
+                    setDigestionDropBusy(targetDigestionId, true);
+                    try {
+                        const result = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(targetDigestionId)}/merge`, {
+                            method: 'POST',
+                            body: JSON.stringify({ source_digestion_id: sourceDigestionId })
+                        });
+                        const added = Number(result.added || 0);
+                        const updated = Number(result.updated || 0);
+                        const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
+                        if (typeof showAlert === 'function') {
+                            const changed = added + updated;
+                            showAlert(
+                                changed
+                                    ? `Merged ${changed} source reference${changed === 1 ? '' : 's'} into Digestion${skipped ? `; ${skipped} skipped` : ''}. Rebuild when ready.`
+                                    : "No mergeable sources were added. Sources may already be present or outside the target owner's Vault.",
+                                changed && !skipped ? 'success' : 'warning'
+                            );
+                        }
+                        await loadDigestions();
+                    } catch (error) {
+                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not merge Digestion sources.', 'danger');
+                    } finally {
+                        setDigestionDropBusy(targetDigestionId, false);
                     }
                 }
 
@@ -3680,6 +3870,498 @@
 			                    }
 			                }
 
+			                function vaultFileShareForm(fileId) {
+			                    return document.querySelector(`[data-vault-file-share="${vaultCssEscape(fileId)}"]`);
+			                }
+
+			                function vaultFileShareEndpoint(fileId) {
+			                    return `${vaultUrls().files}/${encodeURIComponent(fileId)}/acl`;
+			                }
+
+			                function vaultFileShareResultButtons(form) {
+			                    return Array.from((form || document).querySelectorAll('[data-vault-file-share-user-id]'));
+			                }
+
+			                function closeVaultFileShareResults(form) {
+			                    if (!form) return;
+			                    const resultsEl = form.querySelector('[data-vault-file-share-results]');
+			                    const input = form.querySelector('[data-vault-file-share-search]');
+			                    const fileId = form.getAttribute('data-vault-file-share') || '';
+			                    if (resultsEl) {
+			                        resultsEl.hidden = true;
+			                        resultsEl.innerHTML = '';
+			                    }
+			                    if (input) input.setAttribute('aria-expanded', 'false');
+			                    state.fileShareActiveIndex.set(String(fileId), -1);
+			                    state.fileShareUsers.set(String(fileId), []);
+			                }
+
+			                function closeOtherVaultFileShareResults(activeForm = null) {
+			                    document.querySelectorAll('[data-vault-file-share]').forEach((form) => {
+			                        if (activeForm && form === activeForm) return;
+			                        closeVaultFileShareResults(form);
+			                    });
+			                }
+
+			                function setVaultFileShareStatus(form, message, tone = 'muted') {
+			                    const statusEl = form && form.querySelector('[data-vault-file-share-status]');
+			                    if (!statusEl) return;
+			                    statusEl.className = `vault-file-share-status text-${tone}`;
+			                    statusEl.textContent = String(message || '');
+			                }
+
+			                function vaultFileShareAclListEl(fileId) {
+			                    return document.querySelector(`[data-vault-file-share-list="${vaultCssEscape(fileId)}"]`);
+			                }
+
+			                function vaultFileShareAclCountEl(fileId) {
+			                    return document.querySelector(`[data-vault-file-share-count="${vaultCssEscape(fileId)}"]`);
+			                }
+
+			                function normalizeVaultFileAclEntry(entry) {
+			                    const normalized = normalizeDigestionShareUser(entry);
+			                    if (!normalized) return null;
+			                    return {
+			                        ...normalized,
+			                        can_read: entry && entry.can_read !== false,
+			                        can_manage: !!(entry && entry.can_manage),
+			                        created_at: String((entry && entry.created_at) || ''),
+			                        missing_local_user: !!(entry && entry.missing_local_user),
+			                    };
+			                }
+
+			                function updateVaultFileShareCountInState(fileId, count) {
+			                    const safeFileId = String(fileId || '');
+			                    const safeCount = Math.max(0, Number(count || 0));
+			                    state.files.forEach((file) => {
+			                        if (vaultFileId(file) === safeFileId) {
+			                            file.shared_count = safeCount;
+			                            file.access_count = safeCount;
+			                            file.is_shared = safeCount > 0;
+			                        }
+			                    });
+			                    const button = grid && grid.querySelector(`[data-vault-action="share"][data-vault-id="${vaultCssEscape(safeFileId)}"]`);
+			                    if (button) {
+			                        const oldBadge = button.querySelector('.vault-share-count');
+			                        if (oldBadge) oldBadge.remove();
+			                        if (safeCount > 0) {
+			                            const badge = document.createElement('span');
+			                            badge.className = 'vault-share-count';
+			                            badge.setAttribute('aria-label', `${safeCount} recipient${safeCount === 1 ? '' : 's'}`);
+			                            badge.textContent = safeCount > 99 ? '99+' : String(safeCount);
+			                            button.appendChild(badge);
+			                        }
+			                    }
+			                }
+
+			                function renderVaultFileAclList(fileId, entries, { loading = false, error = '' } = {}) {
+			                    const listEl = vaultFileShareAclListEl(fileId);
+			                    const countEl = vaultFileShareAclCountEl(fileId);
+			                    if (!listEl) return;
+			                    if (loading) {
+			                        if (countEl) countEl.textContent = 'Refreshing...';
+			                        listEl.innerHTML = '<div class="vault-file-share-empty"><span class="spinner-border spinner-border-sm me-1"></span>Loading current access...</div>';
+			                        return;
+			                    }
+			                    if (error) {
+			                        if (countEl) countEl.textContent = 'Unavailable';
+			                        listEl.innerHTML = `<div class="vault-file-share-empty text-danger">${vaultEscape(error)}</div>`;
+			                        return;
+			                    }
+			                    const safeEntries = Array.isArray(entries)
+			                        ? entries.map(normalizeVaultFileAclEntry).filter(Boolean)
+			                        : [];
+			                    updateVaultFileShareCountInState(fileId, safeEntries.length);
+			                    if (countEl) countEl.textContent = `${safeEntries.length} recipient${safeEntries.length === 1 ? '' : 's'}`;
+			                    if (!safeEntries.length) {
+			                        listEl.innerHTML = '<div class="vault-file-share-empty">Private to you. Add users or agents below without replacing future recipients.</div>';
+			                        return;
+			                    }
+			                    listEl.innerHTML = safeEntries.map((entry) => {
+			                        const label = userLabel(entry);
+			                        const subLabel = digestionShareIdentitySubLabel(entry) || entry.user_id;
+			                        const avatar = entry.avatar_url
+			                            ? `<img src="${vaultEscape(entry.avatar_url)}" alt="">`
+			                            : `<span>${vaultEscape(label.slice(0, 2).toUpperCase())}</span>`;
+			                        return `
+			                            <div class="vault-file-acl-row"
+			                                 data-vault-file-acl-row
+			                                 data-vault-file-acl-user-id="${vaultEscape(entry.user_id)}">
+			                                <div class="vault-file-acl-person">
+			                                    <span class="vault-file-share-avatar">${avatar}</span>
+			                                    <span class="vault-file-share-user-copy">
+			                                        <strong>${vaultEscape(label)}</strong>
+			                                        <small>${vaultEscape(subLabel)}</small>
+			                                    </span>
+			                                </div>
+			                                <div class="vault-file-acl-actions">
+			                                    <span class="vault-file-acl-perm"><i class="bi bi-eye"></i> Read/download</span>
+			                                    ${entry.can_manage ? '<span class="vault-file-acl-perm"><i class="bi bi-sliders"></i> Manage</span>' : ''}
+			                                    ${entry.missing_local_user ? '<span class="vault-file-acl-warning" title="This user record is no longer present locally."><i class="bi bi-exclamation-triangle"></i> Missing</span>' : ''}
+			                                    <button class="btn btn-sm btn-outline-danger" type="button" data-vault-file-share-revoke data-vault-file-id="${vaultEscape(fileId)}">
+			                                        <i class="bi bi-person-dash"></i> Revoke
+			                                    </button>
+			                                </div>
+			                            </div>
+			                        `;
+			                    }).join('');
+			                }
+
+			                async function loadVaultFileAcl(fileId, { force = false } = {}) {
+			                    const key = String(fileId || '');
+			                    if (!key) return [];
+			                    if (!force && state.fileShareAcl.has(key)) {
+			                        const cached = state.fileShareAcl.get(key) || [];
+			                        renderVaultFileAclList(key, cached);
+			                        return cached;
+			                    }
+			                    renderVaultFileAclList(key, [], { loading: true });
+			                    try {
+			                        const data = await apiCall(vaultFileShareEndpoint(key));
+			                        const entries = Array.isArray(data.entries) ? data.entries : [];
+			                        state.fileShareAcl.set(key, entries);
+			                        renderVaultFileAclList(key, entries);
+			                        return entries;
+			                    } catch (error) {
+			                        const message = error.error || 'Could not load current file access.';
+			                        renderVaultFileAclList(key, [], { error: message });
+			                        return [];
+			                    }
+			                }
+
+			                function resetVaultFileShareSelection(form, { keepInput = true, keepStatus = false } = {}) {
+			                    if (!form) return;
+			                    delete form.dataset.granteeUserId;
+			                    delete form.dataset.granteeUserLabel;
+			                    const submitBtn = form.querySelector('[data-vault-file-share-submit]');
+			                    const selectedEl = form.querySelector('[data-vault-file-share-selected]');
+			                    const input = form.querySelector('[data-vault-file-share-search]');
+			                    if (submitBtn) submitBtn.disabled = true;
+			                    if (selectedEl) {
+			                        selectedEl.hidden = true;
+			                        selectedEl.innerHTML = '';
+			                    }
+			                    if (!keepInput && input) input.value = '';
+			                    closeVaultFileShareResults(form);
+			                    vaultFileShareResultButtons(form).forEach((button) => {
+			                        button.classList.remove('is-active');
+			                        button.setAttribute('aria-selected', 'false');
+			                    });
+			                    if (!keepStatus) setVaultFileShareStatus(form, '');
+			                }
+
+			                function renderVaultFileShareUsers(fileId, users, { emptyMessage = 'No matching local users or agents.' } = {}) {
+			                    const resultsEl = document.querySelector(`[data-vault-file-share-results="${vaultCssEscape(fileId)}"]`);
+			                    if (!resultsEl) return;
+			                    const safeUsers = Array.isArray(users)
+			                        ? users.map(normalizeDigestionShareUser).filter(Boolean)
+			                        : [];
+			                    state.fileShareUsers.set(String(fileId || ''), safeUsers);
+			                    state.fileShareActiveIndex.set(String(fileId || ''), safeUsers.length ? 0 : -1);
+			                    resultsEl.hidden = false;
+			                    resultsEl.setAttribute('role', 'listbox');
+			                    if (!safeUsers.length) {
+			                        resultsEl.innerHTML = `<div class="vault-file-share-empty">${vaultEscape(emptyMessage)}</div>`;
+			                        return;
+			                    }
+			                    resultsEl.innerHTML = safeUsers.map((user, index) => {
+			                        const label = userLabel(user);
+			                        const subLabel = digestionShareIdentitySubLabel(user) || user.user_id;
+			                        const avatar = user.avatar_url
+			                            ? `<img src="${vaultEscape(user.avatar_url)}" alt="">`
+			                            : `<span>${vaultEscape(label.slice(0, 2).toUpperCase())}</span>`;
+			                        return `
+			                            <button class="vault-file-share-user${index === 0 ? ' is-active' : ''}"
+			                                    type="button"
+			                                    role="option"
+			                                    aria-selected="${index === 0 ? 'true' : 'false'}"
+			                                    data-vault-file-share-user-id="${vaultEscape(user.user_id)}"
+			                                    data-vault-file-share-user-label="${vaultEscape(label)}"
+			                                    data-vault-file-share-user-sub-label="${vaultEscape(subLabel)}"
+			                                    data-vault-file-share-user-username="${vaultEscape(user.username)}"
+			                                    data-vault-file-share-user-handle="${vaultEscape(user.handle)}"
+			                                    data-vault-file-share-user-account-type="${vaultEscape(user.account_type)}"
+			                                    data-vault-file-share-user-avatar-url="${vaultEscape(user.avatar_url)}">
+			                                <span class="vault-file-share-avatar">${avatar}</span>
+			                                <span class="vault-file-share-user-copy">
+			                                    <strong>${vaultEscape(label)}</strong>
+			                                    <small>${vaultEscape(subLabel)}</small>
+			                                </span>
+			                            </button>
+			                        `;
+			                    }).join('');
+			                }
+
+			                function setVaultFileShareActiveResult(form, nextIndex) {
+			                    if (!form) return null;
+			                    const buttons = vaultFileShareResultButtons(form);
+			                    if (!buttons.length) return null;
+			                    const count = buttons.length;
+			                    const wrappedIndex = ((Number(nextIndex) || 0) % count + count) % count;
+			                    const fileId = form.getAttribute('data-vault-file-share') || '';
+			                    state.fileShareActiveIndex.set(String(fileId), wrappedIndex);
+			                    buttons.forEach((button, index) => {
+			                        const active = index === wrappedIndex;
+			                        button.classList.toggle('is-active', active);
+			                        button.setAttribute('aria-selected', active ? 'true' : 'false');
+			                    });
+			                    buttons[wrappedIndex].scrollIntoView({ block: 'nearest' });
+			                    return buttons[wrappedIndex];
+			                }
+
+			                function userFromVaultFileShareButton(button) {
+			                    if (!button) return null;
+			                    return normalizeDigestionShareUser({
+			                        user_id: button.getAttribute('data-vault-file-share-user-id') || '',
+			                        display_name: button.getAttribute('data-vault-file-share-user-label') || '',
+			                        username: button.getAttribute('data-vault-file-share-user-username') || '',
+			                        handle: button.getAttribute('data-vault-file-share-user-handle') || '',
+			                        account_type: button.getAttribute('data-vault-file-share-user-account-type') || '',
+			                        avatar_url: button.getAttribute('data-vault-file-share-user-avatar-url') || '',
+			                    });
+			                }
+
+			                function setVaultFileShareSelected(form, user) {
+			                    const normalized = normalizeDigestionShareUser(user);
+			                    if (!form || !normalized) return false;
+			                    const selectedEl = form.querySelector('[data-vault-file-share-selected]');
+			                    const submitBtn = form.querySelector('[data-vault-file-share-submit]');
+			                    const input = form.querySelector('[data-vault-file-share-search]');
+			                    const label = userLabel(normalized);
+			                    const subLabel = digestionShareIdentitySubLabel(normalized);
+			                    form.dataset.granteeUserId = normalized.user_id;
+			                    form.dataset.granteeUserLabel = label;
+			                    if (input) input.value = label;
+			                    if (submitBtn) submitBtn.disabled = false;
+			                    closeVaultFileShareResults(form);
+			                    if (selectedEl) {
+			                        selectedEl.hidden = false;
+			                        selectedEl.innerHTML = `
+			                            <i class="bi bi-person-check"></i>
+			                            <span>Selected: <strong>${vaultEscape(label)}</strong>${subLabel ? ` <small>${vaultEscape(subLabel)}</small>` : ''}</span>
+			                            <button type="button" title="Clear selected user" aria-label="Clear selected user" data-vault-file-share-clear>
+			                                <i class="bi bi-x-lg"></i>
+			                            </button>
+			                        `;
+			                    }
+			                    setVaultFileShareStatus(form, '');
+			                    return true;
+			                }
+
+			                function selectVaultFileShareUserButton(button) {
+			                    const form = button && button.closest('[data-vault-file-share]');
+			                    return setVaultFileShareSelected(form, userFromVaultFileShareButton(button));
+			                }
+
+			                function maybeSelectTypedVaultFileShareUser(form) {
+			                    if (!form) return false;
+			                    const fileId = String(form.getAttribute('data-vault-file-share') || '');
+			                    const input = form.querySelector('[data-vault-file-share-search]');
+			                    const typed = digestionShareSearchKey(input && input.value);
+			                    if (!typed) return false;
+			                    const directUserId = digestionShareDirectUserIdCandidate(input && input.value);
+			                    if (directUserId) {
+			                        const selected = setVaultFileShareSelected(form, {
+			                            user_id: directUserId,
+			                            username: directUserId,
+			                            display_name: directUserId,
+			                            account_type: 'local user id',
+			                        });
+			                        if (selected) {
+			                            setVaultFileShareStatus(form, 'Will grant exact local user ID if it exists on this node.', 'muted');
+			                        }
+			                        return selected;
+			                    }
+			                    const users = state.fileShareUsers.get(fileId) || [];
+			                    const matches = users.filter((user) => {
+			                        const values = [userLabel(user), user.username, user.handle, user.user_id]
+			                            .map(digestionShareSearchKey)
+			                            .filter(Boolean);
+			                        return values.includes(typed);
+			                    });
+			                    return matches.length === 1 ? setVaultFileShareSelected(form, matches[0]) : false;
+			                }
+
+			                async function searchVaultFileShareUsers(fileId, query, { showAll = false } = {}) {
+			                    const resultsEl = document.querySelector(`[data-vault-file-share-results="${vaultCssEscape(fileId)}"]`);
+			                    const form = vaultFileShareForm(fileId);
+			                    if (!resultsEl) return;
+			                    closeOtherVaultFileShareResults(form);
+			                    const q = digestionShareSearchValue(query);
+			                    if (!q && !showAll) {
+			                        closeVaultFileShareResults(form);
+			                        return;
+			                    }
+			                    resultsEl.hidden = false;
+			                    const input = form && form.querySelector('[data-vault-file-share-search]');
+			                    if (input) input.setAttribute('aria-expanded', 'true');
+			                    resultsEl.innerHTML = '<div class="vault-file-share-empty"><span class="spinner-border spinner-border-sm me-1"></span>Finding users...</div>';
+			                    try {
+			                        const limit = showAll && !q ? 30 : 12;
+			                        const data = await apiCall(`/ajax/mention_suggestions?q=${encodeURIComponent(q)}&limit=${limit}`);
+			                        if (input && digestionShareSearchKey(input.value) !== digestionShareSearchKey(q)) return;
+			                        renderVaultFileShareUsers(
+			                            fileId,
+			                            data && data.users,
+			                            { emptyMessage: q ? 'No matching local users or agents.' : 'No local users or agents found.' }
+			                        );
+			                    } catch (error) {
+			                        resultsEl.innerHTML = `<div class="vault-file-share-empty text-danger">${vaultEscape(error.error || 'Could not search users.')}</div>`;
+			                    }
+			                }
+
+			                function queueVaultFileShareSearch(input) {
+			                    if (!input) return;
+			                    const fileId = input.getAttribute('data-vault-file-share-search') || '';
+			                    const form = vaultFileShareForm(fileId);
+			                    if (form) {
+			                        const selectedLabel = digestionShareSearchKey(form.dataset.granteeUserLabel || '');
+			                        const typed = digestionShareSearchKey(input.value);
+			                        if (!selectedLabel || typed !== selectedLabel) {
+			                            resetVaultFileShareSelection(form, { keepInput: true });
+			                        }
+			                        const directUserId = digestionShareDirectUserIdCandidate(input.value);
+			                        if (directUserId) {
+			                            setVaultFileShareSelected(form, {
+			                                user_id: directUserId,
+			                                username: directUserId,
+			                                display_name: directUserId,
+			                                account_type: 'local user id',
+			                            });
+			                            setVaultFileShareStatus(form, 'Will grant exact local user ID if it exists on this node.', 'muted');
+			                            closeVaultFileShareResults(form);
+			                            return;
+			                        }
+			                    }
+			                    clearTimeout(state.fileShareTimers.get(fileId));
+			                    state.fileShareTimers.set(fileId, global.setTimeout(() => {
+			                        searchVaultFileShareUsers(fileId, input.value, { showAll: !digestionShareSearchValue(input.value) });
+			                    }, 180));
+			                }
+
+			                function handleVaultFileShareSearchKeydown(input, event) {
+			                    const fileId = input && input.getAttribute('data-vault-file-share-search') || '';
+			                    const form = vaultFileShareForm(fileId);
+			                    if (!form) return;
+			                    const buttons = vaultFileShareResultButtons(form);
+			                    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && buttons.length) {
+			                        event.preventDefault();
+			                        const current = Number(state.fileShareActiveIndex.get(String(fileId)) || 0);
+			                        setVaultFileShareActiveResult(form, current + (event.key === 'ArrowDown' ? 1 : -1));
+			                        return;
+			                    }
+			                    if (event.key === 'Enter' && buttons.length) {
+			                        const current = Number(state.fileShareActiveIndex.get(String(fileId)) || 0);
+			                        const button = setVaultFileShareActiveResult(form, current);
+			                        if (button) {
+			                            event.preventDefault();
+			                            selectVaultFileShareUserButton(button);
+			                        }
+			                        return;
+			                    }
+			                    if (event.key === 'Escape') {
+			                        closeVaultFileShareResults(form);
+			                    }
+			                }
+
+			                function toggleVaultFileShare(fileId) {
+			                    const form = vaultFileShareForm(fileId);
+			                    if (!form) return;
+			                    const willOpen = form.hidden;
+			                    form.hidden = !willOpen;
+			                    form.classList.toggle('is-visible', willOpen);
+			                    const shareBtn = grid && grid.querySelector(`[data-vault-action="share"][data-vault-id="${vaultCssEscape(fileId)}"]`);
+			                    if (shareBtn) shareBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+			                    if (willOpen) {
+			                        const input = form.querySelector('[data-vault-file-share-search]');
+			                        loadVaultFileAcl(fileId, { force: true });
+			                        global.setTimeout(() => {
+			                            if (input) input.focus();
+			                        }, 0);
+			                    } else {
+			                        closeVaultFileShareResults(form);
+			                    }
+			                }
+
+			                async function grantVaultFileAccess(form) {
+			                    if (!form) return;
+			                    const fileId = form.getAttribute('data-vault-file-share') || '';
+			                    if (!form.dataset.granteeUserId) maybeSelectTypedVaultFileShareUser(form);
+			                    const input = form.querySelector('[data-vault-file-share-search]');
+			                    const directUserId = digestionShareDirectUserIdCandidate(input && input.value);
+			                    const granteeUserId = String(form.dataset.granteeUserId || directUserId || '').trim();
+			                    if (!fileId || !granteeUserId) {
+			                        setVaultFileShareStatus(form, 'Choose a user or agent before granting access.', 'warning');
+			                        return;
+			                    }
+			                    const submitBtn = form.querySelector('[data-vault-file-share-submit]');
+			                    const original = submitBtn ? submitBtn.innerHTML : '';
+			                    if (submitBtn) {
+			                        submitBtn.disabled = true;
+			                        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Granting';
+			                    }
+			                    setVaultFileShareStatus(form, 'Granting file access...', 'muted');
+			                    try {
+			                        const result = await apiCall(vaultFileShareEndpoint(fileId), {
+			                            method: 'POST',
+			                            body: JSON.stringify({
+			                                grantee_user_id: granteeUserId,
+			                                can_read: true,
+			                            })
+			                        });
+			                        const grantee = result.grantee || {};
+			                        const label = userLabel(grantee.user_id ? grantee : { user_id: granteeUserId });
+			                        const entries = Array.isArray(result.entries) ? result.entries : await loadVaultFileAcl(fileId, { force: true });
+			                        state.fileShareAcl.set(fileId, entries);
+			                        renderVaultFileAclList(fileId, entries);
+			                        resetVaultFileShareSelection(form, { keepInput: false, keepStatus: true });
+			                        setVaultFileShareStatus(form, `${label} can now read/download this Vault file.`, 'success');
+			                        if (typeof showAlert === 'function') showAlert(`Vault file shared with ${label}.`, 'success');
+			                    } catch (error) {
+			                        const message = error.error || 'Could not grant file access.';
+			                        setVaultFileShareStatus(form, message, 'danger');
+			                        if (typeof showAlert === 'function') showAlert(message, 'danger');
+			                    } finally {
+			                        if (submitBtn) {
+			                            submitBtn.disabled = !String(form.dataset.granteeUserId || '').trim();
+			                            submitBtn.innerHTML = original;
+			                        }
+			                    }
+			                }
+
+			                async function revokeVaultFileAccess(button) {
+			                    const row = button && button.closest('[data-vault-file-acl-row]');
+			                    const form = button && button.closest('[data-vault-file-share]');
+			                    const fileId = String((button && button.getAttribute('data-vault-file-id')) || (form && form.getAttribute('data-vault-file-share')) || '').trim();
+			                    const granteeUserId = String(row && row.getAttribute('data-vault-file-acl-user-id') || '').trim();
+			                    if (!fileId || !granteeUserId || !row) return;
+			                    const label = userLabel({ user_id: granteeUserId, display_name: row.querySelector('.vault-file-share-user-copy strong')?.textContent || granteeUserId });
+			                    if (typeof global.confirm === 'function') {
+			                        const ok = global.confirm(`Revoke ${label}'s access to this Vault file? Other recipients will keep access.`);
+			                        if (!ok) return;
+			                    }
+			                    const original = button.innerHTML;
+			                    button.disabled = true;
+			                    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Revoking';
+			                    setVaultFileShareStatus(form, `Revoking ${label}...`, 'muted');
+			                    try {
+			                        const result = await apiCall(`${vaultFileShareEndpoint(fileId)}/${encodeURIComponent(granteeUserId)}`, {
+			                            method: 'DELETE',
+			                        });
+			                        const entries = Array.isArray(result.entries) ? result.entries : await loadVaultFileAcl(fileId, { force: true });
+			                        state.fileShareAcl.set(fileId, entries);
+			                        renderVaultFileAclList(fileId, entries);
+			                        setVaultFileShareStatus(form, `${label} access revoked. Other recipients were unchanged.`, 'success');
+			                    } catch (error) {
+			                        const message = error.error || 'Could not revoke file access.';
+			                        setVaultFileShareStatus(form, message, 'danger');
+			                        if (typeof showAlert === 'function') showAlert(message, 'danger');
+			                    } finally {
+			                        button.disabled = false;
+			                        button.innerHTML = original;
+			                    }
+			                }
+
 	                function digestionSearchMode(digestionId) {
                     const select = document.querySelector(`[data-vault-digestion-search-mode="${vaultCssEscape(digestionId)}"]`);
                     const mode = String(select && select.value || 'rag').trim().toLowerCase();
@@ -4028,7 +4710,9 @@
                         : (Number.isFinite(statsSourceCount) && statsSourceCount > 0 ? statsSourceCount : sourceStatusCounts);
                     const chunks = Number(stats.chunks || item.chunk_count || 0);
                     const tokens = Number(stats.token_estimate || 0);
-                    const figures = Number(stats.figures || item.figure_count || 0);
+                    const figures = Number(stats.figures ?? item.figure_count ?? 0);
+                    const datapointCount = Number(stats.datapoint_count ?? item.datapoint_count ?? 0);
+                    const quantitativeResultCount = Number(stats.quantitative_result_count ?? item.quantitative_result_count ?? 0);
                     const status = String(item.status || 'draft');
                     const name = String(item.name || item.title || item.id || 'Digestion');
                     return {
@@ -4081,6 +4765,11 @@
                             stats: {
                                 ...stats,
                                 source_count: sourceCount,
+                                chunks,
+                                token_estimate: tokens,
+                                figures,
+                                datapoint_count: datapointCount,
+                                quantitative_result_count: quantitativeResultCount,
                             },
                             access,
                             initial_query: String(item.initial_query || ''),
@@ -4240,6 +4929,7 @@
                     if (!dataTransfer) return false;
                     const types = Array.from(dataTransfer.types || []);
                     if (types.includes(VAULT_FILE_DRAG_TYPE)) return false;
+                    if (types.includes(VAULT_DIGESTION_DRAG_TYPE)) return false;
                     if (types.includes('Files')) return true;
                     return Array.from(dataTransfer.items || []).some(item => item && item.kind === 'file');
                 }
@@ -4455,7 +5145,7 @@
                     }
                 }
 
-	                async function uploadFiles(fileList) {
+	                async function uploadFiles(fileList, options = {}) {
 	                    const incoming = Array.from(fileList || []).filter(Boolean);
 	                    const files = incoming.filter(file => !(file && file.__vaultDropError));
                     const preflightFailures = incoming
@@ -4464,15 +5154,17 @@
                             name: file.name || 'Dropped item',
                             error: file.error || 'Could not read dropped item.',
                         }));
-                    if (!files.length && !preflightFailures.length) return;
+                    const quiet = !!(options && options.quiet);
+                    const refresh = !(options && options.refresh === false);
+                    if (!files.length && !preflightFailures.length) return { savedFiles: [], failedFiles: [] };
                     const savedFiles = [];
                     const failedFiles = preflightFailures.slice();
                     if (!files.length) {
-                        if (typeof showAlert === 'function') {
+                        if (!quiet && typeof showAlert === 'function') {
                             const first = failedFiles[0] || {};
                             showAlert(`${first.name || 'Upload'}: ${first.error || 'No readable files were dropped.'}`, 'danger');
                         }
-                        return;
+                        return { savedFiles, failedFiles };
                     }
                     if (dropzone) {
                         dropzone.classList.add('is-dragging', 'is-uploading');
@@ -4520,7 +5212,7 @@
                         }
                         const saved = savedFiles.length;
                         const failed = failedFiles.length;
-                        if (typeof showAlert === 'function') {
+                        if (!quiet && typeof showAlert === 'function') {
                             if (saved) {
                                 showAlert(`${saved} file${saved === 1 ? '' : 's'} added to your vault${failed ? `; ${failed} failed` : ''}.`, failed ? 'warning' : 'success');
                             } else if (failed) {
@@ -4529,18 +5221,19 @@
                             }
                         }
                         if (uploadInput) uploadInput.value = '';
-                        if (saved) {
+                        if (saved && refresh) {
                             await loadFiles({ append: false });
                         }
                     } catch (error) {
                         console.error('Vault upload failed:', error);
-                        if (typeof showAlert === 'function') showAlert(summarizeVaultUploadError(error), 'danger');
+                        if (!quiet && typeof showAlert === 'function') showAlert(summarizeVaultUploadError(error), 'danger');
                     } finally {
                         if (dropzone) {
                             dropzone.classList.remove('is-dragging', 'is-uploading');
                             dropzone.removeAttribute('aria-busy');
 	                        }
 	                    }
+                    return { savedFiles, failedFiles };
 	                }
 
 	                async function uploadFilesFromDataTransfer(dataTransfer) {
@@ -4549,9 +5242,9 @@
 	                        if (typeof showAlert === 'function') {
 	                            showAlert('No readable files were found in that drop. Try selecting the files directly.', 'warning');
 	                        }
-	                        return;
+	                        return { savedFiles: [], failedFiles: [] };
 	                    }
-	                    await uploadFiles(droppedFiles);
+	                    return uploadFiles(droppedFiles);
 	                }
 
 	                function setVaultListDropActive(active) {
@@ -4673,6 +5366,99 @@
                     digestionRefresh.addEventListener('click', loadDigestions);
                 }
 		                if (digestionList) {
+                            let draggingDigestionId = '';
+                            function digestionCardFromEvent(event) {
+                                const card = event.target.closest('[data-vault-digestion-id]');
+                                if (!card || !digestionList.contains(card)) return null;
+                                return card;
+                            }
+                            function clearDigestionDropTargets() {
+                                digestionList.querySelectorAll('.is-drag-over').forEach(el => el.classList.remove('is-drag-over'));
+                            }
+                            function selectedOrSingleVaultFileIds(fileId) {
+                                const safeFileId = String(fileId || '').trim();
+                                if (!safeFileId) return [];
+                                return state.selectedIds.has(safeFileId)
+                                    ? Array.from(state.selectedIds).filter(Boolean)
+                                    : [safeFileId];
+                            }
+                            function digestionDropIntent(event) {
+                                if (isVaultDigestionDragEvent(event)) return 'merge';
+                                if (isVaultFileDragEvent(event)) return 'add-file';
+                                if (dataTransferHasExternalFiles(event.dataTransfer)) return 'upload-file';
+                                return '';
+                            }
+                            digestionList.addEventListener('dragstart', (event) => {
+                                const card = digestionCardFromEvent(event);
+                                if (!card) return;
+                                const interactive = event.target.closest('button, input, textarea, select, a, form, [role="button"]');
+                                if (interactive && interactive !== card) {
+                                    event.preventDefault();
+                                    return;
+                                }
+                                if (card.getAttribute('data-vault-digestion-can-drop') !== 'true') {
+                                    event.preventDefault();
+                                    return;
+                                }
+                                draggingDigestionId = card.getAttribute('data-vault-digestion-id') || '';
+                                card.classList.add('is-dragging');
+                                card.setAttribute('aria-grabbed', 'true');
+                                if (event.dataTransfer) {
+                                    event.dataTransfer.effectAllowed = 'copyMove';
+                                    event.dataTransfer.setData(VAULT_DIGESTION_DRAG_TYPE, draggingDigestionId);
+                                    event.dataTransfer.setData('text/plain', draggingDigestionId);
+                                }
+                            });
+                            digestionList.addEventListener('dragend', () => {
+                                draggingDigestionId = '';
+                                digestionList.querySelectorAll('.is-dragging').forEach(el => el.classList.remove('is-dragging'));
+                                digestionList.querySelectorAll('[aria-grabbed="true"]').forEach(el => el.setAttribute('aria-grabbed', 'false'));
+                                clearDigestionDropTargets();
+                            });
+                            ['dragenter', 'dragover'].forEach((eventName) => {
+                                digestionList.addEventListener(eventName, (event) => {
+                                    const card = digestionCardFromEvent(event);
+                                    const intent = digestionDropIntent(event);
+                                    if (!card || !intent) return;
+                                    if (card.getAttribute('data-vault-digestion-can-drop') !== 'true') return;
+                                    const targetId = card.getAttribute('data-vault-digestion-id') || '';
+                                    const sourceId = digestionIdFromDataTransfer(event.dataTransfer) || draggingDigestionId;
+                                    if (intent === 'merge' && (!sourceId || sourceId === targetId)) return;
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    clearDigestionDropTargets();
+                                    card.classList.add('is-drag-over');
+                                    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+                                });
+                            });
+                            digestionList.addEventListener('dragleave', (event) => {
+                                const card = digestionCardFromEvent(event);
+                                if (!card) return;
+                                const related = event.relatedTarget;
+                                if (related && card.contains(related)) return;
+                                card.classList.remove('is-drag-over');
+                            });
+                            digestionList.addEventListener('drop', async (event) => {
+                                const card = digestionCardFromEvent(event);
+                                const intent = digestionDropIntent(event);
+                                if (!card || !intent) return;
+                                if (card.getAttribute('data-vault-digestion-can-drop') !== 'true') return;
+                                event.preventDefault();
+                                event.stopPropagation();
+                                card.classList.remove('is-drag-over');
+                                const targetId = card.getAttribute('data-vault-digestion-id') || '';
+                                if (intent === 'merge') {
+                                    const sourceId = digestionIdFromDataTransfer(event.dataTransfer) || draggingDigestionId;
+                                    await mergeDigestionsByDrop(targetId, sourceId);
+                                    return;
+                                }
+                                if (intent === 'add-file') {
+                                    const fileId = vaultFileIdFromDataTransfer(event.dataTransfer);
+                                    await addFilesToDigestion(targetId, selectedOrSingleVaultFileIds(fileId));
+                                    return;
+                                }
+                                await uploadExternalFilesToDigestion(targetId, event.dataTransfer);
+                            });
 		                    digestionList.addEventListener('pointerdown', (event) => {
 		                        const shareUserBtn = event.target.closest('[data-vault-digestion-share-user-id]');
 		                        if (shareUserBtn && digestionList.contains(shareUserBtn)) {
@@ -4794,8 +5580,11 @@
                 page.addEventListener('pointerdown', (event) => {
                     const shareForm = event.target.closest('[data-vault-digestion-share]');
                     const shareToggle = event.target.closest('[data-vault-digestion-action="share-access"]');
-                    if (shareForm || shareToggle) return;
+                    const fileShareForm = event.target.closest('[data-vault-file-share]');
+                    const fileShareToggle = event.target.closest('[data-vault-action="share"]');
+                    if (shareForm || shareToggle || fileShareForm || fileShareToggle) return;
                     closeOtherDigestionShareResults();
+                    closeOtherVaultFileShareResults();
                 });
 	                if (selectionClear) {
 	                    selectionClear.addEventListener('click', () => {
@@ -5025,6 +5814,28 @@
                             }
                             return;
                         }
+                        const fileShareClearBtn = event.target.closest('[data-vault-file-share-clear]');
+                        if (fileShareClearBtn && grid.contains(fileShareClearBtn)) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const form = fileShareClearBtn.closest('[data-vault-file-share]');
+                            resetVaultFileShareSelection(form, { keepInput: false });
+                            return;
+                        }
+                        const fileShareUserBtn = event.target.closest('[data-vault-file-share-user-id]');
+                        if (fileShareUserBtn && grid.contains(fileShareUserBtn)) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            selectVaultFileShareUserButton(fileShareUserBtn);
+                            return;
+                        }
+                        const fileShareRevokeBtn = event.target.closest('[data-vault-file-share-revoke]');
+                        if (fileShareRevokeBtn && grid.contains(fileShareRevokeBtn)) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            await revokeVaultFileAccess(fileShareRevokeBtn);
+                            return;
+                        }
                         const actionBtn = event.target.closest('[data-vault-action]');
                         if (actionBtn && grid.contains(actionBtn)) {
                             const id = actionBtn.getAttribute('data-vault-id') || '';
@@ -5033,6 +5844,8 @@
                             if (!file) return;
                             if (action === 'copy') {
                                 await copyText(file.markdown_link || `[${file.name || id}](/files/${id})`, 'Vault link');
+                            } else if (action === 'share') {
+                                toggleVaultFileShare(id);
                             } else if (action === 'move-root') {
                                 try {
                                     await moveVaultFileToFolder(id, '');
@@ -5073,7 +5886,46 @@
                             if (file) openVaultFile(file);
                         }
                     });
+                    grid.addEventListener('input', (event) => {
+                        const fileShareInput = event.target.closest('[data-vault-file-share-search]');
+                        if (fileShareInput && grid.contains(fileShareInput)) {
+                            queueVaultFileShareSearch(fileShareInput);
+                        }
+                    });
+                    grid.addEventListener('focusin', (event) => {
+                        const fileShareInput = event.target.closest('[data-vault-file-share-search]');
+                        if (fileShareInput && grid.contains(fileShareInput)) {
+                            const fileId = fileShareInput.getAttribute('data-vault-file-share-search') || '';
+                            closeOtherVaultFileShareResults(vaultFileShareForm(fileId));
+                            searchVaultFileShareUsers(
+                                fileId,
+                                fileShareInput.value,
+                                { showAll: !digestionShareSearchValue(fileShareInput.value) }
+                            );
+                        }
+                    });
+                    grid.addEventListener('focusout', (event) => {
+                        const fileShareForm = event.target.closest('[data-vault-file-share]');
+                        if (!fileShareForm || !grid.contains(fileShareForm)) return;
+                        global.setTimeout(() => {
+                            if (!fileShareForm.contains(document.activeElement)) {
+                                closeVaultFileShareResults(fileShareForm);
+                            }
+                        }, 0);
+                    });
+                    grid.addEventListener('submit', (event) => {
+                        const fileShareForm = event.target.closest('[data-vault-file-share]');
+                        if (fileShareForm && grid.contains(fileShareForm)) {
+                            event.preventDefault();
+                            grantVaultFileAccess(fileShareForm);
+                        }
+                    });
                     grid.addEventListener('keydown', async (event) => {
+                        const fileShareInput = event.target.closest('[data-vault-file-share-search]');
+                        if (fileShareInput && grid.contains(fileShareInput)) {
+                            handleVaultFileShareSearchKeydown(fileShareInput, event);
+                            return;
+                        }
                         if (event.key !== 'Enter' && event.key !== ' ') return;
                         const card = event.target.closest('[data-vault-file-id], [data-vault-open-folder]');
                         if (!card || !grid.contains(card)) return;
@@ -11488,6 +12340,270 @@
 		                });
 		        }
 
+        (function initCanopyReactionDetails(global) {
+            if (!global || global.CanopyReactionDetails) return;
+
+            const cache = new Map();
+            const inflight = new Map();
+            let popover = null;
+            let activeTrigger = null;
+            let hideTimer = null;
+
+            const STANDARD_LABELS = {
+                like: 'Like',
+                love: 'Love',
+                laugh: 'Laugh',
+                wow: 'Wow',
+                sad: 'Sad',
+                angry: 'Angry',
+                celebrate: 'Celebrate',
+                rocket: 'Ship it',
+                eyes: 'Watching',
+                check: 'Done',
+                hundred: '100%',
+                idk: 'IDK',
+                pray: 'Thanks',
+                dislike: 'Dislike',
+                beer: 'Beer',
+            };
+
+            function escapeHtml(value) {
+                const div = document.createElement('div');
+                div.textContent = value == null ? '' : String(value);
+                return div.innerHTML;
+            }
+
+            function normalizeItemType(surface) {
+                const value = String(surface || '').trim().toLowerCase();
+                if (['feed', 'feed_post', 'post'].includes(value)) return 'feed_post';
+                if (['channel', 'channel_message', 'message'].includes(value)) return 'channel_message';
+                if (['dm', 'dm_message', 'direct_message'].includes(value)) return 'dm_message';
+                return '';
+            }
+
+            function cacheKey(surface, itemId) {
+                return `${normalizeItemType(surface)}:${String(itemId || '').trim()}`;
+            }
+
+            function reactionLabel(type) {
+                const key = String(type || '').trim().toLowerCase();
+                if (STANDARD_LABELS[key]) return STANDARD_LABELS[key];
+                if (key.startsWith('custom:')) {
+                    return key.slice(7).replace(/[-_]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+                }
+                return key || 'Reaction';
+            }
+
+            function actorInitials(actor) {
+                const label = String(actor?.display_name || actor?.username || actor?.user_id || '?').trim();
+                return label.split(/\s+/).slice(0, 2).map(part => part.charAt(0).toUpperCase()).join('') || '?';
+            }
+
+            function ensurePopover() {
+                if (popover) return popover;
+                popover = document.createElement('div');
+                popover.className = 'canopy-reaction-roster-popover';
+                popover.setAttribute('role', 'tooltip');
+                popover.setAttribute('aria-hidden', 'true');
+                popover.innerHTML = '<div class="canopy-reaction-roster-card">Loading...</div>';
+                popover.addEventListener('mouseenter', () => {
+                    if (hideTimer) clearTimeout(hideTimer);
+                });
+                popover.addEventListener('mouseleave', scheduleHide);
+                document.body.appendChild(popover);
+                return popover;
+            }
+
+            function positionPopover(trigger) {
+                const el = ensurePopover();
+                const rect = trigger.getBoundingClientRect();
+                const width = Math.min(340, window.innerWidth - 24);
+                el.style.width = `${width}px`;
+                let left = rect.left + (rect.width / 2) - (width / 2);
+                left = Math.max(12, Math.min(left, window.innerWidth - width - 12));
+                let top = rect.bottom + 8;
+                const estimatedHeight = Math.min(360, el.offsetHeight || 220);
+                if (top + estimatedHeight > window.innerHeight - 12) {
+                    top = Math.max(12, rect.top - estimatedHeight - 8);
+                }
+                el.style.left = `${Math.round(left + window.scrollX)}px`;
+                el.style.top = `${Math.round(top + window.scrollY)}px`;
+            }
+
+            function renderActor(actor) {
+                const name = actor?.display_name || actor?.username || actor?.user_id || 'Unknown user';
+                const accountType = String(actor?.account_type || '').toLowerCase();
+                const badge = accountType === 'agent' ? '<span class="canopy-reaction-roster-badge">Agent</span>' : '';
+                const avatar = actor?.avatar_url
+                    ? `<img src="${escapeHtml(actor.avatar_url)}" alt="" loading="lazy">`
+                    : `<span>${escapeHtml(actorInitials(actor))}</span>`;
+                const timestamp = actor?.created_at
+                    ? `<small>${escapeHtml(typeof global.formatCanopyTimestamp === 'function' ? global.formatCanopyTimestamp(actor.created_at) : actor.created_at)}</small>`
+                    : '';
+                return `
+                    <div class="canopy-reaction-roster-actor">
+                        <div class="canopy-reaction-roster-avatar">${avatar}</div>
+                        <div class="canopy-reaction-roster-copy">
+                            <strong>${escapeHtml(name)}</strong>
+                            <div>${badge}${timestamp}</div>
+                        </div>
+                    </div>`;
+            }
+
+            function renderDetails(details, reactionType) {
+                const payload = details?.reactions || details || {};
+                const groups = Array.isArray(payload.groups) ? payload.groups : [];
+                const selectedType = String(reactionType || '').trim().toLowerCase();
+                const visibleGroups = selectedType
+                    ? groups.filter(group => String(group.reaction_type || '').toLowerCase() === selectedType)
+                    : groups;
+                const total = Number(payload.total || 0);
+                if (!total || !visibleGroups.length) {
+                    return `
+                        <div class="canopy-reaction-roster-card">
+                            <div class="canopy-reaction-roster-title">No active reactions</div>
+                            <p class="canopy-reaction-roster-empty">Nobody has reacted here yet.</p>
+                        </div>`;
+                }
+                const groupHtml = visibleGroups.map(group => {
+                    const type = String(group.reaction_type || '').trim();
+                    const count = Number(group.count || 0);
+                    const reactors = Array.isArray(group.reactors) ? group.reactors : [];
+                    const shown = reactors.slice(0, 12).map(renderActor).join('');
+                    const hidden = Math.max(0, count - reactors.length);
+                    const more = hidden || payload.truncated
+                        ? `<div class="canopy-reaction-roster-more">${hidden ? `${hidden} more` : 'More reactors available'} not shown in this preview.</div>`
+                        : '';
+                    return `
+                        <section class="canopy-reaction-roster-group">
+                            <header>
+                                <span>${escapeHtml(reactionLabel(type))}</span>
+                                <strong>${count}</strong>
+                            </header>
+                            ${shown || '<p class="canopy-reaction-roster-empty">No names available.</p>'}
+                            ${more}
+                        </section>`;
+                }).join('');
+                return `
+                    <div class="canopy-reaction-roster-card">
+                        <div class="canopy-reaction-roster-title">Who reacted</div>
+                        ${groupHtml}
+                    </div>`;
+            }
+
+            function setTriggerTitle(trigger, details, reactionType) {
+                if (!trigger || !details) return;
+                const payload = details.reactions || details || {};
+                const groups = Array.isArray(payload.groups) ? payload.groups : [];
+                const selectedType = String(reactionType || '').trim().toLowerCase();
+                const group = groups.find(item => String(item.reaction_type || '').toLowerCase() === selectedType);
+                if (!group) return;
+                const names = (group.reactors || []).slice(0, 6).map(actor => actor.display_name || actor.username || actor.user_id).filter(Boolean);
+                const extra = Math.max(0, Number(group.count || 0) - names.length);
+                const detail = names.length ? names.join(', ') + (extra ? `, +${extra} more` : '') : `${group.count || 0} reactors`;
+                trigger.setAttribute('title', `${reactionLabel(selectedType)}: ${detail}`);
+                trigger.setAttribute('aria-label', `${reactionLabel(selectedType)} reaction by ${detail}`);
+            }
+
+            async function loadDetails(surface, itemId) {
+                const type = normalizeItemType(surface);
+                const id = String(itemId || '').trim();
+                if (!type || !id) throw new Error('Missing reaction target');
+                const key = cacheKey(type, id);
+                if (cache.has(key)) return cache.get(key);
+                if (inflight.has(key)) return inflight.get(key);
+                const request = apiCall(`/ajax/reactions/${encodeURIComponent(type)}/${encodeURIComponent(id)}`)
+                    .then(data => {
+                        cache.set(key, data);
+                        inflight.delete(key);
+                        return data;
+                    })
+                    .catch(error => {
+                        inflight.delete(key);
+                        throw error;
+                    });
+                inflight.set(key, request);
+                return request;
+            }
+
+            function showLoading(trigger) {
+                const el = ensurePopover();
+                el.innerHTML = '<div class="canopy-reaction-roster-card"><div class="canopy-reaction-roster-title">Loading reactions...</div></div>';
+                el.classList.add('is-visible');
+                el.setAttribute('aria-hidden', 'false');
+                positionPopover(trigger);
+            }
+
+            async function showForTrigger(trigger) {
+                if (!trigger) return;
+                if (hideTimer) clearTimeout(hideTimer);
+                activeTrigger = trigger;
+                const surface = trigger.dataset.reactionSurface || trigger.closest('[data-reaction-surface]')?.dataset.reactionSurface || '';
+                const itemId = trigger.dataset.itemId || trigger.closest('[data-item-id]')?.dataset.itemId || '';
+                const reactionType = trigger.dataset.reactionType || '';
+                showLoading(trigger);
+                try {
+                    const details = await loadDetails(surface, itemId);
+                    if (activeTrigger !== trigger) return;
+                    setTriggerTitle(trigger, details, reactionType);
+                    const el = ensurePopover();
+                    el.innerHTML = renderDetails(details, reactionType);
+                    positionPopover(trigger);
+                } catch (_) {
+                    if (activeTrigger !== trigger) return;
+                    const el = ensurePopover();
+                    el.innerHTML = '<div class="canopy-reaction-roster-card"><div class="canopy-reaction-roster-title">Reaction details unavailable</div><p class="canopy-reaction-roster-empty">You may not have access to this source.</p></div>';
+                    positionPopover(trigger);
+                }
+            }
+
+            function hideNow() {
+                activeTrigger = null;
+                if (!popover) return;
+                popover.classList.remove('is-visible');
+                popover.setAttribute('aria-hidden', 'true');
+            }
+
+            function scheduleHide() {
+                if (hideTimer) clearTimeout(hideTimer);
+                hideTimer = setTimeout(hideNow, 180);
+            }
+
+            function findTrigger(target) {
+                return target instanceof Element ? target.closest('[data-reaction-roster-trigger="1"]') : null;
+            }
+
+            document.addEventListener('mouseover', (event) => {
+                const trigger = findTrigger(event.target);
+                if (!trigger || trigger === activeTrigger) return;
+                showForTrigger(trigger);
+            });
+            document.addEventListener('mouseout', (event) => {
+                const trigger = findTrigger(event.target);
+                if (!trigger || (event.relatedTarget instanceof Node && trigger.contains(event.relatedTarget))) return;
+                scheduleHide();
+            });
+            document.addEventListener('focusin', (event) => {
+                const trigger = findTrigger(event.target);
+                if (trigger) showForTrigger(trigger);
+            });
+            document.addEventListener('focusout', (event) => {
+                const trigger = findTrigger(event.target);
+                if (trigger) scheduleHide();
+            });
+            window.addEventListener('scroll', scheduleHide, { passive: true, capture: true });
+            window.addEventListener('resize', scheduleHide, { passive: true });
+
+            global.CanopyReactionDetails = {
+                invalidate(surface, itemId) {
+                    const key = cacheKey(surface, itemId);
+                    if (key !== ':') cache.delete(key);
+                },
+                load: loadDetails,
+                showForTrigger,
+            };
+        })(global);
+
         (function initCanopyUserDisplayInfoCache(global) {
             const DISPLAY_INFO_TTL_MS = 60 * 1000;
             const DISPLAY_INFO_MAX_BATCH = 120;
@@ -17745,13 +18861,26 @@
                 const summaryEl = host && host.querySelector('[data-deck-digestion-figures-summary]');
                 if (!listEl) return;
                 const figures = Array.isArray(data && data.figures) ? data.figures : [];
+                const stats = data && data.stats && typeof data.stats === 'object' ? data.stats : {};
+                const finiteFigureStat = (value, fallback = 0) => {
+                    const parsed = Number(value);
+                    return Number.isFinite(parsed) ? parsed : fallback;
+                };
+                const statsFigures = finiteFigureStat(((data && data.count) ?? stats.figures), figures.length);
+                const statsChunks = finiteFigureStat(stats.chunks ?? (data && data.indexed_chunks), 0);
+                const statsSources = finiteFigureStat(stats.source_count ?? stats.sources, 0);
+                const hasBuiltIndex = statsChunks > 0 || Number(stats.token_estimate || 0) > 0 || statsFigures > 0;
                 if (summaryEl) {
-                    summaryEl.textContent = figures.length
-                        ? `${figures.length} extracted figure${figures.length === 1 ? '' : 's'}`
-                        : 'No extracted figures yet';
+                    summaryEl.textContent = statsFigures
+                        ? (figures.length && figures.length < statsFigures
+                            ? `Showing ${figures.length} of ${statsFigures} extracted figures`
+                            : `${statsFigures} extracted figure${statsFigures === 1 ? '' : 's'}`)
+                        : (hasBuiltIndex ? 'No extracted figures found in this built Digestion' : 'No extracted figures yet');
                 }
                 if (!figures.length) {
-                    listEl.innerHTML = '<div class="deck-digestion-figure-empty">Build or refresh this Digestion to extract embedded PDF figures and caption context.</div>';
+                    listEl.innerHTML = hasBuiltIndex
+                        ? `<div class="deck-digestion-figure-empty">No extracted PDF figures are available for this built Digestion${statsSources ? ` (${statsSources} source${statsSources === 1 ? '' : 's'}, ${statsChunks} chunk${statsChunks === 1 ? '' : 's'} indexed)` : ''}. Some PDFs store diagrams as vector/text content or images below the extraction threshold, so they can still be searchable as chunks without producing figure preview cards.</div>`
+                        : '<div class="deck-digestion-figure-empty">Build or refresh this Digestion to extract embedded PDF figures and caption context.</div>';
                     return;
                 }
                 listEl.innerHTML = figures.slice(0, 36).map((figure) => {
@@ -17795,6 +18924,27 @@
                     const urls = deckDigestionUrls();
                     const data = await apiCall(`${urls.digestions}/${encodeURIComponent(digestionId)}/figures?limit=80`);
                     host.__canopyDeckDigestionFigures = data || {};
+                    const stats = data && data.stats && typeof data.stats === 'object' ? data.stats : {};
+                    const digestion = deckDigestionPayload(item);
+                    const manifest = item && item.manifest && typeof item.manifest === 'object' ? item.manifest : {};
+                    const manifestDigestion = manifest.digestion && typeof manifest.digestion === 'object' ? manifest.digestion : null;
+                    const nextFigureCount = Number(((data && data.count) ?? stats.figures ?? 0));
+                    if (manifestDigestion) {
+                        manifestDigestion.stats = {
+                            ...(manifestDigestion.stats || {}),
+                            ...stats,
+                            figures: nextFigureCount,
+                        };
+                    }
+                    if (digestion && digestion.stats && typeof digestion.stats === 'object') {
+                        digestion.stats = {
+                            ...digestion.stats,
+                            ...stats,
+                            figures: nextFigureCount,
+                        };
+                    }
+                    const figureStat = host.querySelector('[data-deck-digestion-stat-figures]');
+                    if (figureStat) figureStat.textContent = String(nextFigureCount);
                     renderDeckDigestionFigures(host, data || {});
                 } catch (error) {
                     const message = error && (error.error || error.message)
@@ -17964,7 +19114,7 @@
                                 <span><strong>${escapeEmbedHtml(digestion.status || 'draft')}</strong><small>Status</small></span>
 	                                <span><strong>${sourceCount}</strong><small>Sources</small></span>
 	                                <span><strong>${chunkCount}</strong><small>Chunks</small></span>
-	                                <span><strong>${figureCount}</strong><small>Figures</small></span>
+	                                <span><strong data-deck-digestion-stat-figures>${figureCount}</strong><small>Figures</small></span>
 	                                <span><strong>${tokenCount ? tokenCount.toLocaleString() : '0'}</strong><small>Token est.</small></span>
                             </div>
                         </section>
@@ -19082,6 +20232,9 @@
                             <button type="button"
                                     class="dm-reaction-pill${selected}"
                                     data-reaction-type="${escapeEmbedAttr(option.type)}"
+                                    data-reaction-roster-trigger="1"
+                                    data-reaction-surface="dm_message"
+                                    data-item-id="${escapeEmbedAttr(messageId)}"
                                     onclick="toggleDmReaction(${JSON.stringify(String(messageId))}, ${JSON.stringify(option.type)})"
                                     title="${escapeEmbedAttr(option.label)}"
                                     aria-label="${escapeEmbedAttr(`${option.label} reaction, ${count}`)}"
@@ -19105,6 +20258,9 @@
                 const pills = strip.querySelector('[data-dm-reaction-pills]');
                 if (pills) {
                     pills.innerHTML = renderDeckDmReactionPills(messageId, strip, normalizedCounts, normalizedReaction);
+                }
+                if (window.CanopyReactionDetails) {
+                    window.CanopyReactionDetails.invalidate('dm_message', messageId);
                 }
                 strip.querySelectorAll('.dm-reaction-choice[data-reaction-type]').forEach((choice) => {
                     const selected = normalizeDeckDmReactionKey(choice.getAttribute('data-reaction-type') || '') === normalizedReaction;

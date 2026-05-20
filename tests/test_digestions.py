@@ -306,6 +306,37 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(unrelated['result_count'], 0)
         self.assertTrue(unrelated['retrieval_ready'])
 
+    def test_merge_sources_from_digestion_copies_references_without_destroying_source(self) -> None:
+        alpha = self._save_text('alpha.txt', 'Alpha source material for reusable digestion merging.')
+        beta = self._save_text('beta.txt', 'Beta source material for reusable digestion merging.')
+        source = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Source corpus',
+            source_file_ids=[alpha.id, beta.id],
+            provider='local_hash',
+        )
+        target = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Target corpus',
+            source_file_ids=[alpha.id],
+            provider='local_hash',
+        )
+
+        result = self.digestion_manager.merge_sources_from_digestion(
+            target['id'],
+            source['id'],
+            'owner-user',
+        )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['added'], 1)
+        self.assertEqual(result['updated'], 1)
+        self.assertFalse(result['skipped'])
+        target_sources = self.digestion_manager.list_sources(target['id'], user_id='owner-user')
+        source_sources = self.digestion_manager.list_sources(source['id'], user_id='owner-user')
+        self.assertEqual({item['file_id'] for item in target_sources}, {alpha.id, beta.id})
+        self.assertEqual({item['file_id'] for item in source_sources}, {alpha.id, beta.id})
+
     def test_query_unbuilt_digestion_returns_explicit_no_chunk_warning_without_embedding(self) -> None:
         source = self._save_text('unbuilt-corpus.txt', 'This text is present but has not been indexed yet.')
         digestion = self.digestion_manager.create_digestion(
