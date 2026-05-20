@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.166] - 2026-05-19
+
+### Fixed
+- **Digestion Deck search no longer depends on Vault-only helpers** - Deck query, build, and datapoint extraction calls now resolve Digestion URLs from Deck runtime scope, preventing `vaultUrls` reference failures when searching from the Deck workspace.
+- **Digestion Deck runtime errors are clearer** - missing Deck Digestion IDs and backend/runtime error messages now surface directly in the Deck UI instead of silently returning or showing only a generic search failure.
+
 ## [0.6.165] - 2026-05-19
 
 ### Fixed

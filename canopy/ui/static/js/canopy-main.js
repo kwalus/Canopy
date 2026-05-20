@@ -17163,6 +17163,13 @@
                 return String(value || 'rag').trim().toLowerCase() === 'datapoints' ? 'datapoints' : 'rag';
             }
 
+            function deckDigestionUrls() {
+                const urls = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
+                return {
+                    digestions: urls.digestions || '/ajax/digestions',
+                };
+            }
+
             function deckDigestionNumber(value) {
                 if (typeof value === 'number' && Number.isFinite(value)) return value;
                 const text = String(value || '').replace(/,/g, ' ');
@@ -17460,10 +17467,16 @@
 
             async function runDeckDigestionQuery(host, item) {
                 const digestionId = deckDigestionId(item);
-                if (!host || !digestionId) return;
+                if (!host) return;
                 const queryEl = host.querySelector('[data-deck-digestion-query]');
                 const modeEl = host.querySelector('[data-deck-digestion-mode]');
                 const resultsEl = host.querySelector('[data-deck-digestion-results]');
+                if (!digestionId) {
+                    if (resultsEl) {
+                        resultsEl.innerHTML = '<div class="deck-digestion-empty text-danger">This Deck item is missing its Digestion ID. Return to the Vault and reopen the Digestion Deck.</div>';
+                    }
+                    return;
+                }
                 const query = String(queryEl && queryEl.value || '').trim();
                 const mode = deckDigestionMode(modeEl && modeEl.value);
                 if (!query) {
@@ -17474,9 +17487,10 @@
                     resultsEl.innerHTML = `<div class="deck-digestion-empty"><span class="spinner-border spinner-border-sm me-1"></span>Searching ${mode === 'datapoints' ? 'structured datapoints' : 'semantic chunks'}...</div>`;
                 }
                 try {
+                    const urls = deckDigestionUrls();
                     const endpoint = mode === 'datapoints'
-                        ? `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/search`
-                        : `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/query`;
+                        ? `${urls.digestions}/${encodeURIComponent(digestionId)}/datapoints/search`
+                        : `${urls.digestions}/${encodeURIComponent(digestionId)}/query`;
                     const data = await apiCall(endpoint, {
                         method: 'POST',
                         body: JSON.stringify({ query, top_k: mode === 'datapoints' ? 80 : 8, limit: mode === 'datapoints' ? 80 : 8 }),
@@ -17495,14 +17509,23 @@
                     host.__canopyDeckDigestionData = {};
                     host.__canopyDeckDigestionHiddenPoints = new Set();
                     renderDeckDigestionChart(host);
-                    if (resultsEl) resultsEl.innerHTML = `<div class="deck-digestion-empty text-danger">${escapeEmbedHtml(error.error || 'Could not search this Digestion.')}</div>`;
+                    const message = error && (error.error || error.message)
+                        ? (error.error || error.message)
+                        : 'Could not search this Digestion.';
+                    if (resultsEl) resultsEl.innerHTML = `<div class="deck-digestion-empty text-danger">${escapeEmbedHtml(message)}</div>`;
                 }
             }
 
             async function runDeckDigestionOperation(host, item, operation, button) {
                 const digestionId = deckDigestionId(item);
-                if (!host || !digestionId) return;
+                if (!host) return;
                 const statusEl = host.querySelector('[data-deck-digestion-status]');
+                if (!digestionId) {
+                    if (statusEl) {
+                        statusEl.textContent = 'This Deck item is missing its Digestion ID. Return to the Vault and reopen the Digestion Deck.';
+                    }
+                    return;
+                }
                 const original = button ? button.innerHTML : '';
                 if (button) {
                     button.disabled = true;
@@ -17510,9 +17533,10 @@
                 }
                 if (statusEl) statusEl.textContent = operation === 'build' ? 'Building source index...' : 'Extracting structured datapoints...';
                 try {
+                    const urls = deckDigestionUrls();
                     const endpoint = operation === 'build'
-                        ? `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/build`
-                        : `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/extract`;
+                        ? `${urls.digestions}/${encodeURIComponent(digestionId)}/build`
+                        : `${urls.digestions}/${encodeURIComponent(digestionId)}/datapoints/extract`;
                     const body = operation === 'build'
                         ? { rebuild: false }
                         : {
@@ -17533,7 +17557,10 @@
                         }
                     }
                 } catch (error) {
-                    if (statusEl) statusEl.textContent = error.error || `Could not ${operation === 'build' ? 'build Digestion' : 'extract datapoints'}.`;
+                    const message = error && (error.error || error.message)
+                        ? (error.error || error.message)
+                        : `Could not ${operation === 'build' ? 'build Digestion' : 'extract datapoints'}.`;
+                    if (statusEl) statusEl.textContent = message;
                 } finally {
                     if (button) {
                         button.disabled = false;
