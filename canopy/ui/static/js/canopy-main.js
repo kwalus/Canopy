@@ -3081,6 +3081,27 @@
 		                    return Array.from((form || document).querySelectorAll('[data-vault-digestion-share-user-id]'));
 		                }
 
+		                function closeDigestionShareResults(form) {
+		                    if (!form) return;
+		                    const resultsEl = form.querySelector('[data-vault-digestion-share-results]');
+		                    const input = form.querySelector('[data-vault-digestion-share-search]');
+		                    const digestionId = form.getAttribute('data-vault-digestion-share') || '';
+		                    if (resultsEl) {
+		                        resultsEl.hidden = true;
+		                        resultsEl.innerHTML = '';
+		                    }
+		                    if (input) input.setAttribute('aria-expanded', 'false');
+		                    state.shareActiveIndex.set(String(digestionId), -1);
+		                    state.shareUsers.set(String(digestionId), []);
+		                }
+
+		                function closeOtherDigestionShareResults(activeForm = null) {
+		                    document.querySelectorAll('[data-vault-digestion-share]').forEach((form) => {
+		                        if (activeForm && form === activeForm) return;
+		                        closeDigestionShareResults(form);
+		                    });
+		                }
+
 			                function setDigestionShareStatus(form, message, tone = 'muted') {
 			                    const statusEl = form && form.querySelector('[data-vault-digestion-share-status]');
 			                    if (!statusEl) return;
@@ -3222,7 +3243,7 @@
 		                        selectedEl.innerHTML = '';
 		                    }
 		                    if (!keepInput && input) input.value = '';
-		                    if (input) input.setAttribute('aria-expanded', 'false');
+		                    closeDigestionShareResults(form);
 		                    digestionShareResultButtons(form).forEach((button) => {
 		                        button.classList.remove('is-active');
 		                        button.setAttribute('aria-selected', 'false');
@@ -3316,8 +3337,7 @@
 		                    if (hiddenInput) hiddenInput.value = normalized.user_id;
 		                    if (input) input.value = label;
 		                    if (submitBtn) submitBtn.disabled = false;
-		                    if (resultsEl) resultsEl.hidden = true;
-		                    if (input) input.setAttribute('aria-expanded', 'false');
+		                    closeDigestionShareResults(form);
 		                    if (selectedEl) {
 		                        selectedEl.hidden = false;
 		                        selectedEl.innerHTML = `
@@ -3373,13 +3393,10 @@
 		                    const resultsEl = document.querySelector(`[data-vault-digestion-share-results="${vaultCssEscape(digestionId)}"]`);
 		                    const form = digestionShareForm(digestionId);
 		                    if (!resultsEl) return;
+		                    closeOtherDigestionShareResults(form);
 		                    const q = digestionShareSearchValue(query);
 		                    if (!q && !showAll) {
-		                        resultsEl.hidden = true;
-		                        resultsEl.innerHTML = '';
-		                        const input = form && form.querySelector('[data-vault-digestion-share-search]');
-		                        if (input) input.setAttribute('aria-expanded', 'false');
-		                        state.shareUsers.set(String(digestionId || ''), []);
+		                        closeDigestionShareResults(form);
 		                        return;
 		                    }
 		                    resultsEl.hidden = false;
@@ -3419,11 +3436,7 @@
 			                                account_type: 'local user id',
 			                            });
 			                            setDigestionShareStatus(form, 'Will grant exact local user ID if it exists on this node.', 'muted');
-			                            const resultsEl = form.querySelector('[data-vault-digestion-share-results]');
-			                            if (resultsEl) {
-			                                resultsEl.hidden = true;
-			                                resultsEl.innerHTML = '';
-			                            }
+			                            closeDigestionShareResults(form);
 			                            return;
 			                        }
 			                    }
@@ -3454,9 +3467,7 @@
 		                        return;
 		                    }
 		                    if (event.key === 'Escape') {
-		                        const resultsEl = form.querySelector('[data-vault-digestion-share-results]');
-		                        if (resultsEl) resultsEl.hidden = true;
-		                        input.setAttribute('aria-expanded', 'false');
+		                        closeDigestionShareResults(form);
 		                    }
 		                }
 
@@ -3474,7 +3485,6 @@
 			                        global.setTimeout(() => {
 			                            if (input) {
 			                                input.focus();
-		                                searchDigestionShareUsers(digestionId, input.value, { showAll: !digestionShareSearchValue(input.value) });
 		                            }
 		                        }, 0);
 		                    }
@@ -3532,10 +3542,7 @@
 		                        }
 		                        await loadDigestionAcl(digestionId, { force: true });
 		                        resetDigestionShareSelection(form, { keepInput: false, keepStatus: true });
-		                        if (input) {
-		                            input.focus();
-		                            searchDigestionShareUsers(digestionId, '', { showAll: true });
-		                        }
+		                        closeDigestionShareResults(form);
 		                    } catch (error) {
 		                        const message = error.error || 'Could not grant Digestion access.';
 		                        setDigestionShareStatus(form, message, 'danger');
@@ -4477,15 +4484,6 @@
 		                            event.stopPropagation();
 		                            const form = clearShareBtn.closest('[data-vault-digestion-share]');
 		                            resetDigestionShareSelection(form, { keepInput: false });
-		                            const input = form && form.querySelector('[data-vault-digestion-share-search]');
-		                            if (input) {
-		                                input.focus();
-		                                searchDigestionShareUsers(
-		                                    form.getAttribute('data-vault-digestion-share') || '',
-		                                    '',
-		                                    { showAll: true }
-		                                );
-		                            }
 		                            return;
 		                        }
 		                        const shareUserBtn = event.target.closest('[data-vault-digestion-share-user-id]');
@@ -4545,6 +4543,27 @@
 		                            queueDigestionShareSearch(shareInput);
 		                        }
 		                    });
+		                    digestionList.addEventListener('focusin', (event) => {
+		                        const shareInput = event.target.closest('[data-vault-digestion-share-search]');
+		                        if (shareInput && digestionList.contains(shareInput)) {
+		                            const digestionId = shareInput.getAttribute('data-vault-digestion-share-search') || '';
+		                            closeOtherDigestionShareResults(digestionShareForm(digestionId));
+		                            searchDigestionShareUsers(
+		                                digestionId,
+		                                shareInput.value,
+		                                { showAll: !digestionShareSearchValue(shareInput.value) }
+		                            );
+		                        }
+		                    });
+		                    digestionList.addEventListener('focusout', (event) => {
+		                        const shareForm = event.target.closest('[data-vault-digestion-share]');
+		                        if (!shareForm || !digestionList.contains(shareForm)) return;
+		                        global.setTimeout(() => {
+		                            if (!shareForm.contains(document.activeElement)) {
+		                                closeDigestionShareResults(shareForm);
+		                            }
+		                        }, 0);
+		                    });
 		                    digestionList.addEventListener('keydown', (event) => {
 		                        const shareInput = event.target.closest('[data-vault-digestion-share-search]');
 		                        if (shareInput && digestionList.contains(shareInput)) {
@@ -4566,6 +4585,12 @@
                         queryDigestion(digestionId, input ? input.value : '');
                     });
                 }
+                page.addEventListener('pointerdown', (event) => {
+                    const shareForm = event.target.closest('[data-vault-digestion-share]');
+                    const shareToggle = event.target.closest('[data-vault-digestion-action="share-access"]');
+                    if (shareForm || shareToggle) return;
+                    closeOtherDigestionShareResults();
+                });
 	                if (selectionClear) {
 	                    selectionClear.addEventListener('click', () => {
 	                        state.selectedIds.clear();

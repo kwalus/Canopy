@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.163] - 2026-05-19
+
+### Fixed
+- **Digestion Share access picker now closes like a normal combobox** - selecting, clearing, granting, pressing Escape, focusing outside, or clicking elsewhere hides the user picker and resets its active state instead of leaving the dropdown open.
+- **Post-grant access refresh no longer reopens the full user list** - successful grants refresh the recipient list while keeping the picker closed, so adding one user does not immediately obscure the permissions drawer.
+
 ## [0.6.162] - 2026-05-19
 
 ### Added
