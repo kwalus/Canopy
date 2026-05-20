@@ -397,6 +397,77 @@
             grid-template-columns: 1fr;
         }
     }
+
+    /* Theme consistency pass: saved-source cards should follow active Canopy palettes. */
+    .bookmark-page-shell {
+        color: var(--canopy-text-primary);
+    }
+
+    .bookmark-hero-card,
+    .bookmark-card,
+    .bookmark-empty-state {
+        background: var(--canopy-surface-elevated-accent) !important;
+        border-color: var(--canopy-surface-border-soft) !important;
+        color: var(--canopy-text-primary);
+        box-shadow: var(--canopy-surface-shadow-soft);
+    }
+
+    .bookmark-filter-btn,
+    .bookmark-preview-image,
+    .bookmark-preview-chip,
+    .bookmark-card-icon,
+    .bookmark-empty-icon {
+        background: var(--canopy-surface-elevated) !important;
+        border-color: var(--canopy-surface-border-soft) !important;
+        color: var(--canopy-text-secondary) !important;
+    }
+
+    .bookmark-filter-btn.active,
+    .bookmark-flag {
+        background: var(--canopy-deck-chip-bg) !important;
+        border-color: var(--canopy-deck-chip-border) !important;
+        color: var(--canopy-text-primary) !important;
+        box-shadow: 0 0 0 0.18rem var(--canopy-focus-ring);
+    }
+
+    .bookmark-kicker,
+    .bookmark-card-kicker,
+    .bookmark-preview-chip i,
+    .bookmark-empty-icon {
+        color: color-mix(in srgb, var(--canopy-warning) 74%, var(--canopy-text-primary)) !important;
+    }
+
+    .bookmark-filter-btn span,
+    .bookmark-card-meta {
+        color: var(--canopy-text-muted) !important;
+    }
+
+    .bookmark-type-channel_message {
+        color: color-mix(in srgb, var(--canopy-accent) 72%, var(--canopy-text-primary)) !important;
+        background: color-mix(in srgb, var(--canopy-accent) 12%, var(--canopy-bg-card)) !important;
+    }
+
+    .bookmark-type-feed_post {
+        color: color-mix(in srgb, var(--canopy-success) 72%, var(--canopy-text-primary)) !important;
+        background: color-mix(in srgb, var(--canopy-success) 12%, var(--canopy-bg-card)) !important;
+    }
+
+    .bookmark-type-dm_message {
+        color: color-mix(in srgb, var(--canopy-secondary) 72%, var(--canopy-text-primary)) !important;
+        background: color-mix(in srgb, var(--canopy-secondary) 12%, var(--canopy-bg-card)) !important;
+    }
+
+    .bookmark-page-shell .btn-outline-secondary,
+    .bookmark-page-shell .bookmark-action-btn {
+        --bs-btn-color: var(--canopy-text-primary);
+        --bs-btn-border-color: var(--canopy-border);
+        --bs-btn-hover-color: var(--canopy-text-primary);
+        --bs-btn-hover-bg: var(--canopy-interactive-hover-bg);
+        --bs-btn-hover-border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+        --bs-btn-active-color: var(--canopy-text-primary);
+        --bs-btn-active-bg: var(--canopy-deck-chip-bg);
+        --bs-btn-active-border-color: var(--canopy-deck-chip-border);
+    }
 </style>
 {% endblock %}
 

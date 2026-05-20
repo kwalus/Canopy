@@ -118,6 +118,38 @@
     @keyframes mesh-restart-spin {
         to { transform: rotate(360deg); }
     }
+
+    .mesh-restart-card {
+        background: var(--canopy-surface-elevated-accent) !important;
+        border-color: var(--canopy-surface-border-soft) !important;
+        color: var(--canopy-text-primary);
+        box-shadow: var(--canopy-surface-shadow-soft);
+    }
+
+    .mesh-restart-crest,
+    .mesh-restart-status {
+        background: var(--canopy-surface-elevated) !important;
+        border-color: var(--canopy-surface-border-soft) !important;
+        color: var(--canopy-text-secondary) !important;
+    }
+
+    .mesh-restart-sub {
+        color: var(--canopy-text-secondary) !important;
+    }
+
+    .mesh-restart-spinner {
+        border-color: color-mix(in srgb, var(--canopy-accent) 22%, transparent) !important;
+        border-top-color: var(--canopy-accent) !important;
+    }
+
+    .mesh-restart-page .btn-outline-light,
+    .mesh-restart-page .btn-outline-secondary {
+        --bs-btn-color: var(--canopy-text-primary);
+        --bs-btn-border-color: var(--canopy-border);
+        --bs-btn-hover-color: var(--canopy-text-primary);
+        --bs-btn-hover-bg: var(--canopy-interactive-hover-bg);
+        --bs-btn-hover-border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+    }
 </style>
 {% endblock %}
 

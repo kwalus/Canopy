@@ -17317,8 +17317,8 @@
                     <svg class="deck-digestion-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Quantitative datapoint value chart">
                         <defs>
                             <linearGradient id="deck-digestion-bar-gradient" x1="0" x2="0" y1="0" y2="1">
-                                <stop offset="0%" stop-color="#5eead4"></stop>
-                                <stop offset="100%" stop-color="#22c55e"></stop>
+                                <stop offset="0%" stop-color="var(--canopy-accent)"></stop>
+                                <stop offset="100%" stop-color="var(--canopy-primary)"></stop>
                             </linearGradient>
                         </defs>
                         ${axis}
@@ -20895,10 +20895,10 @@
             if (!statusEl) return;
             statusEl.textContent = message || '';
             statusEl.style.color = '';
-            if (tone === 'error') statusEl.style.color = '#fca5a5';
-            if (tone === 'ok') statusEl.style.color = '#86efac';
-            if (tone === 'warn') statusEl.style.color = '#fcd34d';
-            if (tone === 'info') statusEl.style.color = '#93c5fd';
+            if (tone === 'error') statusEl.style.color = 'var(--canopy-danger-text, var(--canopy-danger))';
+            if (tone === 'ok') statusEl.style.color = 'var(--canopy-success-text, var(--canopy-success))';
+            if (tone === 'warn') statusEl.style.color = 'var(--canopy-warning-text, var(--canopy-warning))';
+            if (tone === 'info') statusEl.style.color = 'var(--canopy-info-text, var(--canopy-accent))';
         }
 
         function _ctxSetBusy(busy) {

@@ -1637,6 +1637,255 @@
         gap: 0.42rem;
     }
 }
+
+/* Theme consistency pass: admin panels are dense and many predate custom/light themes.
+   Keep this late override layer token-driven so new admin cards inherit the active theme. */
+.admin-sections {
+    color: var(--canopy-text-primary);
+}
+
+.admin-page-header,
+.admin-summary-row .card,
+.directive-shell,
+.subsystem-shell,
+.backup-shell,
+.update-shell,
+.workspace-shell,
+.agent-launchpad,
+.transport-admin-shell,
+.governance-shell,
+.keys-panel-shell {
+    background: var(--canopy-surface-elevated-accent) !important;
+    border-color: var(--canopy-surface-border-soft) !important;
+    color: var(--canopy-text-primary);
+    box-shadow: var(--canopy-surface-shadow-soft);
+}
+
+.directive-shell .card-header,
+.subsystem-shell .card-header,
+.workspace-shell .card-header,
+.admin-summary-row .card-header {
+    background: var(--canopy-card-header-bg) !important;
+    border-bottom-color: var(--canopy-surface-border-soft) !important;
+    color: var(--canopy-text-primary);
+}
+
+.directive-agent-btn,
+.directive-editor,
+.directive-preview,
+.ops-tile,
+.backup-status-pill,
+.backup-kpi,
+.backup-settings-panel,
+.backup-list-panel,
+.manual-db-panel,
+.backup-list-item,
+.update-status-pill,
+.update-commit-panel,
+.update-commit-item,
+.update-security-note,
+.backup-security-note,
+.workspace-event-chip,
+.workspace-event-item,
+.queue-item,
+.skill-leader-item,
+.workspace-user-row,
+.workspace-metric,
+.workspace-panel,
+.agent-launchpad-intro,
+.agent-launchpad-card,
+.agent-launchpad-result,
+.agent-launchpad-permission,
+.workspace-chip,
+.workspace-list-item,
+.id-port-qr-shell,
+.id-port-scan-shell,
+.meshspace-template-card,
+.transport-kpi,
+.transport-mode-card,
+.governance-status-banner,
+.governance-stat,
+.governance-toolbar,
+.governance-channel-card,
+.governance-action-bar,
+.keys-preset-row,
+.keys-permission-card,
+.keys-permission-badge {
+    background: var(--canopy-surface-elevated) !important;
+    border-color: var(--canopy-surface-border-soft) !important;
+    color: var(--canopy-text-primary);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 4%, transparent);
+}
+
+.directive-agent-btn:hover,
+.workspace-user-btn:hover,
+.governance-channel-card:hover {
+    background: var(--canopy-interactive-hover-bg) !important;
+    border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border)) !important;
+    color: var(--canopy-text-primary);
+}
+
+.directive-agent-btn.active,
+.workspace-user-btn.active,
+.governance-channel-card.selected {
+    background: var(--canopy-deck-chip-bg) !important;
+    border-color: var(--canopy-deck-chip-border) !important;
+    color: var(--canopy-text-primary);
+    box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 18%, transparent),
+        var(--canopy-surface-shadow-soft);
+}
+
+.ops-label,
+.ops-meta,
+.backup-kpi-label,
+.update-kpi-label,
+.workspace-event-meta,
+.queue-meta,
+.skill-leader-meta,
+.workspace-user-meta,
+.admin-user-subline,
+.workspace-metric-label,
+.agent-launchpad-copy,
+.agent-launchpad-step,
+.workspace-list-meta,
+.meshspace-template-summary,
+.transport-kpi-label,
+.governance-stat-label,
+.governance-channel-meta,
+.governance-helper,
+.keys-permission-hint,
+.keys-summary-line {
+    color: var(--canopy-text-muted) !important;
+}
+
+.ops-value,
+.backup-kpi-value,
+.update-kpi-value,
+.workspace-metric-value,
+.workspace-user-name,
+.admin-user-title,
+.workspace-list-title,
+.transport-kpi-value,
+.governance-stat-value,
+.governance-channel-name {
+    color: var(--canopy-text-primary) !important;
+}
+
+.admin-sections .form-control,
+.admin-sections .form-select,
+.directive-editor textarea,
+.agent-launchpad .form-control,
+.agent-launchpad .form-select,
+.transport-mode-card .form-control,
+.keys-new-key-row .form-control,
+.id-port-panel .form-control-sm,
+.id-port-panel .form-select-sm {
+    background: var(--canopy-deck-input-bg) !important;
+    border-color: var(--canopy-border) !important;
+    color: var(--canopy-text-primary) !important;
+}
+
+.admin-sections .form-control:focus,
+.admin-sections .form-select:focus,
+.directive-editor textarea:focus,
+.agent-launchpad .form-control:focus,
+.agent-launchpad .form-select:focus,
+.transport-mode-card .form-control:focus,
+.keys-new-key-row .form-control:focus,
+.id-port-panel .form-control-sm:focus,
+.id-port-panel .form-select-sm:focus {
+    border-color: color-mix(in srgb, var(--canopy-primary) 50%, var(--canopy-border)) !important;
+    box-shadow: 0 0 0 0.18rem var(--canopy-focus-ring) !important;
+}
+
+.admin-sections .table,
+.admin-sections table {
+    --bs-table-bg: transparent;
+    --bs-table-color: var(--canopy-text-primary);
+    --bs-table-border-color: var(--canopy-border);
+    color: var(--canopy-text-primary);
+}
+
+.admin-table-shell,
+.table-responsive {
+    background: var(--canopy-surface-elevated) !important;
+    border-color: var(--canopy-surface-border-soft) !important;
+}
+
+.admin-identity-chip,
+.workspace-signal-chip,
+.governance-chip,
+.workspace-event-type,
+.queue-type,
+.queue-status,
+.skill-score-chip {
+    background: var(--canopy-deck-chip-bg) !important;
+    border-color: var(--canopy-deck-chip-border) !important;
+    color: var(--canopy-text-secondary) !important;
+}
+
+.workspace-signal-chip.good,
+.admin-identity-chip.good,
+.governance-chip.good,
+.backup-status-pill.enabled,
+.update-status-pill.clean {
+    background: color-mix(in srgb, var(--canopy-success) 14%, var(--canopy-bg-card)) !important;
+    border-color: color-mix(in srgb, var(--canopy-success) 42%, var(--canopy-border)) !important;
+    color: color-mix(in srgb, var(--canopy-success) 72%, var(--canopy-text-primary)) !important;
+}
+
+.workspace-signal-chip.warn,
+.admin-identity-chip.warn,
+.governance-chip.warn,
+.backup-status-pill.paused,
+.update-status-pill.available,
+.governance-status-banner.is-dirty,
+.governance-action-bar.is-dirty,
+.governance-channel-card.readonly {
+    background: color-mix(in srgb, var(--canopy-warning) 14%, var(--canopy-bg-card)) !important;
+    border-color: color-mix(in srgb, var(--canopy-warning) 42%, var(--canopy-border)) !important;
+    color: color-mix(in srgb, var(--canopy-warning) 70%, var(--canopy-text-primary)) !important;
+}
+
+.governance-chip.bad,
+.update-status-pill.blocked,
+.governance-channel-card.blocked,
+.agent-launchpad-result.is-error {
+    background: color-mix(in srgb, var(--canopy-danger) 14%, var(--canopy-bg-card)) !important;
+    border-color: color-mix(in srgb, var(--canopy-danger) 42%, var(--canopy-border)) !important;
+    color: color-mix(in srgb, var(--canopy-danger) 72%, var(--canopy-text-primary)) !important;
+}
+
+.admin-sections .btn-outline-light,
+.admin-sections .btn-outline-secondary {
+    --bs-btn-color: var(--canopy-text-primary);
+    --bs-btn-border-color: var(--canopy-border);
+    --bs-btn-hover-color: var(--canopy-text-primary);
+    --bs-btn-hover-bg: var(--canopy-interactive-hover-bg);
+    --bs-btn-hover-border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+    --bs-btn-active-color: var(--canopy-text-primary);
+    --bs-btn-active-bg: var(--canopy-deck-chip-bg);
+    --bs-btn-active-border-color: var(--canopy-deck-chip-border);
+}
+
+.admin-sections .badge.bg-dark,
+.admin-sections .text-bg-dark,
+.admin-sections .bg-dark {
+    background-color: var(--canopy-bg-tertiary) !important;
+    color: var(--canopy-text-primary) !important;
+    border-color: var(--canopy-border) !important;
+}
+
+.backup-list-item code,
+.update-commit-item code,
+#workspace-inbox-config,
+.mesh-code,
+.id-port-panel pre {
+    background: var(--canopy-bg-tertiary) !important;
+    color: var(--canopy-text-primary) !important;
+    border-color: var(--canopy-border) !important;
+}
 </style>
 {% endblock %}
 

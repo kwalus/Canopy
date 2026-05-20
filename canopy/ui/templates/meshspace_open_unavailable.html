@@ -86,6 +86,37 @@
         color: rgba(148, 163, 184, 0.9);
         font-size: 0.92rem;
     }
+
+    .mesh-open-card {
+        background: var(--canopy-surface-elevated-accent) !important;
+        border-color: var(--canopy-surface-border-soft) !important;
+        color: var(--canopy-text-primary);
+        box-shadow: var(--canopy-surface-shadow-soft);
+    }
+
+    .mesh-open-crest,
+    .mesh-open-status {
+        background: var(--canopy-surface-elevated) !important;
+        border-color: var(--canopy-surface-border-soft) !important;
+        color: var(--canopy-text-secondary) !important;
+    }
+
+    .mesh-open-sub {
+        color: var(--canopy-text-secondary) !important;
+    }
+
+    .mesh-open-meta {
+        color: var(--canopy-text-muted) !important;
+    }
+
+    .mesh-open-page .btn-outline-light,
+    .mesh-open-page .btn-outline-secondary {
+        --bs-btn-color: var(--canopy-text-primary);
+        --bs-btn-border-color: var(--canopy-border);
+        --bs-btn-hover-color: var(--canopy-text-primary);
+        --bs-btn-hover-bg: var(--canopy-interactive-hover-bg);
+        --bs-btn-hover-border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+    }
 </style>
 {% endblock %}
 

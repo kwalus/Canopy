@@ -406,6 +406,116 @@
             align-items: flex-start;
         }
     }
+
+    /* Theme consistency pass: mesh cards should not hard-lock to the old dark navy palette. */
+    .meshes-page {
+        --mesh-surface: var(--canopy-surface-elevated);
+        --mesh-surface-accent: var(--canopy-surface-elevated-accent);
+        --mesh-border: var(--canopy-surface-border-soft);
+        --mesh-chip-bg: var(--canopy-deck-chip-bg);
+        --mesh-chip-border: var(--canopy-deck-chip-border);
+    }
+
+    .meshes-hero,
+    .mesh-panel,
+    .mesh-card {
+        background: var(--mesh-surface-accent) !important;
+        border-color: var(--mesh-border) !important;
+        color: var(--canopy-text-primary);
+        box-shadow: var(--canopy-surface-shadow-soft);
+    }
+
+    .meshes-kicker,
+    .meshes-kpi,
+    .mesh-migration-callout,
+    .mesh-card-badge,
+    .mesh-card-state,
+    .mesh-card-kv-item,
+    .mesh-presence-pill {
+        background: var(--mesh-surface) !important;
+        border-color: var(--mesh-border) !important;
+        color: var(--canopy-text-secondary) !important;
+        box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 4%, transparent);
+    }
+
+    .meshes-subtitle,
+    .mesh-migration-copy,
+    .mesh-card-desc,
+    .mesh-card-state-sub {
+        color: var(--canopy-text-secondary) !important;
+    }
+
+    .meshes-kpi-label,
+    .mesh-card-kv-label {
+        color: var(--canopy-text-muted) !important;
+    }
+
+    .meshes-kpi-value,
+    .mesh-card-title,
+    .mesh-card-kv-value,
+    .mesh-card-state-label {
+        color: var(--canopy-text-primary) !important;
+    }
+
+    .mesh-card.is-current {
+        border-color: var(--mesh-chip-border) !important;
+        box-shadow:
+            inset 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 16%, transparent),
+            var(--canopy-surface-shadow-soft);
+    }
+
+    .mesh-card-icon {
+        background:
+            radial-gradient(circle at 28% 24%, rgba(var(--mesh-accent-rgb), 0.26), transparent 46%),
+            var(--mesh-surface) !important;
+        border-color: var(--mesh-border) !important;
+        color: var(--canopy-text-primary) !important;
+    }
+
+    .mesh-card-icon-initial {
+        color: var(--canopy-text-primary) !important;
+    }
+
+    .mesh-card-state-dot {
+        background: var(--canopy-text-muted);
+        box-shadow: 0 0 0 5px color-mix(in srgb, var(--canopy-text-muted) 14%, transparent);
+    }
+
+    .mesh-card-state-dot.running { background: var(--canopy-success); box-shadow: 0 0 0 5px color-mix(in srgb, var(--canopy-success) 14%, transparent); }
+    .mesh-card-state-dot.starting,
+    .mesh-card-state-dot.stopping { background: var(--canopy-accent); box-shadow: 0 0 0 5px color-mix(in srgb, var(--canopy-accent) 14%, transparent); }
+    .mesh-card-state-dot.degraded { background: var(--canopy-warning); box-shadow: 0 0 0 5px color-mix(in srgb, var(--canopy-warning) 14%, transparent); }
+    .mesh-card-state-dot.crashed { background: var(--canopy-danger); box-shadow: 0 0 0 5px color-mix(in srgb, var(--canopy-danger) 14%, transparent); }
+
+    .mesh-presence-pill.attention {
+        background: color-mix(in srgb, var(--canopy-danger) 12%, var(--canopy-bg-card)) !important;
+        border-color: color-mix(in srgb, var(--canopy-danger) 34%, var(--canopy-border)) !important;
+        color: color-mix(in srgb, var(--canopy-danger) 70%, var(--canopy-text-primary)) !important;
+    }
+
+    .mesh-presence-pill.warning {
+        background: color-mix(in srgb, var(--canopy-warning) 12%, var(--canopy-bg-card)) !important;
+        border-color: color-mix(in srgb, var(--canopy-warning) 34%, var(--canopy-border)) !important;
+        color: color-mix(in srgb, var(--canopy-warning) 70%, var(--canopy-text-primary)) !important;
+    }
+
+    .mesh-presence-pill.live {
+        background: color-mix(in srgb, var(--canopy-success) 12%, var(--canopy-bg-card)) !important;
+        border-color: color-mix(in srgb, var(--canopy-success) 34%, var(--canopy-border)) !important;
+        color: color-mix(in srgb, var(--canopy-success) 70%, var(--canopy-text-primary)) !important;
+    }
+
+    .meshes-page .btn-outline-light,
+    .meshes-page .btn-outline-secondary {
+        --bs-btn-color: var(--canopy-text-primary);
+        --bs-btn-border-color: var(--canopy-border);
+        --bs-btn-hover-color: var(--canopy-text-primary);
+        --bs-btn-hover-bg: var(--canopy-interactive-hover-bg);
+        --bs-btn-hover-border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+        --bs-btn-active-color: var(--canopy-text-primary);
+        --bs-btn-active-bg: var(--mesh-chip-bg);
+        --bs-btn-active-border-color: var(--mesh-chip-border);
+    }
 </style>
 {% endblock %}
 

@@ -171,6 +171,62 @@
             grid-template-columns: minmax(0, 1fr);
         }
     }
+
+    /* Theme consistency pass for create meshspace flow. */
+    .mesh-create-hero,
+    .mesh-create-form,
+    .mesh-create-side {
+        background: var(--canopy-surface-elevated-accent) !important;
+        border-color: var(--canopy-surface-border-soft) !important;
+        color: var(--canopy-text-primary);
+        box-shadow: var(--canopy-surface-shadow-soft);
+    }
+
+    .mesh-create-kicker,
+    .mesh-side-card,
+    .mesh-port-card {
+        background: var(--canopy-surface-elevated) !important;
+        border-color: var(--canopy-surface-border-soft) !important;
+        color: var(--canopy-text-secondary) !important;
+    }
+
+    .mesh-create-subtitle,
+    .mesh-section-sub,
+    .mesh-side-card p,
+    .mesh-side-card li {
+        color: var(--canopy-text-secondary) !important;
+    }
+
+    .mesh-section {
+        border-bottom-color: var(--canopy-surface-border-soft) !important;
+    }
+
+    .mesh-port-label {
+        color: var(--canopy-text-muted) !important;
+    }
+
+    .mesh-port-value {
+        color: var(--canopy-text-primary) !important;
+    }
+
+    .mesh-create-page .form-control,
+    .mesh-create-page .form-select {
+        background: var(--canopy-deck-input-bg) !important;
+        border-color: var(--canopy-border) !important;
+        color: var(--canopy-text-primary) !important;
+    }
+
+    .mesh-create-page .btn-outline-light,
+    .mesh-create-page .btn-outline-secondary {
+        --bs-btn-color: var(--canopy-text-primary);
+        --bs-btn-border-color: var(--canopy-border);
+        --bs-btn-hover-color: var(--canopy-text-primary);
+        --bs-btn-hover-bg: var(--canopy-interactive-hover-bg);
+        --bs-btn-hover-border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+        --bs-btn-active-color: var(--canopy-text-primary);
+        --bs-btn-active-bg: var(--canopy-deck-chip-bg);
+        --bs-btn-active-border-color: var(--canopy-deck-chip-border);
+    }
 </style>
 {% endblock %}
 

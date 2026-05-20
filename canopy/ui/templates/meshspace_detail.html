@@ -347,6 +347,81 @@
             width: 100%;
         }
     }
+
+    /* Theme consistency pass for mesh detail/operator controls. */
+    .mesh-detail-hero,
+    .mesh-detail-panel {
+        background: var(--canopy-surface-elevated-accent) !important;
+        border-color: var(--canopy-surface-border-soft) !important;
+        color: var(--canopy-text-primary);
+        box-shadow: var(--canopy-surface-shadow-soft);
+    }
+
+    .mesh-detail-badge,
+    .mesh-kv-card,
+    .mesh-health-item,
+    .mesh-port-chip,
+    .mesh-avatar-panel {
+        background: var(--canopy-surface-elevated) !important;
+        border-color: var(--canopy-surface-border-soft) !important;
+        color: var(--canopy-text-secondary) !important;
+    }
+
+    .mesh-detail-icon,
+    .mesh-avatar-preview {
+        background: var(--canopy-deck-chip-bg) !important;
+        border-color: var(--canopy-deck-chip-border) !important;
+        color: var(--canopy-text-primary) !important;
+    }
+
+    .mesh-detail-subtitle,
+    .mesh-port-warning {
+        color: var(--canopy-text-secondary) !important;
+    }
+
+    .mesh-kv-label,
+    .mesh-health-label,
+    .mesh-port-chip strong {
+        color: var(--canopy-text-muted) !important;
+    }
+
+    .mesh-kv-value,
+    .mesh-health-value,
+    .mesh-port-chip span,
+    .mesh-avatar-title {
+        color: var(--canopy-text-primary) !important;
+    }
+
+    .mesh-code {
+        background: var(--canopy-bg-tertiary) !important;
+        border-color: var(--canopy-border) !important;
+        color: var(--canopy-text-primary) !important;
+    }
+
+    .mesh-detail-callout {
+        background: color-mix(in srgb, var(--canopy-warning) 12%, var(--canopy-bg-card)) !important;
+        border-color: color-mix(in srgb, var(--canopy-warning) 34%, var(--canopy-border)) !important;
+        color: color-mix(in srgb, var(--canopy-warning) 72%, var(--canopy-text-primary)) !important;
+    }
+
+    .mesh-detail-page .form-control,
+    .mesh-detail-page .form-select {
+        background: var(--canopy-deck-input-bg) !important;
+        border-color: var(--canopy-border) !important;
+        color: var(--canopy-text-primary) !important;
+    }
+
+    .mesh-detail-page .btn-outline-light,
+    .mesh-detail-page .btn-outline-secondary {
+        --bs-btn-color: var(--canopy-text-primary);
+        --bs-btn-border-color: var(--canopy-border);
+        --bs-btn-hover-color: var(--canopy-text-primary);
+        --bs-btn-hover-bg: var(--canopy-interactive-hover-bg);
+        --bs-btn-hover-border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+        --bs-btn-active-color: var(--canopy-text-primary);
+        --bs-btn-active-bg: var(--canopy-deck-chip-bg);
+        --bs-btn-active-border-color: var(--canopy-deck-chip-border);
+    }
 </style>
 {% endblock %}
 

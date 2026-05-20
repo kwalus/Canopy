@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.167] - 2026-05-20
+
+### Added
+- **Deck UI surfaces now follow shared theme tokens** - Deck chrome, widget panels, media controls, and Digestion workspace panels now resolve through theme-aware Deck tokens instead of fixed dark surfaces, with chart bars using the active accent/primary palette.
+
+### Fixed
+- **Admin, Mesh, and Bookmarks pages respect light/custom themes** - page-scoped overrides now route dense admin panels, mesh management cards, restart/unavailable states, and bookmark cards/buttons through active Canopy surface, border, input, and semantic color tokens.
+- **Light-theme semantic text has contrast guardrails** - light, Outlook, Teams, and custom light themes now use contrast-safe semantic text tokens for Bootstrap utilities, mentions, channel tags, status chips, notification filters, and inline content-context status messages.
+
 ## [0.6.166] - 2026-05-19
 
 ### Fixed
