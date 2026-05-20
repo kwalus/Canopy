@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.173] - 2026-05-20
+
+### Fixed
+- **Workspace Search filters no longer overlap results** - the global Workspace Search modal now reserves a dedicated filter-chip row, keeps filters layered above the scrollable results pane, and preserves mobile horizontal filter scrolling with more reliable tap targets.
+
 ## [0.6.172] - 2026-05-20
 
 ### Added
