@@ -17314,8 +17314,8 @@
                     const barY = point.value >= 0 ? y : zeroY;
                     const shortLabel = point.label.length > 22 ? `${point.label.slice(0, 21)}...` : point.label;
                     return `
-                        <g class="deck-digestion-chart-point" data-deck-digestion-quant-key="${escapeEmbedAttr(point.key)}">
-                            <rect x="${x.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="5"></rect>
+                        <g class="deck-digestion-chart-point" role="button" tabindex="0" aria-label="${escapeEmbedAttr(`Hide ${point.label}`)}" data-deck-digestion-quant-key="${escapeEmbedAttr(point.key)}">
+                            <rect x="${x.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="5" data-deck-digestion-quant-key="${escapeEmbedAttr(point.key)}"></rect>
                             <title>${escapeEmbedHtml(`${point.label}: ${point.valueText || point.value} ${point.unit}`.trim())}</title>
                             <text x="${(x + barW / 2).toFixed(1)}" y="${height - 38}" transform="rotate(-38 ${(x + barW / 2).toFixed(1)} ${height - 38})" class="deck-digestion-chart-x">${escapeEmbedHtml(shortLabel)}</text>
                         </g>
@@ -17348,10 +17348,12 @@
                     start: minValue + (span * index / binCount),
                     end: minValue + (span * (index + 1) / binCount),
                     count: 0,
+                    points: [],
                 }));
-                values.forEach((value) => {
-                    const idx = Math.min(binCount - 1, Math.max(0, Math.floor(((value - minValue) / span) * binCount)));
+                points.forEach((point) => {
+                    const idx = Math.min(binCount - 1, Math.max(0, Math.floor(((point.value - minValue) / span) * binCount)));
                     bins[idx].count += 1;
+                    bins[idx].points.push(point);
                 });
                 const width = 900;
                 const height = 300;
@@ -17366,10 +17368,14 @@
                     const h = Math.max(2, (bin.count / maxCount) * plotH);
                     const y = pad.top + plotH - h;
                     const label = `${bin.start.toPrecision(3)}-${bin.end.toPrecision(3)}`;
+                    const binKeys = JSON.stringify(bin.points.map((point) => point.key));
+                    const interactiveAttrs = bin.count > 0
+                        ? `role="button" tabindex="0" aria-label="${escapeEmbedAttr(`Hide ${bin.count} value${bin.count === 1 ? '' : 's'} from ${label}`)}" data-deck-digestion-hide-keys="${escapeEmbedAttr(binKeys)}"`
+                        : 'aria-hidden="true"';
                     return `
-                        <g>
-                            <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="6"></rect>
-                            <title>${escapeEmbedHtml(`${label}: ${bin.count} value${bin.count === 1 ? '' : 's'}`)}</title>
+                        <g class="deck-digestion-chart-point${bin.count > 0 ? '' : ' is-empty-bin'}" ${interactiveAttrs}>
+                            <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="6"${bin.count > 0 ? ` data-deck-digestion-hide-keys="${escapeEmbedAttr(binKeys)}"` : ''}></rect>
+                            <title>${escapeEmbedHtml(`${label}: ${bin.count} value${bin.count === 1 ? '' : 's'}${bin.count > 0 ? ' · click to hide this bin' : ''}`)}</title>
                             <text x="${(x + barW / 2).toFixed(1)}" y="${height - 28}" text-anchor="middle" class="deck-digestion-chart-x">${escapeEmbedHtml(label)}</text>
                         </g>
                     `;
@@ -17424,6 +17430,54 @@
                 host.querySelectorAll('[data-deck-digestion-result-count], [data-deck-digestion-results-summary]').forEach((el) => {
                     el.textContent = String(text || '');
                 });
+            }
+
+            function closestDeckDigestionChartAction(node) {
+                let current = node;
+                while (current && current !== document) {
+                    if (
+                        current.getAttribute
+                        && (
+                            current.getAttribute('data-deck-digestion-hide-point')
+                            || current.getAttribute('data-deck-digestion-quant-key')
+                            || current.getAttribute('data-deck-digestion-hide-keys')
+                        )
+                    ) {
+                        return current;
+                    }
+                    current = current.parentNode || current.host || null;
+                }
+                return null;
+            }
+
+            function hideDeckDigestionChartKeys(host, actionEl) {
+                if (!host || !actionEl) return false;
+                const keys = [];
+                const singleKey = actionEl.getAttribute('data-deck-digestion-hide-point')
+                    || actionEl.getAttribute('data-deck-digestion-quant-key')
+                    || '';
+                if (singleKey) keys.push(singleKey);
+                const keyList = actionEl.getAttribute('data-deck-digestion-hide-keys') || '';
+                if (keyList) {
+                    try {
+                        const parsed = JSON.parse(keyList);
+                        if (Array.isArray(parsed)) {
+                            parsed.map((key) => String(key || '').trim()).filter(Boolean).forEach((key) => keys.push(key));
+                        }
+                    } catch (_) {
+                        keyList.split('|||').map((key) => key.trim()).filter(Boolean).forEach((key) => keys.push(key));
+                    }
+                }
+                if (!keys.length) return false;
+                if (!(host.__canopyDeckDigestionHiddenPoints instanceof Set)) host.__canopyDeckDigestionHiddenPoints = new Set();
+                keys.forEach((key) => host.__canopyDeckDigestionHiddenPoints.add(key));
+                renderDeckDigestionChart(host);
+                const hiddenCount = host.__canopyDeckDigestionHiddenPoints.size;
+                const statusEl = host.querySelector('[data-deck-digestion-status]');
+                if (statusEl) {
+                    statusEl.textContent = `${hiddenCount} chart value${hiddenCount === 1 ? '' : 's'} hidden. Use Reset hidden to restore.`;
+                }
+                return true;
             }
 
             function renderDeckDigestionResults(host, data, mode) {
@@ -17667,6 +17721,7 @@
                                             <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-reset-chart>Reset hidden</button>
                                         </div>
                                     </div>
+                                    <div class="deck-digestion-muted">Click a value bar or histogram bin to hide it from this view.</div>
                                     <div class="deck-digestion-chart" data-deck-digestion-chart>
                                         <div class="deck-digestion-chart-empty">Run a structured datapoint search to plot source-grounded quantitative values.</div>
                                     </div>
@@ -17690,19 +17745,15 @@
                         runDeckDigestionOperation(host, item, op, opBtn);
                         return;
                     }
-                    const hideBtn = event.target.closest('[data-deck-digestion-hide-point], [data-deck-digestion-quant-key]');
-                    if (hideBtn) {
-                        const key = hideBtn.getAttribute('data-deck-digestion-hide-point') || hideBtn.getAttribute('data-deck-digestion-quant-key') || '';
-                        if (key) {
-                            if (!(host.__canopyDeckDigestionHiddenPoints instanceof Set)) host.__canopyDeckDigestionHiddenPoints = new Set();
-                            host.__canopyDeckDigestionHiddenPoints.add(key);
-                            renderDeckDigestionChart(host);
-                        }
+                    const hideBtn = closestDeckDigestionChartAction(event.target);
+                    if (hideBtn && hideDeckDigestionChartKeys(host, hideBtn)) {
                         return;
                     }
                     if (event.target.closest('[data-deck-digestion-reset-chart]')) {
                         host.__canopyDeckDigestionHiddenPoints = new Set();
                         renderDeckDigestionChart(host);
+                        const statusEl = host.querySelector('[data-deck-digestion-status]');
+                        if (statusEl) statusEl.textContent = 'Chart filters reset.';
                     }
                 });
                 host.addEventListener('input', (event) => {
@@ -17717,6 +17768,13 @@
                     if (event.target.closest('[data-deck-digestion-mode]')) {
                         renderDeckDigestionChart(host);
                     }
+                });
+                host.addEventListener('keydown', (event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    const actionEl = closestDeckDigestionChartAction(event.target);
+                    if (!actionEl) return;
+                    event.preventDefault();
+                    hideDeckDigestionChartKeys(host, actionEl);
                 });
                 renderDeckDigestionChart(host);
                 if (initialQuery.trim()) {

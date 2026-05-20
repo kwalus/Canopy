@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.169] - 2026-05-20
+
+### Fixed
+- **Digestion Deck now behaves like a dense research console** - the static Digestion header is compressed into a compact metadata ribbon, chart/tuning chrome is reduced, and the chart rail gets more usable space in normal, large, and window Deck modes.
+- **Digestion Deck histograms can hide bins** - value bars and non-empty histogram bins are clickable and keyboard-accessible for hiding chart values, with status feedback and reset behavior for restoring hidden points.
+
 ## [0.6.168] - 2026-05-20
 
 ### Fixed
