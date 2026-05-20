@@ -2456,6 +2456,9 @@
 	                                ${canManage && !canReadSources ? `<span class="vault-digestion-pill text-warning" title="Source-read access is required for Extract datapoints."><i class="bi bi-shield-exclamation"></i>No source-read access</span>` : ''}
                             </div>
                             <div class="vault-digestion-actions">
+                                <button class="btn btn-sm btn-outline-light" type="button" data-vault-digestion-action="open-deck" data-vault-digestion-id="${id}" aria-label="Open ${name} in Canopy Deck" title="Open this Digestion in a larger Deck workspace for search, datapoint charts, and management.">
+                                    <i class="bi bi-window-sidebar"></i> Deck
+                                </button>
                                 <button class="btn btn-sm btn-primary" type="button" data-vault-digestion-action="build" data-vault-digestion-id="${id}" aria-label="${buildLabel} ${name}" title="${buildTitle}">
                                     <i class="bi bi-hammer"></i> ${buildLabel}
                                 </button>
@@ -3963,6 +3966,108 @@
                     `;
                 }
 
+                function buildDigestionDeckManifest(digestion) {
+                    const item = digestion && typeof digestion === 'object' ? digestion : {};
+                    const stats = item.stats && typeof item.stats === 'object' ? item.stats : {};
+                    const access = item.access && typeof item.access === 'object' ? item.access : {};
+                    const sourceStatusCounts = stats.sources_by_status && typeof stats.sources_by_status === 'object'
+                        ? Object.values(stats.sources_by_status).reduce((sum, value) => sum + Math.max(0, Number(value || 0) || 0), 0)
+                        : 0;
+                    const sourceCount = Array.isArray(item.sources)
+                        ? item.sources.length
+                        : Number(stats.source_count || stats.sources || item.source_count || sourceStatusCounts || 0);
+                    const chunks = Number(stats.chunks || item.chunk_count || 0);
+                    const tokens = Number(stats.token_estimate || 0);
+                    const status = String(item.status || 'draft');
+                    const name = String(item.name || item.title || item.id || 'Digestion');
+                    return {
+                        version: 1,
+                        key: `digestion:${String(item.id || name)}`,
+                        widget_type: 'digestion',
+                        render_mode: 'digestion_workspace',
+                        title: name,
+                        subtitle: String(item.purpose || 'Source-bound research workspace for query, datapoint charts, and controlled reuse.'),
+                        provider_label: 'Digestion',
+                        icon: 'bi-diagram-3',
+                        badges: [
+                            status,
+                            `${sourceCount} source${sourceCount === 1 ? '' : 's'}`,
+                            `${chunks} chunk${chunks === 1 ? '' : 's'}`,
+                            tokens ? `${tokens.toLocaleString()} token est.` : '',
+                        ].filter(Boolean),
+                        details: [
+                            { label: 'Status', value: status },
+                            { label: 'Sources', value: String(sourceCount) },
+                            { label: 'Chunks', value: String(chunks) },
+                            { label: 'Provider', value: String(item.provider || stats.provider || 'local') },
+                            { label: 'Access', value: access.can_manage ? 'Manage/build' : (access.can_query ? 'Query' : 'Local') },
+                        ],
+                        station_surface: {
+                            kind: 'digestion_workspace',
+                            label: 'Digestion Deck workspace',
+                            summary: 'Larger source-bound workspace for semantic search, structured datapoints, charts, and bounded management actions.',
+                            domain: 'research',
+                            scope: 'source',
+                            recurring: false,
+                        },
+                        action_policy: {
+                            audit_label: 'Query and manage through Digestion ACL',
+                            max_risk: access.can_manage ? 'low' : 'view',
+                            human_gate: 'none',
+                        },
+                        source_binding: {
+                            binding_type: 'digestion',
+                            return_label: 'Return to Vault card',
+                        },
+                        digestion: {
+                            id: String(item.id || ''),
+                            name,
+                            purpose: String(item.purpose || ''),
+                            status,
+                            provider: String(item.provider || stats.provider || 'local'),
+                            stats,
+                            access,
+                        },
+                    };
+                }
+
+                function openDigestionDeckWorkspace(digestionId, button) {
+                    const digestion = findDigestion(digestionId) || {};
+                    const card = button && button.closest('[data-vault-digestion-id]');
+                    if (!card || !digestionId) return;
+                    const deckOpener = global && typeof global.canopyOpenMediaDeckForSource === 'function'
+                        ? global.canopyOpenMediaDeckForSource
+                        : null;
+                    if (!deckOpener) {
+                        if (typeof showAlert === 'function') {
+                            showAlert('Canopy Deck is not available on this page yet.', 'warning');
+                        }
+                        return;
+                    }
+                    const manifest = buildDigestionDeckManifest({ ...digestion, id: digestionId });
+                    const item = {
+                        key: manifest.key,
+                        el: card,
+                        sourceEl: card,
+                        type: 'digestion',
+                        title: manifest.title,
+                        subtitle: manifest.subtitle,
+                        providerLabel: manifest.provider_label,
+                        icon: manifest.icon,
+                        manifest,
+                    };
+                    try {
+                        if (global && typeof global.canopySetDeckDesktopMode === 'function') {
+                            global.canopySetDeckDesktopMode('large');
+                        }
+                    } catch (_) {}
+                    deckOpener(card, {
+                        explicitItem: item,
+                        preferredKey: item.key,
+                        play: false,
+                    });
+                }
+
 	                async function queryDigestion(digestionId, queryText = '') {
                     if (!digestionId) return;
                     const query = String(
@@ -4499,7 +4604,9 @@
 	                        event.stopPropagation();
 	                        const digestionId = actionBtn.getAttribute('data-vault-digestion-id') || '';
 	                        const action = actionBtn.getAttribute('data-vault-digestion-action') || '';
-                        if (action === 'build') {
+                        if (action === 'open-deck') {
+                            openDigestionDeckWorkspace(digestionId, actionBtn);
+                        } else if (action === 'build') {
                             buildDigestion(digestionId, actionBtn);
                         } else if (action === 'outputs') {
                             loadDigestionOutputs(digestionId, actionBtn);
@@ -6824,7 +6931,7 @@
                 .replace(/'/g, '&#39;');
         }
 
-        const CANOPY_DECK_WIDGET_RENDER_MODES = new Set(['iframe', 'card', 'stream_summary', 'module_runtime']);
+        const CANOPY_DECK_WIDGET_RENDER_MODES = new Set(['iframe', 'card', 'stream_summary', 'module_runtime', 'digestion_workspace']);
         const CANOPY_DECK_WIDGET_TYPES = new Set([
             'map',
             'chart',
@@ -6833,6 +6940,7 @@
             'media_stream',
             'telemetry_panel',
             'module_surface',
+            'digestion',
         ]);
         const CANOPY_DECK_WIDGET_CALLBACKS = new Set(['open_stream_workspace']);
         const CANOPY_DECK_WIDGET_ACTION_RISKS = new Set(['view', 'low']);
@@ -6844,6 +6952,7 @@
             'stream_station',
             'telemetry_station',
             'station_surface',
+            'digestion_workspace',
         ]);
         const CANOPY_DECK_WIDGET_DOMAINS = new Set([
             'media',
@@ -6856,6 +6965,7 @@
             'mapping',
             'market',
             'operations',
+            'research',
             'general',
         ]);
         const CANOPY_MODULE_BUNDLE_FORMATS = new Set(['single_html']);
@@ -7129,6 +7239,16 @@
                     domain: 'education',
                     label: providerLabel || title || 'Interactive Module',
                     summary: 'Safe executable module bound to this source and opened inside the Canopy deck.',
+                    recurring: false,
+                    scope: 'source',
+                };
+            }
+            if (widgetType === 'digestion') {
+                return {
+                    kind: 'digestion_workspace',
+                    domain: 'research',
+                    label: providerLabel || title || 'Digestion Workspace',
+                    summary: 'Research workspace for source-bound search, structured datapoints, and charted review.',
                     recurring: false,
                     scope: 'source',
                 };
@@ -13418,6 +13538,7 @@
                 if (type === 'media_stream') return 'bi-broadcast';
                 if (type === 'telemetry_panel') return 'bi-cpu';
                 if (type === 'module_surface') return 'bi-box-fill';
+                if (type === 'digestion') return 'bi-diagram-3';
                 if (type === 'media_embed') return 'bi-grid-1x2';
                 if (type === 'story') return 'bi-newspaper';
                 return 'bi-play-circle';
@@ -13432,6 +13553,7 @@
                 if (type === 'media_stream') return 'Live stream';
                 if (type === 'telemetry_panel') return 'Telemetry';
                 if (type === 'module_surface') return 'Canopy Module';
+                if (type === 'digestion') return 'Digestion';
                 if (type === 'media_embed') return 'Embedded media';
                 if (type === 'story') return 'Story';
                 return 'Media';
@@ -15383,7 +15505,11 @@
             }
 
             function isDeckModuleItem(item) {
-                return !!(item && item.manifest && item.manifest.render_mode === 'module_runtime');
+                return !!(
+                    item
+                    && item.manifest
+                    && (item.manifest.render_mode === 'module_runtime' || item.manifest.render_mode === 'digestion_workspace')
+                );
             }
 
             function setDeckQueueCollapsed(collapsed) {
@@ -17006,6 +17132,497 @@
                 }
             }
 
+            function deckDigestionPayload(item) {
+                const manifest = item && item.manifest && typeof item.manifest === 'object' ? item.manifest : {};
+                return manifest.digestion && typeof manifest.digestion === 'object' ? manifest.digestion : {};
+            }
+
+            function deckDigestionId(item) {
+                return String(deckDigestionPayload(item).id || '').trim();
+            }
+
+            function deckDigestionNumber(value) {
+                if (typeof value === 'number' && Number.isFinite(value)) return value;
+                const text = String(value || '').replace(/,/g, ' ');
+                const match = text.match(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/);
+                if (!match) return null;
+                const parsed = Number(match[0]);
+                return Number.isFinite(parsed) ? parsed : null;
+            }
+
+            function deckDigestionQueryTerms(query) {
+                const matches = String(query || '').toLowerCase().match(/[a-z0-9][a-z0-9_./+-]{2,}/g) || [];
+                const stop = new Set(['with', 'that', 'from', 'this', 'what', 'when', 'where', 'into', 'about', 'using', 'these', 'those', 'their', 'there']);
+                return Array.from(new Set(matches.filter((term) => !stop.has(term)))).slice(0, 18);
+            }
+
+            function deckDigestionHighlight(text, query) {
+                const value = String(text || '');
+                if (!value) return '';
+                const terms = deckDigestionQueryTerms(query);
+                if (!terms.length) return escapeEmbedHtml(value);
+                const pattern = new RegExp(terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
+                let html = '';
+                let lastIndex = 0;
+                value.replace(pattern, (match, offset) => {
+                    html += escapeEmbedHtml(value.slice(lastIndex, offset));
+                    html += `<mark class="deck-digestion-mark">${escapeEmbedHtml(match)}</mark>`;
+                    lastIndex = offset + match.length;
+                    return match;
+                });
+                html += escapeEmbedHtml(value.slice(lastIndex));
+                return html;
+            }
+
+            function deckDigestionSourceHref(source) {
+                const fileId = String(source && source.file_id || '').trim();
+                if (!fileId) return '';
+                const pageMatch = String(source.page_label || '').match(/(\d+)/);
+                const page = pageMatch ? Number(pageMatch[1]) : 0;
+                return `/files/${encodeURIComponent(fileId)}${page > 0 ? `#page=${page}` : ''}`;
+            }
+
+            function deckDigestionResultSource(item) {
+                const source = item && item.source && typeof item.source === 'object' ? item.source : {};
+                return {
+                    ...source,
+                    file_id: source.file_id || item.file_id || item.vault_file_id || '',
+                    file_name: source.file_name || item.file_name || item.filename || item.source_name || '',
+                    page_label: source.page_label || item.page_label || item.page || '',
+                    content_type: source.content_type || item.content_type || '',
+                };
+            }
+
+            function deckDigestionQuantitativePoints(data) {
+                const results = Array.isArray(data && data.results) ? data.results : [];
+                const points = [];
+                results.forEach((item, resultIndex) => {
+                    const source = deckDigestionResultSource(item || {});
+                    const values = Array.isArray(item && item.quantitative_results) ? item.quantitative_results : [];
+                    values.forEach((entry, valueIndex) => {
+                        const isObjectEntry = !!(entry && typeof entry === 'object' && !Array.isArray(entry));
+                        const valueText = isObjectEntry
+                            ? String(entry.value_text || entry.value || entry.number || '').trim()
+                            : String(entry ?? '').trim();
+                        const parsed = deckDigestionNumber(valueText);
+                        if (parsed === null) return;
+                        const label = String(
+                            (isObjectEntry && (entry.measurement_label || entry.label || entry.metric))
+                            || item.claim
+                            || item.subject
+                            || 'value'
+                        ).trim();
+                        const unit = String(isObjectEntry ? (entry.unit || '') : '').trim();
+                        const evidence = String(
+                            (isObjectEntry && (entry.evidence_sentence || entry.sentence || entry.context))
+                            || item.snippet
+                            || ''
+                        ).trim();
+                        points.push({
+                            key: `${resultIndex}:${valueIndex}:${label}:${valueText}:${unit}`,
+                            value: parsed,
+                            valueText,
+                            label,
+                            unit,
+                            evidence,
+                            source,
+                            resultTitle: String(item.claim || item.subject || 'Structured datapoint'),
+                        });
+                    });
+                });
+                return points;
+            }
+
+            function deckDigestionFilteredPoints(host) {
+                const data = host && host.__canopyDeckDigestionData ? host.__canopyDeckDigestionData : {};
+                const fieldNeedle = String(host.querySelector('[data-deck-digestion-chart-field]')?.value || '').trim().toLowerCase();
+                const hidden = host.__canopyDeckDigestionHiddenPoints instanceof Set ? host.__canopyDeckDigestionHiddenPoints : new Set();
+                return deckDigestionQuantitativePoints(data).filter((point) => {
+                    if (hidden.has(point.key)) return false;
+                    if (!fieldNeedle) return true;
+                    return [
+                        point.label,
+                        point.unit,
+                        point.evidence,
+                        point.resultTitle,
+                    ].join(' ').toLowerCase().includes(fieldNeedle);
+                });
+            }
+
+            function renderDeckDigestionValueChart(points) {
+                if (!points.length) {
+                    return '<div class="deck-digestion-chart-empty">No quantitative datapoints in the current result set. Search structured datapoints or adjust the chart field filter.</div>';
+                }
+                const width = 900;
+                const height = 320;
+                const pad = { left: 54, right: 20, top: 26, bottom: 78 };
+                const values = points.map((point) => point.value);
+                const minValue = Math.min(0, ...values);
+                const maxValue = Math.max(1, ...values);
+                const span = Math.max(1, maxValue - minValue);
+                const plotW = width - pad.left - pad.right;
+                const plotH = height - pad.top - pad.bottom;
+                const barGap = points.length > 18 ? 3 : 8;
+                const barW = Math.max(8, (plotW - barGap * (points.length - 1)) / points.length);
+                const zeroY = pad.top + plotH - ((0 - minValue) / span) * plotH;
+                const axis = `
+                    <line x1="${pad.left}" y1="${zeroY}" x2="${width - pad.right}" y2="${zeroY}" class="deck-digestion-chart-axis" />
+                    <text x="${pad.left}" y="${pad.top - 8}" class="deck-digestion-chart-label">${escapeEmbedHtml(maxValue.toLocaleString())}</text>
+                    <text x="${pad.left}" y="${Math.min(height - 8, zeroY + 14)}" class="deck-digestion-chart-label">0</text>
+                `;
+                const bars = points.map((point, index) => {
+                    const x = pad.left + index * (barW + barGap);
+                    const y = pad.top + plotH - ((point.value - minValue) / span) * plotH;
+                    const h = Math.max(3, Math.abs(zeroY - y));
+                    const barY = point.value >= 0 ? y : zeroY;
+                    const shortLabel = point.label.length > 22 ? `${point.label.slice(0, 21)}...` : point.label;
+                    return `
+                        <g class="deck-digestion-chart-point" data-deck-digestion-quant-key="${escapeEmbedAttr(point.key)}">
+                            <rect x="${x.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="5"></rect>
+                            <title>${escapeEmbedHtml(`${point.label}: ${point.valueText || point.value} ${point.unit}`.trim())}</title>
+                            <text x="${(x + barW / 2).toFixed(1)}" y="${height - 38}" transform="rotate(-38 ${(x + barW / 2).toFixed(1)} ${height - 38})" class="deck-digestion-chart-x">${escapeEmbedHtml(shortLabel)}</text>
+                        </g>
+                    `;
+                }).join('');
+                return `
+                    <svg class="deck-digestion-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Quantitative datapoint value chart">
+                        <defs>
+                            <linearGradient id="deck-digestion-bar-gradient" x1="0" x2="0" y1="0" y2="1">
+                                <stop offset="0%" stop-color="#5eead4"></stop>
+                                <stop offset="100%" stop-color="#22c55e"></stop>
+                            </linearGradient>
+                        </defs>
+                        ${axis}
+                        ${bars}
+                    </svg>
+                `;
+            }
+
+            function renderDeckDigestionHistogram(points) {
+                if (!points.length) {
+                    return '<div class="deck-digestion-chart-empty">No numeric values available for a histogram.</div>';
+                }
+                const values = points.map((point) => point.value).sort((a, b) => a - b);
+                const minValue = values[0];
+                const maxValue = values[values.length - 1];
+                const binCount = Math.max(3, Math.min(12, Math.ceil(Math.sqrt(values.length))));
+                const span = Math.max(1e-9, maxValue - minValue);
+                const bins = Array.from({ length: binCount }, (_, index) => ({
+                    start: minValue + (span * index / binCount),
+                    end: minValue + (span * (index + 1) / binCount),
+                    count: 0,
+                }));
+                values.forEach((value) => {
+                    const idx = Math.min(binCount - 1, Math.max(0, Math.floor(((value - minValue) / span) * binCount)));
+                    bins[idx].count += 1;
+                });
+                const width = 900;
+                const height = 300;
+                const pad = { left: 54, right: 20, top: 28, bottom: 58 };
+                const maxCount = Math.max(1, ...bins.map((bin) => bin.count));
+                const plotW = width - pad.left - pad.right;
+                const plotH = height - pad.top - pad.bottom;
+                const gap = 8;
+                const barW = (plotW - gap * (binCount - 1)) / binCount;
+                const bars = bins.map((bin, index) => {
+                    const x = pad.left + index * (barW + gap);
+                    const h = Math.max(2, (bin.count / maxCount) * plotH);
+                    const y = pad.top + plotH - h;
+                    const label = `${bin.start.toPrecision(3)}-${bin.end.toPrecision(3)}`;
+                    return `
+                        <g>
+                            <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="6"></rect>
+                            <title>${escapeEmbedHtml(`${label}: ${bin.count} value${bin.count === 1 ? '' : 's'}`)}</title>
+                            <text x="${(x + barW / 2).toFixed(1)}" y="${height - 28}" text-anchor="middle" class="deck-digestion-chart-x">${escapeEmbedHtml(label)}</text>
+                        </g>
+                    `;
+                }).join('');
+                return `
+                    <svg class="deck-digestion-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Quantitative datapoint histogram">
+                        <line x1="${pad.left}" y1="${pad.top + plotH}" x2="${width - pad.right}" y2="${pad.top + plotH}" class="deck-digestion-chart-axis" />
+                        <text x="${pad.left}" y="${pad.top - 8}" class="deck-digestion-chart-label">${maxCount} max bin count</text>
+                        ${bars}
+                    </svg>
+                `;
+            }
+
+            function renderDeckDigestionChart(host) {
+                if (!host) return;
+                const chartEl = host.querySelector('[data-deck-digestion-chart]');
+                const listEl = host.querySelector('[data-deck-digestion-quant-list]');
+                if (!chartEl) return;
+                const points = deckDigestionFilteredPoints(host);
+                const chartType = String(host.querySelector('[data-deck-digestion-chart-type]')?.value || 'values');
+                chartEl.innerHTML = chartType === 'histogram'
+                    ? renderDeckDigestionHistogram(points)
+                    : renderDeckDigestionValueChart(points);
+                if (listEl) {
+                    listEl.innerHTML = points.length ? points.slice(0, 24).map((point) => {
+                        const sourceHref = deckDigestionSourceHref(point.source);
+                        return `
+                            <div class="deck-digestion-quant-row">
+                                <div>
+                                    <strong>${escapeEmbedHtml(point.label)}</strong>
+                                    <span>${escapeEmbedHtml(`${point.valueText || point.value} ${point.unit}`.trim())}</span>
+                                    ${point.evidence ? `<small>${escapeEmbedHtml(point.evidence.slice(0, 180))}</small>` : ''}
+                                </div>
+                                <div class="deck-digestion-quant-actions">
+                                    ${sourceHref ? `<a href="${escapeEmbedAttr(sourceHref)}" target="_blank" rel="noopener" class="deck-digestion-mini-btn">Source</a>` : ''}
+                                    <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-hide-point="${escapeEmbedAttr(point.key)}">Hide</button>
+                                </div>
+                            </div>
+                        `;
+                    }).join('') : '<div class="deck-digestion-muted">No chartable quantitative values are active.</div>';
+                }
+            }
+
+            function renderDeckDigestionResults(host, data, mode) {
+                const resultsEl = host.querySelector('[data-deck-digestion-results]');
+                if (!resultsEl) return;
+                const results = Array.isArray(data && data.results) ? data.results : [];
+                const query = String(data && data.query || '');
+                if (!results.length) {
+                    resultsEl.innerHTML = `<div class="deck-digestion-empty">${escapeEmbedHtml(data && data.warning || (mode === 'datapoints' ? 'No structured datapoints matched this query.' : 'No source chunks matched this query.'))}</div>`;
+                    renderDeckDigestionChart(host);
+                    return;
+                }
+                resultsEl.innerHTML = results.map((item) => {
+                    const source = deckDigestionResultSource(item || {});
+                    const sourceHref = deckDigestionSourceHref(source);
+                    const title = String(item.claim || item.subject || item.file_name || 'Result');
+                    const snippet = String(item.snippet || '').slice(0, 900);
+                    const quantitative = Array.isArray(item.quantitative_results) ? item.quantitative_results : [];
+                    const fields = item.structured_fields && typeof item.structured_fields === 'object' ? item.structured_fields : {};
+                    const fieldBadges = Object.entries(fields)
+                        .filter(([, values]) => Array.isArray(values) && values.length)
+                        .slice(0, 5)
+                        .map(([key, values]) => `<span>${escapeEmbedHtml(key.replace(/_/g, ' '))}: ${values.length}</span>`)
+                        .join('');
+                    return `
+                        <article class="deck-digestion-result">
+                            <div class="deck-digestion-result-head">
+                                <strong>${escapeEmbedHtml(title)}</strong>
+                                <span>${Number(item.score || 0) ? `score ${Number(item.score || 0).toFixed(3)}` : ''}</span>
+                            </div>
+                            <div class="deck-digestion-result-meta">
+                                ${source.file_name ? `<span>${escapeEmbedHtml(source.file_name)}</span>` : ''}
+                                ${source.page_label ? `<span>${escapeEmbedHtml(source.page_label)}</span>` : ''}
+                                ${sourceHref ? `<a href="${escapeEmbedAttr(sourceHref)}" target="_blank" rel="noopener">Open source</a>` : ''}
+                            </div>
+                            ${snippet ? `<div class="deck-digestion-result-snippet">${deckDigestionHighlight(snippet, query)}</div>` : ''}
+                            ${fieldBadges ? `<div class="deck-digestion-result-badges">${fieldBadges}</div>` : ''}
+                            ${quantitative.length ? `
+                                <div class="deck-digestion-result-quant">
+                                    ${quantitative.map((entry) => {
+                                        const isObjectEntry = !!(entry && typeof entry === 'object' && !Array.isArray(entry));
+                                        const label = String(isObjectEntry ? (entry.measurement_label || entry.label || entry.metric || 'value') : 'value');
+                                        const valueText = isObjectEntry
+                                            ? String(entry.value_text || entry.value || entry.number || '')
+                                            : String(entry ?? '');
+                                        const unit = String(isObjectEntry ? (entry.unit || '') : '');
+                                        return `<span>${escapeEmbedHtml(`${label}: ${valueText} ${unit}`.trim())}</span>`;
+                                    }).join('')}
+                                </div>
+                            ` : ''}
+                        </article>
+                    `;
+                }).join('');
+                renderDeckDigestionChart(host);
+            }
+
+            async function runDeckDigestionQuery(host, item) {
+                const digestionId = deckDigestionId(item);
+                if (!host || !digestionId) return;
+                const queryEl = host.querySelector('[data-deck-digestion-query]');
+                const modeEl = host.querySelector('[data-deck-digestion-mode]');
+                const resultsEl = host.querySelector('[data-deck-digestion-results]');
+                const query = String(queryEl && queryEl.value || '').trim();
+                const mode = String(modeEl && modeEl.value || 'datapoints') === 'rag' ? 'rag' : 'datapoints';
+                if (!query) {
+                    if (resultsEl) resultsEl.innerHTML = '<div class="deck-digestion-empty">Enter a query before searching this Digestion.</div>';
+                    return;
+                }
+                if (resultsEl) {
+                    resultsEl.innerHTML = `<div class="deck-digestion-empty"><span class="spinner-border spinner-border-sm me-1"></span>Searching ${mode === 'datapoints' ? 'structured datapoints' : 'semantic chunks'}...</div>`;
+                }
+                try {
+                    const endpoint = mode === 'datapoints'
+                        ? `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/search`
+                        : `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/query`;
+                    const data = await apiCall(endpoint, {
+                        method: 'POST',
+                        body: JSON.stringify({ query, top_k: mode === 'datapoints' ? 80 : 8, limit: mode === 'datapoints' ? 80 : 8 }),
+                    });
+                    host.__canopyDeckDigestionData = data || {};
+                    host.__canopyDeckDigestionHiddenPoints = new Set();
+                    renderDeckDigestionResults(host, data || {}, mode);
+                    const countEl = host.querySelector('[data-deck-digestion-result-count]');
+                    if (countEl) countEl.textContent = `${Number(data.result_count || 0)} result${Number(data.result_count || 0) === 1 ? '' : 's'}`;
+                } catch (error) {
+                    host.__canopyDeckDigestionData = {};
+                    host.__canopyDeckDigestionHiddenPoints = new Set();
+                    renderDeckDigestionChart(host);
+                    if (resultsEl) resultsEl.innerHTML = `<div class="deck-digestion-empty text-danger">${escapeEmbedHtml(error.error || 'Could not search this Digestion.')}</div>`;
+                }
+            }
+
+            async function runDeckDigestionOperation(host, item, operation, button) {
+                const digestionId = deckDigestionId(item);
+                if (!host || !digestionId) return;
+                const statusEl = host.querySelector('[data-deck-digestion-status]');
+                const original = button ? button.innerHTML : '';
+                if (button) {
+                    button.disabled = true;
+                    button.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${operation === 'build' ? 'Building' : 'Extracting'}`;
+                }
+                if (statusEl) statusEl.textContent = operation === 'build' ? 'Building source index...' : 'Extracting structured datapoints...';
+                try {
+                    const endpoint = operation === 'build'
+                        ? `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/build`
+                        : `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/extract`;
+                    const body = operation === 'build'
+                        ? { rebuild: false }
+                        : {
+                            max_chunks: Number(host.querySelector('[data-deck-digestion-max-chunks]')?.value || 80),
+                            max_datapoints: Number(host.querySelector('[data-deck-digestion-max-datapoints]')?.value || 400),
+                            lens: String(host.querySelector('[data-deck-digestion-lens]')?.value || '').trim(),
+                        };
+                    const data = await apiCall(endpoint, {
+                        method: 'POST',
+                        body: JSON.stringify(body),
+                    });
+                    if (statusEl) {
+                        if (operation === 'build') {
+                            statusEl.textContent = data.success === false ? 'Build completed with issues.' : 'Build complete.';
+                        } else {
+                            const count = Number(data.datapoint_count || 0);
+                            statusEl.textContent = `Datapoint extraction complete: ${count} record${count === 1 ? '' : 's'}.`;
+                        }
+                    }
+                } catch (error) {
+                    if (statusEl) statusEl.textContent = error.error || `Could not ${operation === 'build' ? 'build Digestion' : 'extract datapoints'}.`;
+                } finally {
+                    if (button) {
+                        button.disabled = false;
+                        button.innerHTML = original;
+                    }
+                }
+            }
+
+            function renderDeckDigestionWorkspace(host, item) {
+                const digestion = deckDigestionPayload(item);
+                const stats = digestion.stats && typeof digestion.stats === 'object' ? digestion.stats : {};
+                const access = digestion.access && typeof digestion.access === 'object' ? digestion.access : {};
+                const canManage = !!access.can_manage;
+                const sourceStatusCounts = stats.sources_by_status && typeof stats.sources_by_status === 'object'
+                    ? Object.values(stats.sources_by_status).reduce((sum, value) => sum + Math.max(0, Number(value || 0) || 0), 0)
+                    : 0;
+                const sourceCount = Number(stats.source_count || stats.sources || sourceStatusCounts || 0);
+                const chunkCount = Number(stats.chunks || 0);
+                const tokenCount = Number(stats.token_estimate || 0);
+                host.classList.add('is-digestion-workspace');
+                host.innerHTML = `
+                    <div class="deck-digestion-workspace">
+                        <section class="deck-digestion-hero">
+                            <div>
+                                <div class="deck-digestion-kicker"><i class="bi bi-diagram-3"></i> Digestion workspace</div>
+                                <h3>${escapeEmbedHtml(digestion.name || item.title || 'Digestion')}</h3>
+                                <p>${escapeEmbedHtml(digestion.purpose || item.subtitle || 'Query, chart, tune, and manage this source-bound Digestion from the larger Canopy Deck surface.')}</p>
+                            </div>
+                            <div class="deck-digestion-stat-grid">
+                                <span><strong>${escapeEmbedHtml(digestion.status || 'draft')}</strong><small>Status</small></span>
+                                <span><strong>${sourceCount}</strong><small>Sources</small></span>
+                                <span><strong>${chunkCount}</strong><small>Chunks</small></span>
+                                <span><strong>${tokenCount ? tokenCount.toLocaleString() : '0'}</strong><small>Token est.</small></span>
+                            </div>
+                        </section>
+                        <form class="deck-digestion-querybar" data-deck-digestion-query-form>
+                            <input type="search" data-deck-digestion-query placeholder="Search extracted datapoints, e.g. density, latency, current, material..." aria-label="Search this Digestion">
+                            <select data-deck-digestion-mode aria-label="Digestion search surface">
+                                <option value="datapoints">Structured datapoints</option>
+                                <option value="rag">Semantic chunks</option>
+                            </select>
+                            <button type="submit" class="deck-digestion-primary-btn"><i class="bi bi-search"></i> Search</button>
+                        </form>
+                        ${canManage ? `
+                            <section class="deck-digestion-tune">
+                                <div class="deck-digestion-tune-grid">
+                                    <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
+                                    <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
+                                    <label>Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
+                                </div>
+                                <div class="deck-digestion-actions">
+                                    <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="build"><i class="bi bi-hammer"></i> Build / refresh index</button>
+                                    <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="extract"><i class="bi bi-grid-3x3-gap"></i> Extract datapoints</button>
+                                </div>
+                            </section>
+                        ` : ''}
+                        <section class="deck-digestion-chart-panel">
+                            <div class="deck-digestion-chart-head">
+                                <div>
+                                    <strong>Datapoint chart</strong>
+                                    <span data-deck-digestion-result-count>Search structured datapoints to plot quantitative results.</span>
+                                </div>
+                                <div class="deck-digestion-chart-controls">
+                                    <input type="search" data-deck-digestion-chart-field placeholder="Filter chart field">
+                                    <select data-deck-digestion-chart-type>
+                                        <option value="values">Value bars</option>
+                                        <option value="histogram">Histogram</option>
+                                    </select>
+                                    <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-reset-chart>Reset hidden</button>
+                                </div>
+                            </div>
+                            <div class="deck-digestion-chart" data-deck-digestion-chart>
+                                <div class="deck-digestion-chart-empty">Run a structured datapoint search to plot source-grounded quantitative values.</div>
+                            </div>
+                            <div class="deck-digestion-quant-list" data-deck-digestion-quant-list></div>
+                        </section>
+                        <section class="deck-digestion-results" data-deck-digestion-results>
+                            <div class="deck-digestion-empty">This Deck surface lets the user consume, tune, and manage the Digestion without losing the larger chart and source context.</div>
+                        </section>
+                        <div class="deck-digestion-status" data-deck-digestion-status aria-live="polite"></div>
+                    </div>
+                `;
+                host.addEventListener('submit', (event) => {
+                    if (!event.target.closest('[data-deck-digestion-query-form]')) return;
+                    event.preventDefault();
+                    runDeckDigestionQuery(host, item);
+                });
+                host.addEventListener('click', (event) => {
+                    const opBtn = event.target.closest('[data-deck-digestion-op]');
+                    if (opBtn) {
+                        event.preventDefault();
+                        const op = opBtn.getAttribute('data-deck-digestion-op') === 'build' ? 'build' : 'extract';
+                        runDeckDigestionOperation(host, item, op, opBtn);
+                        return;
+                    }
+                    const hideBtn = event.target.closest('[data-deck-digestion-hide-point], [data-deck-digestion-quant-key]');
+                    if (hideBtn) {
+                        const key = hideBtn.getAttribute('data-deck-digestion-hide-point') || hideBtn.getAttribute('data-deck-digestion-quant-key') || '';
+                        if (key) {
+                            if (!(host.__canopyDeckDigestionHiddenPoints instanceof Set)) host.__canopyDeckDigestionHiddenPoints = new Set();
+                            host.__canopyDeckDigestionHiddenPoints.add(key);
+                            renderDeckDigestionChart(host);
+                        }
+                        return;
+                    }
+                    if (event.target.closest('[data-deck-digestion-reset-chart]')) {
+                        host.__canopyDeckDigestionHiddenPoints = new Set();
+                        renderDeckDigestionChart(host);
+                    }
+                });
+                host.addEventListener('input', (event) => {
+                    if (event.target.closest('[data-deck-digestion-chart-field]')) {
+                        renderDeckDigestionChart(host);
+                    }
+                });
+                host.addEventListener('change', (event) => {
+                    if (event.target.closest('[data-deck-digestion-chart-type]')) {
+                        renderDeckDigestionChart(host);
+                    }
+                });
+            }
+
             function renderDeckWidgetStage(item) {
                 if (!deckStage || !item || !item.manifest) return;
                 const manifest = item.manifest;
@@ -17025,7 +17642,9 @@
                 host.className = 'sidebar-media-deck-widget-stage';
                 host.dataset.canopyDeckWidgetSig = nextSig;
 
-                if (manifest.render_mode === 'module_runtime' && manifest.module_runtime) {
+                if (manifest.render_mode === 'digestion_workspace') {
+                    renderDeckDigestionWorkspace(host, item);
+                } else if (manifest.render_mode === 'module_runtime' && manifest.module_runtime) {
                     host.innerHTML = `
                         <div class="sidebar-media-deck-widget-panel sidebar-media-deck-module-panel">
                             <div class="sidebar-media-deck-widget-panel-title">Loading module</div>
@@ -19353,6 +19972,8 @@
             }
 
             if (typeof window !== 'undefined') {
+                window.canopyOpenMediaDeckForSource = openMediaDeckForSource;
+                window.canopySetDeckDesktopMode = applyDeckDesktopMode;
                 window.openMediaDeckForManifestNode = openMediaDeckForManifestNode;
                 window.openDeckForFeedAntecedentPost = openDeckForFeedAntecedentPost;
                 window.openDeckForChannelAntecedentMessage = openDeckForChannelAntecedentMessage;

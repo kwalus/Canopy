@@ -2967,6 +2967,328 @@
             white-space: pre-wrap;
         }
 
+        .deck-digestion-workspace {
+            display: grid;
+            gap: 14px;
+            min-height: 100%;
+            color: var(--canopy-text-primary);
+        }
+
+        .deck-digestion-hero,
+        .deck-digestion-tune,
+        .deck-digestion-chart-panel,
+        .deck-digestion-results,
+        .deck-digestion-status {
+            border: 1px solid rgba(94, 234, 212, 0.16);
+            border-radius: 20px;
+            background:
+                radial-gradient(circle at top left, rgba(34, 197, 94, 0.12), transparent 36%),
+                linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(8, 13, 24, 0.82));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        .deck-digestion-hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.65fr);
+            gap: 16px;
+            padding: 18px;
+            align-items: stretch;
+        }
+
+        .deck-digestion-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 0.72rem;
+            font-weight: 900;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #67e8f9;
+        }
+
+        .deck-digestion-hero h3 {
+            margin: 0;
+            font-size: clamp(1.25rem, 3vw, 2rem);
+            line-height: 1.08;
+            font-weight: 900;
+        }
+
+        .deck-digestion-hero p {
+            margin: 8px 0 0;
+            color: var(--canopy-text-secondary);
+            line-height: 1.45;
+        }
+
+        .deck-digestion-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .deck-digestion-stat-grid span {
+            display: grid;
+            gap: 2px;
+            padding: 10px;
+            border-radius: 14px;
+            background: rgba(15, 23, 42, 0.62);
+            border: 1px solid rgba(148, 163, 184, 0.14);
+        }
+
+        .deck-digestion-stat-grid strong {
+            font-size: 1rem;
+            line-height: 1.15;
+            overflow-wrap: anywhere;
+        }
+
+        .deck-digestion-stat-grid small {
+            color: var(--canopy-text-muted);
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .deck-digestion-querybar {
+            display: grid;
+            grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.28fr) auto;
+            gap: 10px;
+        }
+
+        .deck-digestion-querybar input,
+        .deck-digestion-querybar select,
+        .deck-digestion-tune input,
+        .deck-digestion-chart-controls input,
+        .deck-digestion-chart-controls select {
+            width: 100%;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: 14px;
+            background: rgba(8, 13, 24, 0.72);
+            color: var(--canopy-text-primary);
+            padding: 10px 12px;
+            min-width: 0;
+        }
+
+        .deck-digestion-primary-btn,
+        .deck-digestion-secondary-btn,
+        .deck-digestion-mini-btn {
+            border: 1px solid rgba(94, 234, 212, 0.34);
+            border-radius: 14px;
+            background: rgba(20, 184, 166, 0.14);
+            color: var(--canopy-text-primary);
+            font-weight: 800;
+            padding: 9px 13px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .deck-digestion-primary-btn {
+            background: linear-gradient(135deg, rgba(20, 184, 166, 0.9), rgba(34, 197, 94, 0.78));
+            border-color: rgba(167, 243, 208, 0.45);
+            color: #04111a;
+            box-shadow: 0 12px 24px rgba(20, 184, 166, 0.18);
+        }
+
+        .deck-digestion-tune {
+            padding: 14px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .deck-digestion-tune-grid {
+            display: grid;
+            grid-template-columns: 0.2fr 0.2fr minmax(180px, 1fr);
+            gap: 10px;
+        }
+
+        .deck-digestion-tune label {
+            display: grid;
+            gap: 5px;
+            min-width: 0;
+            color: var(--canopy-text-muted);
+            font-size: 0.72rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .deck-digestion-actions,
+        .deck-digestion-chart-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .deck-digestion-chart-panel {
+            padding: 14px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .deck-digestion-chart-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .deck-digestion-chart-head strong {
+            display: block;
+            font-size: 1rem;
+        }
+
+        .deck-digestion-chart-head span,
+        .deck-digestion-muted {
+            color: var(--canopy-text-muted);
+            font-size: 0.8rem;
+        }
+
+        .deck-digestion-chart {
+            min-height: 260px;
+            border-radius: 18px;
+            background: rgba(3, 10, 18, 0.58);
+            border: 1px solid rgba(94, 234, 212, 0.14);
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        .deck-digestion-chart-empty,
+        .deck-digestion-empty {
+            display: grid;
+            place-items: center;
+            min-height: 140px;
+            padding: 18px;
+            text-align: center;
+            color: var(--canopy-text-muted);
+        }
+
+        .deck-digestion-chart-svg {
+            width: 100%;
+            min-width: 680px;
+            height: auto;
+            display: block;
+        }
+
+        .deck-digestion-chart-svg rect {
+            fill: url(#deck-digestion-bar-gradient);
+            stroke: rgba(167, 243, 208, 0.34);
+            cursor: pointer;
+        }
+
+        .deck-digestion-chart-axis {
+            stroke: rgba(148, 163, 184, 0.46);
+            stroke-width: 1.5;
+        }
+
+        .deck-digestion-chart-label,
+        .deck-digestion-chart-x {
+            fill: var(--canopy-text-muted);
+            font-size: 11px;
+        }
+
+        .deck-digestion-quant-list {
+            display: grid;
+            gap: 8px;
+            max-height: 220px;
+            overflow: auto;
+            padding-right: 4px;
+        }
+
+        .deck-digestion-quant-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px;
+            border-radius: 14px;
+            background: rgba(15, 23, 42, 0.56);
+            border: 1px solid rgba(148, 163, 184, 0.12);
+        }
+
+        .deck-digestion-quant-row > div:first-child {
+            display: grid;
+            gap: 3px;
+            min-width: 0;
+        }
+
+        .deck-digestion-quant-row strong,
+        .deck-digestion-quant-row span,
+        .deck-digestion-quant-row small {
+            overflow-wrap: anywhere;
+        }
+
+        .deck-digestion-quant-row small {
+            color: var(--canopy-text-muted);
+        }
+
+        .deck-digestion-results {
+            display: grid;
+            gap: 10px;
+            padding: 12px;
+            max-height: min(56vh, 620px);
+            overflow: auto;
+        }
+
+        .deck-digestion-result {
+            display: grid;
+            gap: 8px;
+            padding: 12px;
+            border-radius: 16px;
+            background: rgba(15, 23, 42, 0.56);
+            border: 1px solid rgba(148, 163, 184, 0.14);
+        }
+
+        .deck-digestion-result-head,
+        .deck-digestion-result-meta,
+        .deck-digestion-result-badges,
+        .deck-digestion-result-quant {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .deck-digestion-result-head span,
+        .deck-digestion-result-meta,
+        .deck-digestion-result-meta a {
+            color: var(--canopy-text-muted);
+            font-size: 0.78rem;
+        }
+
+        .deck-digestion-result-snippet {
+            color: var(--canopy-text-secondary);
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+
+        .deck-digestion-result-badges span,
+        .deck-digestion-result-quant span {
+            border: 1px solid rgba(94, 234, 212, 0.18);
+            border-radius: 999px;
+            padding: 4px 8px;
+            background: rgba(20, 184, 166, 0.1);
+            color: var(--canopy-text-secondary);
+            font-size: 0.74rem;
+        }
+
+        .deck-digestion-mark {
+            color: #052016;
+            background: #86efac;
+            border-radius: 4px;
+            padding: 0 2px;
+        }
+
+        .deck-digestion-status {
+            min-height: 0;
+            padding: 10px 12px;
+            color: var(--canopy-text-muted);
+            font-size: 0.82rem;
+        }
+
         .sidebar-media-deck-progress-row {
             display: grid;
             grid-template-columns: auto 1fr auto;

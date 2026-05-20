@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.164] - 2026-05-19
+
+### Added
+- **Digestions can open as a Canopy Deck research workspace** - Vault Digestion cards now include a Deck action that opens a large, typed Digestion surface for semantic search, structured datapoint search, chart review, and bounded management controls.
+- **Structured datapoints can be charted in Deck** - Digestion Deck workspaces can plot quantitative datapoints as value bars or histograms, filter visible fields, hide individual chart points, and keep source links attached to results.
+
+### Fixed
+- **Deck Digestion counts and chart state are more reliable** - source totals now use the Digestion stats shape returned by the backend, primitive quantitative values are handled, and failed Deck searches clear stale chart data.
+
 ## [0.6.163] - 2026-05-19
 
 ### Fixed
