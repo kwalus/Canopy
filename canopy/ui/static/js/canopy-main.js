@@ -17286,11 +17286,89 @@
                 });
             }
 
-            function renderDeckDigestionValueChart(points) {
+            const DECK_DIGESTION_CHART_MIN_ZOOM = 0.12;
+            const DECK_DIGESTION_CHART_MAX_ZOOM = 5;
+
+            function clampDeckDigestionChartZoom(value) {
+                const parsed = Number(value);
+                if (!Number.isFinite(parsed)) return 1;
+                return Math.max(DECK_DIGESTION_CHART_MIN_ZOOM, Math.min(DECK_DIGESTION_CHART_MAX_ZOOM, parsed));
+            }
+
+            function deckDigestionChartZoom(host) {
+                return clampDeckDigestionChartZoom(host && host.__canopyDeckDigestionChartZoom);
+            }
+
+            function deckDigestionHistogramBinCount(pointCount) {
+                return Math.max(3, Math.min(18, Math.ceil(Math.sqrt(Math.max(1, Number(pointCount) || 1)))));
+            }
+
+            function deckDigestionChartBaseWidth(count, type = 'values') {
+                const safeCount = Math.max(1, Number(count) || 1);
+                if (type === 'histogram') {
+                    return Math.max(720, Math.min(3200, 120 + safeCount * 96));
+                }
+                const perPoint = safeCount > 90 ? 30 : safeCount > 48 ? 36 : safeCount > 22 ? 44 : 56;
+                return Math.max(760, Math.min(6200, 130 + safeCount * perPoint));
+            }
+
+            function deckDigestionChartWidth(count, zoom = 1, type = 'values') {
+                return Math.round(Math.max(420, deckDigestionChartBaseWidth(count, type) * clampDeckDigestionChartZoom(zoom)));
+            }
+
+            function updateDeckDigestionChartZoomLabel(host) {
+                if (!host) return;
+                const label = host.querySelector('[data-deck-digestion-chart-zoom-label]');
+                if (label) label.textContent = `${Math.round(deckDigestionChartZoom(host) * 100)}%`;
+            }
+
+            function setDeckDigestionChartZoom(host, nextZoom, options = {}) {
+                if (!host) return;
+                const chartEl = host.querySelector('[data-deck-digestion-chart]');
+                const previousCenterRatio = chartEl && chartEl.scrollWidth > chartEl.clientWidth
+                    ? (chartEl.scrollLeft + chartEl.clientWidth / 2) / chartEl.scrollWidth
+                    : 0.5;
+                let resolvedZoom = nextZoom;
+                if (options.fit) {
+                    const points = deckDigestionFilteredPoints(host);
+                    const chartType = String(host.querySelector('[data-deck-digestion-chart-type]')?.value || 'values');
+                    const count = chartType === 'histogram' ? deckDigestionHistogramBinCount(points.length) : points.length;
+                    const baseWidth = deckDigestionChartBaseWidth(count, chartType);
+                    const viewportWidth = Math.max(1, chartEl && chartEl.clientWidth || 760);
+                    resolvedZoom = viewportWidth / baseWidth;
+                }
+                host.__canopyDeckDigestionChartZoom = clampDeckDigestionChartZoom(resolvedZoom);
+                renderDeckDigestionChart(host);
+                const nextChartEl = host.querySelector('[data-deck-digestion-chart]');
+                if (nextChartEl) {
+                    window.requestAnimationFrame(() => {
+                        if (options.fit) {
+                            nextChartEl.scrollLeft = 0;
+                        } else {
+                            nextChartEl.scrollLeft = Math.max(0, nextChartEl.scrollWidth * previousCenterRatio - nextChartEl.clientWidth / 2);
+                        }
+                    });
+                }
+                const statusEl = host.querySelector('[data-deck-digestion-status]');
+                if (statusEl) {
+                    statusEl.textContent = options.fit
+                        ? 'Chart fitted to the visible panel. Zoom in for detail or pan across dense results.'
+                        : `Chart zoom set to ${Math.round(deckDigestionChartZoom(host) * 100)}%.`;
+                }
+            }
+
+            function panDeckDigestionChart(host, direction) {
+                const chartEl = host && host.querySelector('[data-deck-digestion-chart]');
+                if (!chartEl) return;
+                const amount = Math.max(180, chartEl.clientWidth * 0.72) * (Number(direction) < 0 ? -1 : 1);
+                chartEl.scrollBy({ left: amount, behavior: 'smooth' });
+            }
+
+            function renderDeckDigestionValueChart(points, zoom = 1) {
                 if (!points.length) {
                     return '<div class="deck-digestion-chart-empty">No quantitative datapoints in the current result set. Search structured datapoints or adjust the chart field filter.</div>';
                 }
-                const width = 900;
+                const width = deckDigestionChartWidth(points.length, zoom, 'values');
                 const height = 320;
                 const pad = { left: 54, right: 20, top: 26, bottom: 78 };
                 const values = points.map((point) => point.value);
@@ -17322,7 +17400,7 @@
                     `;
                 }).join('');
                 return `
-                    <svg class="deck-digestion-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Quantitative datapoint value chart">
+                    <svg class="deck-digestion-chart-svg" width="${width}" height="${height}" style="width:${width}px; max-width:none;" viewBox="0 0 ${width} ${height}" role="img" aria-label="Quantitative datapoint value chart">
                         <defs>
                             <linearGradient id="deck-digestion-bar-gradient" x1="0" x2="0" y1="0" y2="1">
                                 <stop offset="0%" stop-color="var(--canopy-accent)"></stop>
@@ -17335,14 +17413,14 @@
                 `;
             }
 
-            function renderDeckDigestionHistogram(points) {
+            function renderDeckDigestionHistogram(points, zoom = 1) {
                 if (!points.length) {
                     return '<div class="deck-digestion-chart-empty">No numeric values available for a histogram.</div>';
                 }
                 const values = points.map((point) => point.value).sort((a, b) => a - b);
                 const minValue = values[0];
                 const maxValue = values[values.length - 1];
-                const binCount = Math.max(3, Math.min(12, Math.ceil(Math.sqrt(values.length))));
+                const binCount = deckDigestionHistogramBinCount(values.length);
                 const span = Math.max(1e-9, maxValue - minValue);
                 const bins = Array.from({ length: binCount }, (_, index) => ({
                     start: minValue + (span * index / binCount),
@@ -17355,7 +17433,7 @@
                     bins[idx].count += 1;
                     bins[idx].points.push(point);
                 });
-                const width = 900;
+                const width = deckDigestionChartWidth(binCount, zoom, 'histogram');
                 const height = 300;
                 const pad = { left: 54, right: 20, top: 28, bottom: 58 };
                 const maxCount = Math.max(1, ...bins.map((bin) => bin.count));
@@ -17381,7 +17459,7 @@
                     `;
                 }).join('');
                 return `
-                    <svg class="deck-digestion-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Quantitative datapoint histogram">
+                    <svg class="deck-digestion-chart-svg" width="${width}" height="${height}" style="width:${width}px; max-width:none;" viewBox="0 0 ${width} ${height}" role="img" aria-label="Quantitative datapoint histogram">
                         <line x1="${pad.left}" y1="${pad.top + plotH}" x2="${width - pad.right}" y2="${pad.top + plotH}" class="deck-digestion-chart-axis" />
                         <text x="${pad.left}" y="${pad.top - 8}" class="deck-digestion-chart-label">${maxCount} max bin count</text>
                         ${bars}
@@ -17402,9 +17480,11 @@
                 }
                 const points = deckDigestionFilteredPoints(host);
                 const chartType = String(host.querySelector('[data-deck-digestion-chart-type]')?.value || 'values');
+                const zoom = deckDigestionChartZoom(host);
                 chartEl.innerHTML = chartType === 'histogram'
-                    ? renderDeckDigestionHistogram(points)
-                    : renderDeckDigestionValueChart(points);
+                    ? renderDeckDigestionHistogram(points, zoom)
+                    : renderDeckDigestionValueChart(points, zoom);
+                updateDeckDigestionChartZoomLabel(host);
                 if (listEl) {
                     listEl.innerHTML = points.length ? points.slice(0, 24).map((point) => {
                         const sourceHref = deckDigestionSourceHref(point.source);
@@ -17713,15 +17793,25 @@
                                             <span data-deck-digestion-result-count>Search structured datapoints to plot quantitative results.</span>
                                         </div>
                                         <div class="deck-digestion-chart-controls">
-                                            <input type="search" data-deck-digestion-chart-field placeholder="Filter chart field">
-                                            <select data-deck-digestion-chart-type>
-                                                <option value="values">Value bars</option>
-                                                <option value="histogram">Histogram</option>
-                                            </select>
-                                            <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-reset-chart>Reset hidden</button>
+                                            <div class="deck-digestion-chart-control-main">
+                                                <input type="search" data-deck-digestion-chart-field placeholder="Filter chart field">
+                                                <select data-deck-digestion-chart-type>
+                                                    <option value="values">Value bars</option>
+                                                    <option value="histogram">Histogram</option>
+                                                </select>
+                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-reset-chart>Reset hidden</button>
+                                            </div>
+                                            <div class="deck-digestion-chart-nav" aria-label="Chart viewport controls">
+                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-pan="-1" title="Pan chart left" aria-label="Pan chart left"><i class="bi bi-arrow-left"></i></button>
+                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-zoom="out" title="Zoom chart out" aria-label="Zoom chart out"><i class="bi bi-zoom-out"></i></button>
+                                                <span class="deck-digestion-chart-zoom-readout" data-deck-digestion-chart-zoom-label>100%</span>
+                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-zoom="in" title="Zoom chart in" aria-label="Zoom chart in"><i class="bi bi-zoom-in"></i></button>
+                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-pan="1" title="Pan chart right" aria-label="Pan chart right"><i class="bi bi-arrow-right"></i></button>
+                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-zoom="fit" title="Fit all chart bars in the current panel">Fit</button>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div class="deck-digestion-muted">Click a value bar or histogram bin to hide it from this view.</div>
+                                    <div class="deck-digestion-muted">Zoom, pan, or drag the chart surface; click a value bar or histogram bin to hide it from this view.</div>
                                     <div class="deck-digestion-chart" data-deck-digestion-chart>
                                         <div class="deck-digestion-chart-empty">Run a structured datapoint search to plot source-grounded quantitative values.</div>
                                     </div>
@@ -17732,17 +17822,67 @@
                         </div>
                     </div>
                 `;
+                let deckDigestionChartPanState = null;
                 host.addEventListener('submit', (event) => {
                     if (!event.target.closest('[data-deck-digestion-query-form]')) return;
                     event.preventDefault();
                     runDeckDigestionQuery(host, item);
                 });
+                host.addEventListener('pointerdown', (event) => {
+                    const chartEl = event.target.closest('[data-deck-digestion-chart]');
+                    if (!chartEl || closestDeckDigestionChartAction(event.target) || event.button !== 0) return;
+                    event.preventDefault();
+                    deckDigestionChartPanState = {
+                        chartEl,
+                        pointerId: event.pointerId,
+                        startX: event.clientX,
+                        scrollLeft: chartEl.scrollLeft,
+                    };
+                    chartEl.classList.add('is-panning');
+                    try {
+                        chartEl.setPointerCapture(event.pointerId);
+                    } catch (_) {}
+                });
+                host.addEventListener('pointermove', (event) => {
+                    if (!deckDigestionChartPanState || deckDigestionChartPanState.pointerId !== event.pointerId) return;
+                    event.preventDefault();
+                    const dx = event.clientX - deckDigestionChartPanState.startX;
+                    deckDigestionChartPanState.chartEl.scrollLeft = deckDigestionChartPanState.scrollLeft - dx;
+                });
+                function clearDeckDigestionChartPan(event) {
+                    if (!deckDigestionChartPanState || (event && deckDigestionChartPanState.pointerId !== event.pointerId)) return;
+                    deckDigestionChartPanState.chartEl.classList.remove('is-panning');
+                    try {
+                        deckDigestionChartPanState.chartEl.releasePointerCapture(deckDigestionChartPanState.pointerId);
+                    } catch (_) {}
+                    deckDigestionChartPanState = null;
+                }
+                host.addEventListener('pointerup', clearDeckDigestionChartPan);
+                host.addEventListener('pointercancel', clearDeckDigestionChartPan);
                 host.addEventListener('click', (event) => {
                     const opBtn = event.target.closest('[data-deck-digestion-op]');
                     if (opBtn) {
                         event.preventDefault();
                         const op = opBtn.getAttribute('data-deck-digestion-op') === 'build' ? 'build' : 'extract';
                         runDeckDigestionOperation(host, item, op, opBtn);
+                        return;
+                    }
+                    const zoomBtn = event.target.closest('[data-deck-digestion-chart-zoom]');
+                    if (zoomBtn) {
+                        event.preventDefault();
+                        const action = zoomBtn.getAttribute('data-deck-digestion-chart-zoom');
+                        const currentZoom = deckDigestionChartZoom(host);
+                        if (action === 'fit') {
+                            setDeckDigestionChartZoom(host, currentZoom, { fit: true });
+                        } else {
+                            setDeckDigestionChartZoom(host, action === 'out' ? currentZoom / 1.28 : currentZoom * 1.28);
+                        }
+                        return;
+                    }
+                    const panBtn = event.target.closest('[data-deck-digestion-chart-pan]');
+                    if (panBtn) {
+                        event.preventDefault();
+                        panDeckDigestionChart(host, panBtn.getAttribute('data-deck-digestion-chart-pan'));
                         return;
                     }
                     const hideBtn = closestDeckDigestionChartAction(event.target);

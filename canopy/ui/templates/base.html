@@ -3374,6 +3374,48 @@
             min-width: 0;
         }
 
+        .deck-digestion-chart-controls {
+            align-items: stretch;
+            justify-content: space-between;
+            width: 100%;
+        }
+
+        .deck-digestion-chart-control-main,
+        .deck-digestion-chart-nav {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            min-width: 0;
+        }
+
+        .deck-digestion-chart-control-main {
+            flex: 1 1 300px;
+        }
+
+        .deck-digestion-chart-nav {
+            flex: 0 0 auto;
+            padding: 3px;
+            border-radius: 16px;
+            background: color-mix(in srgb, var(--canopy-deck-input-bg) 82%, transparent);
+            border: 1px solid color-mix(in srgb, var(--canopy-deck-border) 72%, transparent);
+        }
+
+        .deck-digestion-chart-nav .deck-digestion-mini-btn {
+            min-height: 32px;
+            padding: 6px 8px;
+            border-radius: 12px;
+        }
+
+        .deck-digestion-chart-zoom-readout {
+            min-width: 48px;
+            text-align: center;
+            color: var(--canopy-text-secondary);
+            font-size: 0.72rem;
+            font-weight: 900;
+            letter-spacing: 0.03em;
+            font-variant-numeric: tabular-nums;
+        }
+
         .deck-digestion-chart-controls input {
             flex: 1 1 150px;
         }
@@ -3419,6 +3461,15 @@
             border: 1px solid var(--canopy-deck-border);
             overflow-x: auto;
             overflow-y: auto;
+            overscroll-behavior: contain;
+            scrollbar-color: color-mix(in srgb, var(--canopy-primary) 54%, var(--canopy-border)) transparent;
+            cursor: grab;
+            touch-action: pan-y;
+        }
+
+        .deck-digestion-chart.is-panning {
+            cursor: grabbing;
+            user-select: none;
         }
 
         .deck-digestion-chart-empty,
@@ -3433,7 +3484,8 @@
 
         .deck-digestion-chart-svg {
             width: 100%;
-            min-width: 600px;
+            min-width: 420px;
+            max-width: none;
             height: auto;
             display: block;
         }
@@ -3642,10 +3694,32 @@
                 flex-direction: column;
             }
 
+            .deck-digestion-chart-control-main {
+                align-items: stretch;
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .deck-digestion-chart-nav {
+                display: grid;
+                grid-template-columns: repeat(6, minmax(0, 1fr));
+                width: 100%;
+            }
+
+            .deck-digestion-chart-nav .deck-digestion-mini-btn {
+                width: auto;
+                min-width: 0;
+                padding: 7px 6px;
+            }
+
             .deck-digestion-chart-controls input,
             .deck-digestion-chart-controls select,
             .deck-digestion-mini-btn {
                 width: 100%;
+            }
+
+            .deck-digestion-chart-nav .deck-digestion-mini-btn {
+                width: auto;
             }
 
             .deck-digestion-chart {
@@ -3653,7 +3727,7 @@
             }
 
             .deck-digestion-chart-svg {
-                min-width: 560px;
+                min-width: 420px;
             }
         }
 

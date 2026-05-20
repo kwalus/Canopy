@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.170] - 2026-05-20
+
+### Added
+- **Digestion Deck charts now support native zoom and pan** - structured datapoint charts now compute data-driven SVG widths, expose pan/zoom/fit controls, preserve viewport center while zooming, and support chart-surface drag panning for dense result sets.
+
+### Fixed
+- **Digestion Deck chart interactions remain reversible while navigating** - value bars and histogram bins keep their click/keyboard hide behavior inside horizontally scrollable charts, Reset hidden restores chart values, and chart drag panning avoids conflicting with browser selection/touch behavior.
+
 ## [0.6.169] - 2026-05-20
 
 ### Fixed
