@@ -17740,13 +17740,15 @@
                 const initialQuery = String(digestion.initial_query || '');
                 host.classList.add('is-digestion-workspace');
                 host.innerHTML = `
-                    <div class="deck-digestion-workspace">
-                        <section class="deck-digestion-hero">
-                            <div>
-                                <div class="deck-digestion-kicker"><i class="bi bi-diagram-3"></i> Digestion workspace</div>
-                                <h3>${escapeEmbedHtml(digestion.name || item.title || 'Digestion')}</h3>
-                                <p class="deck-digestion-copy">${escapeEmbedHtml(digestion.purpose || item.subtitle || 'Query, chart, tune, and manage this source-bound Digestion from the larger Canopy Deck surface.')}</p>
-                            </div>
+	                    <div class="deck-digestion-workspace">
+	                        <section class="deck-digestion-hero">
+	                            <div class="deck-digestion-identity">
+	                                <div class="deck-digestion-title-row">
+	                                    <span class="deck-digestion-kicker"><i class="bi bi-diagram-3"></i> Digestion</span>
+	                                    <h3>${escapeEmbedHtml(digestion.name || item.title || 'Digestion')}</h3>
+	                                </div>
+	                                <p class="deck-digestion-copy">${escapeEmbedHtml(digestion.purpose || item.subtitle || 'Query, chart, tune, and manage this source-bound Digestion from the larger Canopy Deck surface.')}</p>
+	                            </div>
                             <div class="deck-digestion-stat-grid">
                                 <span><strong>${escapeEmbedHtml(digestion.status || 'draft')}</strong><small>Status</small></span>
                                 <span><strong>${sourceCount}</strong><small>Sources</small></span>
@@ -17772,48 +17774,60 @@
                                     <div class="deck-digestion-empty">This Deck surface uses the same Digestion query endpoints as the Vault UI. Semantic search is the default; switch to structured datapoints when you want charts.</div>
                                 </section>
                             </section>
-                            <aside class="deck-digestion-insight-rail ${canManage ? 'has-management' : 'is-query-only'}">
-                                ${canManage ? `
-                                    <section class="deck-digestion-tune">
-                                        <div class="deck-digestion-tune-grid">
-                                            <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
-                                            <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
-                                            <label>Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
-                                        </div>
-                                        <div class="deck-digestion-actions">
-                                            <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="build"><i class="bi bi-hammer"></i> Build / refresh index</button>
-                                            <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="extract"><i class="bi bi-grid-3x3-gap"></i> Extract datapoints</button>
-                                        </div>
-                                    </section>
-                                ` : ''}
-                                <section class="deck-digestion-chart-panel">
-                                    <div class="deck-digestion-chart-head">
+	                            <aside class="deck-digestion-insight-rail ${canManage ? 'has-management' : 'is-query-only'}">
+	                                ${canManage ? `
+	                                    <details class="deck-digestion-tune">
+	                                        <summary>
+	                                            <span><i class="bi bi-sliders"></i> Build controls</span>
+	                                            <small>Index, extraction, lens</small>
+	                                        </summary>
+	                                        <div class="deck-digestion-tune-body">
+	                                            <div class="deck-digestion-tune-grid">
+	                                                <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
+	                                                <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
+	                                                <label>Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
+	                                            </div>
+	                                            <div class="deck-digestion-actions">
+	                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="build"><i class="bi bi-hammer"></i> Build / refresh index</button>
+	                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="extract"><i class="bi bi-grid-3x3-gap"></i> Extract datapoints</button>
+	                                            </div>
+	                                        </div>
+	                                    </details>
+	                                ` : ''}
+	                                <section class="deck-digestion-chart-panel">
+	                                    <div class="deck-digestion-chart-head">
                                         <div>
                                             <strong>Datapoint chart</strong>
                                             <span data-deck-digestion-result-count>Search structured datapoints to plot quantitative results.</span>
                                         </div>
-                                        <div class="deck-digestion-chart-controls">
-                                            <div class="deck-digestion-chart-control-main">
-                                                <input type="search" data-deck-digestion-chart-field placeholder="Filter chart field">
-                                                <select data-deck-digestion-chart-type>
-                                                    <option value="values">Value bars</option>
-                                                    <option value="histogram">Histogram</option>
-                                                </select>
-                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-reset-chart>Reset hidden</button>
-                                            </div>
-                                            <div class="deck-digestion-chart-nav" aria-label="Chart viewport controls">
-                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-pan="-1" title="Pan chart left" aria-label="Pan chart left"><i class="bi bi-arrow-left"></i></button>
-                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-zoom="out" title="Zoom chart out" aria-label="Zoom chart out"><i class="bi bi-zoom-out"></i></button>
-                                                <span class="deck-digestion-chart-zoom-readout" data-deck-digestion-chart-zoom-label>100%</span>
-                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-zoom="in" title="Zoom chart in" aria-label="Zoom chart in"><i class="bi bi-zoom-in"></i></button>
-                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-pan="1" title="Pan chart right" aria-label="Pan chart right"><i class="bi bi-arrow-right"></i></button>
-                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-zoom="fit" title="Fit all chart bars in the current panel">Fit</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="deck-digestion-muted">Zoom, pan, or drag the chart surface; click a value bar or histogram bin to hide it from this view.</div>
-                                    <div class="deck-digestion-chart" data-deck-digestion-chart>
-                                        <div class="deck-digestion-chart-empty">Run a structured datapoint search to plot source-grounded quantitative values.</div>
+	                                    </div>
+	                                    <details class="deck-digestion-chart-options">
+	                                        <summary>
+	                                            <span><i class="bi bi-bar-chart"></i> Chart controls</span>
+	                                            <small>Filter, zoom, pan, reset</small>
+	                                        </summary>
+	                                        <div class="deck-digestion-chart-controls">
+	                                            <div class="deck-digestion-chart-control-main">
+	                                                <input type="search" data-deck-digestion-chart-field placeholder="Filter chart field">
+	                                                <select data-deck-digestion-chart-type>
+	                                                    <option value="values">Value bars</option>
+	                                                    <option value="histogram">Histogram</option>
+	                                                </select>
+	                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-reset-chart>Reset hidden</button>
+	                                            </div>
+	                                            <div class="deck-digestion-chart-nav" aria-label="Chart viewport controls">
+	                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-pan="-1" title="Pan chart left" aria-label="Pan chart left"><i class="bi bi-arrow-left"></i></button>
+	                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-zoom="out" title="Zoom chart out" aria-label="Zoom chart out"><i class="bi bi-zoom-out"></i></button>
+	                                                <span class="deck-digestion-chart-zoom-readout" data-deck-digestion-chart-zoom-label>100%</span>
+	                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-zoom="in" title="Zoom chart in" aria-label="Zoom chart in"><i class="bi bi-zoom-in"></i></button>
+	                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-pan="1" title="Pan chart right" aria-label="Pan chart right"><i class="bi bi-arrow-right"></i></button>
+	                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-chart-zoom="fit" title="Fit all chart bars in the current panel">Fit</button>
+	                                            </div>
+	                                        </div>
+	                                        <div class="deck-digestion-muted">Zoom, pan, or drag the chart surface; click a value bar or histogram bin to hide it from this view.</div>
+	                                    </details>
+	                                    <div class="deck-digestion-chart" data-deck-digestion-chart>
+	                                        <div class="deck-digestion-chart-empty">Run a structured datapoint search to plot source-grounded quantitative values.</div>
                                     </div>
                                     <div class="deck-digestion-quant-list" data-deck-digestion-quant-list></div>
                                 </section>

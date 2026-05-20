@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.171] - 2026-05-20
+
+### Fixed
+- **Digestion Deck non-maximized layout is more compact** - Digestion workspaces now use a thinner identity ribbon, smaller metadata chips, collapsed build controls, and collapsed chart controls so normal Deck sizes preserve more space for search results and charts.
+- **Digestion Deck source chrome no longer crowds the workspace** - Digestion-active desktop-window Decks hide the repeated queue/detail source chrome and keep the scroll grid focused on the working stage, including narrower desktop breakpoints.
+
 ## [0.6.170] - 2026-05-20
 
 ### Added

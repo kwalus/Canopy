@@ -3140,10 +3140,10 @@
         .deck-digestion-workspace {
             display: grid;
             grid-template-rows: auto minmax(0, 1fr);
-            gap: 8px;
+            gap: 6px;
             height: 100%;
             max-height: 100%;
-            padding: 10px;
+            padding: 8px;
             overflow: hidden;
             box-sizing: border-box;
             min-height: 100%;
@@ -3167,18 +3167,30 @@
         .deck-digestion-hero {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
-            gap: 10px;
-            padding: 8px 10px;
+            gap: 8px;
+            padding: 6px 8px;
             align-items: center;
-            border-radius: 16px;
+            border-radius: 14px;
+        }
+
+        .deck-digestion-identity {
+            min-width: 0;
+        }
+
+        .deck-digestion-title-row {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            min-width: 0;
         }
 
         .deck-digestion-kicker {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            margin-bottom: 3px;
-            font-size: 0.64rem;
+            gap: 6px;
+            flex: 0 0 auto;
+            margin-bottom: 0;
+            font-size: 0.6rem;
             font-weight: 900;
             letter-spacing: 0.12em;
             text-transform: uppercase;
@@ -3187,16 +3199,19 @@
 
         .deck-digestion-hero h3 {
             margin: 0;
-            font-size: clamp(0.98rem, 1.45vw, 1.22rem);
+            font-size: clamp(0.94rem, 1.25vw, 1.12rem);
             line-height: 1.08;
             font-weight: 900;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .deck-digestion-hero p {
-            margin: 3px 0 0;
+            margin: 1px 0 0;
             color: var(--canopy-text-secondary);
-            line-height: 1.25;
-            font-size: 0.76rem;
+            line-height: 1.15;
+            font-size: 0.7rem;
         }
 
         .deck-digestion-copy {
@@ -3208,8 +3223,8 @@
 
         .deck-digestion-main {
             display: grid;
-            grid-template-columns: minmax(0, 1.08fr) minmax(390px, 0.92fr);
-            gap: 10px;
+            grid-template-columns: minmax(0, 1.18fr) minmax(360px, 0.82fr);
+            gap: 8px;
             min-height: 0;
             min-width: 0;
         }
@@ -3217,8 +3232,8 @@
         .deck-digestion-search-panel {
             display: grid;
             grid-template-rows: auto auto minmax(0, 1fr);
-            gap: 8px;
-            padding: 10px;
+            gap: 7px;
+            padding: 9px;
             min-height: 0;
             min-width: 0;
         }
@@ -3226,7 +3241,7 @@
         .deck-digestion-insight-rail {
             display: grid;
             align-content: stretch;
-            gap: 10px;
+            gap: 8px;
             min-height: 0;
             min-width: 0;
             overflow: auto;
@@ -3268,16 +3283,16 @@
             justify-content: flex-end;
             align-items: stretch;
             flex-wrap: wrap;
-            gap: 6px;
+            gap: 5px;
             max-width: min(48vw, 720px);
         }
 
         .deck-digestion-stat-grid span {
             display: grid;
             gap: 1px;
-            min-width: 78px;
-            padding: 5px 8px;
-            border-radius: 11px;
+            min-width: 72px;
+            padding: 4px 7px;
+            border-radius: 10px;
             background: var(--canopy-deck-subpanel-bg);
             border: 1px solid var(--canopy-deck-border);
         }
@@ -3342,9 +3357,72 @@
         }
 
         .deck-digestion-tune {
-            padding: 9px 10px;
+            padding: 7px 9px;
             display: grid;
             gap: 7px;
+        }
+
+        .deck-digestion-tune-body,
+        .deck-digestion-chart-options {
+            display: grid;
+            gap: 7px;
+            min-width: 0;
+        }
+
+        .deck-digestion-tune summary,
+        .deck-digestion-chart-options summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            min-width: 0;
+            cursor: pointer;
+            list-style: none;
+            color: var(--canopy-text-primary);
+            font-size: 0.78rem;
+            font-weight: 900;
+        }
+
+        .deck-digestion-tune summary::-webkit-details-marker,
+        .deck-digestion-chart-options summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .deck-digestion-tune summary span,
+        .deck-digestion-chart-options summary span {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            min-width: 0;
+        }
+
+        .deck-digestion-tune summary::after,
+        .deck-digestion-chart-options summary::after {
+            content: "Show";
+            flex: 0 0 auto;
+            border: 1px solid var(--canopy-deck-chip-border);
+            border-radius: 999px;
+            padding: 3px 7px;
+            background: var(--canopy-deck-chip-bg);
+            color: var(--canopy-text-secondary);
+            font-size: 0.66rem;
+            font-weight: 900;
+        }
+
+        .deck-digestion-tune[open] summary::after,
+        .deck-digestion-chart-options[open] summary::after {
+            content: "Hide";
+        }
+
+        .deck-digestion-tune summary small,
+        .deck-digestion-chart-options summary small {
+            margin-left: auto;
+            color: var(--canopy-text-muted);
+            font-size: 0.66rem;
+            font-weight: 800;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .deck-digestion-tune-grid {
@@ -3425,10 +3503,10 @@
         }
 
         .deck-digestion-chart-panel {
-            padding: 10px;
+            padding: 9px;
             display: grid;
             grid-template-rows: auto auto minmax(0, 1fr) auto;
-            gap: 8px;
+            gap: 7px;
             min-height: 0;
             overflow: hidden;
         }
@@ -3454,7 +3532,7 @@
         }
 
         .deck-digestion-chart {
-            min-height: clamp(230px, 32vh, 420px);
+            min-height: clamp(190px, 28vh, 380px);
             height: 100%;
             border-radius: 18px;
             background: var(--canopy-deck-chart-bg);
@@ -3633,6 +3711,16 @@
             overflow: hidden;
         }
 
+        .sidebar-media-deck.is-digestion-active.is-desktop-window .sidebar-media-deck-scroll {
+            grid-template-rows: minmax(0, 1fr);
+            gap: 0;
+        }
+
+        .sidebar-media-deck.is-digestion-active .sidebar-media-deck-queue-shell,
+        .sidebar-media-deck.is-digestion-active .sidebar-media-deck-detail {
+            display: none !important;
+        }
+
         .sidebar-media-deck.is-desktop-large .deck-digestion-chart {
             min-height: clamp(260px, 36vh, 520px);
         }
@@ -3647,7 +3735,15 @@
 
         @media (max-width: 980px) {
             .deck-digestion-main {
-                grid-template-columns: minmax(0, 1fr) minmax(340px, 0.82fr);
+                grid-template-columns: minmax(0, 1fr) minmax(320px, 0.78fr);
+            }
+
+            .deck-digestion-querybar {
+                grid-template-columns: minmax(0, 1fr) max-content;
+            }
+
+            .deck-digestion-querybar input {
+                grid-column: 1 / -1;
             }
 
             .deck-digestion-stat-grid {
@@ -4961,6 +5057,15 @@
 
             .sidebar-media-deck.is-desktop-window .sidebar-media-deck-detail {
                 max-height: none;
+            }
+
+            .sidebar-media-deck.is-digestion-active.is-desktop-window .sidebar-media-deck-scroll {
+                grid-template-rows: minmax(0, 1fr);
+                overflow: hidden;
+            }
+
+            .sidebar-media-deck.is-digestion-active.is-desktop-window .sidebar-media-deck-stage-shell {
+                min-height: 0;
             }
         }
 
