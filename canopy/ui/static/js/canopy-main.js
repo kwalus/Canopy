@@ -3973,9 +3973,10 @@
                     const sourceStatusCounts = stats.sources_by_status && typeof stats.sources_by_status === 'object'
                         ? Object.values(stats.sources_by_status).reduce((sum, value) => sum + Math.max(0, Number(value || 0) || 0), 0)
                         : 0;
+                    const statsSourceCount = Number(stats.source_count ?? stats.sources ?? item.source_count ?? 0);
                     const sourceCount = Array.isArray(item.sources)
                         ? item.sources.length
-                        : Number(stats.source_count || stats.sources || item.source_count || sourceStatusCounts || 0);
+                        : (Number.isFinite(statsSourceCount) && statsSourceCount > 0 ? statsSourceCount : sourceStatusCounts);
                     const chunks = Number(stats.chunks || item.chunk_count || 0);
                     const tokens = Number(stats.token_estimate || 0);
                     const status = String(item.status || 'draft');
@@ -4025,7 +4026,10 @@
                             purpose: String(item.purpose || ''),
                             status,
                             provider: String(item.provider || stats.provider || 'local'),
-                            stats,
+                            stats: {
+                                ...stats,
+                                source_count: sourceCount,
+                            },
                             access,
                             initial_query: String(item.initial_query || ''),
                             initial_mode: String(item.initial_mode || 'rag') === 'datapoints' ? 'datapoints' : 'rag',
@@ -15553,9 +15557,12 @@
             }
 
             function syncDeckLayoutMode(selectedItem) {
+                const renderMode = String((selectedItem && selectedItem.manifest && selectedItem.manifest.render_mode) || '');
+                const digestionActive = renderMode === 'digestion_workspace';
                 const moduleActive = isDeckModuleItem(selectedItem);
                 if (deck) {
                     deck.classList.toggle('is-module-active', moduleActive);
+                    deck.classList.toggle('is-digestion-active', digestionActive);
                 }
                 if (moduleActive) {
                     const itemCount = Array.isArray(state.deckItems) ? state.deckItems.length : 0;
@@ -15584,6 +15591,7 @@
             function resetDeckLayoutMode() {
                 if (deck) {
                     deck.classList.remove('is-module-active');
+                    deck.classList.remove('is-digestion-active');
                 }
                 setDeckQueueCollapsed(false);
                 setDeckDetailCollapsed(false);
@@ -17411,6 +17419,13 @@
                 }
             }
 
+            function setDeckDigestionResultSummary(host, text) {
+                if (!host) return;
+                host.querySelectorAll('[data-deck-digestion-result-count], [data-deck-digestion-results-summary]').forEach((el) => {
+                    el.textContent = String(text || '');
+                });
+            }
+
             function renderDeckDigestionResults(host, data, mode) {
                 const resultsEl = host.querySelector('[data-deck-digestion-results]');
                 if (!resultsEl) return;
@@ -17472,6 +17487,7 @@
                 const modeEl = host.querySelector('[data-deck-digestion-mode]');
                 const resultsEl = host.querySelector('[data-deck-digestion-results]');
                 if (!digestionId) {
+                    setDeckDigestionResultSummary(host, 'Missing Digestion ID');
                     if (resultsEl) {
                         resultsEl.innerHTML = '<div class="deck-digestion-empty text-danger">This Deck item is missing its Digestion ID. Return to the Vault and reopen the Digestion Deck.</div>';
                     }
@@ -17481,8 +17497,10 @@
                 const mode = deckDigestionMode(modeEl && modeEl.value);
                 if (!query) {
                     if (resultsEl) resultsEl.innerHTML = '<div class="deck-digestion-empty">Enter a query before searching this Digestion.</div>';
+                    setDeckDigestionResultSummary(host, 'Waiting for a search query');
                     return;
                 }
+                setDeckDigestionResultSummary(host, `Searching ${mode === 'datapoints' ? 'structured datapoints' : 'semantic chunks'}...`);
                 if (resultsEl) {
                     resultsEl.innerHTML = `<div class="deck-digestion-empty"><span class="spinner-border spinner-border-sm me-1"></span>Searching ${mode === 'datapoints' ? 'structured datapoints' : 'semantic chunks'}...</div>`;
                 }
@@ -17498,13 +17516,13 @@
                     host.__canopyDeckDigestionData = data || {};
                     host.__canopyDeckDigestionHiddenPoints = new Set();
                     renderDeckDigestionResults(host, data || {}, mode);
-                    const countEl = host.querySelector('[data-deck-digestion-result-count]');
-                    if (countEl) {
-                        const count = Number(data.result_count || 0);
-                        countEl.textContent = mode === 'datapoints'
+                    const count = Number(data.result_count || 0);
+                    setDeckDigestionResultSummary(
+                        host,
+                        mode === 'datapoints'
                             ? `${count} structured result${count === 1 ? '' : 's'} ready to chart`
-                            : `${count} semantic chunk${count === 1 ? '' : 's'} found`;
-                    }
+                            : `${count} semantic chunk${count === 1 ? '' : 's'} found`
+                    );
                 } catch (error) {
                     host.__canopyDeckDigestionData = {};
                     host.__canopyDeckDigestionHiddenPoints = new Set();
@@ -17512,6 +17530,7 @@
                     const message = error && (error.error || error.message)
                         ? (error.error || error.message)
                         : 'Could not search this Digestion.';
+                    setDeckDigestionResultSummary(host, 'Search failed');
                     if (resultsEl) resultsEl.innerHTML = `<div class="deck-digestion-empty text-danger">${escapeEmbedHtml(message)}</div>`;
                 }
             }
@@ -17577,7 +17596,10 @@
                 const sourceStatusCounts = stats.sources_by_status && typeof stats.sources_by_status === 'object'
                     ? Object.values(stats.sources_by_status).reduce((sum, value) => sum + Math.max(0, Number(value || 0) || 0), 0)
                     : 0;
-                const sourceCount = Number(stats.source_count || stats.sources || sourceStatusCounts || 0);
+                const statsSourceCount = Number(stats.source_count ?? stats.sources ?? 0);
+                const sourceCount = Number.isFinite(statsSourceCount) && statsSourceCount > 0
+                    ? statsSourceCount
+                    : sourceStatusCounts;
                 const chunkCount = Number(stats.chunks || 0);
                 const tokenCount = Number(stats.token_estimate || 0);
                 const initialMode = deckDigestionMode(digestion.initial_mode || 'rag');
@@ -17589,7 +17611,7 @@
                             <div>
                                 <div class="deck-digestion-kicker"><i class="bi bi-diagram-3"></i> Digestion workspace</div>
                                 <h3>${escapeEmbedHtml(digestion.name || item.title || 'Digestion')}</h3>
-                                <p>${escapeEmbedHtml(digestion.purpose || item.subtitle || 'Query, chart, tune, and manage this source-bound Digestion from the larger Canopy Deck surface.')}</p>
+                                <p class="deck-digestion-copy">${escapeEmbedHtml(digestion.purpose || item.subtitle || 'Query, chart, tune, and manage this source-bound Digestion from the larger Canopy Deck surface.')}</p>
                             </div>
                             <div class="deck-digestion-stat-grid">
                                 <span><strong>${escapeEmbedHtml(digestion.status || 'draft')}</strong><small>Status</small></span>
@@ -17598,51 +17620,61 @@
                                 <span><strong>${tokenCount ? tokenCount.toLocaleString() : '0'}</strong><small>Token est.</small></span>
                             </div>
                         </section>
-                        <form class="deck-digestion-querybar" data-deck-digestion-query-form>
-                            <input type="search" data-deck-digestion-query value="${escapeEmbedAttr(initialQuery)}" placeholder="Search this Digestion, e.g. density, latency, current, material..." aria-label="Search this Digestion">
-                            <select data-deck-digestion-mode aria-label="Digestion search surface">
-                                <option value="rag"${initialMode === 'rag' ? ' selected' : ''}>Semantic chunks</option>
-                                <option value="datapoints"${initialMode === 'datapoints' ? ' selected' : ''}>Structured datapoints</option>
-                            </select>
-                            <button type="submit" class="deck-digestion-primary-btn"><i class="bi bi-search"></i> Search</button>
-                        </form>
-                        ${canManage ? `
-                            <section class="deck-digestion-tune">
-                                <div class="deck-digestion-tune-grid">
-                                    <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
-                                    <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
-                                    <label>Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
-                                </div>
-                                <div class="deck-digestion-actions">
-                                    <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="build"><i class="bi bi-hammer"></i> Build / refresh index</button>
-                                    <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="extract"><i class="bi bi-grid-3x3-gap"></i> Extract datapoints</button>
-                                </div>
-                            </section>
-                        ` : ''}
-                        <section class="deck-digestion-chart-panel">
-                            <div class="deck-digestion-chart-head">
-                                <div>
-                                    <strong>Datapoint chart</strong>
-                                    <span data-deck-digestion-result-count>Search structured datapoints to plot quantitative results.</span>
-                                </div>
-                                <div class="deck-digestion-chart-controls">
-                                    <input type="search" data-deck-digestion-chart-field placeholder="Filter chart field">
-                                    <select data-deck-digestion-chart-type>
-                                        <option value="values">Value bars</option>
-                                        <option value="histogram">Histogram</option>
+                        <div class="deck-digestion-main">
+                            <section class="deck-digestion-search-panel">
+                                <form class="deck-digestion-querybar" data-deck-digestion-query-form>
+                                    <input type="search" data-deck-digestion-query value="${escapeEmbedAttr(initialQuery)}" placeholder="Search this Digestion, e.g. density, latency, current, material..." aria-label="Search this Digestion">
+                                    <select data-deck-digestion-mode aria-label="Digestion search surface">
+                                        <option value="rag"${initialMode === 'rag' ? ' selected' : ''}>Semantic chunks</option>
+                                        <option value="datapoints"${initialMode === 'datapoints' ? ' selected' : ''}>Structured datapoints</option>
                                     </select>
-                                    <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-reset-chart>Reset hidden</button>
+                                    <button type="submit" class="deck-digestion-primary-btn"><i class="bi bi-search"></i> Search</button>
+                                </form>
+                                <div class="deck-digestion-results-head">
+                                    <strong>Search results</strong>
+                                    <span data-deck-digestion-results-summary>Results appear here without switching to maximum view.</span>
                                 </div>
-                            </div>
-                            <div class="deck-digestion-chart" data-deck-digestion-chart>
-                                <div class="deck-digestion-chart-empty">Run a structured datapoint search to plot source-grounded quantitative values.</div>
-                            </div>
-                            <div class="deck-digestion-quant-list" data-deck-digestion-quant-list></div>
-                        </section>
-                        <section class="deck-digestion-results" data-deck-digestion-results>
-                            <div class="deck-digestion-empty">This Deck surface uses the same Digestion query endpoints as the Vault UI. Semantic search is the default; switch to structured datapoints when you want charts.</div>
-                        </section>
-                        <div class="deck-digestion-status" data-deck-digestion-status aria-live="polite"></div>
+                                <section class="deck-digestion-results" data-deck-digestion-results>
+                                    <div class="deck-digestion-empty">This Deck surface uses the same Digestion query endpoints as the Vault UI. Semantic search is the default; switch to structured datapoints when you want charts.</div>
+                                </section>
+                            </section>
+                            <aside class="deck-digestion-insight-rail ${canManage ? 'has-management' : 'is-query-only'}">
+                                ${canManage ? `
+                                    <section class="deck-digestion-tune">
+                                        <div class="deck-digestion-tune-grid">
+                                            <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
+                                            <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
+                                            <label>Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
+                                        </div>
+                                        <div class="deck-digestion-actions">
+                                            <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="build"><i class="bi bi-hammer"></i> Build / refresh index</button>
+                                            <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="extract"><i class="bi bi-grid-3x3-gap"></i> Extract datapoints</button>
+                                        </div>
+                                    </section>
+                                ` : ''}
+                                <section class="deck-digestion-chart-panel">
+                                    <div class="deck-digestion-chart-head">
+                                        <div>
+                                            <strong>Datapoint chart</strong>
+                                            <span data-deck-digestion-result-count>Search structured datapoints to plot quantitative results.</span>
+                                        </div>
+                                        <div class="deck-digestion-chart-controls">
+                                            <input type="search" data-deck-digestion-chart-field placeholder="Filter chart field">
+                                            <select data-deck-digestion-chart-type>
+                                                <option value="values">Value bars</option>
+                                                <option value="histogram">Histogram</option>
+                                            </select>
+                                            <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-reset-chart>Reset hidden</button>
+                                        </div>
+                                    </div>
+                                    <div class="deck-digestion-chart" data-deck-digestion-chart>
+                                        <div class="deck-digestion-chart-empty">Run a structured datapoint search to plot source-grounded quantitative values.</div>
+                                    </div>
+                                    <div class="deck-digestion-quant-list" data-deck-digestion-quant-list></div>
+                                </section>
+                                <div class="deck-digestion-status" data-deck-digestion-status aria-live="polite"></div>
+                            </aside>
+                        </div>
                     </div>
                 `;
                 host.addEventListener('submit', (event) => {

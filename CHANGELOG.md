@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.168] - 2026-05-20
+
+### Fixed
+- **Digestion Deck results are visible in normal Deck sizes** - Digestion workspaces now use a results-first two-pane layout with search controls and result feedback ahead of charting/tuning, collapsing to a single results-first column on constrained Deck widths.
+- **Digestion Deck result state is clearer** - search loading, empty-query, success, error, and missing-ID states now update the visible result summary, while charting remains secondary and bounded in the insight rail.
+
 ## [0.6.167] - 2026-05-20
 
 ### Added
