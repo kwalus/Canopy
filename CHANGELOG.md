@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.172] - 2026-05-20
+
+### Added
+- **File Vault supports visible select-all and list-area uploads** - the current Vault result set can be selected or cleared in one click, and the main file panel now accepts external OS file drops for upload into the active folder without interfering with internal folder moves.
+- **Digestions can expose extracted PDF figure previews** - PDF builds capture embedded figures, captions, page labels, and image file IDs behind source-metadata permissions, with REST, MCP, package, and Deck figure-list access for source-readable users.
+
+### Fixed
+- **Vault and Digestion layouts are denser and more informative** - Vault summary chips, breadcrumb placement, Digestion cards, datapoint counts, and Deck tune controls now use compact wrapping layouts with clearer pending/applied extraction-setting feedback.
+- **Digestion search handles partial technical terms** - semantic retrieval now considers bounded prefix overlap so queries like short technical stems can surface longer matching terms without broad one-character noise.
+- **DM conversation previews track the newest message** - Direct Message conversation cards now keep their preview text aligned with the latest message timestamp instead of drifting back to older opener text.
+
 ## [0.6.171] - 2026-05-20
 
 ### Fixed

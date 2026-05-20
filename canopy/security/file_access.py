@@ -203,6 +203,50 @@ def evaluate_file_access(
 
     try:
         with db_manager.get_connection() as conn:
+            try:
+                has_digestion_figures = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'digestion_pdf_figures'"
+                ).fetchone()
+            except Exception:
+                has_digestion_figures = None
+            if has_digestion_figures:
+                figure_rows = conn.execute(
+                    """
+                    SELECT
+                        f.digestion_id,
+                        d.owner_user_id,
+                        a.can_query,
+                        a.can_manage,
+                        a.can_read_sources
+                    FROM digestion_pdf_figures f
+                    JOIN digestions d ON d.id = f.digestion_id
+                    LEFT JOIN digestion_acl a
+                      ON a.digestion_id = f.digestion_id
+                     AND a.grantee_user_id = ?
+                    WHERE f.image_file_id = ?
+                    LIMIT ?
+                    """,
+                    (viewer_user_id, file_id, max(1, int(max_evidence))),
+                ).fetchall()
+                for row in figure_rows:
+                    digestion_id = str(_row_value(row, 'digestion_id', '') or '')
+                    owner_user_id = str(_row_value(row, 'owner_user_id', '') or '')
+                    can_view = bool(
+                        owner_user_id == viewer_user_id
+                        or (
+                            _row_value(row, 'can_read_sources', 0)
+                            and (_row_value(row, 'can_query', 0) or _row_value(row, 'can_manage', 0))
+                        )
+                    )
+                    evidences.append(FileAccessEvidence(
+                        source_type='digestion_pdf_figure',
+                        source_id=digestion_id or file_id,
+                        detail='source-metadata-access',
+                        can_view=can_view,
+                    ))
+                    if can_view:
+                        return FileAccessResult(True, 'digestion-source-metadata', evidences[:max_evidence])
+
             avatar_row = conn.execute(
                 """
                 SELECT id, origin_peer

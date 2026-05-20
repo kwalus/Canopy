@@ -48,6 +48,7 @@ MAX_FILE_CHARS = int(os.getenv("CANOPY_DIGESTION_MAX_FILE_CHARS", "2000000"))
 MAX_CHUNKS_PER_BUILD = int(os.getenv("CANOPY_DIGESTION_MAX_CHUNKS_PER_BUILD", "5000"))
 MAX_MATERIALS_PER_INGEST = int(os.getenv("CANOPY_DIGESTION_MAX_MATERIALS_PER_INGEST", "100"))
 MIN_LOCAL_HASH_QUERY_SCORE = float(os.getenv("CANOPY_DIGESTION_LOCAL_HASH_MIN_SCORE", "0.08") or "0.08")
+MIN_PARTIAL_QUERY_TERM_CHARS = int(os.getenv("CANOPY_DIGESTION_PARTIAL_QUERY_TERM_MIN_CHARS", "3") or "3")
 STRUCTURED_DATAPOINT_OUTPUT_KIND = "structured_datapoints"
 STRUCTURED_DATAPOINT_SCHEMA_VERSION = "canopy_structured_datapoints_v1"
 DEFAULT_STRUCTURED_DATAPOINT_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_DEFAULT_CHUNKS", "80"))
@@ -60,7 +61,12 @@ MAX_STRUCTURED_DATAPOINT_LLM_CHUNK_CHARS = int(os.getenv("CANOPY_DIGESTION_DATAP
 MAX_STRUCTURED_DATAPOINTS_PER_LLM_BATCH = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_BATCH_RECORDS", "40"))
 MAX_STRUCTURED_DATAPOINT_LLM_OUTPUT_TOKENS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_OUTPUT_TOKENS", "7000"))
 DATAPOINT_MIN_TERM_OVERLAP = float(os.getenv("CANOPY_DIGESTION_DATAPOINT_MIN_TERM_OVERLAP", "0.75"))
-_SOURCE_REVEALING_OUTPUT_KINDS = {"manifest", "human_brief", STRUCTURED_DATAPOINT_OUTPUT_KIND}
+PDF_FIGURE_OUTPUT_KIND = "pdf_figures"
+PDF_FIGURE_SCHEMA_VERSION = "canopy_pdf_figures_v1"
+MAX_PDF_FIGURES_PER_SOURCE = int(os.getenv("CANOPY_DIGESTION_MAX_PDF_FIGURES_PER_SOURCE", "80"))
+MAX_PDF_FIGURE_BYTES = int(os.getenv("CANOPY_DIGESTION_MAX_PDF_FIGURE_BYTES", str(8 * 1024 * 1024)))
+MIN_PDF_FIGURE_DIMENSION = int(os.getenv("CANOPY_DIGESTION_MIN_PDF_FIGURE_DIMENSION", "64"))
+_SOURCE_REVEALING_OUTPUT_KINDS = {"manifest", "human_brief", STRUCTURED_DATAPOINT_OUTPUT_KIND, PDF_FIGURE_OUTPUT_KIND}
 _OPENAI_EMBEDDINGS_URL = os.getenv(
     "CANOPY_DIGESTION_OPENAI_EMBEDDINGS_URL",
     "https://api.openai.com/v1/embeddings",
@@ -236,11 +242,38 @@ class DigestionManager:
                     FOREIGN KEY (digestion_id) REFERENCES digestions(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS digestion_pdf_figures (
+                    id TEXT PRIMARY KEY,
+                    digestion_id TEXT NOT NULL,
+                    source_file_id TEXT NOT NULL,
+                    source_checksum TEXT,
+                    figure_index INTEGER NOT NULL,
+                    page_number INTEGER NOT NULL DEFAULT 0,
+                    page_label TEXT,
+                    image_file_id TEXT,
+                    image_name TEXT,
+                    content_type TEXT,
+                    width INTEGER NOT NULL DEFAULT 0,
+                    height INTEGER NOT NULL DEFAULT 0,
+                    byte_size INTEGER NOT NULL DEFAULT 0,
+                    caption TEXT,
+                    context_text TEXT,
+                    vision_description TEXT,
+                    extraction_method TEXT,
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(digestion_id, source_file_id, figure_index),
+                    FOREIGN KEY (digestion_id) REFERENCES digestions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (source_file_id) REFERENCES files(id) ON DELETE CASCADE,
+                    FOREIGN KEY (image_file_id) REFERENCES files(id) ON DELETE SET NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_digestions_owner ON digestions(owner_user_id, updated_at);
                 CREATE INDEX IF NOT EXISTS idx_digestion_acl_grantee ON digestion_acl(grantee_user_id, can_query, can_manage);
                 CREATE INDEX IF NOT EXISTS idx_digestion_chunks_digestion ON digestion_chunks(digestion_id, file_id, chunk_index);
                 CREATE INDEX IF NOT EXISTS idx_digestion_sources_status ON digestion_sources(digestion_id, status);
                 CREATE INDEX IF NOT EXISTS idx_digestion_outputs ON digestion_outputs(digestion_id, output_kind);
+                CREATE INDEX IF NOT EXISTS idx_digestion_pdf_figures ON digestion_pdf_figures(digestion_id, source_file_id, page_number);
                 """
             )
             source_columns = {
@@ -548,6 +581,54 @@ class DigestionManager:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_figures(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        limit: int = 120,
+    ) -> dict[str, Any]:
+        """List extracted PDF figures and captions for a source-readable Digestion."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
+        access = self._access_for(digestion, actor_user_id)
+        if not access.get("can_read_sources"):
+            raise DigestionError(
+                "PDF figure previews include source-derived images and captions. Source metadata access is required.",
+                status_code=403,
+                reason="source_metadata_denied",
+            )
+        figure_limit = max(1, min(int(limit or 120), 240))
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    f.*,
+                    s.file_name AS source_file_name,
+                    s.content_type AS source_content_type,
+                    img.original_name AS vault_image_name,
+                    img.size AS vault_image_size
+                FROM digestion_pdf_figures f
+                LEFT JOIN digestion_sources s
+                  ON s.digestion_id = f.digestion_id
+                 AND s.file_id = f.source_file_id
+                LEFT JOIN files img ON img.id = f.image_file_id
+                WHERE f.digestion_id = ?
+                ORDER BY COALESCE(s.file_name, f.source_file_id) COLLATE NOCASE,
+                         f.source_file_id, f.page_number, f.figure_index
+                LIMIT ?
+                """,
+                (digestion.id, figure_limit),
+            ).fetchall()
+        figures = [self._figure_row_to_dict(row) for row in rows]
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "schema_version": PDF_FIGURE_SCHEMA_VERSION,
+            "count": len(figures),
+            "figures": figures,
+            "stats": self.stats(digestion.id),
+        }
+
     def grant_access(
         self,
         digestion_id: str,
@@ -741,6 +822,7 @@ class DigestionManager:
         )
         total_chunks = 0
         embedded_count = 0
+        total_figures = 0
         errors: list[dict[str, str]] = []
         try:
             if rebuild:
@@ -815,6 +897,7 @@ class DigestionManager:
                     )
                     total_chunks += file_chunks["chunk_count"]
                     embedded_count += file_chunks["embedded_count"]
+                    total_figures += int(file_chunks.get("figure_count") or 0)
                     self._set_operation_progress(
                         digestion.id,
                         "build",
@@ -828,6 +911,7 @@ class DigestionManager:
                         details={
                             "chunk_count": total_chunks,
                             "embedded_count": embedded_count,
+                            "figure_count": total_figures,
                             "source_index": source_index,
                             "source_total": source_total,
                         },
@@ -849,6 +933,7 @@ class DigestionManager:
                         details={
                             "chunk_count": total_chunks,
                             "embedded_count": embedded_count,
+                            "figure_count": total_figures,
                             "errors": errors[:8],
                         },
                     )
@@ -871,7 +956,12 @@ class DigestionManager:
                         processed=source_total,
                         total=source_total,
                         message="Creating manifest, brief, and agent context outputs.",
-                        details={"chunk_count": total_chunks, "embedded_count": embedded_count, "errors": errors[:8]},
+                        details={
+                            "chunk_count": total_chunks,
+                            "embedded_count": embedded_count,
+                            "figure_count": total_figures,
+                            "errors": errors[:8],
+                        },
                     )
                 outputs = self.generate_outputs(digestion.id, actor_user_id) if total_chunks > 0 else {"outputs": []}
             except Exception as exc:
@@ -893,6 +983,7 @@ class DigestionManager:
                 details={
                     "chunk_count": total_chunks,
                     "embedded_count": embedded_count,
+                    "figure_count": total_figures,
                     "errors": errors[:8],
                     "final_status": status,
                 },
@@ -905,6 +996,7 @@ class DigestionManager:
                 "built_at": self._now(),
                 "chunk_count": total_chunks,
                 "embedded_count": embedded_count,
+                "figure_count": total_figures,
                 "errors": errors,
                 "outputs": outputs.get("outputs") or [],
                 "stats": self.stats(digestion.id),
@@ -963,7 +1055,7 @@ class DigestionManager:
             model=digestion.embedding_model,
             dimensions=digestion.embedding_dimensions,
         )
-        query_terms = self._query_terms(query_text) if digestion.provider == "local_hash" else set()
+        query_terms = self._query_terms(query_text)
         scored: list[dict[str, Any]] = []
         for row in rows:
             try:
@@ -971,14 +1063,18 @@ class DigestionManager:
             except Exception:
                 continue
             score = self._cosine(query_vector, vector)
-            if score <= 0:
-                continue
             text = str(row["text"] or "")
-            term_overlap = 0
+            term_overlap = self._query_term_overlap(query_terms, self._query_terms(text))
             if digestion.provider == "local_hash":
-                term_overlap = len(query_terms & self._query_terms(text))
-                if term_overlap <= 0 or score < MIN_LOCAL_HASH_QUERY_SCORE:
+                if term_overlap <= 0:
                     continue
+                if score < MIN_LOCAL_HASH_QUERY_SCORE:
+                    score = MIN_LOCAL_HASH_QUERY_SCORE + (0.01 * min(term_overlap, 5))
+            else:
+                if score <= 0 and term_overlap <= 0:
+                    continue
+                if term_overlap > 0:
+                    score = max(score, 0.05 + (0.01 * min(term_overlap, 5)))
             scored.append(
                 {
                     "chunk_id": row["chunk_id"],
@@ -1160,6 +1256,11 @@ class DigestionManager:
         return {
             "chunks": 0,
             "token_estimate": 0,
+            "figures": 0,
+            "outputs": 0,
+            "source_count": 0,
+            "datapoint_count": 0,
+            "quantitative_result_count": 0,
             "sources_by_status": {},
         }
 
@@ -1195,6 +1296,23 @@ class DigestionManager:
                 """,
                 ids,
             ).fetchall()
+            figure_rows = conn.execute(
+                f"""
+                SELECT digestion_id, COUNT(*) AS count
+                FROM digestion_pdf_figures
+                WHERE digestion_id IN ({placeholders})
+                GROUP BY digestion_id
+                """,
+                ids,
+            ).fetchall()
+            output_rows = conn.execute(
+                f"""
+                SELECT digestion_id, output_kind, metadata_json
+                FROM digestion_outputs
+                WHERE digestion_id IN ({placeholders})
+                """,
+                ids,
+            ).fetchall()
         for row in chunk_rows:
             digestion_id = str(row["digestion_id"] or "")
             if digestion_id not in stats_by_id:
@@ -1205,7 +1323,38 @@ class DigestionManager:
             digestion_id = str(row["digestion_id"] or "")
             if digestion_id not in stats_by_id:
                 continue
-            stats_by_id[digestion_id]["sources_by_status"][str(row["status"])] = int(row["count"] or 0)
+            source_count = int(row["count"] or 0)
+            stats_by_id[digestion_id]["sources_by_status"][str(row["status"])] = source_count
+            stats_by_id[digestion_id]["source_count"] = int(stats_by_id[digestion_id].get("source_count") or 0) + source_count
+        for row in figure_rows:
+            digestion_id = str(row["digestion_id"] or "")
+            if digestion_id not in stats_by_id:
+                continue
+            stats_by_id[digestion_id]["figures"] = int(row["count"] or 0)
+        for row in output_rows:
+            digestion_id = str(row["digestion_id"] or "")
+            if digestion_id not in stats_by_id:
+                continue
+            stats_by_id[digestion_id]["outputs"] = int(stats_by_id[digestion_id].get("outputs") or 0) + 1
+            if str(row["output_kind"] or "") != STRUCTURED_DATAPOINT_OUTPUT_KIND:
+                continue
+            try:
+                metadata = json.loads(row["metadata_json"] or "{}")
+            except Exception:
+                metadata = {}
+            if isinstance(metadata, dict):
+                stats_by_id[digestion_id]["datapoint_count"] = self._bounded_int(
+                    metadata.get("datapoint_count"),
+                    0,
+                    0,
+                    1_000_000_000,
+                )
+                stats_by_id[digestion_id]["quantitative_result_count"] = self._bounded_int(
+                    metadata.get("quantitative_result_count"),
+                    0,
+                    0,
+                    1_000_000_000,
+                )
         return stats_by_id
 
     def generate_outputs(
@@ -1222,7 +1371,9 @@ class DigestionManager:
         requested = {str(kind or "").strip().lower() for kind in (kinds or []) if str(kind or "").strip()}
         if not requested:
             requested = {"manifest", "human_brief", "agent_context"}
-        allowed = {"manifest", "human_brief", "agent_context", STRUCTURED_DATAPOINT_OUTPUT_KIND}
+            if int(self.stats(digestion.id).get("figures") or 0) > 0:
+                requested.add(PDF_FIGURE_OUTPUT_KIND)
+        allowed = {"manifest", "human_brief", "agent_context", STRUCTURED_DATAPOINT_OUTPUT_KIND, PDF_FIGURE_OUTPUT_KIND}
         requested = requested & allowed
         if not requested:
             raise DigestionError("No supported output kinds requested.", status_code=400, reason="unsupported_output_kind")
@@ -1237,6 +1388,8 @@ class DigestionManager:
                 outputs.append(self._upsert_output(digestion, actor_user_id, *self._build_human_brief_output(digestion)))
             elif kind == "agent_context":
                 outputs.append(self._upsert_output(digestion, actor_user_id, *self._build_agent_context_output(digestion)))
+            elif kind == PDF_FIGURE_OUTPUT_KIND:
+                outputs.append(self._upsert_output(digestion, actor_user_id, *self._build_pdf_figures_output(digestion)))
             elif kind == STRUCTURED_DATAPOINT_OUTPUT_KIND:
                 outputs.append(self.generate_structured_datapoints(digestion.id, actor_user_id)["output"])
         return {"success": True, "digestion_id": digestion.id, "outputs": outputs, "count": len(outputs)}
@@ -1525,8 +1678,9 @@ class DigestionManager:
                     CASE output_kind
                         WHEN 'human_brief' THEN 1
                         WHEN 'agent_context' THEN 2
-                        WHEN 'structured_datapoints' THEN 3
-                        WHEN 'manifest' THEN 4
+                        WHEN 'pdf_figures' THEN 3
+                        WHEN 'structured_datapoints' THEN 4
+                        WHEN 'manifest' THEN 5
                         ELSE 9
                     END,
                     updated_at DESC
@@ -1603,12 +1757,14 @@ class DigestionManager:
                 "query": f"POST /api/v1/digestions/{digestion.id}/query",
                 "context": f"POST /api/v1/digestions/{digestion.id}/context",
                 "outputs": f"GET /api/v1/digestions/{digestion.id}/outputs",
+                "figures": f"GET /api/v1/digestions/{digestion.id}/figures",
                 "structured_datapoints": f"POST /api/v1/digestions/{digestion.id}/datapoints/extract",
             },
             "mcp": {
                 "query": "canopy_digest_query",
                 "context": "canopy_digest_context",
                 "outputs": "canopy_digest_outputs",
+                "figures": "canopy_digest_figures",
             },
             "note": (
                 "Use this Digestion as a permissioned retrieval capability. "
@@ -1630,8 +1786,10 @@ class DigestionManager:
             except DigestionError:
                 outputs = []
         sources: list[dict[str, Any]] = []
+        figures: list[dict[str, Any]] = []
         if access.get("can_read_sources"):
             sources = self.list_sources(digestion.id, user_id=actor_user_id)
+            figures = self.list_figures(digestion.id, actor_user_id, limit=80).get("figures") or []
         digestion_payload = digestion.to_dict(access=access)
         digestion_payload["access_subject_user_id"] = actor_user_id
         digestion_payload["access_scope"] = "exporting_user"
@@ -1661,6 +1819,8 @@ class DigestionManager:
             },
             "sources_included": bool(sources),
             "sources": sources,
+            "figures_included": bool(figures),
+            "figures": figures,
             "outputs": outputs,
             "reuse_guidance": [
                 "Attach this package to a post, DM, task, or agent request when you want another consumer to understand what the Digestion is.",
@@ -1798,6 +1958,54 @@ class DigestionManager:
                 reason="source_too_large",
             )
         segments = self.extract_text_segments(file_data, info)
+        figure_segments: list[ExtractedSegment] = []
+        figure_count = 0
+        if self._is_pdf_file(info):
+            if callable(progress_callback):
+                progress_callback(
+                    "figures_scanning",
+                    f"Scanning {info.original_name} for embedded PDF figures.",
+                    0.28,
+                    {"file_size": len(file_data)},
+                )
+            try:
+                figure_result = self._extract_pdf_figures_for_source(
+                    digestion,
+                    info,
+                    file_data,
+                    text_segments=segments,
+                )
+                figure_count = int(figure_result.get("figure_count") or 0)
+                figure_segments = figure_result.get("segments") if isinstance(figure_result.get("segments"), list) else []
+                if callable(progress_callback):
+                    progress_callback(
+                        "figures_extracted",
+                        (
+                            f"Captured {figure_count} PDF figure preview{'' if figure_count == 1 else 's'} from {info.original_name}."
+                            if figure_count
+                            else f"No reusable embedded figures were detected in {info.original_name}."
+                        ),
+                        0.32,
+                        {"figure_count": figure_count},
+                    )
+            except Exception as exc:
+                logger.warning("PDF figure extraction failed for %s in %s: %s", info.id, digestion.id, exc, exc_info=True)
+                if callable(progress_callback):
+                    progress_callback(
+                        "figures_unavailable",
+                        "PDF text indexing will continue; figure extraction was unavailable for this source.",
+                        0.32,
+                        {"figure_error": str(exc)[:500]},
+                    )
+        else:
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    "DELETE FROM digestion_pdf_figures WHERE digestion_id = ? AND source_file_id = ?",
+                    (digestion.id, info.id),
+                )
+                conn.commit()
+        if figure_segments:
+            segments = [*segments, *figure_segments]
         if not segments:
             raise DigestionError("No extractable text found in source file.", status_code=415, reason="no_extractable_text")
         extracted_chars = sum(len(segment.text) for segment in segments)
@@ -1806,7 +2014,7 @@ class DigestionManager:
                 "text_extracted",
                 f"Extracted {extracted_chars:,} characters from {info.original_name}.",
                 0.34,
-                {"extracted_chars": extracted_chars, "file_size": len(file_data)},
+                {"extracted_chars": extracted_chars, "file_size": len(file_data), "figure_count": figure_count},
             )
         chunks = self._chunk_segments(segments, digestion.chunk_size, digestion.chunk_overlap, remaining_chunks=remaining_chunks)
         if not chunks:
@@ -1816,7 +2024,7 @@ class DigestionManager:
                 "chunking",
                 f"Prepared {len(chunks)} semantic chunk{'' if len(chunks) == 1 else 's'} from {info.original_name}.",
                 0.58,
-                {"source_chunk_count": len(chunks), "extracted_chars": extracted_chars},
+                {"source_chunk_count": len(chunks), "extracted_chars": extracted_chars, "figure_count": figure_count},
             )
             progress_callback(
                 "embedding",
@@ -1876,7 +2084,7 @@ class DigestionManager:
                 ),
             )
             conn.commit()
-        return {"chunk_count": len(chunks), "embedded_count": len(vectors)}
+        return {"chunk_count": len(chunks), "embedded_count": len(vectors), "figure_count": figure_count}
 
     def extract_text_segments(self, file_data: bytes, info: FileInfo) -> list[ExtractedSegment]:
         filename = str(info.original_name or "")
@@ -1988,6 +2196,450 @@ class DigestionManager:
         except Exception as exc:
             raise DigestionError("PDF could not be read for text extraction.", status_code=415, reason="pdf_unreadable") from exc
         return [ExtractedSegment(text=text[:MAX_FILE_CHARS])] if text else []
+
+    def _extract_pdf_figures_for_source(
+        self,
+        digestion: Digestion,
+        info: FileInfo,
+        file_data: bytes,
+        *,
+        text_segments: list[ExtractedSegment],
+    ) -> dict[str, Any]:
+        cached = self._cached_pdf_figure_rows(digestion.id, info.id, info.checksum)
+        if cached:
+            return {
+                "figure_count": len(cached),
+                "figures": [self._figure_row_to_dict(row) for row in cached],
+                "segments": self._figure_rows_to_segments(cached, source_name=info.original_name),
+                "cached": True,
+            }
+
+        captions_by_page = self._pdf_caption_candidates_by_page(text_segments)
+        with self.db.get_connection() as conn:
+            conn.execute(
+                "DELETE FROM digestion_pdf_figures WHERE digestion_id = ? AND source_file_id = ?",
+                (digestion.id, info.id),
+            )
+            conn.commit()
+
+        pymupdf_rows = self._extract_pdf_figures_with_pymupdf(digestion, info, file_data, captions_by_page)
+        if pymupdf_rows:
+            rows = self._cached_pdf_figure_rows(digestion.id, info.id, info.checksum)
+            return {
+                "figure_count": len(rows),
+                "figures": [self._figure_row_to_dict(row) for row in rows],
+                "segments": self._figure_rows_to_segments(rows, source_name=info.original_name),
+                "cached": False,
+            }
+
+        try:
+            from pypdf import PdfReader  # type: ignore
+        except Exception as exc:  # pragma: no cover - dependency may be absent in minimal envs
+            logger.debug("pypdf image extraction unavailable: %s", exc)
+            return {"figure_count": 0, "figures": [], "segments": [], "cached": False}
+
+        seen_hashes: set[str] = set()
+        try:
+            reader = PdfReader(io.BytesIO(file_data))
+            figure_index = 0
+            for page_number, page in enumerate(reader.pages, start=1):
+                if figure_index >= MAX_PDF_FIGURES_PER_SOURCE:
+                    break
+                page_images = list(getattr(page, "images", []) or [])
+                page_figure_order = 0
+                for image in page_images:
+                    if figure_index >= MAX_PDF_FIGURES_PER_SOURCE:
+                        break
+                    image_bytes = self._pdf_image_bytes(image)
+                    if not image_bytes:
+                        continue
+                    image_hash = hashlib.sha256(image_bytes).hexdigest()
+                    if image_hash in seen_hashes:
+                        continue
+                    page_label = f"p. {page_number}"
+                    row_payload = self._persist_pdf_figure_image(
+                        digestion,
+                        info,
+                        image_bytes,
+                        figure_index=figure_index + 1,
+                        page_number=page_number,
+                        page_label=page_label,
+                        page_figure_order=page_figure_order + 1,
+                        captions_by_page=captions_by_page,
+                        image_name=str(getattr(image, "name", "") or ""),
+                        extraction_method="pypdf.embedded_image",
+                        image_hash=image_hash,
+                        metadata={"original_pdf_image_name": str(getattr(image, "name", "") or "")},
+                    )
+                    if row_payload:
+                        seen_hashes.add(image_hash)
+                        figure_index += 1
+                        page_figure_order += 1
+        except Exception as exc:
+            logger.debug("PDF image extraction failed for %s: %s", info.original_name, exc, exc_info=True)
+
+        rows = self._cached_pdf_figure_rows(digestion.id, info.id, info.checksum)
+        return {
+            "figure_count": len(rows),
+            "figures": [self._figure_row_to_dict(row) for row in rows],
+            "segments": self._figure_rows_to_segments(rows, source_name=info.original_name),
+            "cached": False,
+        }
+
+    def _extract_pdf_figures_with_pymupdf(
+        self,
+        digestion: Digestion,
+        info: FileInfo,
+        file_data: bytes,
+        captions_by_page: dict[str, list[str]],
+    ) -> list[dict[str, Any]]:
+        try:
+            try:
+                import pymupdf as fitz  # type: ignore
+            except Exception:
+                import fitz  # type: ignore
+        except Exception as exc:  # pragma: no cover - dependency may be absent in current envs
+            logger.debug("PyMuPDF PDF figure extraction unavailable: %s", exc)
+            return []
+
+        rows: list[dict[str, Any]] = []
+        seen_hashes: set[str] = set()
+        figure_index = 0
+        try:
+            with fitz.open(stream=file_data, filetype="pdf") as doc:
+                for page_number, page in enumerate(doc, start=1):
+                    if figure_index >= MAX_PDF_FIGURES_PER_SOURCE:
+                        break
+                    page_figure_order = 0
+                    for image_info in page.get_images(full=True) or []:
+                        if figure_index >= MAX_PDF_FIGURES_PER_SOURCE:
+                            break
+                        try:
+                            xref = int(image_info[0])
+                        except Exception:
+                            continue
+                        extracted = doc.extract_image(xref) or {}
+                        image_bytes = extracted.get("image")
+                        if not isinstance(image_bytes, bytes) or not image_bytes:
+                            continue
+                        image_hash = hashlib.sha256(image_bytes).hexdigest()
+                        if image_hash in seen_hashes:
+                            continue
+                        ext = str(extracted.get("ext") or "").strip().lstrip(".")
+                        page_label = f"p. {page_number}"
+                        row_payload = self._persist_pdf_figure_image(
+                            digestion,
+                            info,
+                            image_bytes,
+                            figure_index=figure_index + 1,
+                            page_number=page_number,
+                            page_label=page_label,
+                            page_figure_order=page_figure_order + 1,
+                            captions_by_page=captions_by_page,
+                            image_name=f"xref-{xref}.{ext}" if ext else f"xref-{xref}",
+                            extraction_method="pymupdf.extract_image",
+                            image_hash=image_hash,
+                            metadata={
+                                "pdf_xref": xref,
+                                "pdf_image_ext": ext,
+                                "pdf_image_width": extracted.get("width"),
+                                "pdf_image_height": extracted.get("height"),
+                            },
+                        )
+                        if row_payload:
+                            seen_hashes.add(image_hash)
+                            rows.append(row_payload)
+                            figure_index += 1
+                            page_figure_order += 1
+        except Exception as exc:
+            logger.debug("PyMuPDF PDF figure extraction failed for %s: %s", info.original_name, exc, exc_info=True)
+        return rows
+
+    def _persist_pdf_figure_image(
+        self,
+        digestion: Digestion,
+        info: FileInfo,
+        image_bytes: bytes,
+        *,
+        figure_index: int,
+        page_number: int,
+        page_label: str,
+        page_figure_order: int,
+        captions_by_page: dict[str, list[str]],
+        image_name: str,
+        extraction_method: str,
+        image_hash: str,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
+        if len(image_bytes) > MAX_PDF_FIGURE_BYTES:
+            return None
+        content_type, ext = self._image_content_type_from_bytes(image_bytes, image_name)
+        if not content_type:
+            return None
+        width, height = self._image_dimensions(image_bytes)
+        if width and height and max(width, height) < MIN_PDF_FIGURE_DIMENSION:
+            return None
+        caption = self._caption_for_figure(captions_by_page, page_label, page_figure_order)
+        context_text = self._figure_context_text(caption, page_label=page_label, source_name=info.original_name)
+        filename = f"{self._slugify(Path(info.original_name or 'pdf').stem)}-figure-{figure_index:03d}{ext}"
+        saved = self.file_manager.save_file(image_bytes, filename, content_type, digestion.owner_user_id)
+        if not saved:
+            return None
+        row_payload = {
+            "id": f"Dgf{secrets.token_hex(12)}",
+            "digestion_id": digestion.id,
+            "source_file_id": info.id,
+            "source_checksum": info.checksum,
+            "figure_index": figure_index,
+            "page_number": page_number,
+            "page_label": page_label,
+            "image_file_id": saved.id,
+            "image_name": saved.original_name,
+            "content_type": saved.content_type,
+            "width": width,
+            "height": height,
+            "byte_size": len(image_bytes),
+            "caption": caption,
+            "context_text": context_text,
+            "vision_description": "",
+            "extraction_method": extraction_method,
+            "metadata": {
+                "source_file_name": info.original_name,
+                "image_hash": image_hash,
+                "vision_status": "not_run",
+                **(metadata or {}),
+            },
+        }
+        self._insert_pdf_figure(row_payload)
+        return row_payload
+
+    def _insert_pdf_figure(self, payload: dict[str, Any]) -> None:
+        with self.db.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO digestion_pdf_figures (
+                    id, digestion_id, source_file_id, source_checksum, figure_index,
+                    page_number, page_label, image_file_id, image_name, content_type,
+                    width, height, byte_size, caption, context_text, vision_description,
+                    extraction_method, metadata_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(digestion_id, source_file_id, figure_index) DO UPDATE SET
+                    source_checksum = excluded.source_checksum,
+                    page_number = excluded.page_number,
+                    page_label = excluded.page_label,
+                    image_file_id = excluded.image_file_id,
+                    image_name = excluded.image_name,
+                    content_type = excluded.content_type,
+                    width = excluded.width,
+                    height = excluded.height,
+                    byte_size = excluded.byte_size,
+                    caption = excluded.caption,
+                    context_text = excluded.context_text,
+                    vision_description = excluded.vision_description,
+                    extraction_method = excluded.extraction_method,
+                    metadata_json = excluded.metadata_json
+                """,
+                (
+                    payload.get("id") or f"Dgf{secrets.token_hex(12)}",
+                    payload.get("digestion_id") or "",
+                    payload.get("source_file_id") or "",
+                    payload.get("source_checksum") or "",
+                    int(payload.get("figure_index") or 0),
+                    int(payload.get("page_number") or 0),
+                    payload.get("page_label") or "",
+                    payload.get("image_file_id") or "",
+                    payload.get("image_name") or "",
+                    payload.get("content_type") or "",
+                    int(payload.get("width") or 0),
+                    int(payload.get("height") or 0),
+                    int(payload.get("byte_size") or 0),
+                    payload.get("caption") or "",
+                    payload.get("context_text") or "",
+                    payload.get("vision_description") or "",
+                    payload.get("extraction_method") or "",
+                    json.dumps(payload.get("metadata") or {}, sort_keys=True),
+                    self._now(),
+                ),
+            )
+            conn.commit()
+
+    def _cached_pdf_figure_rows(self, digestion_id: str, source_file_id: str, source_checksum: str) -> list[Any]:
+        with self.db.get_connection() as conn:
+            return conn.execute(
+                """
+                SELECT
+                    f.*,
+                    s.file_name AS source_file_name,
+                    s.content_type AS source_content_type,
+                    img.original_name AS vault_image_name,
+                    img.size AS vault_image_size
+                FROM digestion_pdf_figures f
+                LEFT JOIN digestion_sources s
+                  ON s.digestion_id = f.digestion_id
+                 AND s.file_id = f.source_file_id
+                LEFT JOIN files img ON img.id = f.image_file_id
+                WHERE f.digestion_id = ?
+                  AND f.source_file_id = ?
+                  AND COALESCE(f.source_checksum, '') = COALESCE(?, '')
+                ORDER BY f.page_number, f.figure_index
+                """,
+                (digestion_id, source_file_id, source_checksum or ""),
+            ).fetchall()
+
+    def _figure_rows_to_segments(self, rows: list[Any], *, source_name: str) -> list[ExtractedSegment]:
+        segments: list[ExtractedSegment] = []
+        for row in rows:
+            data = self._figure_row_to_dict(row)
+            text = self._figure_context_text(
+                str(data.get("caption") or data.get("context_text") or ""),
+                page_label=str(data.get("page_label") or ""),
+                source_name=source_name or str(data.get("source_file_name") or ""),
+                figure_index=int(data.get("figure_index") or 0),
+                image_file_id=str(data.get("image_file_id") or ""),
+                vision_description=str(data.get("vision_description") or ""),
+            )
+            if text:
+                segments.append(ExtractedSegment(text=text, page_label=str(data.get("page_label") or "")))
+        return segments
+
+    def _figure_row_to_dict(self, row: Any) -> dict[str, Any]:
+        try:
+            metadata = json.loads(self._row_get(row, "metadata_json", "{}") or "{}")
+        except Exception:
+            metadata = {}
+        image_file_id = str(self._row_get(row, "image_file_id", "") or "")
+        source_file_id = str(self._row_get(row, "source_file_id", "") or "")
+        return {
+            "id": str(self._row_get(row, "id", "") or ""),
+            "digestion_id": str(self._row_get(row, "digestion_id", "") or ""),
+            "source_file_id": source_file_id,
+            "source_file_name": str(self._row_get(row, "source_file_name", "") or source_file_id),
+            "source_content_type": str(self._row_get(row, "source_content_type", "") or ""),
+            "figure_index": int(self._row_get(row, "figure_index", 0) or 0),
+            "page_number": int(self._row_get(row, "page_number", 0) or 0),
+            "page_label": str(self._row_get(row, "page_label", "") or ""),
+            "image_file_id": image_file_id,
+            "image_name": str(self._row_get(row, "vault_image_name", "") or self._row_get(row, "image_name", "") or image_file_id),
+            "image_url": f"/files/{image_file_id}" if image_file_id else "",
+            "thumb_url": f"/files/{image_file_id}/thumb" if image_file_id else "",
+            "content_type": str(self._row_get(row, "content_type", "") or ""),
+            "width": int(self._row_get(row, "width", 0) or 0),
+            "height": int(self._row_get(row, "height", 0) or 0),
+            "byte_size": int(self._row_get(row, "byte_size", 0) or self._row_get(row, "vault_image_size", 0) or 0),
+            "caption": str(self._row_get(row, "caption", "") or ""),
+            "context_text": str(self._row_get(row, "context_text", "") or ""),
+            "vision_description": str(self._row_get(row, "vision_description", "") or ""),
+            "extraction_method": str(self._row_get(row, "extraction_method", "") or ""),
+            "metadata": metadata if isinstance(metadata, dict) else {},
+            "created_at": str(self._row_get(row, "created_at", "") or ""),
+        }
+
+    @staticmethod
+    def _is_pdf_file(info: FileInfo) -> bool:
+        filename = str(info.original_name or "")
+        content_type = str(info.content_type or "").split(";", 1)[0].strip().lower()
+        return content_type == "application/pdf" or Path(filename).suffix.lower() == ".pdf"
+
+    @staticmethod
+    def _pdf_image_bytes(image: Any) -> bytes:
+        data = getattr(image, "data", None)
+        if isinstance(data, bytes) and data:
+            return data
+        pil_image = getattr(image, "image", None)
+        if pil_image is not None:
+            try:
+                out = io.BytesIO()
+                pil_image.save(out, format="PNG")
+                return out.getvalue()
+            except Exception:
+                return b""
+        return b""
+
+    @staticmethod
+    def _image_content_type_from_bytes(data: bytes, name: Any = "") -> tuple[str, str]:
+        head = data[:16]
+        if head.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png", ".png"
+        if head.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg", ".jpg"
+        if head.startswith(b"GIF87a") or head.startswith(b"GIF89a"):
+            return "image/gif", ".gif"
+        if head.startswith(b"RIFF") and data[8:12] == b"WEBP":
+            return "image/webp", ".webp"
+        ext = Path(str(name or "")).suffix.lower()
+        if ext in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+            return {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+            }[ext], ".jpg" if ext == ".jpeg" else ext
+        return "", ""
+
+    @staticmethod
+    def _image_dimensions(data: bytes) -> tuple[int, int]:
+        try:
+            from PIL import Image  # type: ignore
+            with Image.open(io.BytesIO(data)) as image:
+                return int(image.width or 0), int(image.height or 0)
+        except Exception:
+            return 0, 0
+
+    @staticmethod
+    def _pdf_caption_candidates_by_page(segments: list[ExtractedSegment]) -> dict[str, list[str]]:
+        captions: dict[str, list[str]] = {}
+        pattern = re.compile(
+            r"\b(?:fig(?:ure)?\.?|table|chart|diagram)\s*(?:\d+[A-Za-z]?|[IVXLC]+)?\b",
+            re.IGNORECASE,
+        )
+        for segment in segments or []:
+            page_label = str(segment.page_label or "")
+            text = str(segment.text or "")
+            if not text:
+                continue
+            page_captions = captions.setdefault(page_label, [])
+            for match in pattern.finditer(text):
+                paragraph_start = text.rfind("\n\n", 0, match.start())
+                paragraph_end = text.find("\n\n", match.start())
+                start = paragraph_start + 2 if paragraph_start >= 0 else max(0, match.start() - 40)
+                end = paragraph_end if paragraph_end >= 0 else min(len(text), match.start() + 620)
+                snippet = text[start:end].strip()
+                snippet = DigestionManager._normalize_text(snippet)
+                if snippet and snippet not in page_captions:
+                    page_captions.append(snippet[:700])
+                if len(page_captions) >= 16:
+                    break
+        return captions
+
+    @staticmethod
+    def _caption_for_figure(captions_by_page: dict[str, list[str]], page_label: str, order: int) -> str:
+        candidates = captions_by_page.get(page_label) or []
+        if not candidates:
+            return ""
+        index = max(0, min(len(candidates) - 1, int(order or 1) - 1))
+        return str(candidates[index] or "")[:900]
+
+    @staticmethod
+    def _figure_context_text(
+        caption: str,
+        *,
+        page_label: str,
+        source_name: str,
+        figure_index: int = 0,
+        image_file_id: str = "",
+        vision_description: str = "",
+    ) -> str:
+        parts = [
+            "PDF figure extracted for Canopy Digestion.",
+            f"Source: {source_name}." if source_name else "",
+            f"Figure index: {figure_index}." if figure_index else "",
+            f"Page: {page_label}." if page_label else "",
+            f"Caption/context: {caption}." if caption else "Caption/context: no nearby figure caption was detected.",
+            f"Image file id: {image_file_id}." if image_file_id else "",
+            f"Vision description: {vision_description}." if vision_description else "Vision description: not yet generated by an image-capable model.",
+        ]
+        return DigestionManager._normalize_text(" ".join(part for part in parts if part))
 
     def _chunk_segments(
         self,
@@ -3018,6 +3670,26 @@ Required JSON shape:
             if len(token) > 2 and token not in _COMMON_TERMS
         }
 
+    @staticmethod
+    def _query_term_overlap(query_terms: set[str], candidate_terms: set[str]) -> int:
+        if not query_terms or not candidate_terms:
+            return 0
+        overlap = 0
+        partial_min = max(3, int(MIN_PARTIAL_QUERY_TERM_CHARS or 3))
+        for query_term in query_terms:
+            if query_term in candidate_terms:
+                overlap += 1
+                continue
+            if len(query_term) < partial_min:
+                continue
+            if any(
+                candidate.startswith(query_term)
+                or (len(candidate) >= partial_min and query_term.startswith(candidate))
+                for candidate in candidate_terms
+            ):
+                overlap += 1
+        return overlap
+
     def _source_summary_rows(self, digestion_id: str) -> list[dict[str, Any]]:
         rows = self._source_rows(digestion_id)
         summaries: list[dict[str, Any]] = []
@@ -3067,6 +3739,8 @@ Required JSON shape:
                     "source_registration",
                     "type_detection",
                     "text_extraction",
+                    "pdf_figure_extraction",
+                    "caption_context_binding",
                     "normalization",
                     "semantic_chunking",
                     "embedding",
@@ -3162,6 +3836,38 @@ Use this as a permissioned retrieval capability, not as raw file access.
             "text/markdown",
             body,
             {"stats": stats},
+        )
+
+    def _build_pdf_figures_output(self, digestion: Digestion) -> tuple[str, str, str, str, dict[str, Any]]:
+        figures = self.list_figures(digestion.id, digestion.owner_user_id, limit=240).get("figures") or []
+        payload = {
+            "kind": PDF_FIGURE_SCHEMA_VERSION,
+            "schema_version": PDF_FIGURE_SCHEMA_VERSION,
+            "digestion": {
+                "id": digestion.id,
+                "name": digestion.name,
+                "status": digestion.status,
+                "built_at": digestion.built_at,
+            },
+            "stats": self.stats(digestion.id),
+            "figures": figures,
+            "reuse_guidance": [
+                "Use caption, context_text, page_label, and image_file_id together; extracted figure images are source-derived artifacts.",
+                "Agents with source metadata access can call the figures endpoint or fetch image_file_id through approved file endpoints for visual analysis.",
+                "Vision descriptions are empty until an image-capable model pass is explicitly run in a later pipeline stage.",
+            ],
+            "generated_at": self._now(),
+        }
+        return (
+            PDF_FIGURE_OUTPUT_KIND,
+            f"{digestion.name or 'Digestion'} PDF Figures",
+            "application/json",
+            json.dumps(payload, indent=2, sort_keys=True),
+            {
+                "schema_version": PDF_FIGURE_SCHEMA_VERSION,
+                "figure_count": len(figures),
+                "source_revealing": True,
+            },
         )
 
     def _upsert_output(
@@ -3366,6 +4072,7 @@ Use this as a permissioned retrieval capability, not as raw file access.
         allowed_keys = {
             "chunk_count",
             "embedded_count",
+            "figure_count",
             "datapoint_count",
             "quantitative_result_count",
             "chunks_considered",

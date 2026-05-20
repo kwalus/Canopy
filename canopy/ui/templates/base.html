@@ -3252,8 +3252,16 @@
             grid-template-rows: auto minmax(0, 1fr) auto;
         }
 
+        .deck-digestion-insight-rail.has-management.has-figures {
+            grid-template-rows: auto auto minmax(0, 1fr) auto;
+        }
+
         .deck-digestion-insight-rail.is-query-only {
             grid-template-rows: minmax(0, 1fr) auto;
+        }
+
+        .deck-digestion-insight-rail.is-query-only.has-figures {
+            grid-template-rows: auto minmax(0, 1fr) auto;
         }
 
         .deck-digestion-results-head {
@@ -3360,6 +3368,7 @@
             padding: 7px 9px;
             display: grid;
             gap: 7px;
+            overflow: hidden;
         }
 
         .deck-digestion-tune-body,
@@ -3427,9 +3436,13 @@
 
         .deck-digestion-tune-grid {
             display: grid;
-            grid-template-columns: minmax(66px, 0.55fr) minmax(82px, 0.7fr) minmax(0, 1.5fr);
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 124px), 1fr));
             gap: 8px;
             min-width: 0;
+        }
+
+        .deck-digestion-tune label.is-wide {
+            grid-column: 1 / -1;
         }
 
         .deck-digestion-tune label {
@@ -3450,6 +3463,38 @@
             gap: 8px;
             flex-wrap: wrap;
             min-width: 0;
+        }
+
+        .deck-digestion-actions .deck-digestion-secondary-btn {
+            flex: 1 1 156px;
+            min-width: min(100%, 156px);
+            white-space: normal;
+        }
+
+        .deck-digestion-tune-status {
+            padding: 6px 8px;
+            border-radius: 12px;
+            background: color-mix(in srgb, var(--canopy-deck-input-bg) 74%, transparent);
+            border: 1px solid color-mix(in srgb, var(--canopy-deck-border) 70%, transparent);
+            color: var(--canopy-text-muted);
+            font-size: 0.7rem;
+            line-height: 1.25;
+            overflow-wrap: anywhere;
+        }
+
+        .deck-digestion-tune-status[data-state="pending"] {
+            color: var(--canopy-warning);
+            border-color: color-mix(in srgb, var(--canopy-warning) 42%, var(--canopy-deck-border));
+        }
+
+        .deck-digestion-tune-status[data-state="applied"] {
+            color: var(--canopy-success);
+            border-color: color-mix(in srgb, var(--canopy-success) 42%, var(--canopy-deck-border));
+        }
+
+        .deck-digestion-tune-status[data-state="error"] {
+            color: var(--canopy-danger);
+            border-color: color-mix(in srgb, var(--canopy-danger) 42%, var(--canopy-deck-border));
         }
 
         .deck-digestion-chart-controls {
@@ -3500,6 +3545,120 @@
 
         .deck-digestion-chart-controls select {
             flex: 0 1 150px;
+        }
+
+        .deck-digestion-figures-panel {
+            display: grid;
+            gap: 7px;
+            min-width: 0;
+            padding: 9px;
+            border: 1px solid var(--canopy-deck-border);
+            border-radius: 18px;
+            background: var(--canopy-deck-panel-accent-bg);
+            overflow: hidden;
+        }
+
+        .deck-digestion-figures-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .deck-digestion-figures-head > div {
+            display: grid;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .deck-digestion-figures-head strong {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.84rem;
+        }
+
+        .deck-digestion-figures-head span,
+        .deck-digestion-figure-card span,
+        .deck-digestion-figure-empty {
+            color: var(--canopy-text-muted);
+            font-size: 0.72rem;
+        }
+
+        .deck-digestion-figures-list {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(152px, 0.72fr);
+            gap: 8px;
+            min-width: 0;
+            overflow-x: auto;
+            padding-bottom: 2px;
+            scrollbar-color: color-mix(in srgb, var(--canopy-primary) 54%, var(--canopy-border)) transparent;
+        }
+
+        .deck-digestion-figure-card {
+            display: grid;
+            grid-template-rows: 88px auto;
+            min-width: 0;
+            border-radius: 14px;
+            border: 1px solid var(--canopy-deck-border);
+            background: var(--canopy-deck-subpanel-bg);
+            overflow: hidden;
+        }
+
+        .deck-digestion-figure-thumb {
+            display: grid;
+            place-items: center;
+            min-width: 0;
+            background: var(--canopy-deck-chart-bg);
+            color: var(--canopy-text-muted);
+            text-decoration: none;
+        }
+
+        .deck-digestion-figure-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        .deck-digestion-figure-copy {
+            display: grid;
+            gap: 2px;
+            min-width: 0;
+            padding: 7px;
+        }
+
+        .deck-digestion-figure-copy strong,
+        .deck-digestion-figure-copy p {
+            overflow-wrap: anywhere;
+        }
+
+        .deck-digestion-figure-copy strong {
+            font-size: 0.78rem;
+        }
+
+        .deck-digestion-figure-copy p {
+            margin: 0;
+            color: var(--canopy-text-secondary);
+            font-size: 0.72rem;
+            line-height: 1.28;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .deck-digestion-figure-empty {
+            min-height: 78px;
+            display: grid;
+            place-items: center;
+            padding: 10px;
+            text-align: center;
+            border: 1px dashed var(--canopy-deck-border);
+            border-radius: 14px;
+            background: var(--canopy-deck-subpanel-bg);
         }
 
         .deck-digestion-chart-panel {
@@ -3794,6 +3953,19 @@
                 align-items: stretch;
                 flex-direction: column;
                 width: 100%;
+            }
+
+            .deck-digestion-figures-head {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .deck-digestion-figures-head .deck-digestion-mini-btn {
+                width: 100%;
+            }
+
+            .deck-digestion-figures-list {
+                grid-auto-columns: minmax(180px, 82%);
             }
 
             .deck-digestion-chart-nav {

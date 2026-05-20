@@ -189,6 +189,15 @@
         padding: 0.85rem;
         margin-bottom: 1rem;
     }
+    .vault-file-panel .vault-explorer-bar {
+        margin: 0 0 0.85rem;
+        padding: 0.62rem 0.72rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 86%, transparent);
+        border-radius: 16px;
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 8%, transparent), transparent),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+    }
     .vault-breadcrumb {
         display: flex;
         flex-wrap: wrap;
@@ -267,6 +276,11 @@
         justify-content: flex-end;
         gap: 0.5rem;
     }
+    .vault-select-all-btn[aria-pressed="true"] {
+        border-color: color-mix(in srgb, var(--canopy-primary) 55%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 14%, var(--canopy-bg-card));
+        color: var(--canopy-text-primary);
+    }
     .vault-view-switch {
         display: inline-flex;
         align-items: center;
@@ -339,15 +353,21 @@
         font-weight: 750;
     }
     .vault-stats {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 0.8rem;
-        margin-bottom: 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        margin-bottom: 0.75rem;
     }
     .vault-stat {
-        padding: 0.9rem;
+        display: inline-flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.52rem;
+        flex: 1 1 9rem;
+        min-width: 0;
+        padding: 0.46rem 0.62rem;
         border: 1px solid var(--canopy-border);
-        border-radius: 18px;
+        border-radius: 999px;
         background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
     }
     .vault-stat-label {
@@ -360,8 +380,9 @@
     .vault-stat-value {
         color: var(--canopy-text-primary);
         font-weight: 900;
-        font-size: 1.28rem;
-        margin-top: 0.15rem;
+        font-size: 0.98rem;
+        margin-top: 0;
+        font-variant-numeric: tabular-nums;
     }
     .vault-digestion-panel {
         margin-bottom: 1rem;
@@ -414,10 +435,10 @@
     .vault-digestion-meta {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.35rem;
-        margin-top: 0.55rem;
+        gap: 0.26rem;
+        margin-top: 0.46rem;
         color: var(--canopy-text-muted);
-        font-size: 0.78rem;
+        font-size: 0.72rem;
     }
     .vault-digestion-pill {
         display: inline-flex;
@@ -425,8 +446,21 @@
         gap: 0.25rem;
         border: 1px solid var(--canopy-border);
         border-radius: 999px;
-        padding: 0.22rem 0.42rem;
+        padding: 0.16rem 0.36rem;
         background: color-mix(in srgb, var(--canopy-bg-card) 78%, transparent);
+        line-height: 1.18;
+        max-width: 100%;
+        min-width: 0;
+    }
+    .vault-digestion-pill.is-primary {
+        color: var(--canopy-text-primary);
+        border-color: color-mix(in srgb, var(--canopy-primary) 44%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 13%, var(--canopy-bg-card));
+    }
+    .vault-digestion-pill span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     .vault-digestion-actions {
         display: flex;
@@ -1140,9 +1174,45 @@
         overflow-y: auto;
     }
     .vault-grid {
+        position: relative;
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
         gap: 0.85rem;
+        min-height: 7.5rem;
+        border-radius: 22px;
+        transition: background 0.15s ease, outline-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .vault-file-panel.is-external-dragging,
+    .vault-grid.is-external-dragging {
+        outline: 2px dashed color-mix(in srgb, var(--canopy-primary) 68%, transparent);
+        outline-offset: 6px;
+        background: color-mix(in srgb, var(--canopy-primary) 10%, var(--canopy-bg-card));
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 24%, transparent) inset;
+    }
+    .vault-grid.is-external-dragging::before {
+        content: "Drop files to upload to this folder";
+        position: absolute;
+        inset: 0;
+        z-index: 5;
+        display: grid;
+        place-items: center;
+        min-height: 7.5rem;
+        border-radius: 22px;
+        color: var(--canopy-text-primary);
+        font-weight: 900;
+        letter-spacing: 0.02em;
+        text-align: center;
+        pointer-events: none;
+        background:
+            radial-gradient(circle at center, color-mix(in srgb, var(--canopy-primary) 24%, transparent), transparent 62%),
+            color-mix(in srgb, var(--canopy-bg-card) 68%, transparent);
+        backdrop-filter: blur(2px);
+    }
+    .vault-grid.is-external-dragging .vault-card {
+        opacity: 0.42;
+    }
+    .vault-file-panel.is-external-dragging .vault-empty {
+        opacity: 0.38;
     }
     .vault-card {
         position: relative;
@@ -1654,6 +1724,7 @@
         }
 
         .vault-stats {
+            display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 0.48rem;
         }
@@ -1714,33 +1785,6 @@
         </div>
     </section>
 
-    <section class="vault-panel vault-explorer-bar" aria-label="Vault folder navigation">
-        <nav class="vault-breadcrumb" id="vault-breadcrumb" aria-label="Current vault folder">
-            <button class="vault-crumb active" type="button" data-vault-folder-target="" data-vault-folder-drop="">
-                <i class="bi bi-house-door me-1"></i>Vault Home
-            </button>
-        </nav>
-        <div class="vault-explorer-actions">
-            <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-root-btn" data-vault-folder-drop="" hidden>
-                <i class="bi bi-arrow-up-left"></i> Back to Vault Home
-            </button>
-            <button class="btn btn-primary btn-sm" type="button" id="vault-new-folder-btn">
-                <i class="bi bi-folder-plus"></i> New Folder
-            </button>
-            <form class="vault-inline-folder-form" id="vault-new-folder-form" hidden>
-                <label class="visually-hidden" for="vault-new-folder-name">Folder name</label>
-                <input class="form-control form-control-sm" id="vault-new-folder-name" type="text" maxlength="80" autocomplete="off" placeholder="Folder name">
-                <button class="btn btn-primary btn-sm" type="submit">
-                    <i class="bi bi-check2"></i> Create
-                </button>
-                <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-new-folder-cancel">
-                    Cancel
-                </button>
-                <div class="vault-inline-folder-error" id="vault-new-folder-error" hidden></div>
-            </form>
-        </div>
-    </section>
-
     <section class="vault-stats" aria-label="Vault summary">
         <div class="vault-stat">
             <div class="vault-stat-label">Files</div>
@@ -1775,11 +1819,11 @@
         <div class="vault-digestion-list" id="vault-digestion-list" aria-live="polite"></div>
     </section>
 
-    <section class="vault-panel p-3">
+    <section class="vault-panel vault-file-panel p-3" id="vault-file-panel" data-vault-file-drop-panel>
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
             <div>
                 <h2 class="h5 mb-1" style="color: var(--canopy-text-primary);">Your files</h2>
-                <div class="small text-muted">Click a file to open it. Use the Vault button in a channel, feed, or DM composer to attach these files.</div>
+                <div class="small text-muted">Click a file to open it. Use the Vault button in a channel, feed, or DM composer to attach these files. Drag files onto this list to upload into the current folder.</div>
             </div>
             <div class="vault-list-tools">
                 <div class="vault-view-switch" role="group" aria-label="Vault view mode">
@@ -1793,12 +1837,41 @@
                         <i class="bi bi-card-image"></i><span>Preview</span>
                     </button>
                 </div>
+                <button class="btn btn-outline-secondary btn-sm vault-select-all-btn" type="button" id="vault-select-all-btn" aria-pressed="false" disabled>
+                    <i class="bi bi-check2-square"></i> Select all
+                </button>
                 <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-refresh-btn">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
             </div>
         </div>
-	        <div class="vault-selection-bar" id="vault-selection-bar" hidden>
+        <section class="vault-explorer-bar" aria-label="Vault folder navigation">
+            <nav class="vault-breadcrumb" id="vault-breadcrumb" aria-label="Current vault folder">
+                <button class="vault-crumb active" type="button" data-vault-folder-target="" data-vault-folder-drop="">
+                    <i class="bi bi-house-door me-1"></i>Vault Home
+                </button>
+            </nav>
+            <div class="vault-explorer-actions">
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-root-btn" data-vault-folder-drop="" hidden>
+                    <i class="bi bi-arrow-up-left"></i> Back to Vault Home
+                </button>
+                <button class="btn btn-primary btn-sm" type="button" id="vault-new-folder-btn">
+                    <i class="bi bi-folder-plus"></i> New Folder
+                </button>
+                <form class="vault-inline-folder-form" id="vault-new-folder-form" hidden>
+                    <label class="visually-hidden" for="vault-new-folder-name">Folder name</label>
+                    <input class="form-control form-control-sm" id="vault-new-folder-name" type="text" maxlength="80" autocomplete="off" placeholder="Folder name">
+                    <button class="btn btn-primary btn-sm" type="submit">
+                        <i class="bi bi-check2"></i> Create
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-new-folder-cancel">
+                        Cancel
+                    </button>
+                    <div class="vault-inline-folder-error" id="vault-new-folder-error" hidden></div>
+                </form>
+            </div>
+        </section>
+		        <div class="vault-selection-bar" id="vault-selection-bar" hidden>
             <div>
                 <strong id="vault-selection-count">0 selected</strong>
                 <span class="text-muted small ms-1">Collect Vault links without opening each file.</span>
@@ -1862,7 +1935,7 @@
 	            </div>
 	            <div class="vault-inline-preview-body" id="vault-inline-preview-body"></div>
 	        </section>
-	        <div class="vault-grid" id="vault-grid" aria-live="polite"></div>
+	        <div class="vault-grid" id="vault-grid" aria-live="polite" aria-label="Vault files. Drag files here to upload to the current folder."></div>
         <div class="vault-empty" id="vault-empty">
             <i class="bi bi-folder2-open d-block mb-2"></i>
             <strong>No files here yet.</strong>

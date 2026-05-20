@@ -1873,12 +1873,13 @@
 	                                digestionProgressTimers: new Map(),
 				                    previewFileId: ''
 	                };
-                const grid = document.getElementById('vault-grid');
-                const empty = document.getElementById('vault-empty');
-                const search = document.getElementById('vault-search');
-                const loadMore = document.getElementById('vault-load-more');
-                const uploadInput = document.getElementById('vault-upload-input');
-                const dropzone = document.getElementById('vault-dropzone');
+	                const grid = document.getElementById('vault-grid');
+	                const filePanel = document.getElementById('vault-file-panel');
+	                const empty = document.getElementById('vault-empty');
+	                const search = document.getElementById('vault-search');
+	                const loadMore = document.getElementById('vault-load-more');
+	                const uploadInput = document.getElementById('vault-upload-input');
+	                const dropzone = document.getElementById('vault-dropzone');
                 const breadcrumb = document.getElementById('vault-breadcrumb');
                 const newFolderBtn = document.getElementById('vault-new-folder-btn');
                 const newFolderForm = document.getElementById('vault-new-folder-form');
@@ -1889,10 +1890,11 @@
                 const selectionBar = document.getElementById('vault-selection-bar');
                 const selectionCount = document.getElementById('vault-selection-count');
                 const selectionOpen = document.getElementById('vault-selection-open');
-                const selectionCopy = document.getElementById('vault-selection-copy');
-                const selectionDigest = document.getElementById('vault-selection-digest');
-                const selectionClear = document.getElementById('vault-selection-clear');
-                const digestionCreateForm = document.getElementById('vault-digestion-create-form');
+	                const selectionCopy = document.getElementById('vault-selection-copy');
+	                const selectionDigest = document.getElementById('vault-selection-digest');
+	                const selectionClear = document.getElementById('vault-selection-clear');
+	                const selectAllBtn = document.getElementById('vault-select-all-btn');
+	                const digestionCreateForm = document.getElementById('vault-digestion-create-form');
                 const digestionCreateName = document.getElementById('vault-digestion-create-name');
 	                const digestionCreatePurpose = document.getElementById('vault-digestion-create-purpose');
 	                const digestionCreateCancel = document.getElementById('vault-digestion-create-cancel');
@@ -2150,11 +2152,30 @@
 	                    openVaultFileInNewTab(file);
 	                }
 
-                function selectedVaultFiles() {
-                    return state.files.filter(file => state.selectedIds.has(vaultFileId(file)));
-                }
+	                function selectedVaultFiles() {
+	                    return state.files.filter(file => state.selectedIds.has(vaultFileId(file)));
+	                }
 
-                function defaultDigestionName(selected) {
+	                function visibleVaultFileIds() {
+	                    return state.files.map(vaultFileId).filter(Boolean);
+	                }
+
+	                function updateVaultSelectAllButton() {
+	                    if (!selectAllBtn) return;
+	                    const visibleIds = visibleVaultFileIds();
+	                    const selectedVisible = visibleIds.filter(id => state.selectedIds.has(id)).length;
+	                    const allVisibleSelected = visibleIds.length > 0 && selectedVisible === visibleIds.length;
+	                    selectAllBtn.disabled = visibleIds.length === 0;
+	                    selectAllBtn.setAttribute('aria-pressed', allVisibleSelected ? 'true' : 'false');
+	                    selectAllBtn.innerHTML = allVisibleSelected
+	                        ? '<i class="bi bi-x-square"></i> Clear visible'
+	                        : '<i class="bi bi-check2-square"></i> Select all';
+	                    selectAllBtn.title = allVisibleSelected
+	                        ? `Clear ${selectedVisible} visible file${selectedVisible === 1 ? '' : 's'}`
+	                        : `Select ${visibleIds.length} visible file${visibleIds.length === 1 ? '' : 's'}`;
+	                }
+
+	                function defaultDigestionName(selected) {
                     if (selected.length === 1) {
                         return `${selected[0].name || 'Vault file'} Digestion`;
                     }
@@ -2191,14 +2212,18 @@
                     if (selectionDigest) selectionDigest.disabled = selected.length === 0;
                     if (selectionClear) selectionClear.disabled = selected.length === 0;
                     if (!selected.length) hideDigestionCreateForm();
-	                    if (grid) {
-	                        grid.querySelectorAll('[data-vault-file-id]').forEach((card) => {
-	                            const id = card.getAttribute('data-vault-file-id') || '';
-	                            card.classList.toggle('is-selected', state.selectedIds.has(id));
-	                        });
-	                        setVaultPreviewCardState(state.previewFileId);
-	                    }
-	                }
+		                    if (grid) {
+		                        grid.querySelectorAll('[data-vault-file-id]').forEach((card) => {
+		                            const id = card.getAttribute('data-vault-file-id') || '';
+		                            const checked = state.selectedIds.has(id);
+		                            card.classList.toggle('is-selected', checked);
+		                            const box = card.querySelector('[data-vault-select-file]');
+		                            if (box) box.checked = checked;
+		                        });
+		                        setVaultPreviewCardState(state.previewFileId);
+		                    }
+	                    updateVaultSelectAllButton();
+		                }
 
                 function applyVaultViewMode() {
                     if (!grid) return;
@@ -2258,16 +2283,35 @@
                     return state.digestions.find(item => String(item.id || '') === wanted) || null;
                 }
 
-                function digestionStats(digestion) {
-                    const item = digestion || {};
-                    const stats = item.stats && typeof item.stats === 'object' ? item.stats : {};
-                    return {
-                        ...stats,
-                        chunks: Number(stats.chunks ?? item.chunk_count ?? item.indexed_chunks ?? 0),
-                        token_estimate: Number(stats.token_estimate ?? item.token_estimate ?? 0),
-                        sources_by_status: stats.sources_by_status || item.sources_by_status || {},
-                    };
-                }
+	                function digestionStats(digestion) {
+	                    const item = digestion || {};
+	                    const stats = item.stats && typeof item.stats === 'object' ? item.stats : {};
+                        const progressDetails = item.operation_progress
+                            && item.operation_progress.datapoints
+                            && typeof item.operation_progress.datapoints.details === 'object'
+                                ? item.operation_progress.datapoints.details
+                                : {};
+	                    return {
+	                        ...stats,
+	                        chunks: Number(stats.chunks ?? item.chunk_count ?? item.indexed_chunks ?? 0),
+	                        token_estimate: Number(stats.token_estimate ?? item.token_estimate ?? 0),
+                            figures: Number(stats.figures ?? item.figure_count ?? 0),
+                            outputs: Number(stats.outputs ?? stats.output_count ?? item.output_count ?? 0),
+                            source_count: Number(stats.source_count ?? item.source_count ?? 0),
+                            datapoint_count: Number(stats.datapoint_count ?? item.datapoint_count ?? progressDetails.datapoint_count ?? 0),
+                            quantitative_result_count: Number(stats.quantitative_result_count ?? item.quantitative_result_count ?? progressDetails.quantitative_result_count ?? 0),
+	                        sources_by_status: stats.sources_by_status || item.sources_by_status || {},
+	                    };
+	                }
+
+                    function digestionSourceCount(digestion, stats) {
+                        if (Array.isArray(digestion && digestion.sources)) return digestion.sources.length;
+                        const sourceStats = stats && stats.sources_by_status && typeof stats.sources_by_status === 'object'
+                            ? stats.sources_by_status
+                            : {};
+                        const sourceCount = Number(stats && stats.source_count || 0);
+                        return sourceCount || Object.values(sourceStats).reduce((total, value) => total + Number(value || 0), 0);
+                    }
 
                 function digestionAgentReferenceText(digestion) {
                     const item = digestion || {};
@@ -2405,9 +2449,12 @@
 		                    const access = digestion.access || {};
 	                    const canManage = !!access.can_manage;
                     const canReadSources = !!access.can_read_sources;
-	                    const chunks = Number(stats.chunks || 0);
-	                    const tokens = Number(stats.token_estimate || 0);
-	                    const sourceCount = Array.isArray(digestion.sources) ? digestion.sources.length : 0;
+		                    const chunks = Number(stats.chunks || 0);
+		                    const tokens = Number(stats.token_estimate || 0);
+                            const datapointCount = Number(stats.datapoint_count || 0);
+                            const quantitativeCount = Number(stats.quantitative_result_count || 0);
+                            const figureCount = Number(stats.figures || 0);
+		                    const sourceCount = digestionSourceCount(digestion, stats);
 	                    const sourceIssues = Array.isArray(digestion.sources)
 	                        ? digestion.sources.filter(source => {
 	                            const status = String(source && source.status || '').toLowerCase();
@@ -2445,14 +2492,16 @@
                         <article class="vault-digestion-card" data-vault-digestion-id="${id}">
                             <div class="vault-digestion-card-title">${name}</div>
                             ${purpose ? `<div class="small text-muted mt-1">${purpose}</div>` : ''}
-                            <div class="vault-digestion-meta">
-                                <span class="vault-digestion-pill"><i class="bi bi-activity"></i>${status}</span>
-	                                <span class="vault-digestion-pill"><i class="bi bi-files"></i>${sourceCount} source${sourceCount === 1 ? '' : 's'}</span>
-	                                <span class="vault-digestion-pill"><i class="bi bi-braces"></i>${chunks} chunks</span>
-	                                <span class="vault-digestion-pill"><i class="bi bi-file-earmark-text"></i>${tokens} tokens</span>
-	                                <span class="vault-digestion-pill"><i class="bi bi-cpu"></i>${provider}</span>
-	                                ${sourceIssues.length ? `<span class="vault-digestion-pill text-warning" title="${vaultEscape(sourceIssueTitle)}"><i class="bi bi-file-earmark-x"></i>${sourceIssues.length} source issue${sourceIssues.length === 1 ? '' : 's'}</span>` : ''}
-	                                ${ragNoChunks && hasBeenBuilt ? `<span class="vault-digestion-pill text-warning" title="No indexed chunks available. Run Build/Rebuild to index sources."><i class="bi bi-exclamation-triangle"></i>No chunks - build first</span>` : ''}
+	                            <div class="vault-digestion-meta">
+	                                <span class="vault-digestion-pill"><i class="bi bi-activity"></i><span>${status}</span></span>
+		                                <span class="vault-digestion-pill"><i class="bi bi-files"></i><span>${sourceCount} src</span></span>
+		                                <span class="vault-digestion-pill"><i class="bi bi-braces"></i><span>${chunks.toLocaleString()} chunks</span></span>
+		                                ${datapointCount ? `<span class="vault-digestion-pill is-primary" title="${datapointCount.toLocaleString()} structured datapoints extracted${quantitativeCount ? `; ${quantitativeCount.toLocaleString()} quantitative value${quantitativeCount === 1 ? '' : 's'}` : ''}."><i class="bi bi-grid-3x3-gap"></i><span>${datapointCount.toLocaleString()} point${datapointCount === 1 ? '' : 's'}</span></span>` : ''}
+                                        ${figureCount ? `<span class="vault-digestion-pill" title="${figureCount.toLocaleString()} extracted PDF figure preview${figureCount === 1 ? '' : 's'}."><i class="bi bi-images"></i><span>${figureCount.toLocaleString()} fig${figureCount === 1 ? '' : 's'}</span></span>` : ''}
+		                                <span class="vault-digestion-pill"><i class="bi bi-file-earmark-text"></i><span>${tokens.toLocaleString()} tok</span></span>
+		                                <span class="vault-digestion-pill"><i class="bi bi-cpu"></i><span>${provider}</span></span>
+		                                ${sourceIssues.length ? `<span class="vault-digestion-pill text-warning" title="${vaultEscape(sourceIssueTitle)}"><i class="bi bi-file-earmark-x"></i>${sourceIssues.length} source issue${sourceIssues.length === 1 ? '' : 's'}</span>` : ''}
+		                                ${ragNoChunks && hasBeenBuilt ? `<span class="vault-digestion-pill text-warning" title="No indexed chunks available. Run Build/Rebuild to index sources."><i class="bi bi-exclamation-triangle"></i>No chunks - build first</span>` : ''}
 	                                ${canManage && !canReadSources ? `<span class="vault-digestion-pill text-warning" title="Source-read access is required for Extract datapoints."><i class="bi bi-shield-exclamation"></i>No source-read access</span>` : ''}
                             </div>
                             <div class="vault-digestion-actions">
@@ -3979,6 +4028,7 @@
                         : (Number.isFinite(statsSourceCount) && statsSourceCount > 0 ? statsSourceCount : sourceStatusCounts);
                     const chunks = Number(stats.chunks || item.chunk_count || 0);
                     const tokens = Number(stats.token_estimate || 0);
+                    const figures = Number(stats.figures || item.figure_count || 0);
                     const status = String(item.status || 'draft');
                     const name = String(item.name || item.title || item.id || 'Digestion');
                     return {
@@ -3994,12 +4044,14 @@
                             status,
                             `${sourceCount} source${sourceCount === 1 ? '' : 's'}`,
                             `${chunks} chunk${chunks === 1 ? '' : 's'}`,
+                            figures ? `${figures} figure${figures === 1 ? '' : 's'}` : '',
                             tokens ? `${tokens.toLocaleString()} token est.` : '',
                         ].filter(Boolean),
                         details: [
                             { label: 'Status', value: status },
                             { label: 'Sources', value: String(sourceCount) },
                             { label: 'Chunks', value: String(chunks) },
+                            { label: 'Figures', value: String(figures) },
                             { label: 'Provider', value: String(item.provider || stats.provider || 'local') },
                             { label: 'Access', value: access.can_manage ? 'Manage/build' : (access.can_query ? 'Query' : 'Local') },
                         ],
@@ -4403,9 +4455,9 @@
                     }
                 }
 
-                async function uploadFiles(fileList) {
-                    const incoming = Array.from(fileList || []).filter(Boolean);
-                    const files = incoming.filter(file => !(file && file.__vaultDropError));
+	                async function uploadFiles(fileList) {
+	                    const incoming = Array.from(fileList || []).filter(Boolean);
+	                    const files = incoming.filter(file => !(file && file.__vaultDropError));
                     const preflightFailures = incoming
                         .filter(file => file && file.__vaultDropError)
                         .map(file => ({
@@ -4487,11 +4539,27 @@
                         if (dropzone) {
                             dropzone.classList.remove('is-dragging', 'is-uploading');
                             dropzone.removeAttribute('aria-busy');
-                        }
-                    }
-                }
+	                        }
+	                    }
+	                }
 
-                render();
+	                async function uploadFilesFromDataTransfer(dataTransfer) {
+	                    const droppedFiles = await filesFromDataTransfer(dataTransfer);
+	                    if (!droppedFiles.length) {
+	                        if (typeof showAlert === 'function') {
+	                            showAlert('No readable files were found in that drop. Try selecting the files directly.', 'warning');
+	                        }
+	                        return;
+	                    }
+	                    await uploadFiles(droppedFiles);
+	                }
+
+	                function setVaultListDropActive(active) {
+	                    if (filePanel) filePanel.classList.toggle('is-external-dragging', !!active);
+	                    if (grid) grid.classList.toggle('is-external-dragging', !!active);
+	                }
+
+	                render();
                 if (breadcrumb) {
                     breadcrumb.addEventListener('click', (event) => {
                         const target = event.target.closest('[data-vault-folder-target]');
@@ -4555,10 +4623,25 @@
                 page.querySelectorAll('[data-vault-view-mode]').forEach((btn) => {
                     btn.addEventListener('click', () => setVaultViewMode(btn.getAttribute('data-vault-view-mode') || 'preview'));
                 });
-                const refreshBtn = document.getElementById('vault-refresh-btn');
-                if (refreshBtn) refreshBtn.addEventListener('click', () => loadFiles({ append: false }));
-                if (loadMore) loadMore.addEventListener('click', () => loadFiles({ append: true }));
-                if (selectionOpen) {
+	                const refreshBtn = document.getElementById('vault-refresh-btn');
+	                if (refreshBtn) refreshBtn.addEventListener('click', () => loadFiles({ append: false }));
+	                if (loadMore) loadMore.addEventListener('click', () => loadFiles({ append: true }));
+	                if (selectAllBtn) {
+	                    selectAllBtn.addEventListener('click', () => {
+	                        const visibleIds = visibleVaultFileIds();
+	                        if (!visibleIds.length) return;
+	                        const allVisibleSelected = visibleIds.every(id => state.selectedIds.has(id));
+	                        visibleIds.forEach((id) => {
+	                            if (allVisibleSelected) {
+	                                state.selectedIds.delete(id);
+	                            } else {
+	                                state.selectedIds.add(id);
+	                            }
+	                        });
+	                        updateSelectionUi();
+	                    });
+	                }
+	                if (selectionOpen) {
                     selectionOpen.addEventListener('click', () => {
                         const first = selectedVaultFiles()[0];
                         if (first) openVaultFile(first);
@@ -4762,24 +4845,52 @@
                             externalDragDepth = 0;
                         }
                     });
-                    dropzone.addEventListener('drop', async (event) => {
-                        if (isVaultFileDragEvent(event)) return;
-                        if (!dataTransferHasExternalFiles(event.dataTransfer)) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        externalDragDepth = 0;
-                        dropzone.classList.remove('is-dragging');
-                        const droppedFiles = await filesFromDataTransfer(event.dataTransfer);
-                        if (!droppedFiles.length) {
-                            if (typeof showAlert === 'function') {
-                                showAlert('No readable files were found in that drop. Try selecting the files directly.', 'warning');
-                            }
-                            return;
-                        }
-                        await uploadFiles(droppedFiles);
-                    });
-                }
-                if (grid) {
+	                    dropzone.addEventListener('drop', async (event) => {
+	                        if (isVaultFileDragEvent(event)) return;
+	                        if (!dataTransferHasExternalFiles(event.dataTransfer)) return;
+	                        event.preventDefault();
+	                        event.stopPropagation();
+	                        externalDragDepth = 0;
+	                        dropzone.classList.remove('is-dragging');
+	                        await uploadFilesFromDataTransfer(event.dataTransfer);
+	                    });
+	                }
+	                if (filePanel) {
+	                    let listExternalDragDepth = 0;
+	                    ['dragenter', 'dragover'].forEach((eventName) => {
+	                        filePanel.addEventListener(eventName, (event) => {
+	                            if (isVaultFileDragEvent(event)) return;
+	                            if (!dataTransferHasExternalFiles(event.dataTransfer)) return;
+	                            event.preventDefault();
+	                            event.stopPropagation();
+	                            if (eventName === 'dragenter') listExternalDragDepth += 1;
+	                            if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+	                            setVaultListDropActive(true);
+	                        });
+	                    });
+	                    filePanel.addEventListener('dragleave', (event) => {
+	                        if (isVaultFileDragEvent(event)) return;
+	                        if (!dataTransferHasExternalFiles(event.dataTransfer)) return;
+	                        event.preventDefault();
+	                        event.stopPropagation();
+	                        listExternalDragDepth = Math.max(0, listExternalDragDepth - 1);
+	                        const related = event.relatedTarget;
+	                        if (listExternalDragDepth === 0 || !related || !filePanel.contains(related)) {
+	                            listExternalDragDepth = 0;
+	                            setVaultListDropActive(false);
+	                        }
+	                    });
+	                    filePanel.addEventListener('drop', async (event) => {
+	                        if (isVaultFileDragEvent(event)) return;
+	                        if (!dataTransferHasExternalFiles(event.dataTransfer)) return;
+	                        event.preventDefault();
+	                        event.stopPropagation();
+	                        listExternalDragDepth = 0;
+	                        setVaultListDropActive(false);
+	                        await uploadFilesFromDataTransfer(event.dataTransfer);
+	                    });
+	                }
+	                if (grid) {
                     let draggingFileId = '';
                     let suppressNextCardOpen = false;
                     function clearVaultDropTargets() {
@@ -17219,6 +17330,21 @@
                 return `/files/${encodeURIComponent(fileId)}${page > 0 ? `#page=${page}` : ''}`;
             }
 
+            function setDeckDigestionTuneStatus(host, text, state = '') {
+                const el = host && host.querySelector('[data-deck-digestion-tune-status]');
+                if (!el) return;
+                el.textContent = String(text || '');
+                el.dataset.state = String(state || '');
+            }
+
+            function markDeckDigestionTunePending(host) {
+                setDeckDigestionTuneStatus(
+                    host,
+                    'Extraction settings changed. Click Extract datapoints to apply them.',
+                    'pending'
+                );
+            }
+
             function deckDigestionResultSource(item) {
                 const source = item && item.source && typeof item.source === 'object' ? item.source : {};
                 return {
@@ -17614,6 +17740,75 @@
                 renderDeckDigestionChart(host);
             }
 
+            function renderDeckDigestionFigures(host, data) {
+                const listEl = host && host.querySelector('[data-deck-digestion-figures-list]');
+                const summaryEl = host && host.querySelector('[data-deck-digestion-figures-summary]');
+                if (!listEl) return;
+                const figures = Array.isArray(data && data.figures) ? data.figures : [];
+                if (summaryEl) {
+                    summaryEl.textContent = figures.length
+                        ? `${figures.length} extracted figure${figures.length === 1 ? '' : 's'}`
+                        : 'No extracted figures yet';
+                }
+                if (!figures.length) {
+                    listEl.innerHTML = '<div class="deck-digestion-figure-empty">Build or refresh this Digestion to extract embedded PDF figures and caption context.</div>';
+                    return;
+                }
+                listEl.innerHTML = figures.slice(0, 36).map((figure) => {
+                    const imageUrl = String(figure.thumb_url || figure.image_url || '').trim();
+                    const fullUrl = String(figure.image_url || imageUrl || '').trim();
+                    const sourceName = String(figure.source_file_name || figure.image_name || 'PDF figure');
+                    const caption = String(figure.caption || figure.context_text || 'No caption detected yet.');
+                    const page = String(figure.page_label || '');
+                    const sizeBits = [
+                        page,
+                        Number(figure.width || 0) && Number(figure.height || 0) ? `${Number(figure.width)}x${Number(figure.height)}` : '',
+                    ].filter(Boolean).join(' · ');
+                    return `
+                        <article class="deck-digestion-figure-card">
+                            ${imageUrl ? `
+                                <a class="deck-digestion-figure-thumb" href="${escapeEmbedAttr(fullUrl)}" target="_blank" rel="noopener">
+                                    <img src="${escapeEmbedAttr(imageUrl)}" alt="${escapeEmbedAttr(`Figure from ${sourceName}`)}" loading="lazy">
+                                </a>
+                            ` : '<div class="deck-digestion-figure-thumb is-empty"><i class="bi bi-image"></i></div>'}
+                            <div class="deck-digestion-figure-copy">
+                                <strong>Figure ${Number(figure.figure_index || 0) || ''}</strong>
+                                <span>${escapeEmbedHtml(sizeBits || sourceName)}</span>
+                                <p>${escapeEmbedHtml(caption)}</p>
+                            </div>
+                        </article>
+                    `;
+                }).join('');
+            }
+
+            async function loadDeckDigestionFigures(host, item, button = null) {
+                const digestionId = deckDigestionId(item);
+                const listEl = host && host.querySelector('[data-deck-digestion-figures-list]');
+                if (!host || !listEl || !digestionId) return;
+                const original = button ? button.innerHTML : '';
+                if (button) {
+                    button.disabled = true;
+                    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Loading';
+                }
+                listEl.innerHTML = '<div class="deck-digestion-figure-empty"><span class="spinner-border spinner-border-sm me-1"></span>Loading extracted figures...</div>';
+                try {
+                    const urls = deckDigestionUrls();
+                    const data = await apiCall(`${urls.digestions}/${encodeURIComponent(digestionId)}/figures?limit=80`);
+                    host.__canopyDeckDigestionFigures = data || {};
+                    renderDeckDigestionFigures(host, data || {});
+                } catch (error) {
+                    const message = error && (error.error || error.message)
+                        ? (error.error || error.message)
+                        : 'Could not load extracted PDF figures.';
+                    listEl.innerHTML = `<div class="deck-digestion-figure-empty text-danger">${escapeEmbedHtml(message)}</div>`;
+                } finally {
+                    if (button) {
+                        button.disabled = false;
+                        button.innerHTML = original;
+                    }
+                }
+            }
+
             async function runDeckDigestionQuery(host, item) {
                 const digestionId = deckDigestionId(item);
                 if (!host) return;
@@ -17685,6 +17880,9 @@
                     button.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${operation === 'build' ? 'Building' : 'Extracting'}`;
                 }
                 if (statusEl) statusEl.textContent = operation === 'build' ? 'Building source index...' : 'Extracting structured datapoints...';
+                if (operation === 'extract') {
+                    setDeckDigestionTuneStatus(host, 'Applying these extraction settings...', 'applying');
+                }
                 try {
                     const urls = deckDigestionUrls();
                     const endpoint = operation === 'build'
@@ -17707,13 +17905,24 @@
                         } else {
                             const count = Number(data.datapoint_count || 0);
                             statusEl.textContent = `Datapoint extraction complete: ${count} record${count === 1 ? '' : 's'}.`;
+                            setDeckDigestionTuneStatus(
+                                host,
+                                `Applied to latest extraction: ${body.max_chunks} chunks, ${body.max_datapoints} datapoints${body.lens ? `, lens "${body.lens.slice(0, 80)}"` : ''}.`,
+                                'applied'
+                            );
                         }
+                    }
+                    if (operation === 'build') {
+                        loadDeckDigestionFigures(host, item);
                     }
                 } catch (error) {
                     const message = error && (error.error || error.message)
                         ? (error.error || error.message)
                         : `Could not ${operation === 'build' ? 'build Digestion' : 'extract datapoints'}.`;
                     if (statusEl) statusEl.textContent = message;
+                    if (operation === 'extract') {
+                        setDeckDigestionTuneStatus(host, 'Extraction settings were not applied because extraction failed.', 'error');
+                    }
                 } finally {
                     if (button) {
                         button.disabled = false;
@@ -17727,6 +17936,7 @@
                 const stats = digestion.stats && typeof digestion.stats === 'object' ? digestion.stats : {};
                 const access = digestion.access && typeof digestion.access === 'object' ? digestion.access : {};
                 const canManage = !!access.can_manage;
+                const canReadSources = !!(access.can_read_sources || canManage);
                 const sourceStatusCounts = stats.sources_by_status && typeof stats.sources_by_status === 'object'
                     ? Object.values(stats.sources_by_status).reduce((sum, value) => sum + Math.max(0, Number(value || 0) || 0), 0)
                     : 0;
@@ -17736,6 +17946,7 @@
                     : sourceStatusCounts;
                 const chunkCount = Number(stats.chunks || 0);
                 const tokenCount = Number(stats.token_estimate || 0);
+                const figureCount = Number(stats.figures || 0);
                 const initialMode = deckDigestionMode(digestion.initial_mode || 'rag');
                 const initialQuery = String(digestion.initial_query || '');
                 host.classList.add('is-digestion-workspace');
@@ -17751,9 +17962,10 @@
 	                            </div>
                             <div class="deck-digestion-stat-grid">
                                 <span><strong>${escapeEmbedHtml(digestion.status || 'draft')}</strong><small>Status</small></span>
-                                <span><strong>${sourceCount}</strong><small>Sources</small></span>
-                                <span><strong>${chunkCount}</strong><small>Chunks</small></span>
-                                <span><strong>${tokenCount ? tokenCount.toLocaleString() : '0'}</strong><small>Token est.</small></span>
+	                                <span><strong>${sourceCount}</strong><small>Sources</small></span>
+	                                <span><strong>${chunkCount}</strong><small>Chunks</small></span>
+	                                <span><strong>${figureCount}</strong><small>Figures</small></span>
+	                                <span><strong>${tokenCount ? tokenCount.toLocaleString() : '0'}</strong><small>Token est.</small></span>
                             </div>
                         </section>
                         <div class="deck-digestion-main">
@@ -17774,27 +17986,42 @@
                                     <div class="deck-digestion-empty">This Deck surface uses the same Digestion query endpoints as the Vault UI. Semantic search is the default; switch to structured datapoints when you want charts.</div>
                                 </section>
                             </section>
-	                            <aside class="deck-digestion-insight-rail ${canManage ? 'has-management' : 'is-query-only'}">
-	                                ${canManage ? `
-	                                    <details class="deck-digestion-tune">
-	                                        <summary>
-	                                            <span><i class="bi bi-sliders"></i> Build controls</span>
-	                                            <small>Index, extraction, lens</small>
+		                            <aside class="deck-digestion-insight-rail ${canManage ? 'has-management' : 'is-query-only'} ${canReadSources ? 'has-figures' : ''}">
+		                                ${canManage ? `
+		                                    <details class="deck-digestion-tune">
+		                                        <summary>
+		                                            <span><i class="bi bi-sliders"></i> Build controls</span>
+		                                            <small>Index, extraction, lens</small>
 	                                        </summary>
 	                                        <div class="deck-digestion-tune-body">
-	                                            <div class="deck-digestion-tune-grid">
-	                                                <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
-	                                                <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
-	                                                <label>Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
-	                                            </div>
-	                                            <div class="deck-digestion-actions">
-	                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="build"><i class="bi bi-hammer"></i> Build / refresh index</button>
-	                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="extract"><i class="bi bi-grid-3x3-gap"></i> Extract datapoints</button>
-	                                            </div>
-	                                        </div>
-	                                    </details>
-	                                ` : ''}
-	                                <section class="deck-digestion-chart-panel">
+		                                            <div class="deck-digestion-tune-grid">
+		                                                <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
+		                                                <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
+		                                                <label class="is-wide">Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
+		                                            </div>
+		                                            <div class="deck-digestion-actions">
+		                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="build"><i class="bi bi-hammer"></i> Build / refresh index</button>
+		                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="extract"><i class="bi bi-grid-3x3-gap"></i> Extract datapoints</button>
+		                                            </div>
+		                                            <div class="deck-digestion-tune-status" data-deck-digestion-tune-status aria-live="polite">Extraction settings apply when you run Extract datapoints.</div>
+		                                        </div>
+		                                    </details>
+		                                ` : ''}
+		                                ${canReadSources ? `
+		                                    <section class="deck-digestion-figures-panel">
+		                                        <div class="deck-digestion-figures-head">
+		                                            <div>
+		                                                <strong><i class="bi bi-images"></i> PDF figures</strong>
+		                                                <span data-deck-digestion-figures-summary>${figureCount ? `${figureCount} extracted figure${figureCount === 1 ? '' : 's'}` : 'Load extracted figure previews'}</span>
+		                                            </div>
+		                                            <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-load-figures>Load</button>
+		                                        </div>
+		                                        <div class="deck-digestion-figures-list" data-deck-digestion-figures-list>
+		                                            <div class="deck-digestion-figure-empty">Extracted figures, captions, and image IDs will appear here after build.</div>
+		                                        </div>
+		                                    </section>
+		                                ` : ''}
+		                                <section class="deck-digestion-chart-panel">
 	                                    <div class="deck-digestion-chart-head">
                                         <div>
                                             <strong>Datapoint chart</strong>
@@ -17875,13 +18102,19 @@
                 host.addEventListener('pointercancel', clearDeckDigestionChartPan);
                 host.addEventListener('click', (event) => {
                     const opBtn = event.target.closest('[data-deck-digestion-op]');
-                    if (opBtn) {
-                        event.preventDefault();
-                        const op = opBtn.getAttribute('data-deck-digestion-op') === 'build' ? 'build' : 'extract';
-                        runDeckDigestionOperation(host, item, op, opBtn);
-                        return;
-                    }
-                    const zoomBtn = event.target.closest('[data-deck-digestion-chart-zoom]');
+	                    if (opBtn) {
+	                        event.preventDefault();
+	                        const op = opBtn.getAttribute('data-deck-digestion-op') === 'build' ? 'build' : 'extract';
+	                        runDeckDigestionOperation(host, item, op, opBtn);
+	                        return;
+	                    }
+	                    const figuresBtn = event.target.closest('[data-deck-digestion-load-figures]');
+	                    if (figuresBtn) {
+	                        event.preventDefault();
+	                        loadDeckDigestionFigures(host, item, figuresBtn);
+	                        return;
+	                    }
+	                    const zoomBtn = event.target.closest('[data-deck-digestion-chart-zoom]');
                     if (zoomBtn) {
                         event.preventDefault();
                         const action = zoomBtn.getAttribute('data-deck-digestion-chart-zoom');
@@ -17910,11 +18143,18 @@
                         if (statusEl) statusEl.textContent = 'Chart filters reset.';
                     }
                 });
-                host.addEventListener('input', (event) => {
-                    if (event.target.closest('[data-deck-digestion-chart-field]')) {
-                        renderDeckDigestionChart(host);
-                    }
-                });
+	                host.addEventListener('input', (event) => {
+	                    if (event.target.closest('[data-deck-digestion-chart-field]')) {
+	                        renderDeckDigestionChart(host);
+	                    }
+	                    if (
+	                        event.target.closest('[data-deck-digestion-max-chunks]')
+	                        || event.target.closest('[data-deck-digestion-max-datapoints]')
+	                        || event.target.closest('[data-deck-digestion-lens]')
+	                    ) {
+	                        markDeckDigestionTunePending(host);
+	                    }
+	                });
                 host.addEventListener('change', (event) => {
                     if (event.target.closest('[data-deck-digestion-chart-type]')) {
                         renderDeckDigestionChart(host);
@@ -17930,10 +18170,13 @@
                     event.preventDefault();
                     hideDeckDigestionChartKeys(host, actionEl);
                 });
-                renderDeckDigestionChart(host);
-                if (initialQuery.trim()) {
-                    window.setTimeout(() => runDeckDigestionQuery(host, item), 0);
-                }
+	                renderDeckDigestionChart(host);
+	                if (canReadSources) {
+	                    window.setTimeout(() => loadDeckDigestionFigures(host, item), 0);
+	                }
+	                if (initialQuery.trim()) {
+	                    window.setTimeout(() => runDeckDigestionQuery(host, item), 0);
+	                }
             }
 
             function renderDeckWidgetStage(item) {

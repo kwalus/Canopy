@@ -1,5 +1,6 @@
 """Regression tests for File Vault Digestions."""
 
+import base64
 import json
 import os
 import sqlite3
@@ -34,6 +35,11 @@ from canopy.core.digestions import DigestionError, DigestionManager, ExtractedSe
 from canopy.core.file_preview import build_file_preview
 from canopy.core.files import FileManager
 from canopy.security.api_keys import ApiKeyInfo, Permission
+from canopy.security.file_access import evaluate_file_access
+
+_TINY_PNG = base64.b64decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
+)
 
 
 class _FakeDbManager:
@@ -107,6 +113,16 @@ class TestDigestions(unittest.TestCase):
             content.encode('utf-8'),
             name,
             'text/plain',
+            owner,
+        )
+        self.assertIsNotNone(info)
+        return info
+
+    def _save_image(self, name: str = 'figure-001.png', owner: str = 'owner-user'):
+        info = self.file_manager.save_file(
+            _TINY_PNG,
+            name,
+            'image/png',
             owner,
         )
         self.assertIsNotNone(info)
@@ -250,7 +266,8 @@ class TestDigestions(unittest.TestCase):
         silicon = self._save_text(
             'silicon-notes.txt',
             'Quantum silicon devices need careful surface preparation and hyperfine control. '
-            'SiDB circuits can be compared with other storage media.',
+            'SiDB circuits can be compared with other storage media. '
+            'Voltage tuning stabilizes the device response.',
         )
         unrelated = self._save_text(
             'gardening.txt',
@@ -279,6 +296,11 @@ class TestDigestions(unittest.TestCase):
         self.assertGreaterEqual(result['result_count'], 1)
         self.assertEqual(result['results'][0]['file_name'], 'silicon-notes.txt')
         self.assertIn('hyperfine', result['results'][0]['snippet'])
+        partial = self.digestion_manager.query(digestion['id'], 'owner-user', 'volt', top_k=3)
+        self.assertTrue(partial['success'])
+        self.assertGreaterEqual(partial['result_count'], 1)
+        self.assertEqual(partial['results'][0]['file_name'], 'silicon-notes.txt')
+        self.assertIn('Voltage', partial['results'][0]['snippet'])
         unrelated = self.digestion_manager.query(digestion['id'], 'owner-user', 'winter tire recipes', top_k=3)
         self.assertTrue(unrelated['success'])
         self.assertEqual(unrelated['result_count'], 0)
@@ -473,6 +495,113 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(exported_package['success'])
         self.assertTrue(exported_package['file']['original_name'].endswith('-canopy-digestion-package.json'))
 
+    def test_pdf_caption_candidates_include_tables_charts_and_diagrams(self) -> None:
+        candidates = self.digestion_manager._pdf_caption_candidates_by_page([
+            ExtractedSegment(
+                text=(
+                    'Table 2 summarizes the measured gate voltage values.\n\n'
+                    'Chart 3 compares current density across samples.\n\n'
+                    'Diagram IV shows the device stack.'
+                ),
+                page_label='p. 4',
+            )
+        ])
+
+        joined = ' '.join(candidates.get('p. 4') or [])
+        self.assertIn('Table 2', joined)
+        self.assertIn('Chart 3', joined)
+        self.assertIn('Diagram IV', joined)
+
+    def test_pdf_figures_are_source_gated_packaged_and_output_ready(self) -> None:
+        source = self._save_text(
+            'figure-corpus.txt',
+            'Figure 1. Device geometry for a silicon single-electron transistor experiment. '
+            'The caption reports the gate voltage and quantum dot geometry.',
+        )
+        image = self._save_image()
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Figure digest',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        self.digestion_manager._insert_pdf_figure({
+            'digestion_id': digestion['id'],
+            'source_file_id': source.id,
+            'source_checksum': source.checksum,
+            'figure_index': 1,
+            'page_number': 2,
+            'page_label': 'p. 2',
+            'image_file_id': image.id,
+            'image_name': image.original_name,
+            'content_type': image.content_type,
+            'width': 640,
+            'height': 360,
+            'byte_size': image.size,
+            'caption': 'Figure 1. Device geometry for a silicon single-electron transistor experiment.',
+            'context_text': 'Figure 1 on p. 2 shows the device geometry and gate-voltage context.',
+            'vision_description': '',
+            'extraction_method': 'test.fixture',
+            'metadata': {'vision_status': 'not_run', 'source_file_name': source.original_name},
+        })
+
+        figures = self.digestion_manager.list_figures(digestion['id'], 'owner-user')
+
+        self.assertEqual(figures['count'], 1)
+        self.assertEqual(figures['stats']['figures'], 1)
+        figure = figures['figures'][0]
+        self.assertEqual(figure['source_file_id'], source.id)
+        self.assertEqual(figure['image_file_id'], image.id)
+        self.assertEqual(figure['image_url'], f'/files/{image.id}')
+        self.assertEqual(figure['thumb_url'], f'/files/{image.id}/thumb')
+        self.assertEqual(figure['page_label'], 'p. 2')
+        self.assertIn('single-electron transistor', figure['caption'])
+
+        outputs = self.digestion_manager.generate_outputs(digestion['id'], 'owner-user', kinds=['pdf_figures'])
+        self.assertEqual([row['output_kind'] for row in outputs['outputs']], ['pdf_figures'])
+        output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'pdf_figures')
+        self.assertIn('canopy_pdf_figures_v1', output['content'])
+        self.assertIn(image.id, output['content'])
+
+        package = self.digestion_manager.package_payload(digestion['id'], 'owner-user')
+        self.assertTrue(package['figures_included'])
+        self.assertEqual(package['figures'][0]['image_file_id'], image.id)
+
+        self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
+        with self.assertRaises(DigestionError) as denied_context:
+            self.digestion_manager.list_figures(digestion['id'], 'reader-user')
+        self.assertEqual(denied_context.exception.reason, 'source_metadata_denied')
+        denied_image_access = evaluate_file_access(
+            db_manager=self.db_manager,
+            file_id=image.id,
+            viewer_user_id='reader-user',
+            file_uploaded_by=image.uploaded_by,
+        )
+        self.assertFalse(denied_image_access.allowed)
+        reader_package = self.digestion_manager.package_payload(digestion['id'], 'reader-user')
+        self.assertFalse(reader_package['figures_included'])
+
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_read_sources=True,
+        )
+        reader_figures = self.digestion_manager.list_figures(digestion['id'], 'reader-user')
+        self.assertEqual(reader_figures['count'], 1)
+        granted_image_access = evaluate_file_access(
+            db_manager=self.db_manager,
+            file_id=image.id,
+            viewer_user_id='reader-user',
+            file_uploaded_by=image.uploaded_by,
+        )
+        self.assertTrue(granted_image_access.allowed)
+        self.assertEqual(granted_image_access.reason, 'digestion-source-metadata')
+        reader_output = self.digestion_manager.get_output(digestion['id'], 'reader-user', 'pdf_figures')
+        self.assertIn(image.id, reader_output['content'])
+
     def test_structured_datapoints_output_is_source_grounded_and_source_gated(self) -> None:
         source = self._save_text(
             'datapoint-corpus.txt',
@@ -523,6 +652,10 @@ class TestDigestions(unittest.TestCase):
         self.assertGreaterEqual(result['progress']['details']['datapoint_count'], 1)
         progress = self.digestion_manager.get_operation_progress(digestion['id'], 'owner-user')
         self.assertEqual(progress['operations']['datapoints']['status'], 'completed')
+        stats = self.digestion_manager.stats(digestion['id'])
+        self.assertEqual(stats['source_count'], 1)
+        self.assertGreaterEqual(stats['datapoint_count'], 1)
+        self.assertGreaterEqual(stats['quantitative_result_count'], 1)
 
         search = self.digestion_manager.search_structured_datapoints(
             digestion['id'],

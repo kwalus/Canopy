@@ -6060,6 +6060,12 @@ def create_ui_blueprint() -> Blueprint:
                 return 'Yesterday'
             return local_dt.strftime('%b %d, %Y')
 
+        def _conversation_preview(message: Any, attachments: Any) -> str:
+            preview = build_dm_preview(getattr(message, 'content', ''), attachments)
+            if preview:
+                return preview
+            return 'Attachment' if attachments else 'Message'
+
         all_dm_messages = [
             message
             for message in message_manager.get_messages(user_id, limit=400)
@@ -6080,6 +6086,7 @@ def create_ui_blueprint() -> Blueprint:
                         thread_key = indexed_key
                         break
             attachments = (_message_meta(message).get('attachments') or [])
+            message_preview = _conversation_preview(message, attachments)
             entry = conversations_by_key.get(thread_key)
             if entry is None:
                 title, subtitle, preview_users = _format_thread_title(thread)
@@ -6090,7 +6097,7 @@ def create_ui_blueprint() -> Blueprint:
                     'title': title,
                     'subtitle': subtitle,
                     'preview_users': preview_users,
-                    'preview': build_dm_preview(getattr(message, 'content', ''), attachments) or 'Attachment',
+                    'preview': message_preview,
                     'updated_at': message.created_at.isoformat(),
                     'updated_dt': message.created_at,
                     'unread_count': 0,
@@ -6124,10 +6131,10 @@ def create_ui_blueprint() -> Blueprint:
                 for alias in _group_thread_alias_tokens(entry):
                     group_entry_alias_index[alias] = thread_key
             entry['message_count'] += 1
-            entry['preview'] = build_dm_preview(getattr(message, 'content', ''), attachments) or 'Attachment'
             if message.created_at >= (entry.get('updated_dt') or datetime.min.replace(tzinfo=timezone.utc)):
                 entry['updated_at'] = message.created_at.isoformat()
                 entry['updated_dt'] = message.created_at
+                entry['preview'] = message_preview
             if getattr(message, 'sender_id', None) != user_id and not getattr(message, 'read_at', None):
                 entry['unread_count'] += 1
 
@@ -6805,6 +6812,26 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error("Digestion UI datapoint search error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not search structured datapoints'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/figures', methods=['GET'])
+    @require_login
+    def ajax_digestion_figures(digestion_id: str):
+        """List extracted PDF figures for the Digestion Deck and Vault UI."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            try:
+                limit = int(request.args.get('limit', 120) or 120)
+            except (TypeError, ValueError):
+                limit = 120
+            limit = max(1, min(limit, 240))
+            return jsonify(manager.list_figures(digestion_id, get_current_user(), limit=limit))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI figures error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load Digestion PDF figures'}), 500
 
     @ui.route('/ajax/digestions/<digestion_id>/context', methods=['POST'])
     @require_login

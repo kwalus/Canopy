@@ -153,6 +153,10 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
                     '2026-03-08T10:10:00+00:00', '2026-03-08T10:10:02+00:00', None, None, None,
                 ),
                 (
+                    'DM-a-old', 'owner', 'peer-a', 'Stale opener from Alice thread', 'text', 'delivered',
+                    '2026-03-08T09:00:00+00:00', '2026-03-08T09:00:01+00:00', '2026-03-08T09:00:02+00:00', None, None,
+                ),
+                (
                     'DM-b-read', 'owner', 'peer-b', 'Update for Bob', 'text', 'delivered',
                     '2026-03-08T10:05:00+00:00', '2026-03-08T10:05:01+00:00', '2026-03-08T10:05:02+00:00', None, None,
                 ),
@@ -234,6 +238,8 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
         self.assertIn('data-dm-kind="group"', body)
         self.assertIn('data-dm-group-id=', body)
         self.assertIn('/messages?with=peer-a#message-DM-a-unread', body)
+        self.assertIn('<div class="dm-conversation-preview">Latest from Alice</div>', body)
+        self.assertNotIn('<div class="dm-conversation-preview">Stale opener from Alice thread</div>', body)
 
     def test_sidebar_dm_snapshot_includes_recent_dm_contacts(self) -> None:
         response = self.client.get('/ajax/sidebar_dm_snapshot')
