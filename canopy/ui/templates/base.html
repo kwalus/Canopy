@@ -2971,6 +2971,7 @@
             display: grid;
             gap: 14px;
             min-height: 100%;
+            min-width: 0;
             color: var(--canopy-text-primary);
         }
 
@@ -2985,11 +2986,12 @@
                 radial-gradient(circle at top left, rgba(34, 197, 94, 0.12), transparent 36%),
                 linear-gradient(180deg, rgba(15, 23, 42, 0.88), rgba(8, 13, 24, 0.82));
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            min-width: 0;
         }
 
         .deck-digestion-hero {
             display: grid;
-            grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.65fr);
+            grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.8fr);
             gap: 16px;
             padding: 18px;
             align-items: stretch;
@@ -3050,8 +3052,9 @@
 
         .deck-digestion-querybar {
             display: grid;
-            grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.28fr) auto;
+            grid-template-columns: minmax(0, 1fr) minmax(150px, 210px) max-content;
             gap: 10px;
+            min-width: 0;
         }
 
         .deck-digestion-querybar input,
@@ -3081,6 +3084,7 @@
             align-items: center;
             justify-content: center;
             gap: 7px;
+            min-height: 42px;
             text-decoration: none;
             white-space: nowrap;
         }
@@ -3100,8 +3104,9 @@
 
         .deck-digestion-tune-grid {
             display: grid;
-            grid-template-columns: 0.2fr 0.2fr minmax(180px, 1fr);
+            grid-template-columns: minmax(92px, 120px) minmax(110px, 150px) minmax(0, 1fr);
             gap: 10px;
+            min-width: 0;
         }
 
         .deck-digestion-tune label {
@@ -3121,6 +3126,15 @@
             align-items: center;
             gap: 8px;
             flex-wrap: wrap;
+            min-width: 0;
+        }
+
+        .deck-digestion-chart-controls input {
+            flex: 1 1 150px;
+        }
+
+        .deck-digestion-chart-controls select {
+            flex: 0 1 150px;
         }
 
         .deck-digestion-chart-panel {
@@ -3131,10 +3145,11 @@
 
         .deck-digestion-chart-head {
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             justify-content: space-between;
             gap: 12px;
             flex-wrap: wrap;
+            min-width: 0;
         }
 
         .deck-digestion-chart-head strong {
@@ -3207,6 +3222,7 @@
             border-radius: 14px;
             background: rgba(15, 23, 42, 0.56);
             border: 1px solid rgba(148, 163, 184, 0.12);
+            min-width: 0;
         }
 
         .deck-digestion-quant-row > div:first-child {
@@ -3240,6 +3256,7 @@
             border-radius: 16px;
             background: rgba(15, 23, 42, 0.56);
             border: 1px solid rgba(148, 163, 184, 0.14);
+            min-width: 0;
         }
 
         .deck-digestion-result-head,
@@ -3250,6 +3267,7 @@
             align-items: center;
             gap: 8px;
             flex-wrap: wrap;
+            min-width: 0;
         }
 
         .deck-digestion-result-head span,
@@ -3287,6 +3305,40 @@
             padding: 10px 12px;
             color: var(--canopy-text-muted);
             font-size: 0.82rem;
+        }
+
+        @media (max-width: 860px) {
+            .deck-digestion-hero,
+            .deck-digestion-querybar,
+            .deck-digestion-tune-grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .deck-digestion-primary-btn,
+            .deck-digestion-secondary-btn {
+                width: 100%;
+            }
+
+            .deck-digestion-chart-controls,
+            .deck-digestion-actions,
+            .deck-digestion-quant-row {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .deck-digestion-chart-controls input,
+            .deck-digestion-chart-controls select,
+            .deck-digestion-mini-btn {
+                width: 100%;
+            }
+
+            .deck-digestion-chart {
+                min-height: 220px;
+            }
+
+            .deck-digestion-chart-svg {
+                min-width: 560px;
+            }
         }
 
         .sidebar-media-deck-progress-row {

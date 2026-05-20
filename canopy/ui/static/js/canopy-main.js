@@ -4027,6 +4027,8 @@
                             provider: String(item.provider || stats.provider || 'local'),
                             stats,
                             access,
+                            initial_query: String(item.initial_query || ''),
+                            initial_mode: String(item.initial_mode || 'rag') === 'datapoints' ? 'datapoints' : 'rag',
                         },
                     };
                 }
@@ -4044,7 +4046,17 @@
                         }
                         return;
                     }
-                    const manifest = buildDigestionDeckManifest({ ...digestion, id: digestionId });
+                    const initialQuery = String(
+                        document.querySelector(`[data-vault-digestion-query="${vaultCssEscape(digestionId)}"]`)?.value
+                        || ''
+                    );
+                    const initialMode = digestionSearchMode(digestionId);
+                    const manifest = buildDigestionDeckManifest({
+                        ...digestion,
+                        id: digestionId,
+                        initial_query: initialQuery,
+                        initial_mode: initialMode,
+                    });
                     const item = {
                         key: manifest.key,
                         el: card,
@@ -16885,6 +16897,12 @@
                     const granted = getGrantedDeckModuleCapabilities(m).join(',');
                     return `module:${String(m.module_runtime.bundle_url || '')}:${String(m.key || '')}:${requested}:${granted}`;
                 }
+                if (m.render_mode === 'digestion_workspace') {
+                    const digestion = m.digestion && typeof m.digestion === 'object' ? m.digestion : {};
+                    const mode = deckDigestionMode(digestion.initial_mode || 'rag');
+                    const query = String(digestion.initial_query || '').slice(0, 240);
+                    return `digestion:${String(digestion.id || m.key || item.key || '')}:${mode}:${query}`;
+                }
                 if (m.render_mode === 'iframe' && m.embed_url) {
                     return `iframe:${String(m.embed_url)}`;
                 }
@@ -17141,6 +17159,10 @@
                 return String(deckDigestionPayload(item).id || '').trim();
             }
 
+            function deckDigestionMode(value) {
+                return String(value || 'rag').trim().toLowerCase() === 'datapoints' ? 'datapoints' : 'rag';
+            }
+
             function deckDigestionNumber(value) {
                 if (typeof value === 'number' && Number.isFinite(value)) return value;
                 const text = String(value || '').replace(/,/g, ' ');
@@ -17351,6 +17373,12 @@
                 const chartEl = host.querySelector('[data-deck-digestion-chart]');
                 const listEl = host.querySelector('[data-deck-digestion-quant-list]');
                 if (!chartEl) return;
+                const mode = deckDigestionMode(host.querySelector('[data-deck-digestion-mode]')?.value);
+                if (mode !== 'datapoints') {
+                    chartEl.innerHTML = '<div class="deck-digestion-chart-empty">Semantic search is active. Switch to Structured datapoints to plot extracted quantitative values.</div>';
+                    if (listEl) listEl.innerHTML = '';
+                    return;
+                }
                 const points = deckDigestionFilteredPoints(host);
                 const chartType = String(host.querySelector('[data-deck-digestion-chart-type]')?.value || 'values');
                 chartEl.innerHTML = chartType === 'histogram'
@@ -17437,7 +17465,7 @@
                 const modeEl = host.querySelector('[data-deck-digestion-mode]');
                 const resultsEl = host.querySelector('[data-deck-digestion-results]');
                 const query = String(queryEl && queryEl.value || '').trim();
-                const mode = String(modeEl && modeEl.value || 'datapoints') === 'rag' ? 'rag' : 'datapoints';
+                const mode = deckDigestionMode(modeEl && modeEl.value);
                 if (!query) {
                     if (resultsEl) resultsEl.innerHTML = '<div class="deck-digestion-empty">Enter a query before searching this Digestion.</div>';
                     return;
@@ -17457,7 +17485,12 @@
                     host.__canopyDeckDigestionHiddenPoints = new Set();
                     renderDeckDigestionResults(host, data || {}, mode);
                     const countEl = host.querySelector('[data-deck-digestion-result-count]');
-                    if (countEl) countEl.textContent = `${Number(data.result_count || 0)} result${Number(data.result_count || 0) === 1 ? '' : 's'}`;
+                    if (countEl) {
+                        const count = Number(data.result_count || 0);
+                        countEl.textContent = mode === 'datapoints'
+                            ? `${count} structured result${count === 1 ? '' : 's'} ready to chart`
+                            : `${count} semantic chunk${count === 1 ? '' : 's'} found`;
+                    }
                 } catch (error) {
                     host.__canopyDeckDigestionData = {};
                     host.__canopyDeckDigestionHiddenPoints = new Set();
@@ -17520,6 +17553,8 @@
                 const sourceCount = Number(stats.source_count || stats.sources || sourceStatusCounts || 0);
                 const chunkCount = Number(stats.chunks || 0);
                 const tokenCount = Number(stats.token_estimate || 0);
+                const initialMode = deckDigestionMode(digestion.initial_mode || 'rag');
+                const initialQuery = String(digestion.initial_query || '');
                 host.classList.add('is-digestion-workspace');
                 host.innerHTML = `
                     <div class="deck-digestion-workspace">
@@ -17537,10 +17572,10 @@
                             </div>
                         </section>
                         <form class="deck-digestion-querybar" data-deck-digestion-query-form>
-                            <input type="search" data-deck-digestion-query placeholder="Search extracted datapoints, e.g. density, latency, current, material..." aria-label="Search this Digestion">
+                            <input type="search" data-deck-digestion-query value="${escapeEmbedAttr(initialQuery)}" placeholder="Search this Digestion, e.g. density, latency, current, material..." aria-label="Search this Digestion">
                             <select data-deck-digestion-mode aria-label="Digestion search surface">
-                                <option value="datapoints">Structured datapoints</option>
-                                <option value="rag">Semantic chunks</option>
+                                <option value="rag"${initialMode === 'rag' ? ' selected' : ''}>Semantic chunks</option>
+                                <option value="datapoints"${initialMode === 'datapoints' ? ' selected' : ''}>Structured datapoints</option>
                             </select>
                             <button type="submit" class="deck-digestion-primary-btn"><i class="bi bi-search"></i> Search</button>
                         </form>
@@ -17578,7 +17613,7 @@
                             <div class="deck-digestion-quant-list" data-deck-digestion-quant-list></div>
                         </section>
                         <section class="deck-digestion-results" data-deck-digestion-results>
-                            <div class="deck-digestion-empty">This Deck surface lets the user consume, tune, and manage the Digestion without losing the larger chart and source context.</div>
+                            <div class="deck-digestion-empty">This Deck surface uses the same Digestion query endpoints as the Vault UI. Semantic search is the default; switch to structured datapoints when you want charts.</div>
                         </section>
                         <div class="deck-digestion-status" data-deck-digestion-status aria-live="polite"></div>
                     </div>
@@ -17620,7 +17655,14 @@
                     if (event.target.closest('[data-deck-digestion-chart-type]')) {
                         renderDeckDigestionChart(host);
                     }
+                    if (event.target.closest('[data-deck-digestion-mode]')) {
+                        renderDeckDigestionChart(host);
+                    }
                 });
+                renderDeckDigestionChart(host);
+                if (initialQuery.trim()) {
+                    window.setTimeout(() => runDeckDigestionQuery(host, item), 0);
+                }
             }
 
             function renderDeckWidgetStage(item) {

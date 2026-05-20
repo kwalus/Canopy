@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.165] - 2026-05-19
+
+### Fixed
+- **Digestion Deck queries now match the Vault default** - Deck workspaces inherit the Vault card query text and search mode, default to semantic chunks when no mode is set, and auto-run the inherited query so the same search hits the same endpoint.
+- **Digestion Deck chart messaging and layout fit are clearer** - semantic searches now explain that charts require structured datapoints, and Deck query, tuning, chart, and quantitative rows wrap cleanly on narrower surfaces.
+
 ## [0.6.164] - 2026-05-19
 
 ### Added

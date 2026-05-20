@@ -555,6 +555,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("render_mode: 'digestion_workspace'", main_js)
         self.assertIn("global.canopyOpenMediaDeckForSource", main_js)
         self.assertIn("global.canopySetDeckDesktopMode('large');", main_js)
+        self.assertIn("initial_query: initialQuery", main_js)
+        self.assertIn("initial_mode: initialMode", main_js)
 
         self.assertIn('openChannelVaultPicker', channels_template)
         self.assertIn('addVaultFilesToChannelComposer', channels_template)
@@ -2784,6 +2786,8 @@ console.log(JSON.stringify({{
         self.assertIn("function renderDeckDigestionWorkspace(host, item)", main_js)
         self.assertIn("function deckDigestionQuantitativePoints(data)", main_js)
         self.assertIn("function deckDigestionResultSource(item)", main_js)
+        self.assertIn("function deckDigestionMode(value)", main_js)
+        self.assertIn("return `digestion:${String(digestion.id || m.key || item.key || '')}:${mode}:${query}`;", main_js)
         self.assertIn("Object.values(stats.sources_by_status).reduce", main_js)
         self.assertIn("const isObjectEntry = !!(entry && typeof entry === 'object' && !Array.isArray(entry));", main_js)
         self.assertIn("host.__canopyDeckDigestionData = {};", main_js)
@@ -2793,9 +2797,13 @@ console.log(JSON.stringify({{
         self.assertIn("data-deck-digestion-chart-type", main_js)
         self.assertIn('data-deck-digestion-op="extract"', main_js)
         self.assertIn("data-deck-digestion-result-count", main_js)
+        self.assertIn("Semantic search is active. Switch to Structured datapoints", main_js)
+        self.assertIn("window.setTimeout(() => runDeckDigestionQuery(host, item), 0);", main_js)
         self.assertIn(".deck-digestion-workspace", base_template)
         self.assertIn(".deck-digestion-chart-panel", base_template)
         self.assertIn(".deck-digestion-result-snippet", base_template)
+        self.assertIn("@media (max-width: 860px)", base_template)
+        self.assertIn("grid-template-columns: minmax(0, 1fr) minmax(150px, 210px) max-content;", base_template)
 
     def test_canopy_module_runtime_scaffold_and_attachment_path_exist(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
