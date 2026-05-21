@@ -466,6 +466,21 @@
             --canopy-surface-border-strong: rgba(148, 163, 184, 0.16);
             --canopy-surface-shadow-soft: 0 10px 24px rgba(0, 0, 0, 0.24);
             --canopy-surface-shadow-strong: 0 24px 52px rgba(0, 0, 0, 0.34);
+            --canopy-menu-scrim: #111827;
+            --canopy-menu-bg:
+                linear-gradient(145deg,
+                    color-mix(in srgb, var(--canopy-bg-card) 96%, var(--canopy-primary) 4%),
+                    color-mix(in srgb, var(--canopy-bg-card) 94%, var(--canopy-bg-primary) 6%)
+                ),
+                var(--canopy-menu-scrim);
+            --canopy-menu-border: color-mix(in srgb, var(--canopy-border) 78%, var(--canopy-primary) 22%);
+            --canopy-menu-shadow: 0 24px 54px color-mix(in srgb, var(--canopy-shadow) 82%, transparent);
+            --canopy-menu-item-hover-bg: color-mix(in srgb, var(--canopy-primary) 14%, var(--canopy-bg-tertiary));
+            --canopy-menu-item-active-bg: color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-bg-tertiary));
+            --canopy-menu-backdrop-filter: blur(10px) saturate(1.08);
+            --canopy-popup-bg: var(--canopy-menu-bg);
+            --canopy-popup-border: var(--canopy-menu-border);
+            --canopy-popup-shadow: var(--canopy-menu-shadow);
             --canopy-chip-subtext: rgba(191, 219, 254, 0.78);
             --canopy-chip-muted: rgba(148, 163, 184, 0.88);
             --canopy-chip-rail-muted: rgba(226, 232, 240, 0.72);
@@ -847,9 +862,18 @@
             --canopy-chip-caret: rgba(209, 250, 229, 0.82);
             --canopy-card-header-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 15, 26, 0.58));
             --canopy-card-body-bg: rgba(30, 41, 59, 0.52);
-            --canopy-popup-bg: color-mix(in srgb, var(--canopy-bg-card) 94%, var(--canopy-bg-primary) 6%);
-            --canopy-popup-border: color-mix(in srgb, var(--canopy-border) 72%, var(--canopy-primary) 28%);
-            --canopy-popup-shadow: 0 24px 64px color-mix(in srgb, var(--canopy-shadow) 68%, transparent);
+            --canopy-menu-scrim: #07111f;
+            --canopy-menu-bg:
+                linear-gradient(145deg, rgba(18, 28, 48, 0.98), rgba(7, 17, 31, 0.97)),
+                var(--canopy-menu-scrim);
+            --canopy-menu-border: color-mix(in srgb, var(--canopy-border) 62%, var(--canopy-primary) 38%);
+            --canopy-menu-shadow: 0 28px 72px rgba(0, 0, 0, 0.48);
+            --canopy-menu-item-hover-bg: rgba(74, 222, 128, 0.14);
+            --canopy-menu-item-active-bg: rgba(34, 197, 94, 0.24);
+            --canopy-menu-backdrop-filter: blur(12px) saturate(1.12);
+            --canopy-popup-bg: var(--canopy-menu-bg);
+            --canopy-popup-border: var(--canopy-menu-border);
+            --canopy-popup-shadow: var(--canopy-menu-shadow);
             --canopy-card-hover-border: color-mix(in srgb, var(--canopy-border-light) 72%, var(--canopy-primary) 28%);
             --canopy-mention-bg: rgba(34, 197, 94, 0.18);
             --canopy-mention-text: #bbf7d0;
@@ -985,6 +1009,7 @@
         html[data-theme="custom"][data-custom-theme-scheme="light"] {
             --bs-link-color: var(--canopy-link-text);
             --bs-link-hover-color: color-mix(in srgb, var(--canopy-link-text) 78%, var(--canopy-text-primary));
+            --canopy-menu-scrim: #ffffff;
             --bs-primary-text-emphasis: var(--canopy-primary-text);
             --bs-secondary-text-emphasis: var(--canopy-text-secondary);
             --bs-success-text-emphasis: var(--canopy-success-text);
@@ -9170,30 +9195,68 @@
             --bs-table-border-color: var(--canopy-border);
         }
         
-        /* Dropdown Styling */
-        .dropdown-menu {
-            background: var(--canopy-popup-bg);
+        /* Opaque dropdown / menu surfaces guardrail.
+           Pull-downs sit over dense content, so they need readability before glassiness. */
+        .dropdown-menu,
+        .popover,
+        .mention-suggestions,
+        .recipient-suggestions,
+        .member-suggestions,
+        .vault-selection-digestion-menu,
+        .vault-digestion-share-results,
+        .vault-file-share-results {
+            --bs-dropdown-bg: var(--canopy-menu-scrim);
+            --bs-dropdown-color: var(--canopy-text-primary);
+            --bs-dropdown-link-color: var(--canopy-text-primary);
+            --bs-dropdown-link-hover-color: var(--canopy-text-primary);
+            --bs-dropdown-link-hover-bg: var(--canopy-menu-item-hover-bg);
+            --bs-dropdown-link-active-color: var(--canopy-text-primary);
+            --bs-dropdown-link-active-bg: var(--canopy-menu-item-active-bg);
+            --bs-dropdown-border-color: var(--canopy-popup-border);
+            --bs-dropdown-header-color: var(--canopy-text-muted);
+            background: var(--canopy-popup-bg) !important;
             border: 1px solid var(--canopy-popup-border);
             border-radius: 12px;
             box-shadow: var(--canopy-popup-shadow);
-            backdrop-filter: blur(20px);
+            color: var(--canopy-text-primary);
+            backdrop-filter: var(--canopy-menu-backdrop-filter);
+            -webkit-backdrop-filter: var(--canopy-menu-backdrop-filter);
         }
         
         .dropdown-item {
-            color: var(--canopy-text-secondary);
+            color: var(--canopy-text-primary);
             border-radius: 8px;
             margin: 4px 8px;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
-        .dropdown-item:hover {
-            background: var(--canopy-bg-tertiary);
+        .dropdown-item:hover,
+        .dropdown-item:focus {
+            background: var(--canopy-menu-item-hover-bg);
             color: var(--canopy-text-primary);
         }
-        
+
+        .dropdown-item.active,
+        .dropdown-item:active {
+            background: var(--canopy-menu-item-active-bg);
+            color: var(--canopy-text-primary);
+        }
+
+        .dropdown-item.disabled,
+        .dropdown-item:disabled {
+            color: var(--canopy-text-muted);
+        }
+
+        .dropdown-header,
+        .dropdown-item-text {
+            color: var(--canopy-text-muted);
+        }
+
         .dropdown-divider {
+            border-top-color: var(--canopy-border);
             border-color: var(--canopy-border);
             margin: 8px 0;
+            opacity: 1;
         }
         
         /* Bootstrap Component Dark Mode Overrides */
@@ -13188,11 +13251,28 @@
             pointer-events: none;
         }
 
-        body :is(.dropdown-menu, .meshspace-switcher-menu, .notification-menu, .popover) {
+        body :is(
+            .dropdown-menu,
+            .meshspace-switcher-menu,
+            .notification-menu,
+            .popover,
+            .mention-suggestions,
+            .recipient-suggestions,
+            .member-suggestions,
+            .canopy-reaction-roster-popover,
+            .reaction-palette,
+            .dm-reaction-palette,
+            .mention-filter-menu,
+            .vault-selection-digestion-menu,
+            .vault-digestion-share-results,
+            .vault-file-share-results
+        ) {
             background: var(--canopy-popup-bg) !important;
             border-color: var(--canopy-popup-border) !important;
             box-shadow: var(--canopy-popup-shadow) !important;
             color: var(--canopy-text-primary) !important;
+            backdrop-filter: var(--canopy-menu-backdrop-filter) !important;
+            -webkit-backdrop-filter: var(--canopy-menu-backdrop-filter) !important;
         }
 
         body :is(.stream-card, [data-canopy-module-card="1"], .attachment-item, .digestion-package-attachment) {

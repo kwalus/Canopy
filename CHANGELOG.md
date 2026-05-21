@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.180] - 2026-05-21
+
+### Added
+- **Channels can filter to recent posts** - channel headers now include a persisted Recent filter with presets, custom minute windows, compact overflow access, active banner copy, and collapsed older thread context for matching recent threads.
+
+### Fixed
+- **Dropdowns and popovers use readable menu surfaces** - Bootstrap dropdowns, notification/meshspace menus, suggestion lists, reaction palettes, and Vault permission pickers now share near-opaque menu tokens so transient controls remain readable across dark, light, liquid-glass, and custom-light themes.
+
 ## [0.6.179] - 2026-05-21
 
 ### Fixed
