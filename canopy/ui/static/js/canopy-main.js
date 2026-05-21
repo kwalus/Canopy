@@ -2397,7 +2397,7 @@
 	                function selectionManageableDigestions() {
 	                    return state.digestions.filter((digestion) => {
 	                        const id = String(digestion && digestion.id || '');
-	                        return id && digestionCanAcceptDroppedSources(id);
+	                        return id && digestionCanManage(id);
 	                    });
 	                }
 
@@ -2421,7 +2421,7 @@
 	                    if (!choices.length) {
 	                        selectionDigestionMenu.innerHTML = `${head}
 	                            <div class="vault-selection-digestion-empty">
-	                                No owner-managed Digestions are available yet. Use <strong>New Digestion</strong> to create one from this selection.
+	                                No Digestions with manage access are available yet. Use <strong>New Digestion</strong> to create one from this selection.
 	                            </div>
 	                        `;
 	                        return;
@@ -2473,7 +2473,7 @@
 	                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Adding';
 	                    }
 	                    try {
-	                        await addFilesToDigestion(digestionId, fileIds);
+	                        await addFilesToDigestion(digestionId, fileIds, { allowManagerContributions: true });
 	                        setSelectionDigestionMenu(false);
 	                    } finally {
 	                        if (button) {
@@ -3126,8 +3126,13 @@
                 async function addFilesToDigestion(digestionId, fileIds, options = {}) {
                     const ids = Array.from(new Set((fileIds || []).map(id => String(id || '').trim()).filter(Boolean)));
                     if (!digestionId || !ids.length) return null;
-                    if (!digestionCanAcceptDroppedSources(digestionId)) {
-                        if (typeof showAlert === 'function') showAlert('Only the Digestion owner can add dropped Vault files to this corpus.', 'warning');
+                    const allowManagers = !!(options && options.allowManagerContributions);
+                    const canAdd = allowManagers ? digestionCanManage(digestionId) : digestionCanAcceptDroppedSources(digestionId);
+                    if (!canAdd) {
+                        const message = allowManagers
+                            ? 'Manage access is required to add selected Vault files to this Digestion.'
+                            : 'Only the Digestion owner can add dropped Vault files to this corpus.';
+                        if (typeof showAlert === 'function') showAlert(message, 'warning');
                         return null;
                     }
                     setDigestionDropBusy(digestionId, true);

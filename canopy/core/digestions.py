@@ -766,6 +766,12 @@ class DigestionManager:
                         "access is required for source-revealing datapoint outputs."
                     ),
                 }
+                if not material_items and not contribution_file_ids:
+                    raise DigestionError(
+                        datapoint_result["message"],
+                        status_code=403,
+                        reason="datapoint_source_metadata_denied",
+                    )
 
         return {
             "success": True,
@@ -5045,6 +5051,10 @@ Use this as a permissioned retrieval capability, not as raw file access.
                 "claim": item.get("claim") or "",
                 "source": item.get("source") or {},
                 "evidence": item.get("evidence") or [],
+                "measurements": item.get("measurements") or [],
+                "numerical_results": item.get("numerical_results") or [],
+                "quantitative_results": item.get("quantitative_results") or [],
+                "tags": item.get("tags") or [],
             },
             sort_keys=True,
             ensure_ascii=False,

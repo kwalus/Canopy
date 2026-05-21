@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.176] - 2026-05-20
+
+### Fixed
+- **Delegated Digestion managers can receive selected Vault files** - the Vault selection menu now lists Digestions where the current user has manage access, while drag-and-drop composition remains owner-only.
+- **Datapoint-only contribution denials are explicit** - manager contributions that contain only structured datapoints now fail clearly when source metadata access is missing instead of returning a top-level success with nested skipped datapoints.
+
 ## [0.6.175] - 2026-05-20
 
 ### Added

@@ -644,6 +644,10 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Save all to Vault', messages_template)
         self.assertIn('Save all to Vault', channels_template)
         self.assertIn('attachment-save-all-vault-btn', base_template)
+        self.assertIn('function selectionManageableDigestions()', main_js)
+        self.assertIn('return id && digestionCanManage(id);', main_js)
+        self.assertIn('allowManagerContributions: true', main_js)
+        self.assertIn('Manage access is required to add selected Vault files to this Digestion.', main_js)
 
         self.assertIn('openMessageVaultPicker', messages_composer)
         self.assertIn('aria-label="Attach from File Vault"', messages_composer)

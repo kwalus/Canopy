@@ -1138,6 +1138,39 @@ class TestDigestions(unittest.TestCase):
         self.assertGreaterEqual(search['result_count'], 1)
         self.assertEqual(search['results'][0]['quantitative_results'][0]['value_text'], '17')
 
+    def test_manage_only_contribution_datapoints_are_rejected_without_source_access(self) -> None:
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Manage only contribution digest',
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=False,
+        )
+
+        with self.assertRaises(DigestionError) as context:
+            self.digestion_manager.append_contributions(
+                digestion['id'],
+                'reader-user',
+                datapoints=[
+                    {
+                        'subject': 'private metric',
+                        'claim': 'A source-revealing datapoint should require source access.',
+                        'evidence': ['This citation would reveal source context.'],
+                    }
+                ],
+            )
+
+        self.assertEqual(context.exception.status_code, 403)
+        self.assertEqual(context.exception.reason, 'datapoint_source_metadata_denied')
+        outputs = self.digestion_manager.list_outputs(digestion['id'], 'owner-user', include_content=True)
+        self.assertFalse([item for item in outputs if item['output_kind'] == 'structured_datapoints'])
+
     def test_structured_datapoints_default_to_incremental_new_sources(self) -> None:
         first = self._save_text(
             'a-current-paper.txt',
