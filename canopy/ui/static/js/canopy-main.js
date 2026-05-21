@@ -3792,7 +3792,8 @@
 			                            <div class="vault-digestion-acl-row"
 			                                 data-vault-digestion-acl-row
 			                                 data-vault-digestion-acl-user-id="${vaultEscape(entry.user_id)}"
-			                                 data-vault-digestion-acl-can-manage="${entry.can_manage ? 'true' : 'false'}">
+			                                 data-vault-digestion-acl-can-manage="${entry.can_manage ? 'true' : 'false'}"
+			                                 title="${vaultEscape(label)}${subLabel ? ` - ${vaultEscape(subLabel)}` : ''}">
 			                                <div class="vault-digestion-acl-person">
 			                                    <span class="vault-digestion-share-avatar">${avatar}</span>
 			                                    <span class="vault-digestion-share-user-copy">
@@ -3898,6 +3899,7 @@
 		                                    type="button"
 		                                    role="option"
 		                                    aria-selected="${index === 0 ? 'true' : 'false'}"
+		                                    title="${vaultEscape(label)}${subLabel ? ` - ${vaultEscape(subLabel)}` : ''}"
 		                                    data-vault-digestion-share-user-id="${vaultEscape(user.user_id)}"
 		                                    data-vault-digestion-share-user-label="${vaultEscape(label)}"
 		                                    data-vault-digestion-share-user-sub-label="${vaultEscape(subLabel)}"

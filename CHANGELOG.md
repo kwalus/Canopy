@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.179] - 2026-05-21
+
+### Fixed
+- **Digestion access sharing stays usable in narrow panels** - current live-access rows now stack into compact cards, permission controls render as chips, action buttons move to their own responsive row, and the user search tray is wider with full identity titles for easier inspection.
+
 ## [0.6.178] - 2026-05-21
 
 ### Added
