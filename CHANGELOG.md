@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.182] - 2026-05-21
+
+### Fixed
+- **Digestion package reader can copy agent references outside Vault** - the shared Digestion package preview renderer now has access to the agent API/MCP/reference-map helpers, fixing `digestionAgentApiMap is not defined` when opening the reader from non-Vault render paths.
+
 ## [0.6.181] - 2026-05-21
 
 ### Added
