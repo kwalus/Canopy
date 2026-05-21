@@ -3453,10 +3453,11 @@
             min-width: 0;
         }
 
-        .deck-digestion-querybar input,
-        .deck-digestion-querybar select,
-        .deck-digestion-tune input,
-        .deck-digestion-chart-controls input,
+	        .deck-digestion-querybar input,
+	        .deck-digestion-querybar select,
+	        .deck-digestion-tune input,
+	        .deck-digestion-tune select,
+	        .deck-digestion-chart-controls input,
         .deck-digestion-chart-controls select {
             width: 100%;
             border: 1px solid var(--canopy-deck-border);
@@ -6778,6 +6779,37 @@
             text-decoration: none;
         }
 
+        .canopy-entity-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.28rem;
+            max-width: min(100%, 18rem);
+            padding: 0.04rem 0.42rem;
+            border: 1px solid color-mix(in srgb, var(--canopy-primary) 32%, var(--canopy-border));
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--canopy-primary) 11%, var(--canopy-bg-tertiary));
+            color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-text-primary));
+            font-weight: 750;
+            line-height: 1.45;
+            text-decoration: none;
+            vertical-align: baseline;
+        }
+
+        .canopy-entity-link span {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .canopy-entity-link:hover,
+        .canopy-entity-link:focus-visible {
+            border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border));
+            background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-card));
+            color: var(--canopy-text-primary);
+            text-decoration: none;
+        }
+
         .mention-suggestions {
             position: absolute;
             left: 0;
@@ -9914,6 +9946,30 @@
         .attachment-save-vault-btn {
             white-space: nowrap;
         }
+        .attachment-save-all-vault-bar {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 0.45rem;
+            margin: 0 0 0.55rem;
+        }
+        .attachment-save-all-vault-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            border-color: color-mix(in srgb, var(--canopy-primary) 44%, var(--canopy-border));
+            background: color-mix(in srgb, var(--canopy-primary) 12%, var(--canopy-bg-card));
+            color: var(--canopy-text-primary);
+            font-weight: 750;
+            white-space: nowrap;
+            box-shadow: 0 10px 24px color-mix(in srgb, var(--canopy-shadow) 28%, transparent);
+        }
+        .attachment-save-all-vault-btn:hover,
+        .attachment-save-all-vault-btn:focus-visible {
+            border-color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-border));
+            background: color-mix(in srgb, var(--canopy-primary) 20%, var(--canopy-bg-card));
+            color: var(--canopy-text-primary);
+        }
         .dm-attachment-image {
             position: relative;
         }
@@ -12949,6 +13005,12 @@
             background: var(--canopy-channel-tag-bg) !important;
             border-color: var(--canopy-channel-tag-border) !important;
             color: var(--canopy-channel-tag-text) !important;
+        }
+
+        html:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) body .canopy-entity-link {
+            background: color-mix(in srgb, var(--canopy-primary) 10%, var(--canopy-bg-card)) !important;
+            border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border)) !important;
+            color: var(--canopy-primary-text) !important;
         }
 
         html:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) body :is(.mention-builder-presence.online, .presence-status.online) {

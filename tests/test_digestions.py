@@ -62,11 +62,13 @@ class _FakeApiKeyManager:
         key_perms = {
             'owner-key': {Permission.READ_FILES, Permission.WRITE_FILES},
             'reader-key': {Permission.READ_FILES},
+            'manager-key': {Permission.READ_FILES, Permission.WRITE_FILES},
             'other-key': {Permission.READ_FILES},
         }
         key_users = {
             'owner-key': 'owner-user',
             'reader-key': 'reader-user',
+            'manager-key': 'reader-user',
             'other-key': 'other-user',
         }
         perms = key_perms.get(raw_key)
@@ -1015,6 +1017,234 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(build['success'])
         self.assertGreaterEqual(build['chunk_count'], 1)
 
+    def test_manager_added_vault_sources_are_copied_owner_bound_and_buildable(self) -> None:
+        manager_file = self._save_text(
+            'agent-found-paper.txt',
+            'A trusted agent found a paper reporting that voltage stability improved by 17% after calibration.',
+            owner='reader-user',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Agent contributed papers',
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+
+        added = self.digestion_manager.add_sources(digestion['id'], 'reader-user', [manager_file.id])
+
+        self.assertTrue(added['success'])
+        self.assertEqual(added['added'], 1)
+        self.assertEqual(added['sources'][0]['input_file_id'], manager_file.id)
+        self.assertTrue(added['sources'][0]['copied_to_owner_vault'])
+        source = self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')[0]
+        self.assertNotEqual(source['file_id'], manager_file.id)
+        saved_file = self.file_manager.get_file(source['file_id'])
+        self.assertEqual(saved_file.uploaded_by, 'owner-user')
+        metadata = json.loads(source['source_metadata_json'])
+        self.assertEqual(metadata['original_file_id'], manager_file.id)
+        self.assertEqual(metadata['submitted_by'], 'reader-user')
+
+        duplicate = self.digestion_manager.add_sources(digestion['id'], 'reader-user', [manager_file.id])
+        self.assertEqual(duplicate['added'], 1)
+        self.assertEqual(len(self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')), 1)
+        build = self.digestion_manager.build_digestion(digestion['id'], 'reader-user')
+
+        self.assertTrue(build['success'])
+        self.assertGreaterEqual(build['chunk_count'], 1)
+
+    def test_manager_can_append_agent_contributions_files_and_structured_datapoints(self) -> None:
+        manager_file = self._save_text(
+            'agent-derived-table.csv',
+            'metric,value,unit\nvoltage stability,17,%\n',
+            owner='reader-user',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Agent contribution digest',
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+
+        result = self.digestion_manager.append_contributions(
+            digestion['id'],
+            'reader-user',
+            contributions=[
+                {
+                    'kind': 'synthesis_note',
+                    'title': 'Voltage calibration synthesis',
+                    'content': 'The agent compared source snippets and found the calibration result worth retaining.',
+                    'claims': ['Voltage stability improved after calibration.'],
+                    'references': ['agent-derived-table.csv'],
+                    'source_file_ids': [manager_file.id],
+                    'datapoints': [
+                        {
+                            'subject': 'voltage calibration',
+                            'claim': 'Voltage stability improved by 17% after calibration.',
+                            'measurements': ['voltage stability'],
+                            'numerical_results': ['Voltage stability improved by 17%.'],
+                            'quantitative_results': [
+                                {
+                                    'measurement_label': 'voltage stability improvement',
+                                    'value_text': '17',
+                                    'unit': '%',
+                                }
+                            ],
+                            'evidence': ['Agent-derived table reported voltage stability, 17, %.'],
+                            'tags': ['voltage', 'calibration'],
+                            'confidence': 0.82,
+                        }
+                    ],
+                }
+            ],
+            build_after=True,
+        )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['materials_added'], 1)
+        self.assertEqual(result['source_files_added'], 1)
+        self.assertEqual(result['datapoints_added'], 1)
+        sources = self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')
+        source_kinds = {source['source_kind'] for source in sources}
+        self.assertIn('agent_contribution', source_kinds)
+        copied_sources = [
+            source for source in sources
+            if source['file_name'] == manager_file.original_name
+        ]
+        self.assertEqual(len(copied_sources), 1)
+        self.assertEqual(self.file_manager.get_file(copied_sources[0]['file_id']).uploaded_by, 'owner-user')
+
+        output = self.digestion_manager.get_output(digestion['id'], 'reader-user', 'structured_datapoints')
+        payload = json.loads(output['content'])
+        self.assertEqual(payload['stats']['agent_contributed_datapoint_count'], 1)
+        search = self.digestion_manager.search_structured_datapoints(
+            digestion['id'],
+            'reader-user',
+            'voltage stability calibration',
+        )
+        self.assertGreaterEqual(search['result_count'], 1)
+        self.assertEqual(search['results'][0]['quantitative_results'][0]['value_text'], '17')
+
+    def test_structured_datapoints_default_to_incremental_new_sources(self) -> None:
+        first = self._save_text(
+            'a-current-paper.txt',
+            'We fabricated silicon devices using hydrogen passivation and measured drain current at 300 K. '
+            'The treated device increased current by 42% compared with the untreated control. '
+            'However, the result remains preliminary because only 3 samples were evaluated.',
+        )
+        second = self._save_text(
+            'z-voltage-paper.txt',
+            'The second paper reported voltage stability at 5 V across 8 calibration trials.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Incremental datapoints',
+            source_file_ids=[first.id],
+            provider='local_hash',
+            chunk_size=420,
+            chunk_overlap=20,
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        second_response = json.dumps({
+            'datapoints': [
+                {
+                    'subject': 'voltage stability',
+                    'claim': 'The second paper reported voltage stability at 5 V across 8 calibration trials.',
+                    'materials': ['calibration trials'],
+                    'methods': ['calibration'],
+                    'measurements': ['voltage stability'],
+                    'numerical_results': ['The second paper reported voltage stability at 5 V across 8 calibration trials.'],
+                    'relationships': [],
+                    'quantitative_results': [
+                        {
+                            'measurement_label': 'voltage stability',
+                            'value_text': '5',
+                            'unit': 'V',
+                            'evidence_sentence': 'The second paper reported voltage stability at 5 V across 8 calibration trials.',
+                        }
+                    ],
+                    'limitations_or_uncertainty': [],
+                    'evidence': [
+                        {
+                            'source_ref': 'chunk_0001',
+                            'field': 'numerical_results',
+                            'quote': 'The second paper reported voltage stability at 5 V across 8 calibration trials.',
+                        }
+                    ],
+                    'tags': ['voltage', 'stability'],
+                    'confidence': 0.91,
+                }
+            ]
+        })
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_datapoint_llm_context',
+            return_value=self._fake_datapoint_llm_context(),
+        ), patch.object(
+            self.digestion_manager,
+            '_call_datapoint_llm',
+            return_value=self._fake_datapoint_llm_response(),
+        ):
+            first_result = self.digestion_manager.generate_structured_datapoints(digestion['id'], 'owner-user')
+        self.assertEqual(first_result['extraction_scope'], 'new')
+        self.assertEqual(first_result['datapoint_count'], 1)
+
+        self.digestion_manager.add_sources(digestion['id'], 'owner-user', [second.id])
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_datapoint_llm_context',
+            return_value=self._fake_datapoint_llm_context(),
+        ), patch.object(
+            self.digestion_manager,
+            '_call_datapoint_llm',
+            return_value=second_response,
+        ) as call_mock:
+            second_result = self.digestion_manager.generate_structured_datapoints(digestion['id'], 'owner-user')
+
+        self.assertEqual(call_mock.call_count, 1)
+        self.assertEqual(second_result['extraction_scope'], 'new')
+        self.assertEqual(second_result['new_datapoint_count'], 1)
+        self.assertEqual(second_result['preserved_datapoint_count'], 1)
+        self.assertEqual(second_result['datapoint_count'], 2)
+        output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'structured_datapoints')
+        payload = json.loads(output['content'])
+        self.assertEqual(payload['stats']['extraction_scope'], 'new')
+        self.assertEqual(payload['stats']['new_datapoint_count'], 1)
+        self.assertEqual(payload['stats']['preserved_datapoint_count'], 1)
+        self.assertEqual(
+            {item['source']['file_name'] for item in payload['datapoints']},
+            {'a-current-paper.txt', 'z-voltage-paper.txt'},
+        )
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_datapoint_llm_context',
+            return_value=self._fake_datapoint_llm_context(),
+        ), patch.object(
+            self.digestion_manager,
+            '_call_datapoint_llm',
+            side_effect=AssertionError('no LLM call expected when there are no new chunks'),
+        ):
+            skipped = self.digestion_manager.generate_structured_datapoints(digestion['id'], 'owner-user')
+        self.assertTrue(skipped['skipped'])
+        self.assertEqual(skipped['reason'], 'no_new_chunks')
+        self.assertEqual(skipped['datapoint_count'], 2)
+
     def test_digestion_rest_create_build_query_and_acl(self) -> None:
         source = self._save_text('api-corpus.txt', 'Canopy Digestions help agents query a large document corpus with citations.')
         components = (
@@ -1177,6 +1407,61 @@ class TestDigestions(unittest.TestCase):
             )
             self.assertEqual([entry['user_id'] for entry in final_acl_response.get_json()['entries']], ['other-user'])
 
+    def test_digestion_rest_manager_can_add_vault_sources(self) -> None:
+        manager_source = self._save_text(
+            'api-agent-source.txt',
+            'The agent added an external paper about retrieval latency and queue throughput.',
+            owner='reader-user',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='API managed source corpus',
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+        components = (
+            self.db_manager,
+            _FakeApiKeyManager(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            self.file_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        )
+        with patch('canopy.api.routes.get_app_components', return_value=components), \
+             patch('canopy.api.routes._get_app_components_any', return_value=components):
+            app = Flask(__name__)
+            app.config['TESTING'] = True
+            app.secret_key = 'digestion-api-manager'
+            app.config['DIGESTION_MANAGER'] = self.digestion_manager
+            app.register_blueprint(create_api_blueprint(), url_prefix='/api/v1')
+            client = app.test_client()
+
+            response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/sources',
+                json={'source_file_ids': [manager_source.id]},
+                headers={'X-API-Key': 'manager-key'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload['success'])
+        self.assertEqual(payload['added'], 1)
+        self.assertTrue(payload['sources'][0]['copied_to_owner_vault'])
+        source = self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')[0]
+        self.assertEqual(self.file_manager.get_file(source['file_id']).uploaded_by, 'owner-user')
+
     def test_digestion_rest_materials_outputs_and_context(self) -> None:
         components = (
             self.db_manager,
@@ -1266,6 +1551,33 @@ class TestDigestions(unittest.TestCase):
             datapoints_search_payload = datapoints_search_response.get_json() or {}
             self.assertEqual(datapoints_search_payload['mode'], 'structured_datapoints')
             self.assertGreaterEqual(datapoints_search_payload['result_count'], 1)
+
+            contribution_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/contributions',
+                json={
+                    'contributions': [
+                        {
+                            'kind': 'agent_note',
+                            'title': 'Follow-up synthesis',
+                            'content': 'Agent noted that setup-time reduction should be tracked as a reusable KPI.',
+                            'facts': ['Setup time reduction is an operational KPI.'],
+                            'datapoints': [
+                                {
+                                    'subject': 'setup time reduction',
+                                    'claim': 'Setup time reduction was preserved as an agent-contributed KPI.',
+                                    'measurements': ['setup time reduction'],
+                                    'tags': ['workflow', 'kpi'],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(contribution_response.status_code, 200)
+            contribution_payload = contribution_response.get_json() or {}
+            self.assertEqual(contribution_payload['materials_added'], 1)
+            self.assertEqual(contribution_payload['datapoints_added'], 1)
 
             export_response = client.post(
                 f'/api/v1/digestions/{digestion_id}/outputs/human_brief/export',

@@ -1148,6 +1148,7 @@ class FileManager:
         uploaded_by: str,
         *,
         vault_folder_id: Optional[str] = None,
+        duplicate_if_owned: bool = False,
     ) -> Optional[FileInfo]:
         """Copy an existing local file into a user's Vault without a browser download."""
         source_file_id = str(source_file_id or '').strip()
@@ -1158,7 +1159,7 @@ class FileManager:
         source = self.get_file(source_file_id)
         if not source:
             return None
-        if str(source.uploaded_by or '') == uploaded_by:
+        if str(source.uploaded_by or '') == uploaded_by and not duplicate_if_owned:
             if vault_folder_id is not None:
                 try:
                     return self.move_user_file_to_folder(uploaded_by, source.id, vault_folder_id)

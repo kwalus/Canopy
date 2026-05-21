@@ -51,10 +51,13 @@ MIN_LOCAL_HASH_QUERY_SCORE = float(os.getenv("CANOPY_DIGESTION_LOCAL_HASH_MIN_SC
 MIN_PARTIAL_QUERY_TERM_CHARS = int(os.getenv("CANOPY_DIGESTION_PARTIAL_QUERY_TERM_MIN_CHARS", "3") or "3")
 STRUCTURED_DATAPOINT_OUTPUT_KIND = "structured_datapoints"
 STRUCTURED_DATAPOINT_SCHEMA_VERSION = "canopy_structured_datapoints_v1"
+AGENT_CONTRIBUTION_SCHEMA_VERSION = "canopy_agent_digestion_contribution_v1"
 DEFAULT_STRUCTURED_DATAPOINT_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_DEFAULT_CHUNKS", "80"))
 MAX_STRUCTURED_DATAPOINT_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_MAX_CHUNKS", "240"))
 DEFAULT_STRUCTURED_DATAPOINTS_PER_RUN = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_DEFAULT_RECORDS", "400"))
 MAX_STRUCTURED_DATAPOINTS_PER_RUN = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_MAX_RECORDS", "1200"))
+MAX_AGENT_CONTRIBUTIONS_PER_APPEND = int(os.getenv("CANOPY_DIGESTION_MAX_AGENT_CONTRIBUTIONS_PER_APPEND", "50"))
+MAX_AGENT_DATAPOINTS_PER_APPEND = int(os.getenv("CANOPY_DIGESTION_MAX_AGENT_DATAPOINTS_PER_APPEND", "500"))
 MAX_STRUCTURED_DATAPOINT_LLM_BATCH_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_BATCH_CHUNKS", "6"))
 MAX_STRUCTURED_DATAPOINT_LLM_BATCH_CHARS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_BATCH_CHARS", "18000"))
 MAX_STRUCTURED_DATAPOINT_LLM_CHUNK_CHARS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_CHUNK_CHARS", "2800"))
@@ -361,7 +364,9 @@ class DigestionManager:
         return self.get_digestion(digestion_id, owner_user_id=owner_user_id) or {}
 
     def add_sources(self, digestion_id: str, owner_user_id: str, source_file_ids: Iterable[str]) -> dict[str, Any]:
-        digestion = self._require_digestion(digestion_id, owner_user_id, manage=True)
+        """Add Vault files to a Digestion, copying manager-owned files into the owner-bound corpus."""
+        actor_user_id = self._clean_id(owner_user_id)
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
         unique_file_ids = []
         seen: set[str] = set()
         for raw_id in source_file_ids or []:
@@ -372,12 +377,50 @@ class DigestionManager:
         added = 0
         skipped: list[dict[str, str]] = []
         now = self._now()
+        source_results: list[dict[str, Any]] = []
         with self.db.get_connection() as conn:
             for file_id in unique_file_ids:
-                info = self.file_manager.get_file(file_id)
-                if not info or str(info.uploaded_by) != str(digestion.owner_user_id):
-                    skipped.append({"file_id": file_id, "reason": "not_found_or_not_owned"})
+                original_info = self.file_manager.get_file(file_id)
+                if not original_info:
+                    skipped.append({"file_id": file_id, "reason": "not_found"})
                     continue
+                original_owner = str(original_info.uploaded_by or "")
+                if original_owner not in {actor_user_id, str(digestion.owner_user_id)}:
+                    skipped.append({"file_id": file_id, "reason": "not_owned_by_actor_or_digestion_owner"})
+                    continue
+
+                copied_to_owner = False
+                source_info = original_info
+                existing_source_id = self._existing_source_file_for_original(
+                    digestion.id,
+                    original_info.id,
+                    checksum=original_info.checksum,
+                )
+                if existing_source_id:
+                    existing_info = self.file_manager.get_file(existing_source_id)
+                    if existing_info:
+                        source_info = existing_info
+                elif original_owner != str(digestion.owner_user_id):
+                    copied_info = self.file_manager.copy_file_to_user_vault(original_info.id, str(digestion.owner_user_id))
+                    if not copied_info:
+                        skipped.append({"file_id": file_id, "reason": "copy_to_digestion_owner_failed"})
+                        continue
+                    source_info = copied_info
+                    copied_to_owner = True
+
+                metadata = {
+                    "ingest_path": "vault_file",
+                    "submitted_by": actor_user_id,
+                    "source_owner_user_id": str(source_info.uploaded_by or ""),
+                    "original_file_id": original_info.id,
+                }
+                if source_info.id != original_info.id:
+                    metadata.update({
+                        "original_file_name": original_info.original_name,
+                        "original_uploaded_by": original_owner,
+                        "original_checksum": original_info.checksum,
+                        "copied_to_owner_vault": True,
+                    })
                 conn.execute(
                     """
                     INSERT INTO digestion_sources (
@@ -399,19 +442,26 @@ class DigestionManager:
                     """,
                     (
                         digestion.id,
-                        info.id,
-                        info.checksum,
-                        info.original_name,
-                        info.content_type,
+                        source_info.id,
+                        source_info.checksum,
+                        source_info.original_name,
+                        source_info.content_type,
                         now,
-                        info.original_name,
-                        json.dumps({"ingest_path": "vault_file"}, sort_keys=True),
+                        source_info.original_name,
+                        json.dumps(metadata, sort_keys=True),
                     ),
                 )
                 added += 1
+                source_results.append({
+                    "input_file_id": original_info.id,
+                    "file_id": source_info.id,
+                    "file_name": source_info.original_name,
+                    "copied_to_owner_vault": copied_to_owner,
+                    "submitted_by": actor_user_id,
+                })
             conn.execute("UPDATE digestions SET status = ?, updated_at = ? WHERE id = ?", ("draft", now, digestion.id))
             conn.commit()
-        return {"success": True, "added": added, "skipped": skipped, "digestion_id": digestion.id}
+        return {"success": True, "added": added, "skipped": skipped, "digestion_id": digestion.id, "sources": source_results}
 
     def merge_sources_from_digestion(
         self,
@@ -543,6 +593,7 @@ class DigestionManager:
         skipped: list[dict[str, str]] = []
         now = self._now()
         normalized: list[tuple[FileInfo, dict[str, Any]]] = []
+        source_results: list[dict[str, Any]] = []
         all_materials = list(materials or [])
         material_list = all_materials[:MAX_MATERIALS_PER_INGEST]
         skipped_extra = max(0, len(all_materials) - len(material_list))
@@ -592,12 +643,144 @@ class DigestionManager:
                     ),
                 )
                 added += 1
+                source_results.append({
+                    "file_id": info.id,
+                    "file_name": info.original_name,
+                    "source_kind": material_meta.get("source_kind") or "inline_text",
+                    "source_label": material_meta.get("source_label") or info.original_name,
+                    "source_uri": material_meta.get("source_uri") or "",
+                    "submitted_by": actor_user_id,
+                })
             if added:
                 conn.execute("UPDATE digestions SET status = ?, updated_at = ? WHERE id = ?", ("draft", now, digestion.id))
             conn.commit()
         if skipped_extra:
             skipped.append({"reason": "material_limit_reached", "count": str(skipped_extra)})
-        return {"success": True, "added": added, "skipped": skipped, "digestion_id": digestion.id}
+        return {
+            "success": True,
+            "added": added,
+            "skipped": skipped,
+            "digestion_id": digestion.id,
+            "sources": source_results,
+        }
+
+    def append_contributions(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        contributions: Optional[Iterable[dict[str, Any]]] = None,
+        source_file_ids: Optional[Iterable[str]] = None,
+        datapoints: Optional[Iterable[dict[str, Any]]] = None,
+        build_after: bool = False,
+    ) -> dict[str, Any]:
+        """Append durable agent/human work product to a managed Digestion.
+
+        Contributions are intentionally additive. Inline work product becomes
+        owner-bound Vault material, referenced files use the existing source
+        add/copy path, and explicit datapoints are appended to the reusable
+        structured_datapoints snapshot only when source-metadata access exists.
+        """
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        material_items: list[dict[str, Any]] = []
+        direct_datapoints: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        contribution_file_ids = self._clean_id_list(source_file_ids)
+
+        if isinstance(contributions, dict):
+            raw_contributions = [contributions]
+        else:
+            raw_contributions = list(contributions or [])
+        contribution_list = raw_contributions[:MAX_AGENT_CONTRIBUTIONS_PER_APPEND]
+        skipped_extra = max(0, len(raw_contributions) - len(contribution_list))
+        for index, contribution in enumerate(contribution_list, start=1):
+            if not isinstance(contribution, dict):
+                skipped.append({"index": str(index), "reason": "contribution_not_object"})
+                continue
+            contribution_file_ids.extend(self._contribution_file_ids(contribution))
+            material = self._contribution_to_material(digestion, actor_user_id, contribution, index=index)
+            if material:
+                material_items.append(material)
+            contribution_datapoints = contribution.get("datapoints") or contribution.get("structured_datapoints") or []
+            if isinstance(contribution_datapoints, dict):
+                contribution_datapoints = [contribution_datapoints]
+            if isinstance(contribution_datapoints, list):
+                for item in contribution_datapoints:
+                    if isinstance(item, dict):
+                        item_copy = dict(item)
+                        item_copy.setdefault("_contribution_title", material.get("title") if material else contribution.get("title"))
+                        item_copy.setdefault("_contribution_kind", contribution.get("kind") or contribution.get("type"))
+                        item_copy.setdefault("_contribution_tags", contribution.get("tags"))
+                        direct_datapoints.append(item_copy)
+
+        top_level_datapoints = datapoints or []
+        if isinstance(top_level_datapoints, dict):
+            top_level_datapoints = [top_level_datapoints]
+        if isinstance(top_level_datapoints, list):
+            direct_datapoints.extend([item for item in top_level_datapoints if isinstance(item, dict)])
+
+        contribution_file_ids = self._clean_id_list(contribution_file_ids)
+        if skipped_extra:
+            skipped.append({"reason": "contribution_limit_reached", "count": str(skipped_extra)})
+        if not material_items and not contribution_file_ids and not direct_datapoints:
+            raise DigestionError(
+                "Provide at least one contribution, source_file_id, or datapoint to append.",
+                status_code=400,
+                reason="missing_contribution_payload",
+            )
+
+        material_result = {"success": True, "added": 0, "skipped": [], "sources": []}
+        if material_items:
+            material_result = self.add_materials(digestion.id, actor_user_id, material_items)
+
+        source_result = {"success": True, "added": 0, "skipped": [], "sources": []}
+        if contribution_file_ids:
+            source_result = self.add_sources(digestion.id, actor_user_id, contribution_file_ids)
+
+        build_result: Optional[dict[str, Any]] = None
+        if build_after and (int(material_result.get("added") or 0) or int(source_result.get("added") or 0)):
+            build_result = self.build_digestion(digestion.id, actor_user_id, rebuild=False)
+
+        datapoint_result: dict[str, Any] = {"success": True, "added": 0, "skipped": [], "output": {}}
+        if direct_datapoints:
+            access = self._access_for(digestion, actor_user_id)
+            if access.get("can_read_sources"):
+                datapoint_result = self._append_agent_structured_datapoints(
+                    digestion,
+                    actor_user_id,
+                    direct_datapoints,
+                )
+            else:
+                datapoint_result = {
+                    "success": False,
+                    "added": 0,
+                    "skipped": [
+                        {
+                            "reason": "source_metadata_access_required",
+                            "count": str(min(len(direct_datapoints), MAX_AGENT_DATAPOINTS_PER_APPEND)),
+                        }
+                    ],
+                    "output": {},
+                    "message": (
+                        "Explicit structured datapoints were not appended because source-metadata "
+                        "access is required for source-revealing datapoint outputs."
+                    ),
+                }
+
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "schema_version": AGENT_CONTRIBUTION_SCHEMA_VERSION,
+            "materials_added": int(material_result.get("added") or 0),
+            "source_files_added": int(source_result.get("added") or 0),
+            "datapoints_added": int(datapoint_result.get("added") or 0),
+            "materials": material_result,
+            "source_files": source_result,
+            "datapoints": datapoint_result,
+            "skipped": skipped,
+            "build_result": build_result,
+            "stats": self.stats(digestion.id),
+        }
 
     def list_digestions(self, user_id: str, *, include_sources: bool = False) -> list[dict[str, Any]]:
         user_id = self._clean_id(user_id)
@@ -1521,6 +1704,7 @@ class DigestionManager:
         max_chunks: Optional[int] = None,
         max_datapoints: Optional[int] = None,
         lens: str = "",
+        extraction_scope: str = "new",
     ) -> dict[str, Any]:
         """Extract source-grounded structured datapoints from indexed chunks using an LLM."""
         digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
@@ -1580,7 +1764,57 @@ class DigestionManager:
             1,
             MAX_STRUCTURED_DATAPOINTS_PER_RUN,
         )
-        rows = self._datapoint_chunk_rows(digestion.id, limit=chunk_limit)
+        scope = self._normalize_datapoint_extraction_scope(extraction_scope)
+        existing_payload = self._structured_datapoint_payload(digestion.id)
+        existing_datapoints = (
+            existing_payload.get("datapoints")
+            if isinstance(existing_payload, dict) and isinstance(existing_payload.get("datapoints"), list)
+            else []
+        )
+        existing_file_ids = self._datapoint_source_file_ids(existing_datapoints)
+        rows = self._datapoint_chunk_rows(
+            digestion.id,
+            limit=chunk_limit,
+            exclude_file_ids=existing_file_ids if scope == "new" and existing_file_ids else None,
+        )
+        if scope == "new" and existing_datapoints and not rows:
+            output = self._structured_datapoint_output_row(digestion.id)
+            quantitative_result_count = sum(
+                len(item.get("quantitative_results") or [])
+                for item in existing_datapoints
+                if isinstance(item, dict)
+            )
+            self._set_operation_progress(
+                digestion.id,
+                "datapoints",
+                status="completed",
+                phase="no_new_chunks",
+                percent=100,
+                processed=0,
+                total=0,
+                message="No newly indexed sources need datapoint extraction; existing structured datapoints were kept.",
+                details={
+                    "datapoint_count": len(existing_datapoints),
+                    "quantitative_result_count": quantitative_result_count,
+                    "existing_datapoints_preserved": len(existing_datapoints),
+                    "extraction_scope": scope,
+                    "max_chunks": chunk_limit,
+                    "max_datapoints": datapoint_limit,
+                },
+            )
+            return {
+                "success": True,
+                "digestion_id": digestion.id,
+                "output": output,
+                "datapoint_count": len(existing_datapoints),
+                "quantitative_result_count": quantitative_result_count,
+                "stats": (existing_payload.get("stats") if isinstance(existing_payload, dict) else {}) or {},
+                "preview": existing_datapoints[:3],
+                "progress": self._progress_snapshot(digestion.id).get("datapoints", {}),
+                "skipped": True,
+                "reason": "no_new_chunks",
+                "extraction_scope": scope,
+            }
         if not rows:
             self._set_operation_progress(
                 digestion.id,
@@ -1616,6 +1850,7 @@ class DigestionManager:
                 "model": llm_context.get("model") or "",
                 "credential_source": llm_context.get("credential_source") or "",
                 "lens": effective_lens[:800],
+                "extraction_scope": scope,
                 "estimated_batches": estimated_batches,
             },
         )
@@ -1651,18 +1886,22 @@ class DigestionManager:
                 details={"reason": getattr(exc, "reason", "datapoint_extraction_failed")},
             )
             raise
-        datapoints = extraction["datapoints"]
+        scoped_file_ids = {str(row["file_id"] or "") for row in rows if str(row["file_id"] or "")}
+        extracted_datapoints = extraction["datapoints"]
+        preserved_datapoints: list[dict[str, Any]] = []
+        if scope == "new" and existing_datapoints:
+            preserved_datapoints = [
+                item
+                for item in existing_datapoints
+                if isinstance(item, dict)
+                and not (self._datapoint_source_file_ids([item]) & scoped_file_ids)
+            ]
+        datapoints = [*preserved_datapoints, *extracted_datapoints]
         quantitative_result_count = sum(len(item.get("quantitative_results") or []) for item in datapoints)
 
-        field_counts = {
-            "materials": sum(len(item.get("materials") or []) for item in datapoints),
-            "methods": sum(len(item.get("methods") or []) for item in datapoints),
-            "measurements": sum(len(item.get("measurements") or []) for item in datapoints),
-            "numerical_results": sum(len(item.get("numerical_results") or []) for item in datapoints),
-            "relationships": sum(len(item.get("relationships") or []) for item in datapoints),
-            "limitations_or_uncertainty": sum(len(item.get("limitations_or_uncertainty") or []) for item in datapoints),
-        }
+        field_counts = self._datapoint_field_counts(datapoints)
         sources = self._source_summary_rows(digestion.id)
+        digestion_stats = self.stats(digestion.id)
         payload = {
             "kind": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
             "schema_version": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
@@ -1692,17 +1931,23 @@ class DigestionManager:
                 "chunk_chars": extraction["stats"].get("chunk_char_limit"),
                 "batch_records": extraction["stats"].get("batch_record_limit"),
                 "max_output_tokens": max_output_tokens,
+                "extraction_scope": scope,
             },
             "stats": {
                 "datapoint_count": len(datapoints),
+                "new_datapoint_count": len(extracted_datapoints),
+                "preserved_datapoint_count": len(preserved_datapoints),
                 "quantitative_result_count": quantitative_result_count,
                 "source_count": len(sources),
                 "chunks_considered": len(rows),
+                "total_indexed_chunks": int(digestion_stats.get("chunks") or 0),
                 "batches_considered": extraction["stats"].get("batches_considered", 0),
                 "failed_batches": extraction["stats"].get("failed_batches", 0),
                 "chunks_without_datapoints": extraction["stats"].get("chunks_without_datapoints", 0),
                 "field_counts": field_counts,
                 "errors": extraction["errors"][:8],
+                "extraction_scope": scope,
+                "scoped_source_file_ids": sorted(scoped_file_ids),
             },
             "sources": [
                 {
@@ -1742,6 +1987,9 @@ class DigestionManager:
                 "field_counts": field_counts,
                 "source_count": len(sources),
                 "source_revealing": True,
+                "extraction_scope": scope,
+                "new_datapoint_count": len(extracted_datapoints),
+                "preserved_datapoint_count": len(preserved_datapoints),
             },
         )
         self._set_operation_progress(
@@ -1752,9 +2000,15 @@ class DigestionManager:
             percent=100,
             processed=int(extraction["stats"].get("batches_considered", 0) or 0),
             total=int(extraction["stats"].get("batches_considered", 0) or estimated_batches or 0),
-            message=f"Extracted {len(datapoints)} structured datapoint{'' if len(datapoints) == 1 else 's'}.",
+            message=(
+                f"Extracted {len(extracted_datapoints)} new structured datapoint"
+                f"{'' if len(extracted_datapoints) == 1 else 's'}; "
+                f"{len(datapoints)} total now retained."
+            ),
             details={
                 "datapoint_count": len(datapoints),
+                "new_datapoint_count": len(extracted_datapoints),
+                "preserved_datapoint_count": len(preserved_datapoints),
                 "quantitative_result_count": quantitative_result_count,
                 "chunks_considered": len(rows),
                 "batches_considered": extraction["stats"].get("batches_considered", 0),
@@ -1763,6 +2017,7 @@ class DigestionManager:
                 "max_datapoints": datapoint_limit,
                 "provider": provider,
                 "model": llm_context.get("model") or "",
+                "extraction_scope": scope,
             },
         )
         return {
@@ -1774,6 +2029,9 @@ class DigestionManager:
             "stats": payload["stats"],
             "preview": datapoints[:3],
             "progress": self._progress_snapshot(digestion.id).get("datapoints", {}),
+            "extraction_scope": scope,
+            "new_datapoint_count": len(extracted_datapoints),
+            "preserved_datapoint_count": len(preserved_datapoints),
         }
 
     def list_outputs(
@@ -2984,6 +3242,45 @@ class DigestionManager:
             row = conn.execute("SELECT * FROM digestions WHERE id = ?", (self._clean_id(digestion_id),)).fetchone()
         return self._digestion_from_row(row) if row else None
 
+    def _existing_source_file_for_original(self, digestion_id: str, original_file_id: str, *, checksum: str = "") -> str:
+        """Return the owner-bound source file already registered for a contributed file."""
+        original_file_id = self._clean_id(original_file_id)
+        if not original_file_id:
+            return ""
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT file_id, file_checksum, source_metadata_json
+                FROM digestion_sources
+                WHERE digestion_id = ?
+                """,
+                (self._clean_id(digestion_id),),
+            ).fetchall()
+        for row in rows:
+            file_id = str(row["file_id"] or "")
+            if file_id == original_file_id:
+                return file_id
+            try:
+                metadata = json.loads(row["source_metadata_json"] or "{}")
+            except Exception:
+                metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            if str(metadata.get("original_file_id") or "") == original_file_id:
+                return file_id
+        checksum = str(checksum or "").strip()
+        if checksum:
+            for row in rows:
+                try:
+                    metadata = json.loads(row["source_metadata_json"] or "{}")
+                except Exception:
+                    metadata = {}
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                if str(metadata.get("original_checksum") or "") == checksum:
+                    return str(row["file_id"] or "")
+        return ""
+
     def _access_for(self, digestion: Digestion, user_id: str) -> dict[str, Any]:
         if str(user_id) == str(digestion.owner_user_id):
             return {"role": "owner", "can_query": True, "can_manage": True, "can_read_sources": True}
@@ -3061,21 +3358,113 @@ class DigestionManager:
                 (digestion_id,),
             ).fetchall()
 
-    def _datapoint_chunk_rows(self, digestion_id: str, *, limit: int) -> list[Any]:
+    def _datapoint_chunk_rows(
+        self,
+        digestion_id: str,
+        *,
+        limit: int,
+        file_ids: Optional[Iterable[str]] = None,
+        exclude_file_ids: Optional[Iterable[str]] = None,
+    ) -> list[Any]:
+        clauses = ["c.digestion_id = ?"]
+        params: list[Any] = [digestion_id]
+        include_ids = [self._clean_id(item) for item in (file_ids or []) if self._clean_id(item)]
+        exclude_ids = [self._clean_id(item) for item in (exclude_file_ids or []) if self._clean_id(item)]
+        if include_ids:
+            clauses.append(f"c.file_id IN ({','.join('?' for _ in include_ids)})")
+            params.extend(include_ids)
+        if exclude_ids:
+            clauses.append(f"c.file_id NOT IN ({','.join('?' for _ in exclude_ids)})")
+            params.extend(exclude_ids)
+        params.append(max(1, int(limit or 1)))
+        where_sql = " AND ".join(clauses)
         with self.db.get_connection() as conn:
             return conn.execute(
-                """
+                f"""
                 SELECT c.id AS chunk_id, c.file_id, c.chunk_index, c.text, c.token_estimate,
                        c.page_label, s.file_name, s.content_type, s.source_kind,
                        s.source_label, s.source_uri
                 FROM digestion_chunks c
                 LEFT JOIN digestion_sources s ON s.digestion_id = c.digestion_id AND s.file_id = c.file_id
-                WHERE c.digestion_id = ?
+                WHERE {where_sql}
                 ORDER BY COALESCE(s.file_name, c.file_id) COLLATE NOCASE, c.file_id, c.chunk_index
                 LIMIT ?
                 """,
-                (digestion_id, max(1, int(limit or 1))),
+                params,
             ).fetchall()
+
+    @staticmethod
+    def _normalize_datapoint_extraction_scope(value: str) -> str:
+        scope = str(value or "").strip().lower().replace("-", "_")
+        if scope in {"all", "full", "rebuild", "refresh_all", "all_sources"}:
+            return "all"
+        return "new"
+
+    def _structured_datapoint_output_row(self, digestion_id: str) -> dict[str, Any]:
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, digestion_id, output_kind, title, content_type, content,
+                       metadata_json, created_by, created_at, updated_at
+                FROM digestion_outputs
+                WHERE digestion_id = ? AND output_kind = ?
+                """,
+                (digestion_id, STRUCTURED_DATAPOINT_OUTPUT_KIND),
+            ).fetchone()
+        return self._output_row_to_dict(row, include_content=False) if row else {}
+
+    def _structured_datapoint_payload(self, digestion_id: str) -> dict[str, Any]:
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT content
+                FROM digestion_outputs
+                WHERE digestion_id = ? AND output_kind = ?
+                """,
+                (digestion_id, STRUCTURED_DATAPOINT_OUTPUT_KIND),
+            ).fetchone()
+        if not row:
+            return {}
+        try:
+            payload = json.loads(row["content"] or "{}")
+        except Exception:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
+    def _datapoint_source_file_ids(datapoints: Iterable[Any]) -> set[str]:
+        file_ids: set[str] = set()
+        for item in datapoints or []:
+            if not isinstance(item, dict):
+                continue
+            source = item.get("source")
+            if isinstance(source, dict) and str(source.get("file_id") or "").strip():
+                file_ids.add(str(source.get("file_id") or "").strip())
+            source_chunks = item.get("source_chunks")
+            if isinstance(source_chunks, list):
+                for chunk in source_chunks:
+                    if isinstance(chunk, dict) and str(chunk.get("file_id") or "").strip():
+                        file_ids.add(str(chunk.get("file_id") or "").strip())
+        return file_ids
+
+    @staticmethod
+    def _datapoint_field_counts(datapoints: Iterable[dict[str, Any]]) -> dict[str, int]:
+        fields = (
+            "materials",
+            "methods",
+            "measurements",
+            "numerical_results",
+            "relationships",
+            "limitations_or_uncertainty",
+        )
+        return {
+            field: sum(
+                len(item.get(field) or [])
+                for item in datapoints
+                if isinstance(item, dict) and isinstance(item.get(field), list)
+            )
+            for field in fields
+        }
 
     def _resolve_datapoint_llm_context(self, actor_user_id: str) -> dict[str, Any]:
         from .canopy_ai import CanopyLLMError, CanopyLLMManager
@@ -4242,6 +4631,426 @@ Use this as a permissioned retrieval capability, not as raw file access.
     # ------------------------------------------------------------------
     # Utility helpers
     # ------------------------------------------------------------------
+    def _clean_id_list(self, values: Optional[Iterable[Any]]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in values or []:
+            file_id = self._clean_id(raw)
+            if file_id and file_id not in seen:
+                out.append(file_id)
+                seen.add(file_id)
+        return out
+
+    def _contribution_file_ids(self, contribution: dict[str, Any]) -> list[str]:
+        values: list[Any] = []
+        for key in ("source_file_ids", "file_ids", "attachment_file_ids", "attachments", "files"):
+            raw = contribution.get(key)
+            if raw is None:
+                continue
+            raw_items = raw if isinstance(raw, list) else [raw]
+            for item in raw_items:
+                if isinstance(item, dict):
+                    values.append(item.get("file_id") or item.get("id") or item.get("vault_file_id"))
+                else:
+                    values.append(item)
+        return self._clean_id_list(values)
+
+    def _contribution_to_material(
+        self,
+        digestion: Digestion,
+        actor_user_id: str,
+        contribution: dict[str, Any],
+        *,
+        index: int,
+    ) -> Optional[dict[str, Any]]:
+        contribution_kind = self._normalize_material_kind(
+            contribution.get("contribution_kind")
+            or contribution.get("kind")
+            or contribution.get("type")
+            or "agent_output"
+        )
+        title = str(
+            contribution.get("title")
+            or contribution.get("name")
+            or contribution.get("label")
+            or f"Agent contribution {index}"
+        ).strip()[:220]
+        meaningful_keys = (
+            "content", "text", "body", "summary", "notes", "claims", "facts", "useful_facts",
+            "connections", "references", "images", "tables", "spreadsheets", "data_files",
+            "limitations", "next_steps", "datapoints", "structured_datapoints",
+        )
+        if not any(contribution.get(key) for key in meaningful_keys) and not self._contribution_file_ids(contribution):
+            return None
+        rendered = self._render_contribution_markdown(
+            contribution,
+            title=title,
+            contribution_kind=contribution_kind,
+            actor_user_id=actor_user_id,
+        )
+        if not rendered.strip():
+            return None
+        metadata = contribution.get("metadata") if isinstance(contribution.get("metadata"), dict) else {}
+        material_metadata = dict(metadata or {})
+        material_metadata.update({
+            "schema_version": AGENT_CONTRIBUTION_SCHEMA_VERSION,
+            "contribution_kind": contribution_kind,
+            "contributed_by": actor_user_id,
+            "contribution_index": index,
+            "tags": self._llm_string_list(contribution.get("tags"), limit=24, item_limit=80),
+            "source_file_ids": self._contribution_file_ids(contribution),
+            "confidence": self._normalize_confidence(contribution.get("confidence")),
+        })
+        return {
+            "title": title,
+            "source_kind": "agent_contribution",
+            "source_uri": str(contribution.get("source_uri") or contribution.get("uri") or contribution.get("url") or "").strip(),
+            "content_type": "text/markdown",
+            "content": rendered,
+            "metadata": material_metadata,
+        }
+
+    def _render_contribution_markdown(
+        self,
+        contribution: dict[str, Any],
+        *,
+        title: str,
+        contribution_kind: str,
+        actor_user_id: str,
+    ) -> str:
+        lines = [
+            f"# {title}",
+            "",
+            f"- Schema: `{AGENT_CONTRIBUTION_SCHEMA_VERSION}`",
+            f"- Contribution kind: `{contribution_kind}`",
+            f"- Contributed by: `{actor_user_id}`",
+            f"- Contributed at: `{self._now()}`",
+        ]
+        confidence = self._normalize_confidence(contribution.get("confidence"))
+        if confidence is not None:
+            lines.append(f"- Confidence: `{confidence}`")
+        source_uri = str(contribution.get("source_uri") or contribution.get("uri") or contribution.get("url") or "").strip()
+        if source_uri:
+            lines.append(f"- Source URI: {source_uri}")
+        tags = self._llm_string_list(contribution.get("tags"), limit=24, item_limit=80)
+        if tags:
+            lines.append(f"- Tags: {', '.join(tags)}")
+        content = str(contribution.get("content") or contribution.get("text") or contribution.get("body") or "").strip()
+        if content:
+            lines.extend(["", "## Contribution", "", content])
+        field_labels = (
+            ("summary", "Summary"),
+            ("notes", "Notes"),
+            ("claims", "Claims"),
+            ("facts", "Useful Facts"),
+            ("useful_facts", "Useful Facts"),
+            ("connections", "Connections"),
+            ("references", "Additional References"),
+            ("images", "Images / Figures"),
+            ("tables", "Tables"),
+            ("spreadsheets", "Spreadsheets / Data Files"),
+            ("data_files", "Data Files"),
+            ("limitations", "Limitations"),
+            ("next_steps", "Suggested Next Steps"),
+        )
+        for key, label in field_labels:
+            if key not in contribution:
+                continue
+            rendered = self._markdownish_value(contribution.get(key))
+            if rendered:
+                lines.extend(["", f"## {label}", "", rendered])
+        file_ids = self._contribution_file_ids(contribution)
+        if file_ids:
+            lines.extend(["", "## Referenced Vault Files", ""])
+            lines.extend(f"- `{file_id}`" for file_id in file_ids)
+        return "\n".join(lines).strip() + "\n"
+
+    def _markdownish_value(self, value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            lines: list[str] = []
+            for key, item in value.items():
+                text = self._llm_scalar(item, limit=1600)
+                if text:
+                    lines.append(f"- **{key}:** {text}")
+            return "\n".join(lines)
+        if isinstance(value, list):
+            lines = []
+            for item in value[:80]:
+                if isinstance(item, dict):
+                    label = self._llm_scalar(
+                        item.get("title") or item.get("label") or item.get("claim") or item.get("name"),
+                        limit=160,
+                    )
+                    text = self._llm_scalar(item, limit=1600)
+                    if label and text and label not in text[:220]:
+                        lines.append(f"- **{label}:** {text}")
+                    elif text:
+                        lines.append(f"- {text}")
+                else:
+                    text = self._llm_scalar(item, limit=1600)
+                    if text:
+                        lines.append(f"- {text}")
+            return "\n".join(lines)
+        return self._llm_scalar(value, limit=2000)
+
+    def _append_agent_structured_datapoints(
+        self,
+        digestion: Digestion,
+        actor_user_id: str,
+        raw_datapoints: Iterable[dict[str, Any]],
+    ) -> dict[str, Any]:
+        existing_payload = self._structured_datapoint_payload(digestion.id)
+        existing_datapoints = (
+            existing_payload.get("datapoints")
+            if isinstance(existing_payload, dict) and isinstance(existing_payload.get("datapoints"), list)
+            else []
+        )
+        normalized: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        raw_all = list(raw_datapoints or [])
+        raw_items = raw_all[:MAX_AGENT_DATAPOINTS_PER_APPEND]
+        for index, item in enumerate(raw_items, start=1):
+            if not isinstance(item, dict):
+                skipped.append({"index": str(index), "reason": "datapoint_not_object"})
+                continue
+            record = self._normalize_agent_structured_datapoint(digestion, actor_user_id, item, index=index)
+            if not record:
+                skipped.append({"index": str(index), "reason": "empty_datapoint"})
+                continue
+            normalized.append(record)
+        extra_count = max(0, len(raw_all) - len(raw_items))
+        if extra_count:
+            skipped.append({"reason": "datapoint_limit_reached", "count": str(extra_count)})
+
+        merged: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for item in [*existing_datapoints, *normalized]:
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("id") or "").strip()
+            if not item_id:
+                item_id = self._agent_datapoint_identity(digestion.id, actor_user_id, item)
+                item["id"] = item_id
+            if item_id in seen_ids:
+                if item in normalized:
+                    skipped.append({"id": item_id, "reason": "duplicate_datapoint"})
+                continue
+            seen_ids.add(item_id)
+            merged.append(item)
+        added = max(0, len(merged) - len(existing_datapoints))
+        quantitative_result_count = sum(
+            len(item.get("quantitative_results") or [])
+            for item in merged
+            if isinstance(item, dict)
+        )
+        field_counts = self._datapoint_field_counts(merged)
+        sources = self._source_summary_rows(digestion.id)
+        existing_stats = existing_payload.get("stats") if isinstance(existing_payload.get("stats"), dict) else {}
+        payload = dict(existing_payload or {})
+        payload.update({
+            "kind": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
+            "schema_version": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
+            "digestion": {
+                "id": digestion.id,
+                "name": digestion.name,
+                "purpose": digestion.purpose or digestion.description,
+                "status": digestion.status,
+                "built_at": digestion.built_at,
+            },
+            "extractor": payload.get("extractor") or {
+                "name": "canopy_structured_datapoint_aggregate",
+                "version": "1",
+                "mode": "agent_contributed",
+                "network_calls": False,
+            },
+            "stats": {
+                **existing_stats,
+                "datapoint_count": len(merged),
+                "new_datapoint_count": added,
+                "agent_contributed_datapoint_count": sum(
+                    1
+                    for item in merged
+                    if isinstance(item, dict) and isinstance(item.get("agent_contribution"), dict)
+                ),
+                "quantitative_result_count": quantitative_result_count,
+                "source_count": len(sources),
+                "field_counts": field_counts,
+            },
+            "sources": [
+                {
+                    "file_id": item.get("file_id") or "",
+                    "file_name": item.get("file_name") or "",
+                    "source_kind": item.get("source_kind") or "",
+                    "source_label": item.get("source_label") or "",
+                    "chunk_count": item.get("chunk_count") or 0,
+                }
+                for item in sources
+            ],
+            "datapoints": merged,
+            "reuse_guidance": payload.get("reuse_guidance") or [
+                "Treat each datapoint as a cited record, not as a complete reading of the underlying source.",
+                "Agent-contributed datapoints may summarize work product outside indexed chunks; verify provenance before relying on them.",
+                "Use semantic query/context endpoints for source-grounded chunk retrieval and datapoints/search for normalized records.",
+            ],
+            "updated_at": self._now(),
+        })
+        output = self._upsert_output(
+            digestion,
+            actor_user_id,
+            STRUCTURED_DATAPOINT_OUTPUT_KIND,
+            f"{digestion.name or 'Digestion'} Structured Datapoints",
+            "application/json",
+            json.dumps(payload, indent=2, sort_keys=True),
+            {
+                "schema_version": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
+                "extractor": payload.get("extractor") or {},
+                "datapoint_count": len(merged),
+                "agent_contributed_datapoint_count": payload["stats"].get("agent_contributed_datapoint_count", 0),
+                "quantitative_result_count": quantitative_result_count,
+                "field_counts": field_counts,
+                "source_count": len(sources),
+                "source_revealing": True,
+                "append_schema_version": AGENT_CONTRIBUTION_SCHEMA_VERSION,
+            },
+        )
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "added": added,
+            "skipped": skipped,
+            "datapoint_count": len(merged),
+            "quantitative_result_count": quantitative_result_count,
+            "output": output,
+            "preview": normalized[:3],
+        }
+
+    def _normalize_agent_structured_datapoint(
+        self,
+        digestion: Digestion,
+        actor_user_id: str,
+        item: dict[str, Any],
+        *,
+        index: int,
+    ) -> Optional[dict[str, Any]]:
+        subject = self._llm_scalar(item.get("subject") or item.get("title") or item.get("label"), limit=300)
+        claim = self._llm_scalar(
+            item.get("claim") or item.get("statement") or item.get("content") or item.get("text") or item.get("summary"),
+            limit=1200,
+        )
+        materials = self._llm_string_list(item.get("materials") or item.get("material"), limit=24, item_limit=240)
+        methods = self._llm_string_list(item.get("methods") or item.get("method"), limit=24, item_limit=300)
+        measurements = self._llm_string_list(item.get("measurements") or item.get("metrics"), limit=24, item_limit=300)
+        numerical_results = self._llm_string_list(item.get("numerical_results") or item.get("results"), limit=32, item_limit=500)
+        relationships = self._llm_string_list(item.get("relationships") or item.get("connections"), limit=32, item_limit=500)
+        limitations = self._llm_string_list(
+            item.get("limitations_or_uncertainty") or item.get("limitations") or item.get("uncertainty"),
+            limit=16,
+            item_limit=500,
+        )
+        if not any([subject, claim, materials, methods, measurements, numerical_results, relationships, limitations]):
+            return None
+        source = item.get("source") if isinstance(item.get("source"), dict) else {}
+        source_ref = self._llm_scalar(
+            source.get("source_ref") or item.get("source_ref") or f"agent_contribution_{index:04d}",
+            limit=120,
+        )
+        source_file_id = self._clean_id(
+            source.get("file_id") or item.get("file_id") or item.get("source_file_id") or item.get("vault_file_id")
+        )
+        source_record = {
+            "digestion_id": digestion.id,
+            "source_ref": source_ref,
+            "file_id": source_file_id,
+            "file_name": self._llm_scalar(source.get("file_name") or item.get("file_name"), limit=240),
+            "content_type": self._llm_scalar(source.get("content_type") or item.get("content_type"), limit=120),
+            "source_kind": self._llm_scalar(source.get("source_kind") or item.get("source_kind") or "agent_contribution", limit=120),
+            "source_label": self._llm_scalar(
+                source.get("source_label") or item.get("_contribution_title") or item.get("source_label"),
+                limit=240,
+            ),
+            "source_uri": self._llm_scalar(source.get("source_uri") or item.get("source_uri") or item.get("url"), limit=500),
+            "chunk_id": self._llm_scalar(source.get("chunk_id") or item.get("chunk_id"), limit=120),
+            "chunk_index": source.get("chunk_index") if isinstance(source.get("chunk_index"), int) else item.get("chunk_index"),
+            "page_label": self._llm_scalar(source.get("page_label") or item.get("page_label") or item.get("page"), limit=80),
+            "token_estimate": 0,
+        }
+        evidence = self._normalize_agent_evidence(item.get("evidence"), source_ref=source_ref, fallback_text=claim)
+        quantitative_results = self._normalize_llm_quantitative_results(
+            item.get("quantitative_results") or item.get("quantitative") or item.get("values"),
+            evidence=evidence,
+        )
+        tags = self._llm_string_list(item.get("tags"), limit=24, item_limit=80)
+        contribution_tags = self._llm_string_list(item.get("_contribution_tags"), limit=24, item_limit=80)
+        for tag in [*contribution_tags, "agent_contributed"]:
+            if tag and tag not in tags:
+                tags.append(tag)
+        record = {
+            "id": self._llm_scalar(item.get("id") or item.get("datapoint_id"), limit=120),
+            "subject": subject,
+            "claim": claim or subject or "Agent-contributed datapoint",
+            "materials": materials,
+            "methods": methods,
+            "measurements": measurements,
+            "numerical_results": numerical_results,
+            "relationships": relationships,
+            "quantitative_results": quantitative_results,
+            "limitations_or_uncertainty": limitations,
+            "evidence": evidence,
+            "source": source_record,
+            "source_chunks": [source_record],
+            "source_refs": [source_ref],
+            "tags": tags[:24],
+            "confidence": self._normalize_confidence(item.get("confidence")),
+            "agent_contribution": {
+                "schema_version": AGENT_CONTRIBUTION_SCHEMA_VERSION,
+                "contributed_by": actor_user_id,
+                "contributed_at": self._now(),
+                "contribution_kind": self._normalize_material_kind(item.get("_contribution_kind") or item.get("kind") or "datapoint"),
+                "notes": "Agent-contributed structured datapoint; verify provenance before downstream use.",
+            },
+        }
+        if not record["id"]:
+            record["id"] = self._agent_datapoint_identity(digestion.id, actor_user_id, record)
+        return record
+
+    def _normalize_agent_evidence(self, raw: Any, *, source_ref: str, fallback_text: str = "") -> list[dict[str, Any]]:
+        raw_items = raw if isinstance(raw, list) else ([raw] if raw else [])
+        evidence: list[dict[str, Any]] = []
+        for item in raw_items[:12]:
+            if isinstance(item, dict):
+                text = self._llm_scalar(item.get("text") or item.get("quote") or item.get("evidence_sentence"), limit=900)
+                ref = self._llm_scalar(item.get("source_ref") or item.get("source") or source_ref, limit=120) or source_ref
+                field = self._llm_scalar(item.get("field") or "claim", limit=80)
+            else:
+                text = self._llm_scalar(item, limit=900)
+                ref = source_ref
+                field = "claim"
+            if text:
+                evidence.append({"source_ref": ref, "field": field, "text": text})
+        if not evidence and fallback_text:
+            evidence.append({"source_ref": source_ref, "field": "claim", "text": fallback_text[:900]})
+        return evidence
+
+    @staticmethod
+    def _agent_datapoint_identity(digestion_id: str, actor_user_id: str, item: dict[str, Any]) -> str:
+        seed = json.dumps(
+            {
+                "digestion_id": digestion_id,
+                "actor_user_id": actor_user_id,
+                "subject": item.get("subject") or "",
+                "claim": item.get("claim") or "",
+                "source": item.get("source") or {},
+                "evidence": item.get("evidence") or [],
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        return f"adp_{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:24]}"
+
     def _material_to_vault_file(
         self,
         digestion: Digestion,

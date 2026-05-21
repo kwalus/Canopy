@@ -11152,7 +11152,7 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/digestions/<digestion_id>/sources', methods=['POST'])
     @require_auth(Permission.WRITE_FILES)
     def add_digestion_sources_api(digestion_id: str):
-        """Add user-owned Vault files to a Digestion."""
+        """Add owner or manager-contributed Vault files to a Digestion."""
         manager = _api_get_digestion_manager()
         if not manager:
             return jsonify({'error': 'Digestion manager unavailable'}), 503
@@ -11217,6 +11217,44 @@ def create_api_blueprint() -> Blueprint:
             return _api_digestion_error(exc)
         except Exception as e:
             logger.error("Digestion API add materials failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/contributions', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def append_digestion_contributions_api(digestion_id: str):
+        """Append agent/human work product to a managed Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        contributions = (
+            data.get('contributions')
+            or data.get('items')
+            or data.get('contribution')
+            or []
+        )
+        if isinstance(contributions, dict):
+            contributions = [contributions]
+        source_file_ids = data.get('source_file_ids') or data.get('file_ids') or data.get('file_id') or []
+        if isinstance(source_file_ids, str):
+            source_file_ids = [source_file_ids]
+        datapoints = data.get('datapoints') or data.get('structured_datapoints') or []
+        if isinstance(datapoints, dict):
+            datapoints = [datapoints]
+        try:
+            result = manager.append_contributions(
+                digestion_id,
+                g.api_key_info.user_id,
+                contributions=contributions if isinstance(contributions, list) else [],
+                source_file_ids=source_file_ids if isinstance(source_file_ids, list) else [],
+                datapoints=datapoints if isinstance(datapoints, list) else [],
+                build_after=bool(data.get('build_after') or data.get('auto_build')),
+            )
+            return jsonify(result)
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API append contributions failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/digestions/<digestion_id>/build', methods=['POST'])
@@ -11368,6 +11406,7 @@ def create_api_blueprint() -> Blueprint:
                     else None
                 ),
                 lens=str(data.get('lens') or data.get('focus') or ''),
+                extraction_scope=str(data.get('scope') or data.get('extraction_scope') or 'new'),
             )
             return jsonify(result)
         except DigestionError as exc:

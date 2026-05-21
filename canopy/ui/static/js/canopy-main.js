@@ -1163,12 +1163,13 @@
 	                return payload;
 	            }
 
-	            async function saveAttachmentToVault(attachment, triggerEl) {
+	            async function saveAttachmentToVault(attachment, triggerEl, options = {}) {
 	                const payload = normalizedAttachmentForVaultSave(attachment);
 	                if (!payload) {
-	                    if (typeof showAlert === 'function') showAlert('Attachment metadata is incomplete.', 'warning');
+	                    if (!(options && options.quiet) && typeof showAlert === 'function') showAlert('Attachment metadata is incomplete.', 'warning');
 	                    return false;
 	                }
+	                const saveOptions = options && typeof options === 'object' ? options : {};
 	                const button = triggerEl instanceof HTMLElement ? triggerEl : null;
 	                const originalHtml = button ? button.innerHTML : '';
 	                const originalTitle = button ? button.getAttribute('title') : '';
@@ -1178,15 +1179,19 @@
 	                    button.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span>';
 	                }
 	                try {
+	                    const folderId = String(saveOptions.folderId || saveOptions.folder_id || payload.folder_id || '').trim();
+	                    const body = { attachment: payload };
+	                    if (folderId) body.folder_id = folderId;
+	                    if (saveOptions.duplicateIfOwned || saveOptions.duplicate_if_owned) body.duplicate_if_owned = true;
 	                    const data = await apiCall(vaultUrls().saveAttachment, {
 	                        method: 'POST',
-	                        body: JSON.stringify({ attachment: payload }),
+	                        body: JSON.stringify(body),
 	                    });
 	                    const message = String(data.message || '').trim();
-		                    if (typeof showAlert === 'function') {
-		                        if (data.queued) {
-		                            showAlert(message || 'Attachment fetch queued. Canopy will save it to your Vault when the local copy arrives.', 'info');
-		                        } else if (data.already_saved) {
+	                    if (!saveOptions.quiet && typeof showAlert === 'function') {
+	                        if (data.queued) {
+	                            showAlert(message || 'Attachment fetch queued. Canopy will save it to your Vault when the local copy arrives.', 'info');
+	                        } else if (data.already_saved) {
 	                            showAlert(message || 'This attachment is already in your File Vault.', 'success');
 	                        } else {
 	                            showAlert(message || 'Attachment saved to your File Vault.', 'success');
@@ -1195,10 +1200,10 @@
 	                    try {
 	                        global.dispatchEvent(new CustomEvent('canopy:vault-file-saved', { detail: data }));
 	                    } catch (_) {}
-	                    return true;
+	                    return data || true;
 	                } catch (error) {
 	                    const message = (error && (error.error || error.message)) || 'Could not save attachment to Vault.';
-	                    if (typeof showAlert === 'function') showAlert(message, 'danger');
+	                    if (!saveOptions.quiet && typeof showAlert === 'function') showAlert(message, 'danger');
 	                    return false;
 	                } finally {
 	                    if (button) {
@@ -1209,6 +1214,146 @@
 	                    }
 	                }
 	            }
+
+		            function vaultAttachmentDedupeKey(attachment) {
+		                const item = attachment || {};
+		                const id = String(item.id || item.file_id || item.vault_file_id || '').trim();
+		                if (id) return `file:${id}`;
+		                const originFileId = String(item.origin_file_id || item.remote_file_id || '').trim();
+		                const sourcePeerId = String(item.source_peer_id || item.origin_peer || '').trim();
+		                if (originFileId && sourcePeerId) return `remote:${sourcePeerId}:${originFileId}`;
+		                const url = String(item.url || '').trim();
+		                return url ? `url:${url}` : '';
+		            }
+
+		            function normalizeAttachmentListForVaultSave(attachments) {
+		                const incoming = Array.isArray(attachments) ? attachments : [attachments];
+		                const seen = new Set();
+		                const normalized = [];
+		                incoming.forEach((attachment) => {
+		                    const payload = normalizedAttachmentForVaultSave(attachment);
+		                    if (!payload) return;
+		                    const key = vaultAttachmentDedupeKey(payload);
+		                    if (key && seen.has(key)) return;
+		                    if (key) seen.add(key);
+		                    normalized.push(payload);
+		                });
+		                return normalized;
+		            }
+
+		            function vaultAttachmentFolderTimestamp() {
+		                const now = new Date();
+		                const pad = (value) => String(value).padStart(2, '0');
+		                return [
+		                    now.getFullYear(),
+		                    pad(now.getMonth() + 1),
+		                    pad(now.getDate()),
+		                ].join('-') + ' ' + [pad(now.getHours()), pad(now.getMinutes())].join('');
+		            }
+
+		            function vaultAttachmentFolderName(label) {
+		                const base = String(label || 'Attachments')
+		                    .replace(/[\r\n\t]+/g, ' ')
+		                    .replace(/[<>:"/\\|?*]+/g, '-')
+		                    .replace(/\s+/g, ' ')
+		                    .trim()
+		                    .slice(0, 52) || 'Attachments';
+		                return `${base} - ${vaultAttachmentFolderTimestamp()}`.slice(0, 80);
+		            }
+
+		            async function createVaultFolderForAttachments(baseName) {
+		                const primary = vaultAttachmentFolderName(baseName);
+		                const fallback = `${primary.slice(0, 66)} ${Date.now().toString().slice(-6)}`.slice(0, 80);
+		                let lastError = null;
+		                for (const name of [primary, fallback]) {
+		                    try {
+		                        const data = await apiCall(vaultUrls().folders, {
+		                            method: 'POST',
+		                            body: JSON.stringify({ name, parent_id: '' }),
+		                        });
+		                        if (data && data.folder && data.folder.id) return data.folder;
+		                    } catch (error) {
+		                        lastError = error;
+		                    }
+		                }
+		                throw lastError || new Error('Could not create Vault folder.');
+		            }
+
+		            function parseVaultAttachmentCollection(raw) {
+		                if (!raw) return [];
+		                if (Array.isArray(raw)) return raw;
+		                try {
+		                    const parsed = JSON.parse(String(raw));
+		                    return Array.isArray(parsed) ? parsed : [];
+		                } catch (_) {
+		                    return [];
+		                }
+		            }
+
+		            async function saveAttachmentsToVault(attachments, triggerEl, options = {}) {
+		                const normalized = normalizeAttachmentListForVaultSave(attachments);
+		                if (!normalized.length) {
+		                    if (typeof showAlert === 'function') showAlert('No saveable attachments were found in this source.', 'warning');
+		                    return false;
+		                }
+		                const saveOptions = options && typeof options === 'object' ? options : {};
+		                const button = triggerEl instanceof HTMLElement ? triggerEl : null;
+		                const originalHtml = button ? button.innerHTML : '';
+		                const originalTitle = button ? button.getAttribute('title') : '';
+		                if (button) {
+		                    button.disabled = true;
+		                    button.setAttribute('aria-busy', 'true');
+		                    button.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Saving';
+		                }
+		                try {
+		                    const folder = saveOptions.folderId
+		                        ? { id: saveOptions.folderId, name: saveOptions.folderName || 'Selected folder' }
+		                        : await createVaultFolderForAttachments(saveOptions.sourceLabel || 'Attachments');
+		                    const folderId = String(folder && folder.id || '').trim();
+		                    if (!folderId) throw new Error('Vault folder could not be created.');
+		                    let saved = 0;
+		                    let queued = 0;
+		                    const failed = [];
+		                    for (const attachment of normalized) {
+		                        const result = await saveAttachmentToVault(attachment, null, {
+		                            quiet: true,
+		                            folderId,
+		                            duplicateIfOwned: true,
+		                        });
+		                        if (result && result.success !== false) {
+		                            saved += 1;
+		                            if (result.queued) queued += 1;
+		                        } else {
+		                            failed.push(attachment);
+		                        }
+		                    }
+		                    if (typeof showAlert === 'function') {
+		                        const folderName = String(folder.name || 'Vault folder');
+		                        const parts = [`${saved} attachment${saved === 1 ? '' : 's'} saved to "${folderName}"`];
+		                        if (queued) parts.push(`${queued} queued for remote fetch`);
+		                        if (failed.length) parts.push(`${failed.length} failed`);
+		                        showAlert(parts.join('; ') + '.', failed.length ? 'warning' : 'success');
+		                    }
+		                    try {
+		                        global.dispatchEvent(new CustomEvent('canopy:vault-attachments-saved', {
+		                            detail: { folder, saved, queued, failed: failed.length, total: normalized.length },
+		                        }));
+		                    } catch (_) {}
+		                    return { success: failed.length === 0, folder, saved, queued, failed: failed.length, total: normalized.length };
+		                } catch (error) {
+		                    if (typeof showAlert === 'function') {
+		                        showAlert((error && (error.error || error.message)) || 'Could not save attachments to Vault.', 'danger');
+		                    }
+		                    return false;
+		                } finally {
+		                    if (button) {
+		                        button.disabled = false;
+		                        button.removeAttribute('aria-busy');
+		                        button.innerHTML = originalHtml;
+		                        if (originalTitle) button.setAttribute('title', originalTitle);
+		                    }
+		                }
+		            }
 
             function renderVaultPreview(file) {
                 const type = String((file && (file.type || file.content_type)) || '').toLowerCase();
@@ -1913,9 +2058,10 @@
 				                    fileShareUsers: new Map(),
 				                    fileShareAcl: new Map(),
 				                    fileShareActiveIndex: new Map(),
-	                                digestionProgressTimers: new Map(),
-				                    previewFileId: ''
-	                };
+		                                digestionProgressTimers: new Map(),
+					                    previewFileId: '',
+		                                selectionDigestionMenuOpen: false
+		                };
 	                const grid = document.getElementById('vault-grid');
 	                const filePanel = document.getElementById('vault-file-panel');
 	                const empty = document.getElementById('vault-empty');
@@ -1932,10 +2078,12 @@
                 const rootBtn = document.getElementById('vault-root-btn');
                 const selectionBar = document.getElementById('vault-selection-bar');
                 const selectionCount = document.getElementById('vault-selection-count');
-                const selectionOpen = document.getElementById('vault-selection-open');
-	                const selectionCopy = document.getElementById('vault-selection-copy');
-	                const selectionDigest = document.getElementById('vault-selection-digest');
-	                const selectionClear = document.getElementById('vault-selection-clear');
+	                const selectionOpen = document.getElementById('vault-selection-open');
+		                const selectionCopy = document.getElementById('vault-selection-copy');
+		                const selectionDigest = document.getElementById('vault-selection-digest');
+		                const selectionAddExisting = document.getElementById('vault-selection-add-existing');
+		                const selectionDigestionMenu = document.getElementById('vault-selection-digestion-menu');
+		                const selectionClear = document.getElementById('vault-selection-clear');
 	                const selectAllBtn = document.getElementById('vault-select-all-btn');
 	                const digestionCreateForm = document.getElementById('vault-digestion-create-form');
                 const digestionCreateName = document.getElementById('vault-digestion-create-name');
@@ -2240,21 +2388,116 @@
                     }, 0);
                 }
 
-                function hideDigestionCreateForm() {
-                    if (!digestionCreateForm) return;
-                    digestionCreateForm.classList.remove('is-visible');
-                    digestionCreateForm.hidden = true;
-                }
+	                function hideDigestionCreateForm() {
+	                    if (!digestionCreateForm) return;
+	                    digestionCreateForm.classList.remove('is-visible');
+	                    digestionCreateForm.hidden = true;
+	                }
 
-                function updateSelectionUi() {
-                    const selected = selectedVaultFiles();
-                    if (selectionBar) selectionBar.hidden = selected.length === 0;
-                    if (selectionCount) selectionCount.textContent = `${selected.length} selected`;
-                    if (selectionOpen) selectionOpen.disabled = selected.length === 0;
-                    if (selectionCopy) selectionCopy.disabled = selected.length === 0;
-                    if (selectionDigest) selectionDigest.disabled = selected.length === 0;
-                    if (selectionClear) selectionClear.disabled = selected.length === 0;
-                    if (!selected.length) hideDigestionCreateForm();
+	                function selectionManageableDigestions() {
+	                    return state.digestions.filter((digestion) => {
+	                        const id = String(digestion && digestion.id || '');
+	                        return id && digestionCanAcceptDroppedSources(id);
+	                    });
+	                }
+
+	                function renderSelectionDigestionMenu() {
+	                    if (!selectionDigestionMenu) return;
+	                    const selected = selectedVaultFiles();
+	                    const choices = selectionManageableDigestions();
+	                    const selectedLabel = `${selected.length} selected file${selected.length === 1 ? '' : 's'}`;
+	                    if (!selected.length) {
+	                        selectionDigestionMenu.innerHTML = '';
+	                        return;
+	                    }
+	                    const head = `
+	                        <div class="vault-selection-digestion-menu-head">
+	                            <span><i class="bi bi-diagram-3"></i> Add ${vaultEscape(selectedLabel)}</span>
+	                            <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-selection-digestion-close aria-label="Close Digestion list">
+	                                <i class="bi bi-x-lg"></i>
+	                            </button>
+	                        </div>
+	                    `;
+	                    if (!choices.length) {
+	                        selectionDigestionMenu.innerHTML = `${head}
+	                            <div class="vault-selection-digestion-empty">
+	                                No owner-managed Digestions are available yet. Use <strong>New Digestion</strong> to create one from this selection.
+	                            </div>
+	                        `;
+	                        return;
+	                    }
+	                    selectionDigestionMenu.innerHTML = head + choices.map((digestion) => {
+	                        const id = vaultEscape(digestion.id || '');
+	                        const name = vaultEscape(digestion.name || 'Untitled Digestion');
+	                        const status = vaultEscape(digestionStatusLabel(digestion));
+	                        const stats = digestionStats(digestion);
+	                        const sourceCount = digestionSourceCount(digestion, stats);
+	                        const chunks = Number(stats.chunks || 0);
+	                        const purpose = vaultEscape(digestion.purpose || digestion.description || 'Reusable context corpus.');
+	                        return `
+	                            <button class="vault-selection-digestion-choice"
+	                                    type="button"
+	                                    role="menuitem"
+	                                    data-vault-selection-add-digestion="${id}">
+	                                <span>
+	                                    <strong>${name}</strong>
+	                                    <small>${sourceCount} source${sourceCount === 1 ? '' : 's'} · ${chunks} chunk${chunks === 1 ? '' : 's'} · ${purpose}</small>
+	                                </span>
+	                                <span class="badge rounded-pill text-bg-secondary">${status}</span>
+	                            </button>
+	                        `;
+	                    }).join('');
+	                }
+
+	                function setSelectionDigestionMenu(open) {
+	                    state.selectionDigestionMenuOpen = !!open;
+	                    if (selectionAddExisting) {
+	                        selectionAddExisting.setAttribute('aria-expanded', state.selectionDigestionMenuOpen ? 'true' : 'false');
+	                    }
+	                    if (selectionDigestionMenu) {
+	                        if (state.selectionDigestionMenuOpen) {
+	                            renderSelectionDigestionMenu();
+	                            selectionDigestionMenu.hidden = false;
+	                        } else {
+	                            selectionDigestionMenu.hidden = true;
+	                        }
+	                    }
+	                }
+
+	                async function addSelectionToExistingDigestion(digestionId, button) {
+	                    const fileIds = selectedVaultFiles().map(vaultFileId).filter(Boolean);
+	                    if (!fileIds.length) return;
+	                    const original = button ? button.innerHTML : '';
+	                    if (button) {
+	                        button.disabled = true;
+	                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Adding';
+	                    }
+	                    try {
+	                        await addFilesToDigestion(digestionId, fileIds);
+	                        setSelectionDigestionMenu(false);
+	                    } finally {
+	                        if (button) {
+	                            button.disabled = false;
+	                            button.innerHTML = original;
+	                        }
+	                    }
+	                }
+
+	                function updateSelectionUi() {
+	                    const selected = selectedVaultFiles();
+	                    if (selectionBar) selectionBar.hidden = selected.length === 0;
+	                    if (selectionCount) selectionCount.textContent = `${selected.length} selected`;
+	                    if (selectionOpen) selectionOpen.disabled = selected.length === 0;
+	                    if (selectionCopy) selectionCopy.disabled = selected.length === 0;
+	                    if (selectionDigest) selectionDigest.disabled = selected.length === 0;
+	                    if (selectionAddExisting) selectionAddExisting.disabled = selected.length === 0 || selectionManageableDigestions().length === 0;
+	                    if (selectionClear) selectionClear.disabled = selected.length === 0;
+	                    if (!selected.length) {
+	                        hideDigestionCreateForm();
+	                        setSelectionDigestionMenu(false);
+	                    } else if (state.selectionDigestionMenuOpen) {
+	                        renderSelectionDigestionMenu();
+	                    }
 		                    if (grid) {
 		                        grid.querySelectorAll('[data-vault-file-id]').forEach((card) => {
 		                            const id = card.getAttribute('data-vault-file-id') || '';
@@ -2617,18 +2860,26 @@
                                                        value="${maxChunksDefault}"
                                                        data-vault-digestion-extract-max-chunks="${id}">
                                             </label>
-                                            <label>
-                                                Max datapoints
-                                                <input class="form-control form-control-sm"
+	                                            <label>
+	                                                Max datapoints
+	                                                <input class="form-control form-control-sm"
                                                        type="number"
                                                        min="1"
                                                        max="1200"
                                                        step="1"
-                                                       value="${maxDatapointsDefault}"
-                                                       data-vault-digestion-extract-max-datapoints="${id}">
-                                            </label>
-                                            <label>
-                                                Extraction lens / focus
+	                                                       value="${maxDatapointsDefault}"
+	                                                       data-vault-digestion-extract-max-datapoints="${id}">
+	                                            </label>
+	                                            <label>
+	                                                Scope
+	                                                <select class="form-select form-select-sm"
+	                                                        data-vault-digestion-extract-scope="${id}">
+	                                                    <option value="new" selected>New docs only</option>
+	                                                    <option value="all">All indexed docs</option>
+	                                                </select>
+	                                            </label>
+	                                            <label>
+	                                                Extraction lens / focus
                                                 <input class="form-control form-control-sm"
                                                        type="text"
                                                        maxlength="240"
@@ -2807,10 +3058,11 @@
                     if (!digestionList) return;
                     digestionList.innerHTML = '<div class="small text-muted p-2"><span class="spinner-border spinner-border-sm me-1"></span>Loading Digestions...</div>';
                     try {
-                        const data = await apiCall(`${vaultUrls().digestions}?include_sources=1`);
-                        state.digestions = Array.isArray(data.digestions) ? data.digestions : [];
-                        renderDigestions();
-                    } catch (error) {
+	                        const data = await apiCall(`${vaultUrls().digestions}?include_sources=1`);
+	                        state.digestions = Array.isArray(data.digestions) ? data.digestions : [];
+	                        renderDigestions();
+	                        updateSelectionUi();
+	                    } catch (error) {
                         const errMsg = vaultEscape(error.error || 'Refresh to try again.');
                         digestionList.innerHTML = `<div class="vault-digestion-card"><div class="vault-digestion-card-title">Could not load Digestions</div><div class="small text-danger mt-1">${errMsg}</div></div>`;
                         console.error('Digestion load failed:', error);
@@ -3122,9 +3374,10 @@
 
                 function readDigestionExtractOptions(digestionId) {
                     const id = vaultCssEscape(digestionId);
-                    const maxChunksEl = document.querySelector(`[data-vault-digestion-extract-max-chunks="${id}"]`);
-                    const maxDatapointsEl = document.querySelector(`[data-vault-digestion-extract-max-datapoints="${id}"]`);
-                    const lensEl = document.querySelector(`[data-vault-digestion-extract-lens="${id}"]`);
+	                    const maxChunksEl = document.querySelector(`[data-vault-digestion-extract-max-chunks="${id}"]`);
+	                    const maxDatapointsEl = document.querySelector(`[data-vault-digestion-extract-max-datapoints="${id}"]`);
+	                    const scopeEl = document.querySelector(`[data-vault-digestion-extract-scope="${id}"]`);
+	                    const lensEl = document.querySelector(`[data-vault-digestion-extract-lens="${id}"]`);
                     const clampInt = (value, fallback, min, max) => {
                         const parsed = parseInt(value, 10);
                         if (!Number.isFinite(parsed)) return fallback;
@@ -3132,11 +3385,12 @@
                     };
                     const digestion = findDigestion(digestionId) || {};
                     const fallbackChunks = defaultDatapointMaxChunks(digestion);
-                    return {
-                        max_chunks: clampInt(maxChunksEl && maxChunksEl.value, fallbackChunks, 1, 240),
-                        max_datapoints: clampInt(maxDatapointsEl && maxDatapointsEl.value, Math.min(400, Math.max(50, fallbackChunks * 4)), 1, 1200),
-                        lens: String(lensEl && lensEl.value || '').trim(),
-                    };
+	                    return {
+	                        max_chunks: clampInt(maxChunksEl && maxChunksEl.value, fallbackChunks, 1, 240),
+	                        max_datapoints: clampInt(maxDatapointsEl && maxDatapointsEl.value, Math.min(400, Math.max(50, fallbackChunks * 4)), 1, 1200),
+	                        scope: String(scopeEl && scopeEl.value || 'new').trim() === 'all' ? 'all' : 'new',
+	                        lens: String(lensEl && lensEl.value || '').trim(),
+	                    };
                 }
 
                 async function extractDigestionDatapoints(digestionId, button) {
@@ -3153,10 +3407,15 @@
                             method: 'POST',
                             body: JSON.stringify(options)
                         });
-                        if (typeof showAlert === 'function') {
-                            const count = Number(data.datapoint_count || 0);
-                            showAlert(`Structured datapoints extracted: ${count} record${count === 1 ? '' : 's'}.`, count ? 'success' : 'warning');
-                        }
+	                        if (typeof showAlert === 'function') {
+	                            const count = Number(data.datapoint_count || 0);
+	                            const newCount = Number(data.new_datapoint_count || 0);
+	                            const skipped = data && data.skipped && data.reason === 'no_new_chunks';
+	                            const message = skipped
+	                                ? `No new documents needed extraction; ${count} existing datapoint${count === 1 ? '' : 's'} kept.`
+	                                : `Structured datapoints extracted: ${newCount || count} new, ${count} total.`;
+	                            showAlert(message, count ? 'success' : 'warning');
+	                        }
                         try {
                             await refreshDigestionProgress(digestionId);
                         } catch (_) {}
@@ -5350,12 +5609,33 @@
                         await copyText(links.join('\n'), 'Vault links');
                     });
                 }
-                if (selectionDigest) {
-                    selectionDigest.addEventListener('click', showDigestionCreateForm);
-                }
-                if (digestionCreateCancel) {
-                    digestionCreateCancel.addEventListener('click', hideDigestionCreateForm);
-                }
+	                if (selectionDigest) {
+	                    selectionDigest.addEventListener('click', showDigestionCreateForm);
+	                }
+	                if (selectionAddExisting) {
+	                    selectionAddExisting.addEventListener('click', (event) => {
+	                        event.preventDefault();
+	                        renderSelectionDigestionMenu();
+	                        setSelectionDigestionMenu(!state.selectionDigestionMenuOpen);
+	                    });
+	                }
+	                if (selectionDigestionMenu) {
+	                    selectionDigestionMenu.addEventListener('click', (event) => {
+	                        const closeBtn = event.target.closest('[data-vault-selection-digestion-close]');
+	                        if (closeBtn) {
+	                            event.preventDefault();
+	                            setSelectionDigestionMenu(false);
+	                            return;
+	                        }
+	                        const choice = event.target.closest('[data-vault-selection-add-digestion]');
+	                        if (!choice) return;
+	                        event.preventDefault();
+	                        addSelectionToExistingDigestion(choice.getAttribute('data-vault-selection-add-digestion') || '', choice);
+	                    });
+	                }
+	                if (digestionCreateCancel) {
+	                    digestionCreateCancel.addEventListener('click', hideDigestionCreateForm);
+	                }
                 if (digestionCreateForm) {
                     digestionCreateForm.addEventListener('submit', (event) => {
                         event.preventDefault();
@@ -5579,13 +5859,16 @@
                 }
                 page.addEventListener('pointerdown', (event) => {
                     const shareForm = event.target.closest('[data-vault-digestion-share]');
-                    const shareToggle = event.target.closest('[data-vault-digestion-action="share-access"]');
-                    const fileShareForm = event.target.closest('[data-vault-file-share]');
-                    const fileShareToggle = event.target.closest('[data-vault-action="share"]');
-                    if (shareForm || shareToggle || fileShareForm || fileShareToggle) return;
-                    closeOtherDigestionShareResults();
-                    closeOtherVaultFileShareResults();
-                });
+	                    const shareToggle = event.target.closest('[data-vault-digestion-action="share-access"]');
+	                    const fileShareForm = event.target.closest('[data-vault-file-share]');
+	                    const fileShareToggle = event.target.closest('[data-vault-action="share"]');
+	                    const selectionMenu = event.target.closest('#vault-selection-digestion-menu');
+	                    const selectionToggle = event.target.closest('#vault-selection-add-existing');
+	                    if (shareForm || shareToggle || fileShareForm || fileShareToggle || selectionMenu || selectionToggle) return;
+	                    setSelectionDigestionMenu(false);
+	                    closeOtherDigestionShareResults();
+	                    closeOtherVaultFileShareResults();
+	                });
 	                if (selectionClear) {
 	                    selectionClear.addEventListener('click', () => {
 	                        state.selectedIds.clear();
@@ -5943,16 +6226,32 @@
                 }
             }
 
-	            global.CanopyVaultPicker = {
-	                open: openPicker,
-	                fetchFiles: fetchVaultFiles,
-	                formatBytes,
-	                normalizedAttachment,
-	                saveAttachment: saveAttachmentToVault
-	            };
-	            global.saveAttachmentToVault = saveAttachmentToVault;
+		            global.CanopyVaultPicker = {
+		                open: openPicker,
+		                fetchFiles: fetchVaultFiles,
+		                formatBytes,
+		                normalizedAttachment,
+		                saveAttachment: saveAttachmentToVault,
+		                saveAttachments: saveAttachmentsToVault
+		            };
+		            global.saveAttachmentToVault = saveAttachmentToVault;
+		            global.saveAttachmentsToVault = saveAttachmentsToVault;
 
-	            document.addEventListener('DOMContentLoaded', initVaultPage);
+		            document.addEventListener('click', (event) => {
+		                const button = event.target.closest('[data-vault-save-all-attachments]');
+		                if (!button) return;
+		                const collection = button.closest('[data-vault-attachment-collection]');
+		                if (!collection) return;
+		                event.preventDefault();
+		                event.stopPropagation();
+		                const attachments = parseVaultAttachmentCollection(collection.getAttribute('data-vault-attachment-collection') || '');
+		                const sourceLabel = button.getAttribute('data-vault-source-label')
+		                    || collection.getAttribute('data-vault-source-label')
+		                    || 'Attachments';
+		                saveAttachmentsToVault(attachments, button, { sourceLabel });
+		            });
+
+		            document.addEventListener('DOMContentLoaded', initVaultPage);
 	        })(window);
 
         (function initCanopyDmRecipientDisclosure(global) {
@@ -11336,7 +11635,54 @@
                     const href = '/channels?channel=' + encodeURIComponent(info.id);
                     return (prefix || '') + '<a class="channel-tag" href="' + href + '" data-channel-id="' +
                         _escapeHtml(info.id) + '" data-channel-name="' + safeName + '">#' + safeName + '</a>';
+	                });
+	            }
+
+            function shortCanopyEntityId(id) {
+                const value = String(id || '').trim();
+                if (value.length <= 18) return value;
+                return value.slice(0, 10) + '…' + value.slice(-5);
+            }
+
+            function canopyFileRefAnchor(fileId, label) {
+                const id = String(fileId || '').trim();
+                if (!id) return '';
+                const safeId = _escapeHtml(id);
+                const safeLabel = _escapeHtml(label || ('file:' + shortCanopyEntityId(id)));
+                return '<a class="canopy-entity-link canopy-file-ref" href="/files/' + encodeURIComponent(id) + '" ' +
+                    'data-canopy-file-id="' + safeId + '" title="Open Canopy file ' + safeId + '">' +
+                    '<i class="bi bi-paperclip" aria-hidden="true"></i><span>' + safeLabel + '</span></a>';
+            }
+
+            function linkifyCanopyEntityRefs(html) {
+                const value = String(html || '');
+                if (!value || (!value.includes('/files/') && !/[`'"]F[A-Za-z0-9_-]{6,}[`'"]/.test(value) && !/file\s*:/.test(value))) {
+                    return value;
+                }
+                const protectedBlocks = [];
+                const placeholder = '\x00CANOPY_ENTITY_REF_';
+                let working = value.replace(/<a\b[\s\S]*?<\/a>|<img\b[^>]*>|<pre\b[\s\S]*?<\/pre>|<code\b[\s\S]*?<\/code>/gi, function(match) {
+                    const index = protectedBlocks.length;
+                    protectedBlocks.push(match);
+                    return placeholder + index + '\x00';
                 });
+                const fileId = '(F[A-Za-z0-9_-]{6,})';
+                working = working.replace(new RegExp('\\[([^\\]]+)\\]\\(/files/' + fileId + '(?:[/?#][^)]*)?\\)', 'g'), function(match, text, id) {
+                    return canopyFileRefAnchor(id, text);
+                });
+                working = working.replace(new RegExp("(^|[\\s([{<>\"'`])file\\s*:\\s*(['\"`])?" + fileId + "\\2", 'gi'), function(match, prefix, quote, id) {
+                    return (prefix || '') + canopyFileRefAnchor(id, 'file:' + shortCanopyEntityId(id));
+                });
+                working = working.replace(new RegExp("(^|[\\s([{<>\"'`])/files/" + fileId + "(?=$|[\\s)\\]}>\\'\",.;:!?#/])", 'g'), function(match, prefix, id) {
+                    return (prefix || '') + canopyFileRefAnchor(id, shortCanopyEntityId(id));
+                });
+                working = working.replace(new RegExp("(^|[\\s([{<])(['\"`])" + fileId + "\\2(?=$|[\\s)\\]}>.,;:!?])", 'g'), function(match, prefix, quote, id) {
+                    return (prefix || '') + canopyFileRefAnchor(id, shortCanopyEntityId(id));
+                });
+                for (let i = 0; i < protectedBlocks.length; i++) {
+                    working = working.replace(placeholder + i + '\x00', protectedBlocks[i]);
+                }
+                return working;
             }
 
 		        function renderRichContent(text) {
@@ -11368,8 +11714,8 @@
             div.textContent = protectedText;
             let html = div.innerHTML;
 
-            html = linkifyMentions(html);
-            html = linkifyChannels(html);
+	            html = linkifyMentions(html);
+	            html = linkifyChannels(html);
             // Post links: [post:POST_ID] → link to feed view (humans and agents can share direct post links)
             html = html.replace(/\[post:([A-Za-z0-9_-]+)\]/g, function(match, postId) {
                 var safeId = ('' + postId).replace(/"/g, '&quot;');
@@ -11413,9 +11759,10 @@
                 return '<a href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" ' +
                     'style="color:var(--canopy-primary,#22c55e);">' + safeText + '</a>';
             });
-            html = renderCanopyInlineMarkdown(html);
-            html = renderCanopyBlockMarkdown(html);
-            html = html.replace(/\n/g, '<br>');
+	            html = renderCanopyInlineMarkdown(html);
+	            html = renderCanopyBlockMarkdown(html);
+	            html = linkifyCanopyEntityRefs(html);
+	            html = html.replace(/\n/g, '<br>');
 
             const embedState = collectProviderEmbeds(html);
             html = embedState.html;
@@ -19038,13 +19385,14 @@
                     const endpoint = operation === 'build'
                         ? `${urls.digestions}/${encodeURIComponent(digestionId)}/build`
                         : `${urls.digestions}/${encodeURIComponent(digestionId)}/datapoints/extract`;
-                    const body = operation === 'build'
-                        ? { rebuild: false }
-                        : {
-                            max_chunks: Number(host.querySelector('[data-deck-digestion-max-chunks]')?.value || 80),
-                            max_datapoints: Number(host.querySelector('[data-deck-digestion-max-datapoints]')?.value || 400),
-                            lens: String(host.querySelector('[data-deck-digestion-lens]')?.value || '').trim(),
-                        };
+	                    const body = operation === 'build'
+	                        ? { rebuild: false }
+	                        : {
+	                            max_chunks: Number(host.querySelector('[data-deck-digestion-max-chunks]')?.value || 80),
+	                            max_datapoints: Number(host.querySelector('[data-deck-digestion-max-datapoints]')?.value || 400),
+	                            scope: String(host.querySelector('[data-deck-digestion-scope]')?.value || 'new') === 'all' ? 'all' : 'new',
+	                            lens: String(host.querySelector('[data-deck-digestion-lens]')?.value || '').trim(),
+	                        };
                     const data = await apiCall(endpoint, {
                         method: 'POST',
                         body: JSON.stringify(body),
@@ -19052,14 +19400,17 @@
                     if (statusEl) {
                         if (operation === 'build') {
                             statusEl.textContent = data.success === false ? 'Build completed with issues.' : 'Build complete.';
-                        } else {
-                            const count = Number(data.datapoint_count || 0);
-                            statusEl.textContent = `Datapoint extraction complete: ${count} record${count === 1 ? '' : 's'}.`;
+	                        } else {
+	                            const count = Number(data.datapoint_count || 0);
+	                            const newCount = Number(data.new_datapoint_count || 0);
+	                            statusEl.textContent = data.skipped && data.reason === 'no_new_chunks'
+	                                ? `No new documents needed extraction; ${count} existing record${count === 1 ? '' : 's'} kept.`
+	                                : `Datapoint extraction complete: ${newCount || count} new, ${count} total.`;
                             setDeckDigestionTuneStatus(
-                                host,
-                                `Applied to latest extraction: ${body.max_chunks} chunks, ${body.max_datapoints} datapoints${body.lens ? `, lens "${body.lens.slice(0, 80)}"` : ''}.`,
-                                'applied'
-                            );
+	                                host,
+	                                `Applied to latest extraction: ${body.scope === 'all' ? 'all indexed docs' : 'new docs only'}, ${body.max_chunks} chunks, ${body.max_datapoints} datapoints${body.lens ? `, lens "${body.lens.slice(0, 80)}"` : ''}.`,
+	                                'applied'
+	                            );
                         }
                     }
                     if (operation === 'build') {
@@ -19144,11 +19495,12 @@
 		                                            <small>Index, extraction, lens</small>
 	                                        </summary>
 	                                        <div class="deck-digestion-tune-body">
-		                                            <div class="deck-digestion-tune-grid">
-		                                                <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
-		                                                <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
-		                                                <label class="is-wide">Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
-		                                            </div>
+			                                            <div class="deck-digestion-tune-grid">
+			                                                <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
+			                                                <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
+			                                                <label>Scope <select data-deck-digestion-scope><option value="new" selected>New docs only</option><option value="all">All indexed docs</option></select></label>
+			                                                <label class="is-wide">Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
+			                                            </div>
 		                                            <div class="deck-digestion-actions">
 		                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="build"><i class="bi bi-hammer"></i> Build / refresh index</button>
 		                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="extract"><i class="bi bi-grid-3x3-gap"></i> Extract datapoints</button>
@@ -19309,10 +19661,13 @@
                     if (event.target.closest('[data-deck-digestion-chart-type]')) {
                         renderDeckDigestionChart(host);
                     }
-                    if (event.target.closest('[data-deck-digestion-mode]')) {
-                        renderDeckDigestionChart(host);
-                    }
-                });
+	                    if (event.target.closest('[data-deck-digestion-mode]')) {
+	                        renderDeckDigestionChart(host);
+	                    }
+	                    if (event.target.closest('[data-deck-digestion-scope]')) {
+	                        markDeckDigestionTunePending(host);
+	                    }
+	                });
                 host.addEventListener('keydown', (event) => {
                     if (event.key !== 'Enter' && event.key !== ' ') return;
                     const actionEl = closestDeckDigestionChartAction(event.target);

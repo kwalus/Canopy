@@ -227,6 +227,84 @@ class TestEvaluateFileAccessDenyByDefault(unittest.TestCase):
         self.assertTrue(result.evidences)
         self.assertTrue(result.evidences[0].can_view)
 
+    def test_agent_style_file_scheme_reference_allows_visible_channel_member(self):
+        """Agent-authored file:'F...' citations are content-scoped file evidence."""
+        file_id = 'F4532d53bca2f02f358b400e6'
+        result = evaluate_file_access(
+            db_manager=_make_db_manager(rows={
+                'channel_messages': [
+                    {
+                        'id': 'msg-agent-ref',
+                        'channel_id': 'research-channel',
+                        'attachments': '[]',
+                        'content': f"Survey PDF file:'{file_id}' is ready.",
+                        'privacy_mode': 'private',
+                        'channel_type': 'private',
+                    }
+                ],
+                'channel_members': [{'member': 1}],
+            }),
+            file_id=file_id,
+            viewer_user_id='member-user',
+            is_admin=False,
+        )
+
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.reason, 'channel-membership')
+        self.assertTrue(result.evidences)
+        self.assertEqual(result.evidences[0].source_type, 'channel_message')
+
+    def test_bare_quoted_file_id_reference_allows_visible_channel_member(self):
+        """Quoted F... ids in agent bibliographies are content-scoped file evidence."""
+        file_id = 'Fb1c4a29754754ac281a5c83c'
+        result = evaluate_file_access(
+            db_manager=_make_db_manager(rows={
+                'channel_messages': [
+                    {
+                        'id': 'msg-agent-index-ref',
+                        'channel_id': 'research-channel',
+                        'attachments': '[]',
+                        'content': f"CSV index: '{file_id}'",
+                        'privacy_mode': 'private',
+                        'channel_type': 'private',
+                    }
+                ],
+                'channel_members': [{'member': 1}],
+            }),
+            file_id=file_id,
+            viewer_user_id='member-user',
+            is_admin=False,
+        )
+
+        self.assertTrue(result.allowed)
+        self.assertEqual(result.reason, 'channel-membership')
+        self.assertTrue(result.evidences)
+        self.assertEqual(result.evidences[0].source_type, 'channel_message')
+
+    def test_bare_quoted_legacy_file_id_is_not_content_evidence(self):
+        """Looser quoted refs are constrained to generated F... Canopy ids."""
+        result = evaluate_file_access(
+            db_manager=_make_db_manager(rows={
+                'channel_messages': [
+                    {
+                        'id': 'msg-short-ref',
+                        'channel_id': 'research-channel',
+                        'attachments': '[]',
+                        'content': "This text mentions 'file1' but not as a /files link.",
+                        'privacy_mode': 'private',
+                        'channel_type': 'private',
+                    }
+                ],
+                'channel_members': [{'member': 1}],
+            }),
+            file_id='file1',
+            viewer_user_id='member-user',
+            is_admin=False,
+        )
+
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.reason, 'unreferenced')
+
     def test_explicit_vault_file_acl_grants_read_access(self):
         """Owner-managed Vault ACL grants access without requiring a parent post."""
         result = evaluate_file_access(

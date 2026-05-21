@@ -3969,6 +3969,7 @@
             let html = tmp.innerHTML;
             if (typeof linkifyMentions === 'function') html = linkifyMentions(html);
             if (typeof linkifyChannels === 'function') html = linkifyChannels(html);
+            if (typeof linkifyCanopyEntityRefs === 'function') html = linkifyCanopyEntityRefs(html);
             el.innerHTML = html;
             if (typeof renderMathInElementSafe === 'function') renderMathInElementSafe(el);
         });
@@ -4334,7 +4335,22 @@
     function renderOptimisticDmAttachments(attachments) {
         const items = Array.isArray(attachments) ? attachments : [];
         if (!items.length) return '';
-        return `<div class="dm-attachment-list">${items.map((attachment, index) => {
+        const collectionAttr = dmEscapeAttr(JSON.stringify(items));
+        const saveAll = items.length > 1 ? `
+            <div class="attachment-save-all-vault-bar">
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary attachment-save-all-vault-btn"
+                        data-vault-save-all-attachments
+                        data-vault-source-label="DM message attachments"
+                        title="Save all attachments from this DM to a new Vault folder">
+                    <i class="bi bi-folder-plus"></i> Save all to Vault
+                </button>
+            </div>
+        ` : '';
+        return `<div class="dm-attachment-list"
+                     data-vault-attachment-collection="${collectionAttr}"
+                     data-vault-source-type="dm_message"
+                     data-vault-source-label="DM message attachments">${saveAll}${items.map((attachment, index) => {
             const rawName = String((attachment && attachment.name) || 'Attachment');
             const name = escapeHtml(rawName);
             const url = String((attachment && attachment.url) || '').trim();

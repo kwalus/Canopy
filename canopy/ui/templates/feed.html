@@ -5528,6 +5528,9 @@
                 if (typeof linkifyChannels === 'function') {
                     html = linkifyChannels(html);
                 }
+                if (typeof linkifyCanopyEntityRefs === 'function') {
+                    html = linkifyCanopyEntityRefs(html);
+                }
                 // Post links: [post:POST_ID] → link to feed view
                 html = html.replace(/\[post:([A-Za-z0-9_-]+)\]/g, function(match, postId) {
                     return '<a href="/feed?post=' + encodeURIComponent(postId) + '" class="post-link" data-post-id="' + ('' + postId).replace(/"/g, '&quot;') + '" style="color:var(--canopy-primary,#22c55e);">View post</a>';

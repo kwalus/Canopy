@@ -12573,7 +12573,7 @@ function renderMessage(message, userInfo, isReply) {
                     ${(message.poll || displayContent) ? `<div data-canopy-source-ref="content:lede">${message.poll ? pollHtml : renderRichContent(displayContent)}</div>` : ''}
                     ${variantHtml}
                     ${repostHtml}
-                    ${message.attachments ? displayAttachments(message.attachments, message.source_layout) : ''}
+                    ${message.attachments ? displayAttachments(message.attachments, message.source_layout, message.id) : ''}
                     ${notesHtml}
                 </div>
                 
@@ -16859,8 +16859,9 @@ function shouldSplitChannelImageGridsForSourceLayout(sourceLayout, images) {
     return matched >= 2;
 }
 
-function displayAttachments(attachments, sourceLayout) {
+function displayAttachments(attachments, sourceLayout, sourceId = '') {
     if (!attachments || attachments.length === 0) return '';
+    const rawAttachments = Array.isArray(attachments) ? attachments : [];
 
     const extOf = (value) => {
         const raw = String(value || '').split('?')[0].split('#')[0];
@@ -17008,7 +17009,27 @@ function displayAttachments(attachments, sourceLayout) {
         }
     });
 
-    let html = '<div class="attachments mt-2">';
+    const collectionAttr = _escapeAttr(JSON.stringify(rawAttachments));
+    const sourceIdAttr = _escapeAttr(String(sourceId || ''));
+    const sourceLabel = sourceId ? `Channel message ${String(sourceId).slice(0, 8)}` : 'Channel message attachments';
+    let html = `<div class="attachments mt-2"
+                     data-vault-attachment-collection="${collectionAttr}"
+                     data-vault-source-type="channel_message"
+                     data-vault-source-id="${sourceIdAttr}"
+                     data-vault-source-label="${_escapeAttr(sourceLabel)}">`;
+    if (rawAttachments.length > 1) {
+        html += `
+            <div class="attachment-save-all-vault-bar">
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary attachment-save-all-vault-btn"
+                        data-vault-save-all-attachments
+                        data-vault-source-label="${_escapeAttr(sourceLabel)}"
+                        title="Save all attachments from this message to a new Vault folder">
+                    <i class="bi bi-folder-plus"></i> Save all to Vault
+                </button>
+            </div>
+        `;
+    }
 
     // Render stream cards with one-click watch/listen session join.
     streamCards.forEach((att, idx) => {

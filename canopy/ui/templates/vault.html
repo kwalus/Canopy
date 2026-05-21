@@ -327,6 +327,83 @@
         gap: 0.45rem;
         justify-content: flex-end;
     }
+    .vault-selection-digestion-target {
+        position: relative;
+        display: inline-flex;
+    }
+    .vault-selection-digestion-menu {
+        position: absolute;
+        top: calc(100% + 0.5rem);
+        right: 0;
+        z-index: 35;
+        width: min(26rem, calc(100vw - 2rem));
+        max-height: min(24rem, 70vh);
+        overflow: auto;
+        padding: 0.55rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+        border-radius: 16px;
+        background:
+            radial-gradient(circle at top right, color-mix(in srgb, var(--canopy-primary) 18%, transparent), transparent 45%),
+            var(--canopy-bg-card);
+        box-shadow: 0 24px 52px color-mix(in srgb, var(--canopy-shadow) 68%, transparent);
+    }
+    .vault-selection-digestion-menu[hidden] {
+        display: none;
+    }
+    .vault-selection-digestion-menu-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.65rem;
+        padding: 0.25rem 0.25rem 0.5rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+    }
+    .vault-selection-digestion-choice {
+        width: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.65rem;
+        margin-top: 0.4rem;
+        padding: 0.7rem 0.75rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 86%, transparent);
+        color: var(--canopy-text-primary);
+        text-align: left;
+    }
+    .vault-selection-digestion-choice:hover,
+    .vault-selection-digestion-choice:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-primary) 55%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 13%, var(--canopy-bg-card));
+    }
+    .vault-selection-digestion-choice strong,
+    .vault-selection-digestion-choice small {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .vault-selection-digestion-choice small {
+        color: var(--canopy-text-muted);
+        margin-top: 0.12rem;
+    }
+    .vault-selection-digestion-choice .badge {
+        justify-self: end;
+    }
+    .vault-selection-digestion-empty {
+        margin-top: 0.35rem;
+        padding: 0.7rem 0.75rem;
+        border: 1px dashed color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        border-radius: 14px;
+        color: var(--canopy-text-muted);
+        font-size: 0.85rem;
+        line-height: 1.35;
+    }
     .vault-card[data-vault-file-id],
     .vault-folder-card {
         cursor: pointer;
@@ -2204,6 +2281,20 @@
                 <button class="btn btn-sm btn-outline-primary" type="button" id="vault-selection-digest">
                     <i class="bi bi-diagram-3"></i> New Digestion
                 </button>
+                <div class="vault-selection-digestion-target" id="vault-selection-digestion-target">
+                    <button class="btn btn-sm btn-outline-primary"
+                            type="button"
+                            id="vault-selection-add-existing"
+                            aria-expanded="false"
+                            aria-controls="vault-selection-digestion-menu">
+                        <i class="bi bi-plus-circle"></i> Add to existing
+                    </button>
+                    <div class="vault-selection-digestion-menu"
+                         id="vault-selection-digestion-menu"
+                         role="menu"
+                         aria-label="Add selected Vault files to an existing Digestion"
+                         hidden></div>
+                </div>
                 <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-selection-clear">
                     Clear
                 </button>

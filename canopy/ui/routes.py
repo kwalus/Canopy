@@ -6855,7 +6855,7 @@ def create_ui_blueprint() -> Blueprint:
     @ui.route('/ajax/digestions/<digestion_id>/sources', methods=['POST'])
     @require_login
     def ajax_add_digestion_sources(digestion_id: str):
-        """Add current user's Vault files to an existing Digestion."""
+        """Add owner or manager-contributed Vault files to an existing Digestion."""
         manager = current_app.config.get('DIGESTION_MANAGER')
         if not manager:
             return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
@@ -6918,6 +6918,38 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error("Digestion UI add materials error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not add Digestion materials'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/contributions', methods=['POST'])
+    @require_login
+    def ajax_append_digestion_contributions(digestion_id: str):
+        """Append human/agent work product to a managed Digestion."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        contributions = data.get('contributions') or data.get('items') or data.get('contribution') or []
+        if isinstance(contributions, dict):
+            contributions = [contributions]
+        source_file_ids = data.get('source_file_ids') or data.get('file_ids') or data.get('file_id') or []
+        if isinstance(source_file_ids, str):
+            source_file_ids = [source_file_ids]
+        datapoints = data.get('datapoints') or data.get('structured_datapoints') or []
+        if isinstance(datapoints, dict):
+            datapoints = [datapoints]
+        try:
+            return jsonify(manager.append_contributions(
+                digestion_id,
+                get_current_user(),
+                contributions=contributions if isinstance(contributions, list) else [],
+                source_file_ids=source_file_ids if isinstance(source_file_ids, list) else [],
+                datapoints=datapoints if isinstance(datapoints, list) else [],
+                build_after=bool(data.get('build_after') or data.get('auto_build')),
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI append contributions error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not append Digestion contributions'}), 500
 
     @ui.route('/ajax/digestions/<digestion_id>/query', methods=['POST'])
     @require_login
@@ -7022,6 +7054,7 @@ def create_ui_blueprint() -> Blueprint:
                 max_chunks=_ajax_optional_int(max_chunks, minimum=1, maximum=240),
                 max_datapoints=_ajax_optional_int(max_datapoints, minimum=1, maximum=1200),
                 lens=str(data.get('lens') or data.get('focus') or ''),
+                extraction_scope=str(data.get('scope') or data.get('extraction_scope') or 'new'),
             ))
         except DigestionError as exc:
             return _ajax_digestion_error(exc)
@@ -7562,6 +7595,7 @@ def create_ui_blueprint() -> Blueprint:
                 return jsonify({'success': False, 'error': 'Invalid attachment payload'}), 400
 
             folder_id = str(data.get('folder_id') or attachment.get('folder_id') or '').strip()
+            duplicate_if_owned = _ui_as_bool(data.get('duplicate_if_owned') or attachment.get('duplicate_if_owned'))
             if folder_id and not file_manager.get_user_folder(user_id, folder_id):
                 return jsonify({'success': False, 'error': 'Folder not found'}), 404
 
@@ -7675,7 +7709,12 @@ def create_ui_blueprint() -> Blueprint:
             if not access.allowed:
                 return jsonify({'success': False, 'error': 'Access denied', 'reason': access.reason}), 403
 
-            saved = file_manager.copy_file_to_user_vault(file_id, user_id, vault_folder_id=folder_id)
+            saved = file_manager.copy_file_to_user_vault(
+                file_id,
+                user_id,
+                vault_folder_id=folder_id,
+                duplicate_if_owned=duplicate_if_owned,
+            )
             if not saved:
                 return jsonify({'success': False, 'error': 'Could not save attachment to Vault'}), 500
             return jsonify({

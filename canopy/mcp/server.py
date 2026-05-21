@@ -1134,6 +1134,45 @@ class CanopyMCPServer:
                     }
                 ),
                 Tool(
+                    name="canopy_digest_add_sources",
+                    description="Add existing Vault file IDs to a Digestion. Requires write_files and Digestion manage access. Manager-contributed files are copied into the Digestion owner's Vault for durable indexing.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "digestion_id": {"type": "string"},
+                            "source_file_ids": {"type": "array", "items": {"type": "string"}},
+                            "build_after": {"type": "boolean", "default": False}
+                        },
+                        "required": ["digestion_id", "source_file_ids"]
+                    }
+                ),
+                Tool(
+                    name="canopy_digest_append_contributions",
+                    description=(
+                        "Append durable agent/human work product to a managed Digestion. "
+                        "Inline notes/claims/references are normalized into owner-bound Vault sources, referenced file IDs can be added, and explicit structured datapoints are appended when source-metadata access is granted."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "digestion_id": {"type": "string"},
+                            "contributions": {
+                                "type": "array",
+                                "items": {"type": "object"},
+                                "description": "Items may include kind/type, title, content/text, summary, notes, claims, facts, connections, references, tags, source_file_ids, and datapoints."
+                            },
+                            "source_file_ids": {"type": "array", "items": {"type": "string"}},
+                            "datapoints": {
+                                "type": "array",
+                                "items": {"type": "object"},
+                                "description": "Optional normalized datapoints with subject, claim, materials, methods, measurements, numerical_results, quantitative_results, relationships, evidence, tags, and source metadata."
+                            },
+                            "build_after": {"type": "boolean", "default": False}
+                        },
+                        "required": ["digestion_id"]
+                    }
+                ),
+                Tool(
                     name="canopy_digest_query",
                     description="Query a Digestion and receive cited snippets from approved Vault sources. Requires read_files and Digestion query access. If this returns 403/query_denied, use canopy_digest_request_access for a formatted owner request.",
                     inputSchema={
@@ -1158,6 +1197,21 @@ class CanopyMCPServer:
                             "limit": {"type": "integer", "default": 25}
                         },
                         "required": ["digestion_id", "query"]
+                    }
+                ),
+                Tool(
+                    name="canopy_digest_datapoints_extract",
+                    description="Generate or incrementally extend LLM-normalized structured datapoints. Defaults to scope='new' so newly added sources are scanned without reprocessing the whole corpus; use scope='all' for a full refresh. Requires write_files, manage access, source-metadata access, and configured Digestion AI credentials.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "digestion_id": {"type": "string"},
+                            "lens": {"type": "string"},
+                            "max_chunks": {"type": "integer", "default": 80},
+                            "max_datapoints": {"type": "integer", "default": 400},
+                            "scope": {"type": "string", "enum": ["new", "all"], "default": "new"}
+                        },
+                        "required": ["digestion_id"]
                     }
                 ),
                 Tool(
@@ -1759,6 +1813,14 @@ class CanopyMCPServer:
                     if not self._check_permission(Permission.WRITE_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: write_files required")]
                     return await self._digest_build(arguments or {})
+                elif name == "canopy_digest_add_sources":
+                    if not self._check_permission(Permission.WRITE_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: write_files required")]
+                    return await self._digest_add_sources(arguments or {})
+                elif name == "canopy_digest_append_contributions":
+                    if not self._check_permission(Permission.WRITE_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: write_files required")]
+                    return await self._digest_append_contributions(arguments or {})
                 elif name == "canopy_digest_query":
                     if not self._check_permission(Permission.READ_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: read_files required")]
@@ -1767,6 +1829,10 @@ class CanopyMCPServer:
                     if not self._check_permission(Permission.READ_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: read_files required")]
                     return await self._digest_datapoints_search(arguments or {})
+                elif name == "canopy_digest_datapoints_extract":
+                    if not self._check_permission(Permission.WRITE_FILES):
+                        return [TextContent(type="text", text="Error: Permission denied: write_files required")]
+                    return await self._digest_datapoints_extract(arguments or {})
                 elif name == "canopy_digest_sources":
                     if not self._check_permission(Permission.READ_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: read_files required")]
@@ -4744,6 +4810,75 @@ class CanopyMCPServer:
         except Exception as e:
             raise Exception(f"Failed to build Digestion: {str(e)}")
 
+    async def _digest_add_sources(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Add existing Vault files to a managed Digestion."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
+        try:
+            from canopy.core.app import create_app
+
+            if not digestion_id:
+                return [TextContent(type="text", text="Error: digestion_id is required")]
+            source_file_ids = args.get("source_file_ids") or args.get("file_ids") or args.get("file_id") or []
+            if isinstance(source_file_ids, str):
+                source_file_ids = [source_file_ids]
+            if not isinstance(source_file_ids, list) or not source_file_ids:
+                return [TextContent(type="text", text="Error: source_file_ids is required")]
+            app = create_app()
+            with app.app_context():
+                manager = app.config.get('DIGESTION_MANAGER')
+                if not manager:
+                    return [TextContent(type="text", text="Error: Digestion manager unavailable")]
+                result = manager.add_sources(digestion_id, self.user_id, source_file_ids)
+                if _mcp_flag(args.get("build_after") or args.get("auto_build"), default=False):
+                    result["build_result"] = manager.build_digestion(digestion_id, self.user_id, rebuild=False)
+                return _mcp_json(result)
+        except DigestionError as exc:
+            return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
+        except Exception as e:
+            raise Exception(f"Failed to add Digestion sources: {str(e)}")
+
+    async def _digest_append_contributions(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Append agent/human work product to a managed Digestion."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
+        try:
+            from canopy.core.app import create_app
+
+            if not digestion_id:
+                return [TextContent(type="text", text="Error: digestion_id is required")]
+            contributions = args.get("contributions") or args.get("items") or args.get("contribution") or []
+            if isinstance(contributions, dict):
+                contributions = [contributions]
+            if not isinstance(contributions, list):
+                contributions = []
+            source_file_ids = args.get("source_file_ids") or args.get("file_ids") or args.get("file_id") or []
+            if isinstance(source_file_ids, str):
+                source_file_ids = [source_file_ids]
+            if not isinstance(source_file_ids, list):
+                source_file_ids = []
+            datapoints = args.get("datapoints") or args.get("structured_datapoints") or []
+            if isinstance(datapoints, dict):
+                datapoints = [datapoints]
+            if not isinstance(datapoints, list):
+                datapoints = []
+            app = create_app()
+            with app.app_context():
+                manager = app.config.get('DIGESTION_MANAGER')
+                if not manager:
+                    return [TextContent(type="text", text="Error: Digestion manager unavailable")]
+                result = manager.append_contributions(
+                    digestion_id,
+                    self.user_id,
+                    contributions=contributions,
+                    source_file_ids=source_file_ids,
+                    datapoints=datapoints,
+                    build_after=_mcp_flag(args.get("build_after") or args.get("auto_build"), default=False),
+                )
+                return _mcp_json(result)
+        except DigestionError as exc:
+            return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
+        except Exception as e:
+            raise Exception(f"Failed to append Digestion contributions: {str(e)}")
+
     async def _digest_query(self, args: Dict[str, Any]) -> List[TextContent]:
         """Query a Digestion."""
         digestion_id = str(args.get("digestion_id") or "").strip()
@@ -4800,6 +4935,33 @@ class CanopyMCPServer:
             return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
         except Exception as e:
             raise Exception(f"Failed to search Digestion datapoints: {str(e)}")
+
+    async def _digest_datapoints_extract(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Generate structured datapoints with incremental scope support."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
+        try:
+            from canopy.core.app import create_app
+
+            if not digestion_id:
+                return [TextContent(type="text", text="Error: digestion_id is required")]
+            app = create_app()
+            with app.app_context():
+                manager = app.config.get('DIGESTION_MANAGER')
+                if not manager:
+                    return [TextContent(type="text", text="Error: Digestion manager unavailable")]
+                result = manager.generate_structured_datapoints(
+                    digestion_id,
+                    self.user_id,
+                    max_chunks=_mcp_int(args.get("max_chunks"), 80, 1, 240) if args.get("max_chunks") is not None else None,
+                    max_datapoints=_mcp_int(args.get("max_datapoints"), 400, 1, 1200) if args.get("max_datapoints") is not None else None,
+                    lens=str(args.get("lens") or args.get("focus") or ""),
+                    extraction_scope=str(args.get("scope") or args.get("extraction_scope") or "new"),
+                )
+                return _mcp_json(result)
+        except DigestionError as exc:
+            return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
+        except Exception as e:
+            raise Exception(f"Failed to extract Digestion datapoints: {str(e)}")
 
     async def _digest_sources(self, args: Dict[str, Any]) -> List[TextContent]:
         """List source metadata for a Digestion."""
@@ -5218,12 +5380,13 @@ class CanopyMCPServer:
                     "rest": [
                         "GET /api/v1/digestions?include_sources=true",
                         "POST /api/v1/digestions with {name, source_file_ids, materials, provider, embedding_model}",
-                        "POST /api/v1/digestions/<digestion_id>/sources with {source_file_ids}",
+                        "POST /api/v1/digestions/<digestion_id>/sources with {source_file_ids}; managers can add their own Vault files, which are copied into the owner-bound corpus for durable indexing",
                         "POST /api/v1/digestions/<digestion_id>/materials with {materials:[{title, kind, source_uri, content}]}",
+                        "POST /api/v1/digestions/<digestion_id>/contributions with {contributions, source_file_ids, datapoints, build_after}; append agent work product, references, files, and optional structured datapoints to a managed Digestion",
                         "POST /api/v1/digestions/<digestion_id>/build",
                         "POST /api/v1/digestions/<digestion_id>/query with {query, top_k}",
                         "POST /api/v1/digestions/<digestion_id>/context with {query, top_k}",
-                        "POST /api/v1/digestions/<digestion_id>/datapoints/extract with {lens, max_chunks, max_datapoints}; requires source-metadata access and configured Canopy AI provider for LLM-normalized extraction",
+                        "POST /api/v1/digestions/<digestion_id>/datapoints/extract with {lens, max_chunks, max_datapoints, scope:'new'|'all'}; scope defaults to new docs only and requires source-metadata access plus configured Canopy AI provider for LLM-normalized extraction",
                         "POST /api/v1/digestions/<digestion_id>/datapoints/search with {query, limit}; searches extracted structured datapoints, not semantic chunks",
                         "GET /api/v1/digestions/<digestion_id>/figures?limit=120; lists extracted PDF figure previews, captions, page labels, and image_file_id values; requires source-metadata access",
                         "GET|POST /api/v1/digestions/<digestion_id>/outputs and POST /api/v1/digestions/<digestion_id>/outputs/<output_ref>/export",
@@ -5235,8 +5398,11 @@ class CanopyMCPServer:
                         "canopy_digest_list",
                         "canopy_digest_create",
                         "canopy_digest_build",
+                        "canopy_digest_add_sources",
+                        "canopy_digest_append_contributions",
                         "canopy_digest_query",
                         "canopy_digest_datapoints_search",
+                        "canopy_digest_datapoints_extract",
                         "canopy_digest_sources",
                         "canopy_digest_figures",
                         "canopy_digest_add_materials",
@@ -5244,7 +5410,7 @@ class CanopyMCPServer:
                         "canopy_digest_context",
                     ],
                     "privacy": "Source files, chunks, vectors, and extracted figure records remain local by default. OpenAI embedding builds send extracted chunks to the embedding provider; provider=local_hash is available for local testing but is not a high-quality semantic index.",
-                    "workflow": "create from Vault files/materials -> build -> query/context/figures -> cite file_name/page_label/snippet or figure caption in your answer -> generate/export reusable outputs when useful; report source errors instead of hiding them.",
+                    "workflow": "create from Vault files/materials or add sources to a managed Digestion -> build -> query/context/figures -> cite file_name/page_label/snippet or figure caption in your answer -> append useful agent work product with canopy_digest_append_contributions when you identify notes, claims, references, files, or explicit datapoints worth preserving -> extract datapoints with scope='new' after adding papers, or scope='all' after changing lens/model -> generate/export reusable outputs when useful; report source errors instead of hiding them.",
                 },
                 "tasks": "Create, list, and update tasks via MCP tools canopy_create_task, canopy_list_tasks, canopy_update_task, or REST API (POST/GET/PATCH /api/v1/tasks). Tasks have status (open/in_progress/blocked/done), priority (low/normal/high/critical), assignee, due date, and visibility (network/local).",
                 "objectives": "Objectives group tasks under a shared goal. Use MCP tools canopy_create_objective, canopy_list_objectives, canopy_get_objective, canopy_update_objective, and canopy_add_objective_task, or REST API /api/v1/objectives. Progress is computed from child task completion.",
@@ -5275,7 +5441,7 @@ class CanopyMCPServer:
                     "Attachments: use upload then attach; P2P sync only embeds files ≤10 MB.",
                     "Use only the REST API; do not write to the database or use /ajax/ with API keys.",
                 ],
-                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_vault_list, canopy_vault_read_file, canopy_vault_write_file, canopy_vault_update_file, canopy_vault_diff_file, canopy_vault_move_file, canopy_vault_create_folder, canopy_vault_delete_file, canopy_vault_save_attachment, canopy_digest_list, canopy_digest_create, canopy_digest_build, canopy_digest_query, canopy_digest_datapoints_search, canopy_digest_sources, canopy_digest_figures, canopy_digest_add_materials, canopy_digest_outputs, canopy_digest_context, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
+                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_vault_list, canopy_vault_read_file, canopy_vault_write_file, canopy_vault_update_file, canopy_vault_diff_file, canopy_vault_move_file, canopy_vault_create_folder, canopy_vault_delete_file, canopy_vault_save_attachment, canopy_digest_list, canopy_digest_create, canopy_digest_build, canopy_digest_add_sources, canopy_digest_append_contributions, canopy_digest_query, canopy_digest_datapoints_search, canopy_digest_datapoints_extract, canopy_digest_sources, canopy_digest_figures, canopy_digest_add_materials, canopy_digest_outputs, canopy_digest_context, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
                 "agent_directives": user_directives,
                 "agent_directives_source": directives_source,
             }

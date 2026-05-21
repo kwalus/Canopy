@@ -142,7 +142,22 @@
                                             {% if others.append(attachment) %}{% endif %}
                                         {% endif %}
                                     {% endfor %}
-                                    <div class="post-attachments mt-2">
+                                    <div class="post-attachments mt-2"
+                                         data-vault-attachment-collection="{{ post.metadata.attachments|tojson|forceescape }}"
+                                         data-vault-source-type="feed_post"
+                                         data-vault-source-id="{{ post.id }}"
+                                         data-vault-source-label="Feed post {{ post.id[:8] }}">
+                                        {% if post.metadata.attachments|length > 1 %}
+                                            <div class="attachment-save-all-vault-bar">
+                                                <button type="button"
+                                                        class="btn btn-sm btn-outline-secondary attachment-save-all-vault-btn"
+                                                        data-vault-save-all-attachments
+                                                        data-vault-source-label="Feed post {{ post.id[:8] }}"
+                                                        title="Save all attachments from this post to a new Vault folder">
+                                                    <i class="bi bi-folder-plus"></i> Save all to Vault
+                                                </button>
+                                            </div>
+                                        {% endif %}
                                         {% if images %}
                                             {{ render_image_gallery(images, 'feed-' ~ post.id, image_layout.value) }}
                                         {% endif %}

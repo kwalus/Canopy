@@ -126,7 +126,22 @@
                                 <div class="dm-bubble-copy dm-message-text" data-message-copy-text="1" data-canopy-source-ref="content:lede">{{ message.content }}</div>
                             {% endif %}
                             {% if message.attachments %}
-                                <div class="dm-attachment-list">
+                                <div class="dm-attachment-list"
+                                     data-vault-attachment-collection="{{ message.attachments|tojson|forceescape }}"
+                                     data-vault-source-type="dm_message"
+                                     data-vault-source-id="{{ message.id }}"
+                                     data-vault-source-label="DM message {{ message.id[:8] }}">
+                                    {% if message.attachments|length > 1 %}
+                                        <div class="attachment-save-all-vault-bar">
+                                            <button type="button"
+                                                    class="btn btn-sm btn-outline-secondary attachment-save-all-vault-btn"
+                                                    data-vault-save-all-attachments
+                                                    data-vault-source-label="DM message {{ message.id[:8] }}"
+                                                    title="Save all attachments from this DM to a new Vault folder">
+                                                <i class="bi bi-folder-plus"></i> Save all to Vault
+                                            </button>
+                                        </div>
+                                    {% endif %}
                                     {{ render_dm_attachments(message.attachments, message.id) }}
                                 </div>
                             {% endif %}

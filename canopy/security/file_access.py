@@ -7,6 +7,7 @@ respect channel membership, post visibility, and DM recipient constraints.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -44,8 +45,21 @@ class FileAccessResult:
 def _contains_file_reference(text: Optional[str], file_id: str) -> bool:
     if not text:
         return False
-    target = f"/files/{file_id}"
-    return target in str(text)
+    value = str(text)
+    escaped = re.escape(str(file_id or '').strip())
+    if not escaped:
+        return False
+
+    patterns = [rf"(?<![\w:/.-])/files/{escaped}(?=$|[\s)'\"<>,.;:!?#/])"]
+    # Agents often cite generated Vault files as file:'F...' or as quoted F...
+    # ids in research lists. Keep these looser forms constrained to generated
+    # Canopy file ids; legacy/custom ids still require explicit /files/<id>.
+    if re.match(r"^F[0-9A-Za-z_-]{6,}$", str(file_id or '').strip()):
+        patterns.extend([
+            rf"(?<![\w.-])file\s*:\s*['\"`]?{escaped}['\"`]?(?=$|[\s),.;:!?\]}}>])",
+            rf"(^|[\s(\[{{<])['\"`]{escaped}['\"`](?=$|[\s),.;:!?\]}}>])",
+        ])
+    return any(re.search(pattern, value, flags=re.IGNORECASE) for pattern in patterns)
 
 
 def _metadata_contains_file(metadata: Optional[Dict[str, Any]], file_id: str) -> bool:
@@ -303,7 +317,7 @@ def evaluate_file_access(
                 LEFT JOIN channels c ON c.id = m.channel_id
                 WHERE m.attachments LIKE ? OR m.content LIKE ?
                 """,
-                (f'%{file_id}%', f'%/files/{file_id}%')
+                (f'%{file_id}%', f'%{file_id}%')
             ).fetchall()
             for row in channel_rows:
                 attachments = _parse_json_blob(_row_value(row, 'attachments'), [])
@@ -351,7 +365,7 @@ def evaluate_file_access(
                 FROM feed_posts
                 WHERE metadata LIKE ? OR content LIKE ?
                 """,
-                (f'%{file_id}%', f'%/files/{file_id}%')
+                (f'%{file_id}%', f'%{file_id}%')
             ).fetchall()
             for row in feed_rows:
                 meta = _parse_json_blob(_row_value(row, 'metadata'), {})
@@ -383,7 +397,7 @@ def evaluate_file_access(
                 FROM messages
                 WHERE metadata LIKE ? OR content LIKE ?
                 """,
-                (f'%{file_id}%', f'%/files/{file_id}%')
+                (f'%{file_id}%', f'%{file_id}%')
             ).fetchall()
             for row in dm_rows:
                 meta = _parse_json_blob(_row_value(row, 'metadata'), {})
@@ -480,7 +494,7 @@ def evaluate_file_access_for_peer(
                 LEFT JOIN channels c ON c.id = m.channel_id
                 WHERE attachments LIKE ? OR content LIKE ?
                 """,
-                (f'%{file_id}%', f'%/files/{file_id}%')
+                (f'%{file_id}%', f'%{file_id}%')
             ).fetchall()
             for row in channel_rows:
                 attachments = _parse_json_blob(row['attachments'], [])
@@ -527,7 +541,7 @@ def evaluate_file_access_for_peer(
                 FROM feed_posts
                 WHERE metadata LIKE ? OR content LIKE ?
                 """,
-                (f'%{file_id}%', f'%/files/{file_id}%')
+                (f'%{file_id}%', f'%{file_id}%')
             ).fetchall()
             for row in feed_rows:
                 meta = _parse_json_blob(row['metadata'], {})
@@ -552,7 +566,7 @@ def evaluate_file_access_for_peer(
                 FROM messages
                 WHERE metadata LIKE ? OR content LIKE ?
                 """,
-                (f'%{file_id}%', f'%/files/{file_id}%')
+                (f'%{file_id}%', f'%{file_id}%')
             ).fetchall()
             for row in dm_rows:
                 meta = _parse_json_blob(row['metadata'], {})

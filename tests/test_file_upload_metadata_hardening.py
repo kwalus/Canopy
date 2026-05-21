@@ -398,6 +398,24 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
         self.assertEqual(moved.id, copied.id)
         self.assertEqual(moved.vault_folder_id, archived.id)
 
+        batch_folder = self.file_manager.create_user_folder('user-test', 'Saved Batch')
+        duplicated = self.file_manager.copy_file_to_user_vault(
+            copied.id,
+            'user-test',
+            vault_folder_id=batch_folder.id,
+            duplicate_if_owned=True,
+        )
+        self.assertIsNotNone(duplicated)
+        assert duplicated is not None
+        self.assertNotEqual(duplicated.id, copied.id)
+        self.assertEqual(duplicated.uploaded_by, 'user-test')
+        self.assertEqual(duplicated.vault_folder_id, batch_folder.id)
+        self.assertEqual(Path(duplicated.file_path).read_bytes(), b"shared attachment body")
+        original_after_duplicate = self.file_manager.get_file(copied.id)
+        self.assertIsNotNone(original_after_duplicate)
+        assert original_after_duplicate is not None
+        self.assertEqual(original_after_duplicate.vault_folder_id, archived.id)
+
     def test_replace_user_file_content_preserves_id_and_updates_bytes(self) -> None:
         original = self.file_manager.save_file(
             file_data=b"# Draft\n\nold body\n",

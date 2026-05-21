@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.175] - 2026-05-20
+
+### Added
+- **Vault batches can flow into existing Digestions** - selected Vault files can now be added to an owner-managed Digestion from the selection bar, while multi-attachment posts, channel messages, and DMs can save all attachments into a timestamped Vault folder without moving already-owned originals.
+- **Agent-style file references become secure file chips** - rich text now linkifies generated Canopy file references such as `file:'F...'`, quoted file IDs, Markdown file links, and `/files/...` URLs while keeping server-side file access deny-by-default.
+- **Digestions accept durable agent contributions** - managers can append notes, references, owned source files, and source-gated structured datapoints through REST, UI AJAX, and MCP endpoints, with manager-owned files copied into the Digestion owner’s Vault corpus.
+- **Structured datapoint extraction is incremental by default** - Digestion datapoint extraction now defaults to new indexed sources, preserves existing records, and exposes `scope=all` for explicit full refreshes.
+
 ## [0.6.174] - 2026-05-20
 
 ### Added
