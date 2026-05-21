@@ -587,6 +587,18 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('body.duplicate_if_owned = true', main_js)
         self.assertIn('function linkifyCanopyEntityRefs(html)', main_js)
         self.assertIn('canopy-file-ref', main_js)
+        self.assertIn('/file-ref/', main_js)
+        self.assertIn('/ajax/files/${encodeURIComponent(fileId)}/reference', main_js)
+        self.assertIn("window.openCanopyFileReference = openCanopyFileReference;", main_js)
+        self.assertIn("](/file-ref/${id})", main_js)
+        self.assertIn("f'[{name}](/file-ref/{file_id})'", ui_routes)
+        self.assertIn("f'[{name}](/file-ref/{file_id})'", api_routes)
+        self.assertIn("<a\\\\b[^>]*href=([", main_js)
+        self.assertIn("(?:files|file-ref)", main_js)
+        self.assertIn("status': 'access_denied'", ui_routes)
+        self.assertIn("}, 403", ui_routes)
+        self.assertIn("safeMessage = _escapeHtml", main_js)
+        self.assertIn("resolver(raw_path) if callable(resolver)", ui_routes)
         self.assertIn("if (typeof linkifyCanopyEntityRefs === 'function') html = linkifyCanopyEntityRefs(html);", messages_template)
         self.assertIn("if (typeof linkifyCanopyEntityRefs === 'function') {", feed_template)
         self.assertIn('.canopy-entity-link', base_template)
@@ -1091,8 +1103,7 @@ class TestFrontendRegressions(unittest.TestCase):
         mesh_detail_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshspace_detail.html').read_text(encoding='utf-8')
 
         self.assertIn('Connection Hint Preview', profile_template)
-        self.assertIn('Connection review model:', profile_template)
-        self.assertIn('device profile for the peer name and peer avatar', profile_template)
+        self.assertNotIn('Connection review model:', profile_template)
         self.assertIn('Node hint', profile_template)
 
         self.assertIn('peer identity shown during connection review', settings_template)
@@ -1470,10 +1481,23 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('New accounts start with inbox items only in the bell until you customize the filters.', base_template)
 
     def test_api_keys_template_surfaces_mesh_template_copy_for_agents(self) -> None:
-        template = (ROOT / 'canopy' / 'ui' / 'templates' / 'api_keys.html').read_text(encoding='utf-8')
+        template = (ROOT / 'canopy' / 'ui' / 'templates' / 'settings.html').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+        dashboard_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'dashboard.html').read_text(encoding='utf-8')
+        routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+        compatibility_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'api_keys.html').read_text(encoding='utf-8')
+        self.assertIn('Automation &amp; API Keys', template)
         self.assertIn('Mesh template:', template)
         self.assertIn("active mesh's default agent API template", template)
         self.assertIn('adjust the template from the Admin workspace', template)
+        self.assertIn("apiCall('/ajax/generate_key'", template)
+        self.assertIn("apiCall('/ajax/revoke_key'", template)
+        self.assertIn("return redirect(url_for('ui.settings') + '#api-keys')", routes)
+        self.assertNotIn('data-title="API Keys"', base_template)
+        self.assertIn('API Keys Moved to Settings', compatibility_template)
+        self.assertIn('Manage API Keys', dashboard_template)
+        self.assertIn("url_for('ui.settings') }}#api-keys", dashboard_template)
+        self.assertNotIn('generateKeyModal', dashboard_template)
 
     def test_admin_api_key_panel_uses_single_flight_generation(self) -> None:
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
@@ -2047,8 +2071,10 @@ console.log(JSON.stringify({{
         self.assertIn("window.openDeckInbox({ userId, groupId, targetMessageId, targetUrl: href });", main_js)
         self.assertIn("updateDeckInboxUnreadBadge(safeSummary.messages || 0);", main_js)
         self.assertIn("window.renderCanopyAttentionBell(filterCanopyAttentionItems(canopySidebarAttentionState.items));", main_js)
-        self.assertIn("saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);", main_js)
-        self.assertIn("saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);", main_js)
+        self.assertIn("const clearCursor = Math.max(", main_js)
+        self.assertIn("Number(data.workspace_event_cursor || data.cleared_through_seq || 0) || 0", main_js)
+        self.assertIn("saveCanopyAttentionDismissCursor(clearCursor);", main_js)
+        self.assertIn("saveCanopyAttentionSeenCursor(clearCursor);", main_js)
         self.assertIn("const canopySidebarPeerPollState = {", main_js)
         self.assertIn("setSidebarPeerPollingStatus(`Peer refresh degraded, retrying in ${retrySeconds}s`, true);", main_js)
         self.assertIn("if (!r.ok) {", main_js)
@@ -3390,11 +3416,12 @@ console.log(JSON.stringify({{
         self.assertIn("Switch to remove", channels_template)
         self.assertIn("Vote unchanged", channels_template)
 
-    def test_dashboard_flash_messages_null_check(self) -> None:
+    def test_dashboard_api_key_quick_action_delegates_to_settings(self) -> None:
         dashboard_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'dashboard.html').read_text(encoding='utf-8')
-        # Must guard against missing .flash-messages before injecting new API key alert
-        self.assertIn("if (flashContainer) flashContainer.innerHTML += keyAlert;", dashboard_template)
-        self.assertNotIn("document.querySelector('.flash-messages').innerHTML += keyAlert;", dashboard_template)
+        self.assertIn("href=\"{{ url_for('ui.settings') }}#api-keys\"", dashboard_template)
+        self.assertIn('Manage API Keys', dashboard_template)
+        self.assertNotIn('generateKeyModal', dashboard_template)
+        self.assertNotIn('keyAlert', dashboard_template)
 
     def test_meshspaces_templates_include_browser_compatibility_guards(self) -> None:
         meshes_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'meshes.html').read_text(encoding='utf-8')

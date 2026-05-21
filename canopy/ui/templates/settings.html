@@ -27,6 +27,24 @@
     row-gap: 0.75rem;
 }
 
+.settings-api-toolbar {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+}
+
+.settings-api-permission-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.5rem 0.85rem;
+}
+
+.settings-api-key-table code {
+    white-space: nowrap;
+}
+
 @media (max-width: 992px) {
     .settings-page-refresh {
         margin-left: auto;
@@ -457,6 +475,177 @@
     </div>
 </div>
 
+<!-- Automation & API Keys -->
+<div class="row mt-4" id="api-keys">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header settings-api-toolbar">
+                <div>
+                    <h5 class="mb-0">
+                        <i class="bi bi-key"></i> Automation &amp; API Keys
+                    </h5>
+                    <p class="text-muted small mb-0 mt-1">
+                        Manage your own programmatic access tokens without giving API Keys a separate workspace page.
+                    </p>
+                </div>
+                <button class="btn btn-success btn-sm" type="button" onclick="toggleGenerateKey()">
+                    <i class="bi bi-plus-circle"></i> Generate New Key
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info small mb-3">
+                    <i class="bi bi-shield-lock"></i>
+                    API keys act like passwords for scripts and agents. Store them securely and revoke unused keys.
+                </div>
+
+                <div class="card mb-3" id="generate-key-card" style="display:none;">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-key"></i> Generate New API Key</h6>
+                        <button type="button" class="btn-close" onclick="toggleGenerateKey()" aria-label="Close"></button>
+                    </div>
+                    <div class="card-body">
+                        <form id="generateKeyForm">
+                            <div class="mb-3">
+                                <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-2">
+                                    <div>
+                                        <h6 class="mb-1">Permissions</h6>
+                                        <p class="text-muted small mb-0">Select only the permissions this key needs.</p>
+                                    </div>
+                                    {% if is_agent_account %}
+                                    <span class="badge text-bg-secondary">Agent account</span>
+                                    {% endif %}
+                                </div>
+                                {% if is_agent_account %}
+                                <div class="alert alert-secondary py-2 px-3 mb-2 small">
+                                    <i class="bi bi-diagram-3"></i>
+                                    <strong>Mesh template:</strong>
+                                    Pre-selected permissions follow the active mesh's default agent API template{% if current_meshspace and current_meshspace.get('name') %} for <strong>{{ current_meshspace.get('name') }}</strong>{% endif %}.
+                                    You can customize them here, or adjust the template from the Admin workspace.
+                                </div>
+                                {% endif %}
+                                <div class="settings-api-permission-grid">
+                                    {% for permission in all_permissions %}
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox"
+                                               value="{{ permission.value }}"
+                                               id="settingsPerm{{ loop.index }}"
+                                               {% if permission in default_permissions %}checked{% endif %}>
+                                        <label class="form-check-label" for="settingsPerm{{ loop.index }}">
+                                            {{ permission.value.replace('_', ' ').title() }}
+                                        </label>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="row g-3 align-items-end">
+                                <div class="col-md-4">
+                                    <label for="keyExpiry" class="form-label">Expiration</label>
+                                    <input type="number" class="form-control" id="keyExpiry" min="1" max="365"
+                                           placeholder="Days, optional">
+                                    <div class="form-text">Leave empty for no automatic expiry.</div>
+                                </div>
+                                <div class="col-md-8">
+                                    <div class="alert alert-warning py-2 mb-0 small">
+                                        <i class="bi bi-exclamation-triangle"></i>
+                                        The generated key is shown only once.
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="d-flex gap-2 mt-3">
+                                <button type="button" class="btn btn-success btn-sm" onclick="generateApiKey()">
+                                    <i class="bi bi-key"></i> Generate Key
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleGenerateKey()">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card mb-3 border-success" id="key-result-card" style="display:none;">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="bi bi-check-circle text-success"></i> API Key Generated</h6>
+                        <button type="button" class="btn-close" onclick="dismissKeyResult()" aria-label="Close"></button>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-warning py-2 small">
+                            <strong>Save this key now.</strong> It will not be shown again.
+                        </div>
+                        <label class="form-label" for="generatedKey">New API Key</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="generatedKey" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="copyToClipboard()">
+                                <i class="bi bi-clipboard"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-responsive settings-api-key-table">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>Key ID</th>
+                                <th>Permissions</th>
+                                <th>Created</th>
+                                <th>Expires</th>
+                                <th>Status</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for key in keys %}
+                            <tr>
+                                <td><code>{{ key.id[:12] }}...</code></td>
+                                <td>
+                                    {% for permission in key.permissions %}
+                                    <span class="badge bg-secondary me-1 mb-1">{{ permission.value.replace('_', ' ').title() }}</span>
+                                    {% endfor %}
+                                </td>
+                                <td><small data-timestamp="{{ key.created_at }}">{{ key.created_at }}</small></td>
+                                <td>
+                                    {% if key.expires_at %}
+                                    <small data-timestamp="{{ key.expires_at }}">{{ key.expires_at }}</small>
+                                    {% else %}
+                                    <span class="text-muted">Never</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if key.revoked %}
+                                    <span class="badge bg-danger">Revoked</span>
+                                    {% elif key.expires_at and key.expires_at.replace(tzinfo=None) < now %}
+                                    <span class="badge bg-warning">Expired</span>
+                                    {% else %}
+                                    <span class="badge bg-success">Active</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    {% if not key.revoked %}
+                                    <button class="btn btn-outline-danger btn-sm" onclick="revokeKey('{{ key.id }}')">
+                                        <i class="bi bi-x-circle"></i> Revoke
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6">
+                                    <div class="text-center text-muted py-4">
+                                        <i class="bi bi-key fs-2 d-block mb-2"></i>
+                                        No API keys yet. Generate one when a script or agent needs programmatic access.
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row mt-4">
     <div class="col-12">
         <div class="card border-info">
@@ -562,6 +751,86 @@
         }
         const asciiMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
         return asciiMatch && asciiMatch[1] ? asciiMatch[1] : '';
+    }
+
+    function toggleGenerateKey() {
+        const card = document.getElementById('generate-key-card');
+        if (!card) return;
+        const isHidden = card.style.display === 'none';
+        card.style.display = isHidden ? 'block' : 'none';
+        if (isHidden) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function dismissKeyResult() {
+        const card = document.getElementById('key-result-card');
+        if (card) card.style.display = 'none';
+        window.location.reload();
+    }
+
+    function generateApiKey() {
+        const permissions = [];
+        document.querySelectorAll('#generate-key-card input[type="checkbox"]:checked').forEach((checkbox) => {
+            permissions.push(checkbox.value);
+        });
+
+        if (!permissions.length) {
+            showAlert('Please select at least one permission', 'warning');
+            return;
+        }
+
+        const expiryInput = document.getElementById('keyExpiry');
+        const expiryDays = expiryInput ? expiryInput.value : '';
+        apiCall('/ajax/generate_key', {
+            method: 'POST',
+            body: JSON.stringify({
+                permissions: permissions,
+                expires_days: expiryDays ? parseInt(expiryDays, 10) : null
+            })
+        })
+        .then((response) => {
+            const generatedKey = document.getElementById('generatedKey');
+            if (generatedKey) generatedKey.value = response.api_key || '';
+            const generateCard = document.getElementById('generate-key-card');
+            if (generateCard) generateCard.style.display = 'none';
+            const resultCard = document.getElementById('key-result-card');
+            if (resultCard) {
+                resultCard.style.display = 'block';
+                resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            const form = document.getElementById('generateKeyForm');
+            if (form) form.reset();
+        })
+        .catch((error) => {
+            showAlert(extractErrorMessage(error, 'Failed to generate API key'), 'danger');
+        });
+    }
+
+    function revokeKey(keyId) {
+        if (!confirm('Revoke this API key? Any scripts using it will immediately lose access.')) return;
+        apiCall('/ajax/revoke_key', {
+            method: 'POST',
+            body: JSON.stringify({ key_id: keyId })
+        })
+        .then(() => {
+            showAlert('API key revoked successfully', 'success');
+            window.location.reload();
+        })
+        .catch((error) => {
+            showAlert(extractErrorMessage(error, 'Failed to revoke API key'), 'danger');
+        });
+    }
+
+    function copyToClipboard() {
+        const keyInput = document.getElementById('generatedKey');
+        if (!keyInput) return;
+        keyInput.select();
+        keyInput.setSelectionRange(0, 99999);
+        navigator.clipboard.writeText(keyInput.value).then(() => {
+            showAlert('API key copied to clipboard', 'success');
+        }).catch(() => {
+            document.execCommand('copy');
+            showAlert('API key copied to clipboard', 'success');
+        });
     }
 
     function refreshSettings() {

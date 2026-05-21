@@ -367,6 +367,7 @@ class DigestionManager:
         """Add Vault files to a Digestion, copying manager-owned files into the owner-bound corpus."""
         actor_user_id = self._clean_id(owner_user_id)
         digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        digestion_owner_id = str(digestion.owner_user_id)
         unique_file_ids = []
         seen: set[str] = set()
         for raw_id in source_file_ids or []:
@@ -378,6 +379,7 @@ class DigestionManager:
         skipped: list[dict[str, str]] = []
         now = self._now()
         source_results: list[dict[str, Any]] = []
+        intake_folder_id: Optional[str] = None
         with self.db.get_connection() as conn:
             for file_id in unique_file_ids:
                 original_info = self.file_manager.get_file(file_id)
@@ -385,7 +387,7 @@ class DigestionManager:
                     skipped.append({"file_id": file_id, "reason": "not_found"})
                     continue
                 original_owner = str(original_info.uploaded_by or "")
-                if original_owner not in {actor_user_id, str(digestion.owner_user_id)}:
+                if original_owner not in {actor_user_id, digestion_owner_id}:
                     skipped.append({"file_id": file_id, "reason": "not_owned_by_actor_or_digestion_owner"})
                     continue
 
@@ -400,10 +402,54 @@ class DigestionManager:
                     existing_info = self.file_manager.get_file(existing_source_id)
                     if existing_info:
                         source_info = existing_info
-                elif original_owner != str(digestion.owner_user_id):
-                    copied_info = self.file_manager.copy_file_to_user_vault(original_info.id, str(digestion.owner_user_id))
+                elif original_owner != digestion_owner_id:
+                    source_path = self._resolved_source_file_path(original_info)
+                    if not source_path or not source_path.exists():
+                        skipped.append({
+                            "file_id": file_id,
+                            "reason": "source_file_unavailable_for_owner_copy",
+                            "source_owner_user_id": original_owner,
+                            "submitted_by": actor_user_id,
+                            "digestion_owner_user_id": digestion_owner_id,
+                            "hint": (
+                                "The file record is visible, but this node does not have the local bytes yet. "
+                                "Wait for transfer, re-upload the file here, or ask the owner to add an available Vault copy."
+                            ),
+                        })
+                        continue
+                    if intake_folder_id is None:
+                        intake_folder_id = self._digestion_intake_folder_id(digestion)
+                    if not intake_folder_id:
+                        skipped.append({
+                            "file_id": file_id,
+                            "reason": "intake_folder_unavailable",
+                            "source_owner_user_id": original_owner,
+                            "submitted_by": actor_user_id,
+                            "digestion_owner_user_id": digestion_owner_id,
+                            "hint": (
+                                "Manage access passed, but Canopy could not create the owner's Digestion Intake folder. "
+                                "Check Vault folder database permissions and retry."
+                            ),
+                        })
+                        continue
+                    copied_info = self.file_manager.copy_file_to_user_vault(
+                        original_info.id,
+                        digestion_owner_id,
+                        vault_folder_id=intake_folder_id,
+                        duplicate_if_owned=True,
+                    )
                     if not copied_info:
-                        skipped.append({"file_id": file_id, "reason": "copy_to_digestion_owner_failed"})
+                        skipped.append({
+                            "file_id": file_id,
+                            "reason": "copy_to_digestion_owner_failed",
+                            "source_owner_user_id": original_owner,
+                            "submitted_by": actor_user_id,
+                            "digestion_owner_user_id": digestion_owner_id,
+                            "hint": (
+                                "Manage access passed, but Canopy could not persist an owner-side Vault copy. "
+                                "Check local storage permissions and retry, or have the owner add the source directly."
+                            ),
+                        })
                         continue
                     source_info = copied_info
                     copied_to_owner = True
@@ -420,6 +466,8 @@ class DigestionManager:
                         "original_uploaded_by": original_owner,
                         "original_checksum": original_info.checksum,
                         "copied_to_owner_vault": True,
+                        "owner_intake_folder_id": intake_folder_id or source_info.vault_folder_id,
+                        "owner_intake_folder": self._digestion_intake_folder_name(digestion),
                     })
                 conn.execute(
                     """
@@ -462,6 +510,47 @@ class DigestionManager:
             conn.execute("UPDATE digestions SET status = ?, updated_at = ? WHERE id = ?", ("draft", now, digestion.id))
             conn.commit()
         return {"success": True, "added": added, "skipped": skipped, "digestion_id": digestion.id, "sources": source_results}
+
+    @staticmethod
+    def _safe_vault_folder_segment(value: Any, *, fallback: str, limit: int = 80) -> str:
+        clean = re.sub(r"[\r\n\t/\\]+", " ", str(value or "").strip())
+        clean = " ".join(clean.split()).strip(" .") or fallback
+        return clean[:limit].rstrip(" .") or fallback
+
+    def _find_or_create_vault_folder(self, user_id: str, name: str, parent_id: Optional[str] = None) -> Optional[str]:
+        parent_clean = str(parent_id or "").strip() or None
+        try:
+            for folder in self.file_manager.list_user_folders(user_id, parent_clean):
+                if str(folder.name or "").strip().lower() == str(name or "").strip().lower():
+                    return folder.id
+            return self.file_manager.create_user_folder(user_id, name, parent_clean).id
+        except Exception:
+            logger.warning("Could not create/find Vault folder %s for user %s", name, user_id, exc_info=True)
+            return None
+
+    def _resolved_source_file_path(self, file_info: FileInfo) -> Optional[Path]:
+        raw_path = str(getattr(file_info, "file_path", "") or "").strip()
+        if not raw_path:
+            return None
+        resolver = getattr(self.file_manager, "_resolve_file_disk_path", None)
+        try:
+            return resolver(raw_path) if callable(resolver) else Path(raw_path).expanduser()
+        except Exception:
+            logger.debug("Could not resolve Digestion source file path for %s", file_info.id, exc_info=True)
+            return Path(raw_path).expanduser()
+
+    def _digestion_intake_folder_name(self, digestion: Digestion) -> str:
+        label = self._safe_vault_folder_segment(digestion.name, fallback="Digestion", limit=64)
+        return self._safe_vault_folder_segment(f"{digestion.id} {label}", fallback=digestion.id, limit=120)
+
+    def _digestion_intake_folder_id(self, digestion: Digestion) -> Optional[str]:
+        owner_id = str(digestion.owner_user_id or "").strip()
+        if not owner_id:
+            return None
+        root_id = self._find_or_create_vault_folder(owner_id, "Digestion Intake")
+        if not root_id:
+            return None
+        return self._find_or_create_vault_folder(owner_id, self._digestion_intake_folder_name(digestion), root_id)
 
     def merge_sources_from_digestion(
         self,

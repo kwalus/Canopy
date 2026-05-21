@@ -150,11 +150,11 @@
                     </button>
                 </div>
                 
-                <!-- Generate API Key -->
+                <!-- Manage API Keys -->
                 <div class="mb-3">
-                    <button class="btn btn-success w-100" data-bs-toggle="modal" data-bs-target="#generateKeyModal">
-                        <i class="bi bi-key"></i> Generate API Key
-                    </button>
+                    <a class="btn btn-success w-100" href="{{ url_for('ui.settings') }}#api-keys">
+                        <i class="bi bi-key"></i> Manage API Keys
+                    </a>
                 </div>
                 
                 <!-- View Trust Network -->
@@ -320,49 +320,6 @@
     </div>
 </div>
 
-<!-- Generate API Key Modal -->
-<div class="modal fade" id="generateKeyModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">
-                    <i class="bi bi-key"></i> Generate API Key
-                </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="generateKeyForm">
-                    <div class="mb-3">
-                        <label class="form-label">Permissions</label>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="read_messages" id="permRead" checked>
-                            <label class="form-check-label" for="permRead">Read Messages</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="write_messages" id="permWrite" checked>
-                            <label class="form-check-label" for="permWrite">Write Messages</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" value="read_feed" id="permFeed" checked>
-                            <label class="form-check-label" for="permFeed">Read Feed</label>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="keyExpiry" class="form-label">Expires in (days, leave empty for permanent)</label>
-                        <input type="number" class="form-control" id="keyExpiry" min="1" max="365">
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" onclick="generateApiKey()">
-                    <i class="bi bi-key"></i> Generate Key
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
 {% endblock %}
 
 {% block extra_js %}
@@ -398,45 +355,6 @@
             showAlert(error.error || 'Failed to send message', 'danger');
         });
     }
-    
-    function generateApiKey() {
-        const permissions = [];
-        document.querySelectorAll('#generateKeyModal input[type="checkbox"]:checked').forEach(checkbox => {
-            permissions.push(checkbox.value);
-        });
-        
-        const expiryDays = document.getElementById('keyExpiry').value;
-        
-        apiCall('/ajax/generate_key', {
-            method: 'POST',
-            body: JSON.stringify({
-                permissions: permissions,
-                expires_days: expiryDays ? parseInt(expiryDays) : null
-            })
-        })
-        .then(response => {
-            showAlert('API key generated successfully!', 'success');
-            document.getElementById('generateKeyForm').reset();
-            bootstrap.Modal.getInstance(document.getElementById('generateKeyModal')).hide();
-            
-            // Show the generated key
-            const keyModal = new bootstrap.Modal(document.createElement('div'));
-            const keyAlert = `
-                <div class="alert alert-success alert-dismissible">
-                    <h6>Your new API Key:</h6>
-                    <code style="word-break: break-all;">${response.api_key}</code>
-                    <br><small class="text-muted mt-2 d-block">Save this key securely - it won't be shown again!</small>
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>
-            `;
-            const flashContainer = document.querySelector('.flash-messages');
-            if (flashContainer) flashContainer.innerHTML += keyAlert;
-        })
-        .catch(error => {
-            showAlert(error.error || 'Failed to generate API key', 'danger');
-        });
-    }
-    
     function formatTimestamp(timestamp) {
         if (typeof window.formatCanopyTimestamp === 'function') {
             return window.formatCanopyTimestamp(timestamp);

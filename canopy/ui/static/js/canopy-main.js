@@ -3241,18 +3241,29 @@
                         return null;
                     }
                     setDigestionDropBusy(digestionId, true);
+                    const skippedSummary = (skippedItems) => {
+                        const items = Array.isArray(skippedItems) ? skippedItems : [];
+                        const first = items.find(item => item && (item.hint || item.reason));
+                        if (!first) return '';
+                        const reason = String(first.reason || 'skipped').replace(/_/g, ' ');
+                        const hint = String(first.hint || '').trim();
+                        const suffix = items.length > 1 ? ` (${items.length} skipped)` : '';
+                        return hint ? `${hint}${suffix}` : `${reason}${suffix}`;
+                    };
                     try {
                         const result = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/sources`, {
                             method: 'POST',
                             body: JSON.stringify({ source_file_ids: ids })
                         });
                         const added = Number(result.added || 0);
-                        const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
+                        const skippedItems = Array.isArray(result.skipped) ? result.skipped : [];
+                        const skipped = skippedItems.length;
+                        const skippedDetail = skippedSummary(skippedItems);
                         if (typeof showAlert === 'function' && !(options && options.quiet)) {
                             if (added) {
-                                showAlert(`${added} source${added === 1 ? '' : 's'} added to Digestion${skipped ? `; ${skipped} skipped` : ''}. Rebuild when ready.`, skipped ? 'warning' : 'success');
+                                showAlert(`${added} source${added === 1 ? '' : 's'} added to Digestion${skipped ? `; ${skippedDetail || `${skipped} skipped`}` : ''}. Rebuild when ready.`, skipped ? 'warning' : 'success');
                             } else {
-                                showAlert(skipped ? "No sources were added; selected files may already be present or outside this Digestion owner's Vault." : 'No sources were added.', 'warning');
+                                showAlert(skipped ? (skippedDetail || "No sources were added; selected files may already be present or outside this Digestion owner's Vault.") : 'No sources were added.', 'warning');
                             }
                         }
                         await loadDigestions();
@@ -5713,7 +5724,7 @@
                     selectionCopy.addEventListener('click', async () => {
                         const links = selectedVaultFiles().map((file) => {
                             const id = vaultFileId(file);
-                            return file.markdown_link || `[${file.name || id}](/files/${id})`;
+                            return file.markdown_link || `[${file.name || id}](/file-ref/${id})`;
                         });
                         if (!links.length) return;
                         await copyText(links.join('\n'), 'Vault links');
@@ -6236,7 +6247,7 @@
                             const action = actionBtn.getAttribute('data-vault-action') || '';
                             if (!file) return;
                             if (action === 'copy') {
-                                await copyText(file.markdown_link || `[${file.name || id}](/files/${id})`, 'Vault link');
+                                await copyText(file.markdown_link || `[${file.name || id}](/file-ref/${id})`, 'Vault link');
                             } else if (action === 'share') {
                                 toggleVaultFileShare(id);
                             } else if (action === 'move-root') {
@@ -7730,6 +7741,7 @@
             ),
             inFlight: false,
             queued: false,
+            queuedForce: false,
             pollInFlight: false,
             pollHandle: null,
             safetyHandle: null,
@@ -7966,16 +7978,24 @@
         ];
 
         function requestCanopySidebarAttentionRefresh(options) {
+            const force = Boolean(options && options.force);
             if (canopySidebarAttentionState.inFlight) {
                 canopySidebarAttentionState.queued = true;
+                canopySidebarAttentionState.queuedForce = canopySidebarAttentionState.queuedForce || force;
                 return Promise.resolve({ queued: true });
             }
 
             canopySidebarAttentionState.inFlight = true;
             const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
             const endpoint = routes.sidebarAttentionSnapshot || '/ajax/sidebar_attention_snapshot';
+            const params = new URLSearchParams();
+            if (force) {
+                params.set('force', '1');
+                params.set('_', String(Date.now()));
+            }
+            const url = `${endpoint}${params.toString() ? `?${params.toString()}` : ''}`;
 
-            return fetch(endpoint, {
+            return fetch(url, {
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             })
                 .then((res) => {
@@ -7986,8 +8006,9 @@
                     if (!data || data.success === false) return data || null;
                     if (data.summary_rev) canopySidebarAttentionState.currentSummaryRev = String(data.summary_rev || '');
                     if (data.activity_rev) canopySidebarAttentionState.currentActivityRev = String(data.activity_rev || '');
-                    if (Number(data.workspace_event_cursor || 0) > Number(canopySidebarAttentionState.currentEventCursor || 0)) {
-                        canopySidebarAttentionState.currentEventCursor = Number(data.workspace_event_cursor || 0);
+                    const serverCursor = Math.max(0, Number(data.workspace_event_cursor || data.cleared_through_seq || 0) || 0);
+                    if (serverCursor > Number(canopySidebarAttentionState.currentEventCursor || 0)) {
+                        canopySidebarAttentionState.currentEventCursor = serverCursor;
                     }
                     const summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
                     canopySidebarAttentionState.summary = {
@@ -8021,9 +8042,11 @@
                 .finally(() => {
                     canopySidebarAttentionState.inFlight = false;
                     if (canopySidebarAttentionState.queued) {
+                        const queuedForce = Boolean(canopySidebarAttentionState.queuedForce);
                         canopySidebarAttentionState.queued = false;
+                        canopySidebarAttentionState.queuedForce = false;
                         window.setTimeout(() => {
-                            requestCanopySidebarAttentionRefresh({ force: false }).catch(() => {});
+                            requestCanopySidebarAttentionRefresh({ force: queuedForce }).catch(() => {});
                         }, 0);
                     }
                 });
@@ -11806,31 +11829,35 @@
                 if (!id) return '';
                 const safeId = _escapeHtml(id);
                 const safeLabel = _escapeHtml(label || ('file:' + shortCanopyEntityId(id)));
-                return '<a class="canopy-entity-link canopy-file-ref" href="/files/' + encodeURIComponent(id) + '" ' +
-                    'data-canopy-file-id="' + safeId + '" title="Open Canopy file ' + safeId + '">' +
+                return '<a class="canopy-entity-link canopy-file-ref" href="/file-ref/' + encodeURIComponent(id) + '" ' +
+                    'data-canopy-file-id="' + safeId + '" data-canopy-file-ref="1" title="Resolve Canopy file ' + safeId + '">' +
                     '<i class="bi bi-paperclip" aria-hidden="true"></i><span>' + safeLabel + '</span></a>';
             }
 
             function linkifyCanopyEntityRefs(html) {
                 const value = String(html || '');
-                if (!value || (!value.includes('/files/') && !/[`'"]F[A-Za-z0-9_-]{6,}[`'"]/.test(value) && !/file\s*:/.test(value))) {
+                if (!value || (!value.includes('/files/') && !value.includes('/file-ref/') && !/[`'"]F[A-Za-z0-9_-]{6,}[`'"]/.test(value) && !/file\s*:/.test(value))) {
                     return value;
                 }
+                const fileId = '(F[A-Za-z0-9_-]{6,})';
+                let working = value.replace(new RegExp('<a\\b[^>]*href=(["\\\'])(?:https?:\\/\\/[^"\\\']+)?\\/(?:files|file-ref)\\/' + fileId + '(?:[/?#][^"\\\']*)?\\1[^>]*>([\\s\\S]*?)<\\/a>', 'gi'), function(match, quote, id, labelHtml) {
+                    const textLabel = String(labelHtml || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+                    return canopyFileRefAnchor(id, textLabel || shortCanopyEntityId(id));
+                });
                 const protectedBlocks = [];
                 const placeholder = '\x00CANOPY_ENTITY_REF_';
-                let working = value.replace(/<a\b[\s\S]*?<\/a>|<img\b[^>]*>|<pre\b[\s\S]*?<\/pre>|<code\b[\s\S]*?<\/code>/gi, function(match) {
+                working = working.replace(/<a\b[\s\S]*?<\/a>|<img\b[^>]*>|<pre\b[\s\S]*?<\/pre>|<code\b[\s\S]*?<\/code>/gi, function(match) {
                     const index = protectedBlocks.length;
                     protectedBlocks.push(match);
                     return placeholder + index + '\x00';
                 });
-                const fileId = '(F[A-Za-z0-9_-]{6,})';
-                working = working.replace(new RegExp('\\[([^\\]]+)\\]\\(/files/' + fileId + '(?:[/?#][^)]*)?\\)', 'g'), function(match, text, id) {
+                working = working.replace(new RegExp('\\[([^\\]]+)\\]\\((?:https?:\\/\\/[^\\s)]+)?\\/(?:files|file-ref)\\/' + fileId + '(?:[/?#][^)]*)?\\)', 'g'), function(match, text, id) {
                     return canopyFileRefAnchor(id, text);
                 });
                 working = working.replace(new RegExp("(^|[\\s([{<>\"'`])file\\s*:\\s*(['\"`])?" + fileId + "\\2", 'gi'), function(match, prefix, quote, id) {
                     return (prefix || '') + canopyFileRefAnchor(id, 'file:' + shortCanopyEntityId(id));
                 });
-                working = working.replace(new RegExp("(^|[\\s([{<>\"'`])/files/" + fileId + "(?=$|[\\s)\\]}>\\'\",.;:!?#/])", 'g'), function(match, prefix, id) {
+                working = working.replace(new RegExp("(^|[\\s([{<>\"'`])(?:https?:\\/\\/[^\\s)]+)?\\/(?:files|file-ref)\\/" + fileId + "(?=$|[\\s)\\]}>\\'\",.;:!?#/])", 'g'), function(match, prefix, id) {
                     return (prefix || '') + canopyFileRefAnchor(id, shortCanopyEntityId(id));
                 });
                 working = working.replace(new RegExp("(^|[\\s([{<])(['\"`])" + fileId + "\\2(?=$|[\\s)\\]}>.,;:!?])", 'g'), function(match, prefix, quote, id) {
@@ -14810,14 +14837,15 @@
             }
 
             window.renderCanopyAttentionBell = function(items) {
-                const normalized = Array.isArray(items) ? items.filter(Boolean).slice(0, 12) : [];
+                const filtered = Array.isArray(items) ? items.filter(Boolean) : [];
+                const normalized = filtered.slice(0, 12);
                 if (!listEl) {
-                    setBadge(countUnseenCanopyAttentionItems(normalized));
+                    setBadge(countUnseenCanopyAttentionItems(filtered));
                     syncCanopyAttentionDocumentTitle();
                     return;
                 }
                 listEl.innerHTML = '';
-                setBadge(countUnseenCanopyAttentionItems(normalized));
+                setBadge(countUnseenCanopyAttentionItems(filtered));
                 syncCanopyAttentionDocumentTitle();
                 if (!normalized.length) {
                     if (emptyWrap) emptyWrap.style.display = 'block';
@@ -14937,11 +14965,32 @@
                         const data = await res.json();
                         if (!data || data.success === false) throw new Error('Sidebar attention clear failed');
                         canopySidebarAttentionState.items = [];
-                        saveCanopyAttentionDismissCursor(canopySidebarAttentionState.currentEventCursor);
-                        saveCanopyAttentionSeenCursor(canopySidebarAttentionState.currentEventCursor);
+                        const clearCursor = Math.max(
+                            Number(canopySidebarAttentionState.currentEventCursor || 0) || 0,
+                            Number(data.workspace_event_cursor || data.cleared_through_seq || 0) || 0
+                        );
+                        canopySidebarAttentionState.currentEventCursor = clearCursor;
+                        saveCanopyAttentionDismissCursor(clearCursor);
+                        saveCanopyAttentionSeenCursor(clearCursor);
+                        if (data.summary && typeof data.summary === 'object') {
+                            const summary = data.summary;
+                            canopySidebarAttentionState.summary = {
+                                messages: Math.max(0, Number(summary.messages || 0)),
+                                channels: Math.max(0, Number(summary.channels || 0)),
+                                feed: Math.max(0, Number(summary.feed || 0)),
+                                mention_count: Math.max(0, Number(summary.mention_count || 0)),
+                                pending_review_count: Math.max(0, Number(summary.pending_review_count || 0)),
+                                total: Math.max(0, Number(summary.total || 0)),
+                            };
+                            renderSidebarAttentionSummary(canopySidebarAttentionState.summary);
+                        }
+                        if (data.summary_rev) {
+                            canopySidebarAttentionState.currentSummaryRev = String(data.summary_rev || '');
+                        }
                         if (window.renderCanopyAttentionBell) {
                             window.renderCanopyAttentionBell([]);
                         }
+                        syncCanopyAttentionDocumentTitle([]);
                         requestCanopySidebarAttentionRefresh({ force: true }).catch(() => {});
                         if (window.requestCanopyMeshspaceSnapshotRefresh) {
                             window.requestCanopyMeshspaceSnapshotRefresh({ force: true });
@@ -23388,8 +23437,10 @@
             if (!fileOrUrl) return null;
             const raw = String(fileOrUrl).trim();
             if (!raw) return null;
-            if (!raw.includes('/')) return raw;
-            const match = raw.match(/\/files\/([^\/?#]+)/i);
+            const fileColon = raw.match(/^file\s*:\s*['"`]?(F[A-Za-z0-9_-]{6,})['"`]?$/i);
+            if (fileColon && fileColon[1]) return fileColon[1];
+            if (/^F[A-Za-z0-9_-]{6,}$/.test(raw)) return raw;
+            const match = raw.match(/\/(?:files|file-ref)\/([^\/?#]+)/i);
             if (!match || !match[1]) return null;
             try {
                 return decodeURIComponent(match[1]);
@@ -23398,7 +23449,38 @@
             }
         }
 
-        function openFileAccessInspector(fileOrUrl) {
+        function _renderFileReferenceActions(fileId, payload) {
+            const actions = document.getElementById('file-access-actions');
+            if (!actions) return;
+            const data = payload && typeof payload === 'object' ? payload : {};
+            const openUrl = String(data.open_url || data.download_url || '').trim();
+            const referenceUrl = String(data.reference_url || `/file-ref/${encodeURIComponent(fileId)}`).trim();
+            actions.innerHTML = `
+                ${openUrl ? `<a class="btn btn-primary btn-sm" href="${_escapeHtml(openUrl)}"><i class="bi bi-box-arrow-up-right"></i> Open file</a>` : ''}
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-copy-file-reference="${_escapeHtml(referenceUrl)}">
+                    <i class="bi bi-clipboard"></i> Copy reference
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-copy-file-reference="file:${_escapeHtml(fileId)}">
+                    <i class="bi bi-hash"></i> Copy ID
+                </button>
+            `;
+            actions.querySelectorAll('[data-copy-file-reference]').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    const text = btn.getAttribute('data-copy-file-reference') || '';
+                    if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                        if (typeof showAlert === 'function') showAlert('Clipboard copy is not available in this browser', 'warning');
+                        return;
+                    }
+                    navigator.clipboard.writeText(text).then(() => {
+                        if (typeof showAlert === 'function') showAlert('File reference copied', 'success');
+                    }).catch(() => {
+                        if (typeof showAlert === 'function') showAlert('Could not copy file reference', 'warning');
+                    });
+                });
+            });
+        }
+
+        function openFileAccessInspector(fileOrUrl, referencePayload) {
             const fileId = _extractFileIdFromInput(fileOrUrl);
             if (!fileId) {
                 if (typeof showAlert === 'function') showAlert('Invalid file reference', 'warning');
@@ -23413,6 +23495,7 @@
             document.getElementById('file-access-title').textContent = fileId;
             document.getElementById('file-access-summary').textContent = 'Checking access…';
             document.getElementById('file-access-evidence').innerHTML = '<div class="small text-muted">Loading evidence…</div>';
+            _renderFileReferenceActions(fileId, referencePayload || {});
             _fileAccessModal.show();
 
             fetch(`/ajax/files/${encodeURIComponent(fileId)}/access`)
@@ -23426,9 +23509,12 @@
                     const reason = access.reason || 'unknown';
                     const evidences = Array.isArray(access.evidence) ? access.evidence : [];
                     const summary = document.getElementById('file-access-summary');
+                    const refStatus = referencePayload && typeof referencePayload === 'object'
+                        ? String(referencePayload.message || referencePayload.status || '').trim()
+                        : '';
                     summary.innerHTML = `
                         <span class="badge ${allowed ? 'bg-success' : 'bg-danger'} me-2">${allowed ? 'Allowed' : 'Denied'}</span>
-                        <span class="text-muted">Reason: ${reason}</span>
+                        <span class="text-muted">Reason: ${_escapeHtml(reason)}${refStatus ? ' · ' + _escapeHtml(refStatus) : ''}</span>
                     `;
                     const evidenceEl = document.getElementById('file-access-evidence');
                     if (!evidences.length) {
@@ -23436,21 +23522,51 @@
                         return;
                     }
                     evidenceEl.innerHTML = evidences.map((ev) => `
-                        <div class="border rounded p-2 mb-2">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <strong>${ev.source_type || 'source'}</strong>
-                                <span class="badge ${ev.can_view ? 'bg-success' : 'bg-secondary'}">${ev.can_view ? 'visible' : 'hidden'}</span>
+                            <div class="border rounded p-2 mb-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <strong>${_escapeHtml(ev.source_type || 'source')}</strong>
+                                    <span class="badge ${ev.can_view ? 'bg-success' : 'bg-secondary'}">${ev.can_view ? 'visible' : 'hidden'}</span>
+                                </div>
+                                <div class="small text-muted">${_escapeHtml(ev.detail || '')}</div>
+                                <div class="small text-muted">ref: ${_escapeHtml(ev.source_id || '—')}</div>
                             </div>
-                            <div class="small text-muted">${ev.detail || ''}</div>
-                            <div class="small text-muted">ref: ${ev.source_id || '—'}</div>
-                        </div>
-                    `).join('');
+                        `).join('');
                 })
                 .catch((err) => {
+                    const safeMessage = _escapeHtml(err && err.message ? err.message : 'Could not inspect file access');
                     document.getElementById('file-access-summary').innerHTML =
-                        `<span class="badge bg-danger me-2">Error</span><span class="text-muted">${err.message || 'Could not inspect file access'}</span>`;
+                        `<span class="badge bg-danger me-2">Error</span><span class="text-muted">${safeMessage}</span>`;
                     document.getElementById('file-access-evidence').innerHTML =
                         '<div class="small text-muted">Try again after the file syncs.</div>';
+                });
+        }
+
+        function openCanopyFileReference(fileOrUrl, triggerEl) {
+            const fileId = _extractFileIdFromInput(fileOrUrl);
+            if (!fileId) {
+                if (typeof showAlert === 'function') showAlert('Invalid file reference', 'warning');
+                return Promise.resolve(false);
+            }
+            const el = triggerEl instanceof HTMLElement ? triggerEl : null;
+            if (el) el.classList.add('is-resolving');
+            return fetch(`/ajax/files/${encodeURIComponent(fileId)}/reference`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+                .then(async (response) => {
+                    const payload = await response.json().catch(() => ({}));
+                    if (response.ok && payload && payload.can_open && payload.open_url) {
+                        window.location.href = String(payload.open_url);
+                        return true;
+                    }
+                    openFileAccessInspector(fileId, payload);
+                    return false;
+                })
+                .catch((error) => {
+                    openFileAccessInspector(fileId, { message: error && error.message ? error.message : 'Could not resolve file reference' });
+                    return false;
+                })
+                .finally(() => {
+                    if (el) el.classList.remove('is-resolving');
                 });
         }
 
@@ -23505,8 +23621,16 @@
 
         if (typeof window !== 'undefined') {
             window.openFileAccessInspector = openFileAccessInspector;
+            window.openCanopyFileReference = openCanopyFileReference;
             window.requestRemoteAttachmentDownload = requestRemoteAttachmentDownload;
         }
+
+        document.addEventListener('click', function(event) {
+            const link = event.target && event.target.closest ? event.target.closest('a[data-canopy-file-ref="1"]') : null;
+            if (!link) return;
+            event.preventDefault();
+            openCanopyFileReference(link.getAttribute('data-canopy-file-id') || link.href, link);
+        });
 
         function applyWorkspaceOnboardingVisibility(root = document) {
             if (!root || !root.querySelectorAll) {

@@ -425,17 +425,6 @@
         </div>
     </div>
 
-    {% if is_instance_owner %}
-    <div class="alert alert-info border-0 shadow-sm">
-        <strong>Connection review model:</strong> Connect cards now use the device profile for the peer name and peer avatar,
-        while the mesh image/name come from the active mesh. This account profile remains your in-app user identity.
-    </div>
-    {% else %}
-    <div class="alert alert-secondary border-0 shadow-sm">
-        This account profile is for in-app identity. Connect cards and invite review now use the device profile for the peer identity instead.
-    </div>
-    {% endif %}
-
     <div class="row">
         <div class="col-lg-8">
             <!-- Profile Information Form -->

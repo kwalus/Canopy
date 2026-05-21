@@ -847,6 +847,10 @@
             --canopy-chip-caret: rgba(209, 250, 229, 0.82);
             --canopy-card-header-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 15, 26, 0.58));
             --canopy-card-body-bg: rgba(30, 41, 59, 0.52);
+            --canopy-popup-bg: color-mix(in srgb, var(--canopy-bg-card) 94%, var(--canopy-bg-primary) 6%);
+            --canopy-popup-border: color-mix(in srgb, var(--canopy-border) 72%, var(--canopy-primary) 28%);
+            --canopy-popup-shadow: 0 24px 64px color-mix(in srgb, var(--canopy-shadow) 68%, transparent);
+            --canopy-card-hover-border: color-mix(in srgb, var(--canopy-border-light) 72%, var(--canopy-primary) 28%);
             --canopy-mention-bg: rgba(34, 197, 94, 0.18);
             --canopy-mention-text: #bbf7d0;
             --canopy-mention-border: rgba(74, 222, 128, 0.28);
@@ -7503,6 +7507,11 @@
         }
         
         .card {
+            --bs-card-bg: var(--canopy-bg-card);
+            --bs-card-color: var(--canopy-text-secondary);
+            --bs-card-border-color: var(--canopy-border);
+            --bs-card-cap-bg: var(--canopy-card-header-bg);
+            --bs-card-cap-color: var(--canopy-text-primary);
             background: var(--canopy-bg-card) !important;
             border: 1px solid var(--canopy-border) !important;
             box-shadow: var(--canopy-surface-shadow-soft);
@@ -7516,7 +7525,7 @@
         .card:hover {
             transform: translateY(-2px);
             box-shadow: var(--canopy-surface-shadow-strong);
-            border-color: var(--canopy-border-light);
+            border-color: var(--canopy-card-hover-border) !important;
         }
         
         .card-header {
@@ -9163,10 +9172,10 @@
         
         /* Dropdown Styling */
         .dropdown-menu {
-            background: var(--canopy-bg-card);
-            border: 1px solid var(--canopy-border);
+            background: var(--canopy-popup-bg);
+            border: 1px solid var(--canopy-popup-border);
             border-radius: 12px;
-            box-shadow: var(--canopy-surface-shadow-soft);
+            box-shadow: var(--canopy-popup-shadow);
             backdrop-filter: blur(20px);
         }
         
@@ -13174,6 +13183,38 @@
             color: var(--canopy-channel-tag-text) !important;
         }
 
+        .canopy-entity-link.is-resolving {
+            opacity: 0.68;
+            pointer-events: none;
+        }
+
+        body :is(.dropdown-menu, .meshspace-switcher-menu, .notification-menu, .popover) {
+            background: var(--canopy-popup-bg) !important;
+            border-color: var(--canopy-popup-border) !important;
+            box-shadow: var(--canopy-popup-shadow) !important;
+            color: var(--canopy-text-primary) !important;
+        }
+
+        body :is(.stream-card, [data-canopy-module-card="1"], .attachment-item, .digestion-package-attachment) {
+            background: var(--canopy-surface-elevated) !important;
+            border-color: var(--canopy-surface-border-soft) !important;
+            color: var(--canopy-text-primary) !important;
+        }
+
+        body :is(.stream-card-title, .stream-card .card-title, .attachment-title) {
+            color: var(--canopy-text-primary) !important;
+        }
+
+        body :is(.stream-card-subtitle, .stream-meta-chip, .attachment-meta) {
+            color: var(--canopy-text-secondary) !important;
+        }
+
+        body :is(.stream-card-icon, .attachment-icon) {
+            background: var(--canopy-interactive-bg) !important;
+            border-color: var(--canopy-border) !important;
+            color: var(--canopy-primary-text) !important;
+        }
+
         html:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) body .notification-menu .notification-filter-chip.is-active {
             background: var(--canopy-mention-bg) !important;
             border-color: var(--canopy-mention-border) !important;
@@ -13593,13 +13634,6 @@
                             </span>
                         </a>
                         {% endif %}
-                        <a class="nav-link {% if request.endpoint == 'ui.api_keys' %}active{% endif %}" 
-                           href="{{ url_for('ui.api_keys') }}" data-title="API Keys">
-                            <span class="sidebar-nav-label">
-                                <i class="bi bi-key"></i>
-                                <span class="sidebar-nav-text">API Keys</span>
-                            </span>
-                        </a>
                         <a class="nav-link {% if request.endpoint == 'ui.trust_management' %}active{% endif %}" 
                            href="{{ url_for('ui.trust_management') }}" data-title="Trust Network">
                             <span class="sidebar-nav-label">
@@ -14349,16 +14383,27 @@
                 const state = {
                     rev: '',
                     inFlight: false,
+                    queued: false,
+                    queuedForce: false,
                     timerId: null,
                 };
 
                 async function refresh(force) {
-                    if (state.inFlight) return;
+                    force = Boolean(force);
+                    if (state.inFlight) {
+                        state.queued = true;
+                        state.queuedForce = state.queuedForce || force;
+                        return;
+                    }
                     if (document.hidden && !force) return;
                     state.inFlight = true;
                     try {
                         const params = new URLSearchParams();
                         if (state.rev) params.set('rev', state.rev);
+                        if (force) {
+                            params.set('force', '1');
+                            params.set('_', String(Date.now()));
+                        }
                         const res = await fetch(`${endpoint}?${params.toString()}`, {
                             headers: { 'X-Requested-With': 'XMLHttpRequest' }
                         });
@@ -14373,6 +14418,12 @@
                         console.warn('Canopy meshspace header sync failed:', error);
                     } finally {
                         state.inFlight = false;
+                        if (state.queued) {
+                            const queuedForce = Boolean(state.queuedForce);
+                            state.queued = false;
+                            state.queuedForce = false;
+                            window.setTimeout(function() { refresh(queuedForce); }, 0);
+                        }
                     }
                 }
 
@@ -14405,6 +14456,7 @@
                     <div class="small text-muted mb-1">File ID</div>
                     <div class="font-monospace small mb-3" id="file-access-title">—</div>
                     <div id="file-access-summary" class="mb-3"></div>
+                    <div id="file-access-actions" class="d-flex flex-wrap gap-2 mb-3"></div>
                     <div id="file-access-evidence"></div>
                 </div>
             </div>

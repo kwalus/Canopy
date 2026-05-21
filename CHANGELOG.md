@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.178] - 2026-05-21
+
+### Added
+- **API keys are consolidated into Settings** - user-owned API key creation, revocation, copy, and agent mesh-template guidance now live under `Settings -> Automation & API Keys`, with `/keys` retained as a compatibility redirect.
+- **Canopy file references resolve safely before opening** - rendered `file:F...`, quoted file IDs, Markdown file links, `/files/...`, `/file-ref/...`, and full Canopy file URLs now route through a resolver that checks local availability and access before opening or showing the File Access Inspector.
+
+### Fixed
+- **Notification clearing uses authoritative server state** - clearing the bell now acknowledges current-user mentions, returns a refreshed sidebar summary and cursor, invalidates meshspace attention caches, and forces meshspace badge refreshes so stale single badges are less likely to hang.
+- **Safe file-reference generation now uses resolver links by default** - Vault/API Markdown references now prefer `/file-ref/F...`, pre-rendered Markdown anchors are normalized to resolver chips, and local availability checks use FileManager path resolution before presenting an open action.
+- **Recovered patch review hardening** - file references no longer disclose file metadata to denied viewers, Digestion manager intake copies use FileManager path resolution and explicit folder-failure skips, Vault alerts surface skip diagnostics, and notification clearing handles larger mention batches.
+- **Theme surfaces stay consistent across cards and dropdowns** - restored popup/card hover theme tokens, hardened dropdown/module/card surfaces for light and liquid-glass themes, tightened admin card overrides, and removed stale profile connection-review guidance.
+- **Dashboard API-key shortcuts no longer bypass Settings** - the dashboard quick action now routes users to `Settings -> Automation & API Keys` instead of keeping a second, minimal key generator.
+- **Recovered the 0.6.178 patch batch after partial loss** - verified the Digestion manager intake/agent handoff work was already present and restored the missing theme, API-key relocation, notification, and safe-file-reference layers.
+
 ## [0.6.177] - 2026-05-20
 
 ### Added

@@ -659,7 +659,7 @@ def _api_vault_file_entry(file_info: Any) -> dict[str, Any]:
         'folder_id': folder_id,
         'vault_folder_id': folder_id,
         'source': 'vault',
-        'markdown_link': f'[{name}](/files/{file_id})',
+        'markdown_link': f'[{name}](/file-ref/{file_id})',
         'attachment': attachment,
     }
 
@@ -11166,6 +11166,12 @@ def create_api_blueprint() -> Blueprint:
                 g.api_key_info.user_id,
                 source_file_ids if isinstance(source_file_ids, list) else [],
             )
+            if _as_bool(data.get('build_after') or data.get('auto_build')):
+                result['build_result'] = manager.build_digestion(
+                    digestion_id,
+                    g.api_key_info.user_id,
+                    rebuild=False,
+                )
             return jsonify(result)
         except DigestionError as exc:
             return _api_digestion_error(exc)
@@ -11248,7 +11254,7 @@ def create_api_blueprint() -> Blueprint:
                 contributions=contributions if isinstance(contributions, list) else [],
                 source_file_ids=source_file_ids if isinstance(source_file_ids, list) else [],
                 datapoints=datapoints if isinstance(datapoints, list) else [],
-                build_after=bool(data.get('build_after') or data.get('auto_build')),
+                build_after=_as_bool(data.get('build_after') or data.get('auto_build')),
             )
             return jsonify(result)
         except DigestionError as exc:

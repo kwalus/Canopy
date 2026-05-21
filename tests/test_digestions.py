@@ -1090,6 +1090,67 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(build['success'])
         self.assertGreaterEqual(build['chunk_count'], 1)
 
+    def test_manager_added_vault_sources_use_file_manager_path_resolver(self) -> None:
+        manager_file = self._save_text(
+            'resolver-owned-paper.txt',
+            'A delegated source has bytes available only after FileManager path resolution.',
+            owner='reader-user',
+        )
+        actual_path = Path(manager_file.file_path)
+        self.conn.execute(
+            "UPDATE files SET file_path = ? WHERE id = ?",
+            ('legacy/storage/path.txt', manager_file.id),
+        )
+        self.conn.commit()
+        original_resolver = self.file_manager._resolve_file_disk_path
+        self.file_manager._resolve_file_disk_path = lambda raw_path: actual_path if raw_path == 'legacy/storage/path.txt' else original_resolver(raw_path)  # type: ignore[method-assign]
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Resolver-backed source',
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+
+        added = self.digestion_manager.add_sources(digestion['id'], 'reader-user', [manager_file.id])
+
+        self.assertTrue(added['success'])
+        self.assertEqual(added['added'], 1)
+        self.assertEqual(added['skipped'], [])
+
+    def test_manager_added_vault_sources_skip_when_intake_folder_unavailable(self) -> None:
+        manager_file = self._save_text(
+            'intake-folder-failure.txt',
+            'A delegated source should not fall back to the Vault root when intake folders fail.',
+            owner='reader-user',
+        )
+        self.file_manager.create_user_folder = MagicMock(side_effect=RuntimeError('folder db unavailable'))  # type: ignore[method-assign]
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Unavailable intake folder',
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+
+        added = self.digestion_manager.add_sources(digestion['id'], 'reader-user', [manager_file.id])
+
+        self.assertTrue(added['success'])
+        self.assertEqual(added['added'], 0)
+        self.assertEqual(added['skipped'][0]['reason'], 'intake_folder_unavailable')
+
     def test_manager_can_append_agent_contributions_files_and_structured_datapoints(self) -> None:
         manager_file = self._save_text(
             'agent-derived-table.csv',

@@ -355,6 +355,29 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         self.assertEqual(items[1].get('avatar_url'), '/files/avatar-peer-a')
         self.assertGreater(items[1].get('seq') or 0, 0)
 
+    def test_sidebar_attention_snapshot_returns_more_than_visible_bell_items_for_badge_count(self) -> None:
+        for index in range(20):
+            self.workspace_events.emit_event(
+                event_type=EVENT_MENTION_CREATED,
+                actor_user_id='peer-a',
+                target_user_id='owner',
+                channel_id='chan-2',
+                message_id=f'msg-many-{index}',
+                visibility_scope='user',
+                dedupe_key=f'mention:many:{index}',
+                created_at=f'2026-03-16T10:{index:02d}:00+00:00',
+                payload={
+                    'source_type': 'channel_message',
+                    'source_id': f'msg-many-{index}',
+                    'preview': f'Mention {index}',
+                },
+            )
+
+        response = self.client.get('/ajax/sidebar_attention_snapshot')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertGreater(len(payload.get('items') or []), 12)
+
     def test_sidebar_attention_snapshot_links_group_dm_events_to_group_thread(self) -> None:
         self.workspace_events.emit_event(
             event_type=EVENT_DM_MESSAGE_CREATED,
@@ -533,7 +556,36 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertTrue(payload.get('success'))
         self.assertEqual(int(payload.get('acknowledged_mentions') or 0), 1)
+        self.assertIsInstance(payload.get('summary'), dict)
+        self.assertEqual(int((payload.get('summary') or {}).get('mention_count') or 0), 0)
+        self.assertIsInstance(payload.get('summary_rev'), str)
+        self.assertIsInstance(payload.get('workspace_event_cursor'), int)
+        self.assertEqual(payload.get('workspace_event_cursor'), payload.get('cleared_through_seq'))
 
+        after = (self.client.get('/ajax/sidebar_attention_summary').get_json() or {}).get('summary') or {}
+        self.assertEqual(after.get('mention_count'), 0)
+
+    def test_sidebar_attention_clear_acknowledges_more_than_first_mention_page(self) -> None:
+        self.conn.executemany(
+            """
+            INSERT INTO mention_events (id, user_id, source_type, source_id, author_id, preview, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'new')
+            """,
+            [
+                (f'sid-bulk-clear-{index}', 'owner', 'channel_message', f'msg-bulk-clear-{index}', 'peer-a', 'Bulk clear')
+                for index in range(205)
+            ],
+        )
+        self.conn.commit()
+
+        response = self.client.post(
+            '/ajax/sidebar_attention_clear',
+            headers={'X-CSRFToken': 'csrf-sidebar'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual(int(payload.get('acknowledged_mentions') or 0), 205)
         after = (self.client.get('/ajax/sidebar_attention_summary').get_json() or {}).get('summary') or {}
         self.assertEqual(after.get('mention_count'), 0)
 

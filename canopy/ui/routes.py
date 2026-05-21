@@ -670,6 +670,23 @@ def _refresh_current_meshspace_shell_summary(user_id: Optional[str] = None) -> N
         )
 
 
+def _invalidate_meshspace_attention_caches(meshspace_id: Optional[str] = None) -> None:
+    """Drop viewer-attention caches after a user explicitly clears attention."""
+    try:
+        if hasattr(g, '_meshspace_viewer_attention_cache'):
+            g._meshspace_viewer_attention_cache = {}  # type: ignore[attr-defined]
+        if hasattr(g, '_current_session_meshspace_attention_cache'):
+            g._current_session_meshspace_attention_cache = {}  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    try:
+        # Cache keys are hashed with the meshspace/session tuple, so clear the
+        # small process cache rather than risk leaving a stale badge behind.
+        current_app.config.setdefault('MESHSPACE_VIEWER_ATTENTION_CACHE', {}).clear()
+    except Exception:
+        pass
+
+
 def _shell_message_unread_count(db_manager: Any, user_id: str) -> int:
     if not db_manager or not user_id:
         return 0
@@ -816,7 +833,7 @@ def _apply_current_session_meshspace_attention(item: dict[str, Any]) -> dict[str
     return _apply_meshspace_attention_overlay(item, _current_session_meshspace_attention())
 
 
-def _meshspace_viewer_attention(record: dict[str, Any]) -> Optional[dict[str, int]]:
+def _meshspace_viewer_attention(record: dict[str, Any], *, force: bool = False) -> Optional[dict[str, int]]:
     """Fetch viewer-specific counts from another live mesh using its own session cookie."""
     if not _session_is_authenticated():
         return None
@@ -842,7 +859,7 @@ def _meshspace_viewer_attention(record: dict[str, Any]) -> Optional[dict[str, in
     if req_cache is None:
         req_cache = {}
         g._meshspace_viewer_attention_cache = req_cache  # type: ignore[attr-defined]
-    if cache_key in req_cache:
+    if not force and cache_key in req_cache:
         cached_value = req_cache[cache_key]
         return dict(cached_value) if isinstance(cached_value, dict) else None
 
@@ -850,7 +867,7 @@ def _meshspace_viewer_attention(record: dict[str, Any]) -> Optional[dict[str, in
     now = time.time()
     cached = cache.get(cache_key)
     entry_ttl = float(cached.get('backoff_ttl') or _VIEWER_ATTENTION_BASE_TTL) if cached else _VIEWER_ATTENTION_BASE_TTL
-    if cached and (now - float(cached.get('at') or 0)) < entry_ttl:
+    if not force and cached and (now - float(cached.get('at') or 0)) < entry_ttl:
         value = cached.get('value')
         req_cache[cache_key] = dict(value) if isinstance(value, dict) else None
         return dict(value) if isinstance(value, dict) else None
@@ -900,7 +917,7 @@ def _meshspace_viewer_attention(record: dict[str, Any]) -> Optional[dict[str, in
     return dict(value) if isinstance(value, dict) else None
 
 
-def _apply_other_mesh_viewer_attention(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _apply_other_mesh_viewer_attention(items: list[dict[str, Any]], *, force: bool = False) -> list[dict[str, Any]]:
     """Overlay viewer-specific counts for other live meshes at render time only."""
     if not _session_is_authenticated():
         return items
@@ -911,7 +928,7 @@ def _apply_other_mesh_viewer_attention(items: list[dict[str, Any]]) -> list[dict
             continue
         if item.get('port_overlap_warning'):
             continue
-        attention = _meshspace_viewer_attention(item)
+        attention = _meshspace_viewer_attention(item, force=force)
         if attention:
             _apply_meshspace_attention_overlay(item, attention)
     return items
@@ -2147,7 +2164,7 @@ def create_ui_blueprint() -> Blueprint:
             'category': category,
             'source': 'vault',
             'digest_status': 'not_indexed',
-            'markdown_link': f'[{name}](/files/{file_id})',
+            'markdown_link': f'[{name}](/file-ref/{file_id})',
             'attachment': {
                 'id': file_id,
                 'name': name,
@@ -2276,10 +2293,10 @@ def create_ui_blueprint() -> Blueprint:
 
     _VAULT_FILE_ID_PATTERN = re.compile(r"^F[0-9A-Za-z_-]{6,}$")
     _VAULT_MARKDOWN_LINK_PATTERN = re.compile(
-        r"\[([^\]\n]{0,180})\]\((?:https?://[^)\s]+)?/files/(F[0-9A-Za-z_-]{6,})(?:[/?#][^)]*)?\)"
+        r"\[([^\]\n]{0,180})\]\((?:https?://[^)\s]+)?/(?:files|file-ref)/(F[0-9A-Za-z_-]{6,})(?:[/?#][^)]*)?\)"
     )
     _VAULT_RAW_LINK_PATTERN = re.compile(
-        r"(?:^|[\s(<])(?:https?://[^\s)<>]+)?/files/(F[0-9A-Za-z_-]{6,})(?:[/?#][^\s)<>]*)?"
+        r"(?:^|[\s(<])(?:https?://[^\s)<>]+)?/(?:files|file-ref)/(F[0-9A-Za-z_-]{6,})(?:[/?#][^\s)<>]*)?"
     )
 
     def _composer_attachment_ref_id(attachment: Any) -> str:
@@ -4547,7 +4564,7 @@ def create_ui_blueprint() -> Blueprint:
         workspace_event_manager: Any,
         user_id: str,
         *,
-        item_limit: int = 12,
+        item_limit: int = 80,
     ) -> dict[str, Any]:
         summary_snapshot = _build_sidebar_attention_summary(
             db_manager,
@@ -4608,7 +4625,7 @@ def create_ui_blueprint() -> Blueprint:
                     int(entry.get('priority') or 0),
                 ),
                 reverse=True,
-            )[: max(1, int(item_limit or 12))]
+            )[: max(1, min(int(item_limit or 80), 120))]
         return {
             'summary': summary_snapshot['summary'],
             'summary_rev': summary_snapshot['rev'],
@@ -5675,7 +5692,7 @@ def create_ui_blueprint() -> Blueprint:
             advanced_action = {
                 'label': 'Generate API key',
                 'kind': 'link',
-                'href': url_for('ui.api_keys'),
+                'href': url_for('ui.settings') + '#api-keys',
             }
 
         return {
@@ -6864,11 +6881,18 @@ def create_ui_blueprint() -> Blueprint:
         if isinstance(source_file_ids, str):
             source_file_ids = [source_file_ids]
         try:
-            return jsonify(manager.add_sources(
+            result = manager.add_sources(
                 digestion_id,
                 get_current_user(),
                 source_file_ids if isinstance(source_file_ids, list) else [],
-            ))
+            )
+            if _ui_as_bool(data.get('build_after') or data.get('auto_build')):
+                result['build_result'] = manager.build_digestion(
+                    digestion_id,
+                    get_current_user(),
+                    rebuild=False,
+                )
+            return jsonify(result)
         except DigestionError as exc:
             return _ajax_digestion_error(exc)
         except Exception as e:
@@ -6943,7 +6967,7 @@ def create_ui_blueprint() -> Blueprint:
                 contributions=contributions if isinstance(contributions, list) else [],
                 source_file_ids=source_file_ids if isinstance(source_file_ids, list) else [],
                 datapoints=datapoints if isinstance(datapoints, list) else [],
-                build_after=bool(data.get('build_after') or data.get('auto_build')),
+                build_after=_ui_as_bool(data.get('build_after') or data.get('auto_build')),
             ))
         except DigestionError as exc:
             return _ajax_digestion_error(exc)
@@ -7949,41 +7973,8 @@ def create_ui_blueprint() -> Blueprint:
     @ui.route('/keys')
     @require_login
     def api_keys():
-        """API key management interface."""
-        try:
-            db_manager, api_key_manager, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
-            user_id = get_current_user()
-            
-            # Get user's API keys
-            keys = api_key_manager.list_keys(user_id) or []
-            
-            # Get available permissions
-            all_permissions = api_key_manager.get_all_permissions()
-            user = db_manager.get_user(user_id) if db_manager else None
-            is_agent_account = ((user or {}).get('account_type') or 'human') == 'agent'
-            if is_agent_account:
-                default_permission_values = _current_meshspace_default_agent_permissions()
-            else:
-                default_permission_values = [permission.value for permission in api_key_manager.get_default_permissions()]
-            default_permissions = [Permission(value) for value in default_permission_values]
-            
-            # Get current time for expiration checks
-            from datetime import datetime
-            now = datetime.now()
-            
-            return render_template('api_keys.html',
-                                 keys=keys,
-                                 all_permissions=all_permissions,
-                                 default_permissions=default_permissions,
-                                 is_agent_account=is_agent_account,
-                                 current_meshspace=_current_meshspace_record(),
-                                 user_id=user_id,
-                                 now=now)
-                                 
-        except Exception as e:
-            logger.error(f"API keys error: {e}")
-            flash('Error loading API keys', 'error')
-            return render_template('error.html', error=str(e))
+        """Compatibility redirect; API keys now live under Settings."""
+        return redirect(url_for('ui.settings') + '#api-keys')
     
     # Trust management
     @ui.route('/trust')
@@ -9891,7 +9882,7 @@ def create_ui_blueprint() -> Blueprint:
     def settings():
         """Application settings and configuration."""
         try:
-            db_manager, _, _, _, _, _, _, _, profile_manager, config, _ = _get_app_components_any(current_app)
+            db_manager, api_key_manager, _, _, _, _, _, _, profile_manager, config, _ = _get_app_components_any(current_app)
             user_id = get_current_user()
             from .. import __version__ as canopy_version
             from ..core.device import DEVICE_PROFILE_ICON_CHOICES, get_device_label, get_device_profile
@@ -9920,6 +9911,24 @@ def create_ui_blueprint() -> Blueprint:
                 current_mesh_hint,
                 current_local_peer_hint,
             )
+            user = db_manager.get_user(user_id) if db_manager else None
+            is_agent_account = str((user or {}).get('account_type') or 'human').strip().lower() == 'agent'
+            keys = api_key_manager.list_keys(user_id) if api_key_manager else []
+            all_permissions = api_key_manager.get_all_permissions() if api_key_manager else []
+            if is_agent_account:
+                default_permission_values = _current_meshspace_default_agent_permissions()
+            elif api_key_manager:
+                default_permission_values = [permission.value for permission in api_key_manager.get_default_permissions()]
+            else:
+                default_permission_values = []
+            default_permissions = []
+            for value in default_permission_values:
+                try:
+                    default_permissions.append(Permission(value))
+                except Exception:
+                    continue
+            from datetime import datetime
+            now = datetime.now()
             return render_template('settings.html',
                                  config=config.to_dict(),
                                  db_stats=db_stats,
@@ -9933,7 +9942,13 @@ def create_ui_blueprint() -> Blueprint:
                                  device_icon_choices=DEVICE_PROFILE_ICON_CHOICES,
                                  current_local_peer_hint=current_local_peer_hint,
                                  current_mesh_hint=current_mesh_hint,
-                                 connection_identity_preview=connection_identity_preview)
+                                 connection_identity_preview=connection_identity_preview,
+                                 keys=keys,
+                                 all_permissions=all_permissions,
+                                 default_permissions=default_permissions,
+                                 is_agent_account=is_agent_account,
+                                 current_meshspace=_current_meshspace_record(),
+                                 now=now)
                                  
         except Exception as e:
             logger.error(f"Settings error: {e}")
@@ -10098,7 +10113,7 @@ def create_ui_blueprint() -> Blueprint:
         mimetype = str(record.get('avatar_mime') or 'image/png').strip() or 'image/png'
         return send_file(avatar_path, mimetype=mimetype, conditional=True, max_age=3600)
 
-    def _meshspaces_snapshot_payload() -> dict[str, Any]:
+    def _meshspaces_snapshot_payload(*, force_attention_refresh: bool = False) -> dict[str, Any]:
         manager = _get_meshspace_registry_manager()
         config = current_app.config.get('CANOPY_CONFIG')
         current_meshspace = _current_meshspace_record()
@@ -10118,7 +10133,7 @@ def create_ui_blueprint() -> Blueprint:
                 _apply_current_session_meshspace_attention(item) if item.get('is_current') else item
                 for item in cards
             ]
-            cards = _apply_other_mesh_viewer_attention(cards)
+            cards = _apply_other_mesh_viewer_attention(cards, force=force_attention_refresh)
         current_card = next((item for item in cards if item.get('is_current')), None)
         running_count = sum(1 for item in cards if item.get('is_active_runtime'))
         peer_count_total = sum(max(0, int(item.get('active_peer_count') or 0)) for item in cards)
@@ -10196,8 +10211,9 @@ def create_ui_blueprint() -> Blueprint:
         if manager and current_record:
             _sync_current_meshspace_shell_summary(manager, current_record, user_id=get_current_user())
         client_rev = str(request.args.get('rev') or '').strip()
-        payload = _meshspaces_snapshot_payload()
-        changed = str(payload.get('meshspaces_rev') or '') != client_rev
+        force_attention_refresh = str(request.args.get('force') or '').strip().lower() in {'1', 'true', 'yes'}
+        payload = _meshspaces_snapshot_payload(force_attention_refresh=force_attention_refresh)
+        changed = force_attention_refresh or str(payload.get('meshspaces_rev') or '') != client_rev
         return jsonify({
             'success': True,
             'changed': changed,
@@ -11775,29 +11791,53 @@ def create_ui_blueprint() -> Blueprint:
     @ui.route('/ajax/sidebar_attention_clear', methods=['POST'])
     @require_login
     def ajax_sidebar_attention_clear():
-        """Acknowledge current-user mentions so bell clear matches mesh badge state."""
+        """Acknowledge current-user mentions and return the refreshed authoritative summary."""
         try:
+            db_manager, _, _, _, channel_manager, _, feed_manager, _, _, _, p2p_manager = _get_app_components_any(current_app)
             mention_manager = current_app.config.get('MENTION_MANAGER')
+            workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
             manager = _get_meshspace_registry_manager()
             current_record = _current_meshspace_record()
             user_id = str(get_current_user() or '').strip()
             acknowledged = 0
             if mention_manager and user_id:
-                pending_mentions = mention_manager.get_mentions(
-                    user_id,
-                    limit=200,
-                    include_acknowledged=False,
-                )
-                mention_ids = [
-                    str(item.get('id') or '').strip()
-                    for item in (pending_mentions or [])
-                    if str(item.get('id') or '').strip()
-                ]
-                if mention_ids:
-                    acknowledged = int(mention_manager.acknowledge_mentions(user_id, mention_ids) or 0)
+                for _ in range(10):
+                    pending_mentions = mention_manager.get_mentions(
+                        user_id,
+                        limit=200,
+                        include_acknowledged=False,
+                    )
+                    mention_ids = [
+                        str(item.get('id') or '').strip()
+                        for item in (pending_mentions or [])
+                        if str(item.get('id') or '').strip()
+                    ]
+                    if not mention_ids:
+                        break
+                    acknowledged += int(mention_manager.acknowledge_mentions(user_id, mention_ids) or 0)
+                    if len(mention_ids) < 200:
+                        break
+            latest_cursor = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+            _invalidate_meshspace_attention_caches(
+                str((current_record or {}).get('meshspace_id') or '').strip() or None
+            )
+            snapshot = _build_sidebar_attention_summary(
+                db_manager,
+                channel_manager,
+                feed_manager,
+                p2p_manager,
+                user_id,
+            )
             if manager and current_record:
                 _sync_current_meshspace_shell_summary(manager, current_record, user_id=user_id)
-            return jsonify({'success': True, 'acknowledged_mentions': acknowledged})
+            return jsonify({
+                'success': True,
+                'acknowledged_mentions': acknowledged,
+                'summary': snapshot.get('summary') or {},
+                'summary_rev': snapshot.get('rev') or '',
+                'workspace_event_cursor': latest_cursor,
+                'cleared_through_seq': latest_cursor,
+            })
         except Exception as e:
             logger.error(f"Sidebar attention clear error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to clear sidebar attention'}), 500
@@ -23205,6 +23245,106 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error(f"Delete channel (ui) failed: {e}")
             return jsonify({'error': 'Internal server error'}), 500
+
+    def _ui_file_content_available(file_manager: Any, file_info: Any) -> bool:
+        try:
+            raw_path = str(getattr(file_info, 'file_path', '') or '').strip()
+            if not raw_path:
+                return False
+            resolver = getattr(file_manager, '_resolve_file_disk_path', None)
+            path = resolver(raw_path) if callable(resolver) else Path(raw_path).expanduser()
+            return bool(path and path.exists() and path.is_file())
+        except Exception:
+            return False
+
+    def _build_ui_file_reference_payload(file_id: str) -> tuple[dict[str, Any], int]:
+        db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
+        user_id = get_current_user()
+        file_info = file_manager.get_file(file_id)
+        if not file_info:
+            return {
+                'success': False,
+                'file_id': file_id,
+                'found': False,
+                'available': False,
+                'can_open': False,
+                'error': 'File not found on this node',
+                'message': 'This Canopy file reference is known only if the file has synced to this instance.',
+                'reference_url': url_for('ui.file_reference', file_id=file_id),
+            }, 404
+
+        owner_id = db_manager.get_instance_owner_user_id()
+        access = evaluate_file_access(
+            db_manager=db_manager,
+            file_id=file_id,
+            viewer_user_id=user_id,
+            file_uploaded_by=file_info.uploaded_by,
+            is_admin=bool(owner_id and owner_id == user_id),
+            trust_manager=trust_manager,
+            feed_manager=feed_manager,
+        )
+        if not access.allowed:
+            return {
+                'success': False,
+                'file_id': file_id,
+                'found': True,
+                'available': False,
+                'can_open': False,
+                'status': 'access_denied',
+                'reason': access.reason,
+                'reference_url': url_for('ui.file_reference', file_id=file_id),
+                'message': 'You do not have permission to open this file from this node.',
+            }, 403
+        available = _ui_file_content_available(file_manager, file_info)
+        can_open = bool(available)
+        status = 'ready' if can_open else 'not_available'
+        payload = {
+            'success': True,
+            'file_id': file_id,
+            'found': True,
+            'filename': file_info.original_name,
+            'content_type': file_info.content_type,
+            'size': int(file_info.size or 0),
+            'uploaded_by': file_info.uploaded_by,
+            'available': available,
+            'access': access.to_dict(),
+            'can_open': can_open,
+            'status': status,
+            'reference_url': url_for('ui.file_reference', file_id=file_id),
+            'download_url': url_for('ui.serve_file', file_id=file_id) if can_open else '',
+            'open_url': url_for('ui.serve_file', file_id=file_id) if can_open else '',
+            'message': (
+                'Ready to open.'
+                if can_open else
+                ('You do not have permission to open this file from this node.' if not access.allowed else 'The file record is present, but the bytes have not synced to this node yet.')
+            ),
+        }
+        return payload, 200
+
+    @ui.route('/ajax/files/<file_id>/reference', methods=['GET'])
+    @require_login
+    def ajax_file_reference(file_id):
+        """Resolve a Canopy file reference before opening it from rendered text."""
+        try:
+            payload, status = _build_ui_file_reference_payload(file_id)
+            return jsonify(payload), status
+        except Exception as e:
+            logger.error(f"UI file reference resolve failed: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
+    @ui.route('/file-ref/<file_id>', methods=['GET'])
+    @require_login
+    def file_reference(file_id):
+        """No-JS-safe resolver for file IDs mentioned in posts, DMs, and agent notes."""
+        try:
+            payload, status = _build_ui_file_reference_payload(file_id)
+            if payload.get('can_open') and payload.get('open_url'):
+                return redirect(str(payload.get('open_url')))
+            message = str(payload.get('message') or payload.get('error') or 'File is not available.')
+            return Response(message, status=status, mimetype='text/plain')
+        except Exception as e:
+            logger.error(f"UI file reference page failed: {e}", exc_info=True)
+            return Response('File reference could not be resolved.', status=500, mimetype='text/plain')
 
     @ui.route('/ajax/files/<file_id>/access', methods=['GET'])
     @require_login
