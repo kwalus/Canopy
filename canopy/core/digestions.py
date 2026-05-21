@@ -2127,6 +2127,47 @@ class DigestionManager:
         """Return a compact, copyable reference agents can use without raw Vault access."""
         digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
         stats = self.stats(digestion.id)
+        api_base = f"/api/v1/digestions/{digestion.id}"
+        api = {
+            "get": f"GET {api_base}",
+            "sources": f"GET {api_base}/sources",
+            "add_sources": f"POST {api_base}/sources",
+            "merge_sources": f"POST {api_base}/merge",
+            "add_materials": f"POST {api_base}/materials",
+            "append_contributions": f"POST {api_base}/contributions",
+            "build": f"POST {api_base}/build",
+            "progress": f"GET {api_base}/progress",
+            "query": f"POST {api_base}/query",
+            "context": f"POST {api_base}/context",
+            "datapoints_extract": f"POST {api_base}/datapoints/extract",
+            "datapoints_search": f"POST {api_base}/datapoints/search",
+            "figures": f"GET {api_base}/figures",
+            "outputs": f"GET|POST {api_base}/outputs",
+            "get_output": f"GET {api_base}/outputs/<output_ref>",
+            "export_output": f"POST {api_base}/outputs/<output_ref>/export",
+            "package": f"GET {api_base}/package",
+            "export_package": f"POST {api_base}/package/export",
+            "access_request": f"GET {api_base}/access-request",
+            "acl_list": f"GET {api_base}/acl",
+            "acl_grant": f"POST {api_base}/acl",
+            "acl_revoke": f"DELETE {api_base}/acl/<grantee_user_id>",
+        }
+        mcp = {
+            "list": "canopy_digest_list",
+            "create": "canopy_digest_create",
+            "build": "canopy_digest_build",
+            "query": "canopy_digest_query",
+            "context": "canopy_digest_context",
+            "sources": "canopy_digest_sources",
+            "add_sources": "canopy_digest_add_sources",
+            "add_materials": "canopy_digest_add_materials",
+            "append_contributions": "canopy_digest_append_contributions",
+            "datapoints_extract": "canopy_digest_datapoints_extract",
+            "datapoints_search": "canopy_digest_datapoints_search",
+            "figures": "canopy_digest_figures",
+            "outputs": "canopy_digest_outputs",
+            "request_access": "canopy_digest_request_access",
+        }
         return {
             "kind": "canopy_digestion_reference_v1",
             "digestion_id": digestion.id,
@@ -2136,24 +2177,74 @@ class DigestionManager:
             "provider": digestion.provider,
             "embedding_model": digestion.embedding_model,
             "stats": stats,
-            "api": {
-                "query": f"POST /api/v1/digestions/{digestion.id}/query",
-                "context": f"POST /api/v1/digestions/{digestion.id}/context",
-                "outputs": f"GET /api/v1/digestions/{digestion.id}/outputs",
-                "figures": f"GET /api/v1/digestions/{digestion.id}/figures",
-                "structured_datapoints": f"POST /api/v1/digestions/{digestion.id}/datapoints/extract",
+            "query_endpoint": f"{api_base}/query",
+            "context_endpoint": f"{api_base}/context",
+            "package_endpoint": f"{api_base}/package",
+            "access_request_endpoint": f"{api_base}/access-request",
+            "api": api,
+            "body_templates": {
+                "query": {"query": "What should I know about this corpus?", "top_k": 8},
+                "context": {"query": "Build a grounded context pack for this task.", "top_k": 8},
+                "add_sources": {"source_file_ids": ["<vault_file_id>"], "build_after": False},
+                "add_materials": {
+                    "materials": [
+                        {
+                            "title": "Agent note or post excerpt",
+                            "kind": "note",
+                            "content": "...",
+                            "source_uri": "canopy://...",
+                        }
+                    ]
+                },
+                "append_contributions": {
+                    "contributions": [
+                        {
+                            "kind": "agent_note",
+                            "title": "Synthesis note",
+                            "content": "...",
+                            "claims": ["..."],
+                            "references": ["..."],
+                            "source_file_ids": ["<vault_file_id>"],
+                        }
+                    ],
+                    "build_after": False,
+                },
+                "datapoints_extract": {
+                    "lens": "optional extraction focus",
+                    "max_chunks": 80,
+                    "max_datapoints": 400,
+                    "scope": "new",
+                },
+                "datapoints_search": {"query": "metric, material, method, claim, tag, or evidence term", "limit": 25},
+                "acl_grant": {
+                    "grantee_user_id": "<agent_or_user_id>",
+                    "can_query": True,
+                    "can_read_sources": False,
+                    "can_manage": False,
+                },
             },
-            "mcp": {
-                "query": "canopy_digest_query",
-                "context": "canopy_digest_context",
-                "outputs": "canopy_digest_outputs",
-                "figures": "canopy_digest_figures",
+            "mcp": mcp,
+            "workflow": [
+                "Start with query/context for cited RAG retrieval; cite file_name/page_label/snippet from returned results.",
+                "Use sources/figures/datapoints only when source-metadata access is granted.",
+                "Use add_sources or add_materials only when the human wants this Digestion expanded.",
+                "Use append_contributions to preserve durable agent work product: notes, claims, facts, references, files, and optional datapoints.",
+                "Use datapoints_extract with scope='new' after adding documents; use scope='all' only for an explicit full refresh.",
+                "Use package/export_package for portable handoffs; package snapshots do not grant live query access by themselves.",
+            ],
+            "permissions": {
+                "query_context": "read_files plus Digestion query access",
+                "sources_figures_datapoints": "read_files plus query access plus can_read_sources",
+                "build_add_sources_add_materials_contributions": "write_files plus Digestion manage access",
+                "explicit_datapoint_append": "write_files plus manage access plus can_read_sources",
+                "acl_management": "write_files plus Digestion manage access",
             },
             "note": (
                 "Use this Digestion as a permissioned retrieval capability. "
                 "Query access returns cited snippets; it does not grant raw File Vault access. "
                 "If this reference came from an attached package but live query returns 403/query_denied, "
-                "ask the owner to grant Digestion query access."
+                "call access_request/canopy_digest_request_access and ask the owner to grant Digestion query access. "
+                "For a rendered Canopy card, export the Digestion package and attach the package JSON to a post or DM."
             ),
         }
 

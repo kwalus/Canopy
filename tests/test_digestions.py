@@ -155,7 +155,15 @@ class TestDigestions(unittest.TestCase):
             'digestion': {'id': 'dig_123', 'name': 'Materials Digest', 'purpose': 'Human-reader test'},
             'stats': {'source_count': 2, 'chunks': 9, 'token_estimate': 1200, 'output_count': 1},
             'live_query_access': {'recipient_query_requires_acl': True},
-            'agent_reference': {'digestion_id': 'dig_123', 'query_endpoint': '/api/v1/digestions/dig_123/query'},
+            'agent_reference': {
+                'digestion_id': 'dig_123',
+                'query_endpoint': '/api/v1/digestions/dig_123/query',
+                'api': {
+                    'query': 'POST /api/v1/digestions/dig_123/query',
+                    'append_contributions': 'POST /api/v1/digestions/dig_123/contributions',
+                },
+                'mcp': {'query': 'canopy_digest_query', 'append_contributions': 'canopy_digest_append_contributions'},
+            },
             'outputs': [
                 {'kind': 'structured_datapoints', 'title': 'Datapoints', 'metadata': {'datapoint_count': 4}},
             ],
@@ -177,9 +185,24 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(preview['kind'], 'digestion_package')
         self.assertEqual(preview['digestion']['id'], 'dig_123')
         self.assertEqual(preview['stats']['chunks'], 9)
+        self.assertEqual(preview['stats']['source_count'], 2)
+        self.assertEqual(preview['stats']['output_count'], 1)
         self.assertEqual(preview['outputs'][0]['datapoint_count'], 4)
         self.assertEqual(preview['sources'][0]['file_name'], 'paper-a.pdf')
+        self.assertIn('append_contributions', preview['agent_reference']['api'])
+        self.assertIn('append_contributions', preview['agent_reference']['mcp'])
         self.assertNotIn('content', preview)
+
+        metadata_only_payload = dict(payload)
+        metadata_only_payload['sources'] = []
+        metadata_only_payload['outputs'] = []
+        metadata_only_preview = build_file_preview(
+            json.dumps(metadata_only_payload).encode('utf-8'),
+            'materials-canopy-digestion-package.json',
+            'application/json',
+        )
+        self.assertEqual(metadata_only_preview['stats']['source_count'], 2)
+        self.assertEqual(metadata_only_preview['stats']['output_count'], 1)
 
     def _fake_datapoint_llm_response(self, *, source_ref: str = 'chunk_0001') -> str:
         return json.dumps({
@@ -509,6 +532,14 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(package['kind'], 'canopy_digestion_package_v1')
         self.assertTrue(package['sources_included'])
         self.assertIn('agent_reference', package)
+        agent_ref = package['agent_reference']
+        self.assertIn('/query', agent_ref['query_endpoint'])
+        self.assertIn('/package', agent_ref['package_endpoint'])
+        self.assertIn('append_contributions', agent_ref['api'])
+        self.assertIn('datapoints_search', agent_ref['api'])
+        self.assertIn('acl_grant', agent_ref['api'])
+        self.assertEqual(agent_ref['mcp']['append_contributions'], 'canopy_digest_append_contributions')
+        self.assertIn('sources_figures_datapoints', agent_ref['permissions'])
         self.assertEqual(package['digestion']['access_subject_user_id'], 'owner-user')
         self.assertEqual(package['digestion']['access_scope'], 'exporting_user')
         self.assertEqual(package['access_subject']['user_id'], 'owner-user')

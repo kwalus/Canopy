@@ -2614,29 +2614,134 @@
                         return sourceCount || Object.values(sourceStats).reduce((total, value) => total + Number(value || 0), 0);
                     }
 
+                function digestionAgentApiMap(digestionId, agentReference) {
+                    const id = String(digestionId || '<digestion_id>').trim() || '<digestion_id>';
+                    const api = agentReference && agentReference.api && typeof agentReference.api === 'object' ? agentReference.api : {};
+                    const base = `/api/v1/digestions/${id}`;
+                    return {
+                        get: api.get || `GET ${base}`,
+                        sources: api.sources || `GET ${base}/sources`,
+                        add_sources: api.add_sources || `POST ${base}/sources`,
+                        merge_sources: api.merge_sources || `POST ${base}/merge`,
+                        add_materials: api.add_materials || `POST ${base}/materials`,
+                        append_contributions: api.append_contributions || `POST ${base}/contributions`,
+                        build: api.build || `POST ${base}/build`,
+                        progress: api.progress || `GET ${base}/progress`,
+                        query: api.query || `POST ${base}/query`,
+                        context: api.context || `POST ${base}/context`,
+                        datapoints_extract: api.datapoints_extract || api.structured_datapoints || `POST ${base}/datapoints/extract`,
+                        datapoints_search: api.datapoints_search || `POST ${base}/datapoints/search`,
+                        figures: api.figures || `GET ${base}/figures`,
+                        outputs: api.outputs || `GET|POST ${base}/outputs`,
+                        get_output: api.get_output || `GET ${base}/outputs/<output_ref>`,
+                        export_output: api.export_output || `POST ${base}/outputs/<output_ref>/export`,
+                        package: api.package || `GET ${base}/package`,
+                        export_package: api.export_package || `POST ${base}/package/export`,
+                        access_request: api.access_request || `GET ${base}/access-request`,
+                        acl_list: api.acl_list || `GET ${base}/acl`,
+                        acl_grant: api.acl_grant || `POST ${base}/acl`,
+                        acl_revoke: api.acl_revoke || `DELETE ${base}/acl/<grantee_user_id>`,
+                    };
+                }
+
+                function digestionAgentMcpMap(agentReference) {
+                    const mcp = agentReference && agentReference.mcp && typeof agentReference.mcp === 'object' ? agentReference.mcp : {};
+                    return {
+                        list: mcp.list || 'canopy_digest_list',
+                        create: mcp.create || 'canopy_digest_create',
+                        build: mcp.build || 'canopy_digest_build',
+                        query: mcp.query || 'canopy_digest_query',
+                        context: mcp.context || 'canopy_digest_context',
+                        sources: mcp.sources || 'canopy_digest_sources',
+                        add_sources: mcp.add_sources || 'canopy_digest_add_sources',
+                        add_materials: mcp.add_materials || 'canopy_digest_add_materials',
+                        append_contributions: mcp.append_contributions || 'canopy_digest_append_contributions',
+                        datapoints_extract: mcp.datapoints_extract || 'canopy_digest_datapoints_extract',
+                        datapoints_search: mcp.datapoints_search || 'canopy_digest_datapoints_search',
+                        figures: mcp.figures || 'canopy_digest_figures',
+                        outputs: mcp.outputs || 'canopy_digest_outputs',
+                        request_access: mcp.request_access || 'canopy_digest_request_access',
+                    };
+                }
+
+                function digestionAgentReferenceTextFromParts(parts) {
+                    const data = parts || {};
+                    const id = String(data.id || '<digestion_id>').trim() || '<digestion_id>';
+                    const stats = data.stats || {};
+                    const api = digestionAgentApiMap(id, data.agentReference || {});
+                    const mcp = digestionAgentMcpMap(data.agentReference || {});
+                    const sourcesVisible = Number(data.sources || 0);
+                    const endpointLines = [
+                        ['Inspect metadata', api.get],
+                        ['Query cited RAG snippets', `${api.query} with {"query":"...","top_k":8}`],
+                        ['Prompt-ready context pack', `${api.context} with {"query":"...","top_k":8}`],
+                        ['Poll build/extraction progress', api.progress],
+                        ['List source metadata', api.sources],
+                        ['List extracted PDF figures', api.figures],
+                        ['Generate incremental datapoints', `${api.datapoints_extract} with {"scope":"new","lens":"...","max_chunks":80,"max_datapoints":400}`],
+                        ['Search structured datapoints', `${api.datapoints_search} with {"query":"...","limit":25}`],
+                        ['List/generate outputs', api.outputs],
+                        ['Fetch one output', api.get_output],
+                        ['Export one output to Vault', api.export_output],
+                        ['Package snapshot', api.package],
+                        ['Export package to Vault', api.export_package],
+                        ['Add Vault sources', `${api.add_sources} with {"source_file_ids":["<vault_file_id>"],"build_after":false}`],
+                        ['Add inline materials', api.add_materials],
+                        ['Append agent work product', `${api.append_contributions} with {"contributions":[{"kind":"agent_note","title":"...","content":"..."}],"build_after":false}`],
+                        ['Merge another Digestion into this one', `${api.merge_sources} with {"source_digestion_id":"<source_digestion_id>"}`],
+                        ['Request access guidance', api.access_request],
+                        ['List ACL grants', api.acl_list],
+                        ['Grant/update one ACL row', `${api.acl_grant} with {"grantee_user_id":"<agent_or_user_id>","can_query":true,"can_read_sources":false,"can_manage":false}`],
+                        ['Revoke one ACL row', api.acl_revoke],
+                    ];
+                    const mcpTools = Object.values(mcp).filter(Boolean).join(', ');
+                    return [
+                        'Canopy Digestion Agent Reference',
+                        `Name: ${data.name || 'Untitled Digestion'}`,
+                        `Digestion ID: ${id}`,
+                        `Purpose: ${data.purpose || 'Reusable permissioned context corpus.'}`,
+                        `Status: ${data.status || 'unknown'}`,
+                        `Sources visible to current viewer: ${Number.isFinite(sourcesVisible) ? sourcesVisible : 0}`,
+                        `Indexed chunks: ${Number(stats.chunks || stats.indexed_chunks || 0)}`,
+                        `Token estimate: ${Number(stats.token_estimate || 0)}`,
+                        '',
+                        'Recommended first moves for agents:',
+                        '1. Use query or context first; cite returned file_name/page_label/snippet.',
+                        '2. Use sources, figures, datapoints, source-revealing outputs only when can_read_sources is granted.',
+                        '3. Use append_contributions to preserve durable notes, claims, references, added files, and useful facts back into the Digestion.',
+                        '4. Use datapoints_extract with scope="new" after newly added papers/docs; use scope="all" only for an explicit full refresh.',
+                        '5. If a live call returns 403/query_denied or source_metadata_denied, call access_request or canopy_digest_request_access and ask the owner for the exact ACL grant.',
+                        '',
+                        'REST endpoints:',
+                        ...endpointLines.map(([label, endpoint]) => `- ${label}: ${endpoint}`),
+                        '',
+                        'MCP tools:',
+                        mcpTools ? `- ${mcpTools}` : '- canopy_digest_query, canopy_digest_context, canopy_digest_outputs, canopy_digest_request_access',
+                        '',
+                        'Permission boundary:',
+                        '- Query access returns cited snippets; it does not grant raw File Vault access.',
+                        '- Source lists, PDF figures, structured datapoints, manifest, and human brief are source-revealing and require can_read_sources.',
+                        '- Build/add/merge/contribution operations require write_files plus Digestion manage access.',
+                        '- Package exports are portable snapshots; live query still requires ACL access on this Canopy instance.',
+                        '',
+                        'Rendered-card option for humans:',
+                        '- Use the Package button to export a Canopy Digestion package JSON to Vault, then attach it to a post or DM. Canopy renders that package as a reader card; this copied reference is the compact agent-operating map.',
+                    ].join('\n');
+                }
+
                 function digestionAgentReferenceText(digestion) {
                     const item = digestion || {};
                     const stats = digestionStats(item);
-                    const sources = Array.isArray(item.sources) ? item.sources.length : 0;
-                    const id = String(item.id || '').trim();
-                    return [
-                        'Canopy Digestion Reference',
-                        `Name: ${item.name || 'Untitled Digestion'}`,
-                        `Digestion ID: ${id}`,
-                        `Purpose: ${item.purpose || item.description || 'Reusable permissioned context corpus.'}`,
-                        `Status: ${digestionStatusLabel(item)}`,
-                        `Sources visible here: ${sources}`,
-                        `Indexed chunks: ${Number(stats.chunks || 0)}`,
-                        `Token estimate: ${Number(stats.token_estimate || 0)}`,
-                        '',
-                        'Agent/API use:',
-                        `- Query: POST /api/v1/digestions/${id}/query with {"query":"...","top_k":8}`,
-                        `- Context pack: POST /api/v1/digestions/${id}/context with {"query":"...","top_k":8}`,
-                        `- Outputs: GET /api/v1/digestions/${id}/outputs`,
-                        '- MCP tools: canopy_digest_query, canopy_digest_context, canopy_digest_outputs',
-                        '',
-                        'Boundary: query access returns cited snippets and does not grant raw File Vault access. Ask the owner/admin to grant Digestion ACL access if a tool receives access_denied.',
-                    ].join('\n');
+                    const sources = Array.isArray(item.sources) ? item.sources.length : Number(stats.source_count || 0);
+                    return digestionAgentReferenceTextFromParts({
+                        id: String(item.id || '').trim(),
+                        name: item.name || 'Untitled Digestion',
+                        purpose: item.purpose || item.description || 'Reusable permissioned context corpus.',
+                        status: digestionStatusLabel(item),
+                        sources,
+                        stats,
+                        agentReference: item.agent_reference || {},
+                    });
                 }
 
                 function digestionOutputReferenceText(digestionId, outputKind, title) {
@@ -10411,6 +10516,36 @@
                 const purpose = _escapeHtml(digestion.purpose || 'Reusable Digestion package');
                 const digestionId = String(digestion.id || agentReference.digestion_id || '').trim();
                 const queryEndpoint = digestionId ? `/ajax/digestions/${encodeURIComponent(digestionId)}/query` : '';
+                const agentApi = digestionAgentApiMap(digestionId, agentReference);
+                const agentMcp = digestionAgentMcpMap(agentReference);
+                const agentReferencePreviewId = `${previewId}:agent`;
+                registerFilePreviewText(agentReferencePreviewId, digestionAgentReferenceTextFromParts({
+                    id: digestionId,
+                    name: digestion.name || 'Canopy Digestion',
+                    purpose: digestion.purpose || digestion.description || 'Reusable Digestion package',
+                    status: digestion.status || 'package',
+                    sources: Number(stats.source_count || sources.length || 0),
+                    stats,
+                    agentReference,
+                }));
+                const agentEndpointRows = [
+                    ['Query', agentApi.query],
+                    ['Context', agentApi.context],
+                    ['Sources', agentApi.sources],
+                    ['Figures', agentApi.figures],
+                    ['Datapoints', agentApi.datapoints_search],
+                    ['Contribute', agentApi.append_contributions],
+                    ['Access help', agentApi.access_request],
+                ].filter((row) => row[1]);
+                const agentMcpTools = [
+                    agentMcp.query,
+                    agentMcp.context,
+                    agentMcp.sources,
+                    agentMcp.figures,
+                    agentMcp.datapoints_search,
+                    agentMcp.append_contributions,
+                    agentMcp.request_access,
+                ].filter(Boolean);
                 const rawSummary = registerFilePreviewText(previewId, JSON.stringify({
                     digestion,
                     stats,
@@ -10444,6 +10579,22 @@
                                 <strong>${_escapeHtml(accessLabel)}</strong>
                                 <span>Packages are portable snapshots. Use live query when this Canopy has the Digestion and your account has ACL access.</span>
                             </div>
+                            ${digestionId ? `
+                                <div class="digestion-package-section digestion-package-agent-handoff">
+                                    <div class="digestion-package-section-title">Agent handoff</div>
+                                    <p>Share this package for a rendered card, or copy the full agent reference for REST/MCP endpoints, permissions, and examples.</p>
+                                    <div class="digestion-package-agent-grid">
+                                        ${agentEndpointRows.map(([label, endpoint]) => `
+                                            <span title="${_escapeAttr(endpoint)}"><strong>${_escapeHtml(label)}</strong>${_escapeHtml(endpoint)}</span>
+                                        `).join('')}
+                                    </div>
+                                    ${agentMcpTools.length ? `
+                                        <div class="digestion-package-agent-tools">
+                                            ${agentMcpTools.map((tool) => `<code>${_escapeHtml(tool)}</code>`).join('')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
                             ${digestionId ? `
                                 <form class="digestion-package-live-query"
                                       data-digestion-package-query-form
@@ -10506,6 +10657,7 @@
                         </div>
                         <div class="digestion-package-actions">
                             ${digestionId ? `<button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" data-digestion-package-id="${_escapeAttr(digestionId)}" onclick="copyDigestionPackageId(this)"><i class="bi bi-clipboard me-1"></i>Copy ID</button>` : ''}
+                            ${digestionId ? `<button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" onclick="copyFilePreviewText('${_escapeAttr(agentReferencePreviewId)}', 'Digestion agent reference')"><i class="bi bi-robot me-1"></i>Copy agent ref</button>` : ''}
                             <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" onclick="copyFilePreviewText('${_escapeAttr(previewId)}', 'Digestion package summary')"><i class="bi bi-clipboard me-1"></i>Copy summary</button>
                             ${renderPreviewModeButtons(previewId, 'Reader', 'Raw summary')}
                         </div>

@@ -522,15 +522,29 @@ def _build_digestion_package_preview(file_data: bytes, filename: str, content_ty
     stats = payload.get("stats") if isinstance(payload.get("stats"), dict) else {}
     live_access = payload.get("live_query_access") if isinstance(payload.get("live_query_access"), dict) else {}
     agent_reference = payload.get("agent_reference") if isinstance(payload.get("agent_reference"), dict) else {}
+    agent_api = agent_reference.get("api") if isinstance(agent_reference.get("api"), dict) else {}
+    agent_mcp = agent_reference.get("mcp") if isinstance(agent_reference.get("mcp"), dict) else {}
+    agent_permissions = agent_reference.get("permissions") if isinstance(agent_reference.get("permissions"), dict) else {}
+    agent_workflow = agent_reference.get("workflow") if isinstance(agent_reference.get("workflow"), list) else []
     outputs = payload.get("outputs") if isinstance(payload.get("outputs"), list) else []
     sources = payload.get("sources") if isinstance(payload.get("sources"), list) else []
     guidance = payload.get("reuse_guidance") if isinstance(payload.get("reuse_guidance"), list) else []
+    digestion_id = str(digestion.get("id") or payload.get("digestion_id") or agent_reference.get("digestion_id") or "")
+    if not agent_api and digestion_id:
+        base = f"/api/v1/digestions/{digestion_id}"
+        agent_api = {
+            "query": f"POST {base}/query",
+            "context": f"POST {base}/context",
+            "outputs": f"GET|POST {base}/outputs",
+            "package": f"GET {base}/package",
+            "access_request": f"GET {base}/access-request",
+        }
     return {
         "previewable": True,
         "kind": "digestion_package",
         "filename": filename,
         "digestion": {
-            "id": str(digestion.get("id") or payload.get("digestion_id") or ""),
+            "id": digestion_id,
             "name": str(digestion.get("name") or "Canopy Digestion"),
             "purpose": str(digestion.get("purpose") or digestion.get("description") or ""),
             "status": str(digestion.get("status") or ""),
@@ -540,8 +554,8 @@ def _build_digestion_package_preview(file_data: bytes, filename: str, content_ty
         "stats": {
             "chunks": _safe_int(stats.get("chunks")),
             "token_estimate": _safe_int(stats.get("token_estimate")),
-            "source_count": len(sources),
-            "output_count": len(outputs),
+            "source_count": _safe_int(stats.get("source_count")) or len(sources),
+            "output_count": _safe_int(stats.get("output_count")) or len(outputs),
         },
         "live_query_access": {
             "recipient_query_requires_acl": bool(live_access.get("recipient_query_requires_acl")),
@@ -549,9 +563,15 @@ def _build_digestion_package_preview(file_data: bytes, filename: str, content_ty
             "package_access_reflects": str(live_access.get("package_access_reflects") or ""),
         },
         "agent_reference": {
-            "digestion_id": str(agent_reference.get("digestion_id") or digestion.get("id") or ""),
-            "query_endpoint": str(agent_reference.get("query_endpoint") or ""),
-            "context_endpoint": str(agent_reference.get("context_endpoint") or ""),
+            "digestion_id": str(agent_reference.get("digestion_id") or digestion_id),
+            "query_endpoint": str(agent_reference.get("query_endpoint") or (f"/api/v1/digestions/{digestion_id}/query" if digestion_id else "")),
+            "context_endpoint": str(agent_reference.get("context_endpoint") or (f"/api/v1/digestions/{digestion_id}/context" if digestion_id else "")),
+            "package_endpoint": str(agent_reference.get("package_endpoint") or (f"/api/v1/digestions/{digestion_id}/package" if digestion_id else "")),
+            "access_request_endpoint": str(agent_reference.get("access_request_endpoint") or (f"/api/v1/digestions/{digestion_id}/access-request" if digestion_id else "")),
+            "api": {str(key): str(value) for key, value in agent_api.items() if key and value},
+            "mcp": {str(key): str(value) for key, value in agent_mcp.items() if key and value},
+            "permissions": {str(key): str(value) for key, value in agent_permissions.items() if key and value},
+            "workflow": [str(item)[:300] for item in agent_workflow[:8]],
         },
         "outputs": [_digestion_package_output_summary(output) for output in outputs[:MAX_DIGESTION_PACKAGE_OUTPUTS]],
         "sources": [

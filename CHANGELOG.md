@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.177] - 2026-05-20
+
+### Added
+- **Digestion agent handoffs are complete** - Agent reference payloads and copy text now expose the current REST endpoint map, MCP tools, body templates, workflow guidance, permission boundaries, package/export paths, progress polling, ACL management, source addition, contributions, figures, and structured datapoint operations.
+- **Digestion package cards include agent handoff controls** - exported package previews now render core endpoint and MCP chips plus a copyable full agent reference while preserving package metadata for bounded inline previews.
+
 ## [0.6.176] - 2026-05-20
 
 ### Fixed
