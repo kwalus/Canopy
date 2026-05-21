@@ -4395,6 +4395,81 @@ def create_ui_blueprint() -> Blueprint:
             return f"channel:{channel_id}:{action or event_type}"
         return str(item.get('event_id') or '')
 
+    _ATTENTION_DM_SOURCE_TYPES = {'direct_message', 'dm', 'dm_message'}
+
+    def _attention_dm_message_href(
+        db_manager: Any,
+        user_id: str,
+        message_id: str,
+        *,
+        sender_id: str = '',
+        recipient_id: str = '',
+        group_id: str = '',
+        group_members: Any = None,
+    ) -> str:
+        """Build a DM deep-link that opens the correct conversation before focusing."""
+        clean_message_id = str(message_id or '').strip()
+        clean_user_id = str(user_id or '').strip()
+        resolved_sender = str(sender_id or '').strip()
+        resolved_recipient = str(recipient_id or '').strip()
+        metadata: dict[str, Any] = {}
+
+        if clean_message_id and db_manager:
+            try:
+                with db_manager.get_connection() as conn:
+                    row = conn.execute(
+                        "SELECT sender_id, recipient_id, metadata FROM messages WHERE id = ?",
+                        (clean_message_id,),
+                    ).fetchone()
+                if row:
+                    resolved_sender = str(row['sender_id'] or '').strip() or resolved_sender
+                    resolved_recipient = str(row['recipient_id'] or '').strip() or resolved_recipient
+                    try:
+                        metadata = json.loads(row['metadata'] or '{}') if row['metadata'] else {}
+                    except Exception:
+                        metadata = {}
+            except Exception:
+                metadata = {}
+
+        raw_members = metadata.get('group_members') if isinstance(metadata, dict) else None
+        if not isinstance(raw_members, list):
+            raw_members = group_members if isinstance(group_members, list) else []
+        member_ids = [
+            str(member or '').strip()
+            for member in raw_members
+            if str(member or '').strip()
+        ]
+        raw_group_id = str(
+            (metadata.get('group_id') if isinstance(metadata, dict) else '')
+            or group_id
+            or ''
+        ).strip()
+        group_thread_id = str(metadata.get('group_thread_id') or '').strip() if isinstance(metadata, dict) else ''
+        if group_thread_id and raw_group_id:
+            conversation_group = raw_group_id
+        elif raw_group_id:
+            conversation_group = raw_group_id
+        elif resolved_recipient.startswith('group:'):
+            conversation_group = resolved_recipient
+        elif member_ids:
+            conversation_group = compute_group_id(member_ids)
+        else:
+            conversation_group = ''
+
+        if conversation_group:
+            if clean_user_id and member_ids and clean_user_id not in member_ids and clean_user_id != resolved_sender:
+                return url_for('ui.messages')
+            href = f"{url_for('ui.messages')}?group={quote_plus(conversation_group)}"
+        else:
+            if clean_user_id and resolved_sender and resolved_recipient and clean_user_id not in {resolved_sender, resolved_recipient}:
+                return url_for('ui.messages')
+            other_user_id = resolved_sender if resolved_sender and resolved_sender != clean_user_id else resolved_recipient
+            href = f"{url_for('ui.messages')}?with={quote_plus(other_user_id)}" if other_user_id else url_for('ui.messages')
+
+        if clean_message_id:
+            href = f"{href}#message-{quote_plus(clean_message_id)}"
+        return href
+
     def _build_sidebar_attention_item(
         db_manager: Any,
         profile_manager: Any,
@@ -4434,8 +4509,16 @@ def create_ui_blueprint() -> Blueprint:
                 href = f"/channels/locate?message_id={quote_plus(source_id)}"
             elif source_type == 'feed_post' and source_id:
                 href = f"{url_for('ui.feed')}?focus_post={quote_plus(source_id)}"
-            elif source_type == 'direct_message' and source_id:
-                href = f"{url_for('ui.messages')}#message-{quote_plus(source_id)}"
+            elif source_type in _ATTENTION_DM_SOURCE_TYPES and source_id:
+                href = _attention_dm_message_href(
+                    db_manager,
+                    user_id,
+                    source_id,
+                    sender_id=str(payload.get('sender_id') or payload.get('sender_user_id') or actor_user_id or '').strip(),
+                    recipient_id=str(payload.get('recipient_id') or '').strip(),
+                    group_id=str(payload.get('group_id') or payload.get('dm_thread_id') or '').strip(),
+                    group_members=payload.get('group_members'),
+                )
         elif event_type in {EVENT_INBOX_ITEM_CREATED, EVENT_INBOX_ITEM_UPDATED}:
             source_type = str(payload.get('source_type') or '').strip()
             source_id = str(payload.get('source_id') or '').strip()
@@ -4450,8 +4533,16 @@ def create_ui_blueprint() -> Blueprint:
                 href = f"/channels/locate?message_id={quote_plus(source_id)}"
             elif source_type == 'feed_post' and source_id:
                 href = f"{url_for('ui.feed')}?focus_post={quote_plus(source_id)}"
-            elif source_type == 'direct_message' and source_id:
-                href = f"{url_for('ui.messages')}#message-{quote_plus(source_id)}"
+            elif source_type in _ATTENTION_DM_SOURCE_TYPES and source_id:
+                href = _attention_dm_message_href(
+                    db_manager,
+                    user_id,
+                    source_id,
+                    sender_id=str(payload.get('sender_id') or payload.get('sender_user_id') or actor_user_id or '').strip(),
+                    recipient_id=str(payload.get('recipient_id') or '').strip(),
+                    group_id=str(payload.get('group_id') or payload.get('dm_thread_id') or '').strip(),
+                    group_members=payload.get('group_members'),
+                )
         elif event_type == EVENT_DM_MESSAGE_CREATED:
             sender_id = str(payload.get('sender_id') or actor_user_id or '').strip()
             recipient_id = str(payload.get('recipient_id') or '').strip()
@@ -4492,7 +4583,15 @@ def create_ui_blueprint() -> Blueprint:
                 if other_user_id:
                     href = f"{href}?with={quote_plus(other_user_id)}"
             if message_id:
-                href = f"{href}#message-{quote_plus(message_id)}"
+                href = _attention_dm_message_href(
+                    db_manager,
+                    user_id,
+                    message_id,
+                    sender_id=sender_id,
+                    recipient_id=recipient_id,
+                    group_id=group_id,
+                    group_members=group_member_ids,
+                )
         elif event_type == EVENT_CHANNEL_MESSAGE_CREATED:
             kind = 'channel'
             icon = 'bi-hash'

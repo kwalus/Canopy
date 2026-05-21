@@ -11943,6 +11943,172 @@
             }
         }
 
+        .digestion-agent-ref-card {
+            display: grid;
+            gap: 0.68rem;
+            padding: 0.78rem;
+            border: 1px solid color-mix(in srgb, var(--canopy-secondary, #4ade80) 34%, var(--canopy-border, #334155));
+            border-radius: 16px;
+            background:
+                radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--canopy-secondary, #4ade80) 14%, transparent), transparent 36%),
+                linear-gradient(135deg, color-mix(in srgb, var(--canopy-bg-card, #1e293b) 92%, transparent), color-mix(in srgb, var(--canopy-bg-primary, #0f172a) 95%, transparent));
+            color: var(--canopy-text-primary, #f8fafc);
+            box-shadow: 0 16px 42px color-mix(in srgb, var(--canopy-bg-primary, #0f172a) 42%, transparent);
+        }
+
+        .digestion-agent-ref-hero,
+        .digestion-agent-ref-actions {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.72rem;
+        }
+
+        .digestion-agent-ref-hero > div {
+            min-width: 0;
+        }
+
+        .digestion-agent-ref-kicker,
+        .digestion-agent-ref-section-title {
+            color: var(--canopy-secondary, #4ade80);
+            font-size: 0.72rem;
+            font-weight: 900;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .digestion-agent-ref-hero h4 {
+            margin: 0.18rem 0 0.12rem;
+            color: var(--canopy-text-primary, #f8fafc);
+            font-size: 1.02rem;
+            font-weight: 900;
+            line-height: 1.15;
+            overflow-wrap: anywhere;
+        }
+
+        .digestion-agent-ref-hero p {
+            margin: 0;
+            color: var(--canopy-text-secondary, #cbd5e1);
+            font-size: 0.82rem;
+            line-height: 1.34;
+        }
+
+        .digestion-agent-ref-status {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid color-mix(in srgb, var(--canopy-secondary, #4ade80) 42%, transparent);
+            border-radius: 999px;
+            padding: 0.18rem 0.58rem;
+            background: color-mix(in srgb, var(--canopy-secondary, #4ade80) 13%, transparent);
+            color: color-mix(in srgb, var(--canopy-secondary, #4ade80) 82%, var(--canopy-text-primary, #f8fafc));
+            font-size: 0.72rem;
+            font-weight: 850;
+            white-space: nowrap;
+        }
+
+        .digestion-agent-ref-stats,
+        .digestion-agent-ref-endpoints {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.42rem;
+        }
+
+        .digestion-agent-ref-stats span,
+        .digestion-agent-ref-endpoints span,
+        .digestion-agent-ref-id,
+        .digestion-agent-ref-boundary {
+            border: 1px solid color-mix(in srgb, var(--canopy-border, #334155) 76%, var(--canopy-secondary, #4ade80) 16%);
+            border-radius: 12px;
+            background: color-mix(in srgb, var(--canopy-bg-tertiary, #1e1e32) 64%, transparent);
+            color: var(--canopy-text-secondary, #cbd5e1);
+        }
+
+        .digestion-agent-ref-stats span,
+        .digestion-agent-ref-endpoints span,
+        .digestion-agent-ref-id,
+        .digestion-agent-ref-boundary {
+            padding: 0.5rem 0.56rem;
+        }
+
+        .digestion-agent-ref-stats strong,
+        .digestion-agent-ref-endpoints strong,
+        .digestion-agent-ref-boundary strong {
+            display: block;
+            color: var(--canopy-text-primary, #f8fafc);
+            font-weight: 900;
+        }
+
+        .digestion-agent-ref-endpoints span {
+            display: grid;
+            gap: 0.08rem;
+            min-width: 0;
+            overflow-wrap: anywhere;
+            font-size: 0.72rem;
+            line-height: 1.28;
+        }
+
+        .digestion-agent-ref-endpoints strong {
+            font-size: 0.78rem;
+        }
+
+        .digestion-agent-ref-id {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.76rem;
+        }
+
+        .digestion-agent-ref-id span {
+            color: var(--canopy-text-muted, #94a3b8);
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .digestion-agent-ref-id code,
+        .digestion-agent-ref-tools code {
+            color: color-mix(in srgb, var(--canopy-secondary, #4ade80) 78%, var(--canopy-text-primary, #f8fafc));
+            background: color-mix(in srgb, var(--canopy-bg-primary, #0f172a) 68%, transparent);
+            border: 1px solid color-mix(in srgb, var(--canopy-secondary, #4ade80) 20%, var(--canopy-border, #334155));
+            border-radius: 999px;
+            padding: 0.12rem 0.42rem;
+            font-size: 0.72rem;
+            overflow-wrap: anywhere;
+            white-space: normal;
+        }
+
+        .digestion-agent-ref-tools {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.34rem;
+            margin-top: 0.42rem;
+        }
+
+        .digestion-agent-ref-boundary {
+            display: grid;
+            gap: 0.24rem;
+            font-size: 0.76rem;
+            line-height: 1.34;
+        }
+
+        .digestion-agent-ref-actions {
+            flex-wrap: wrap;
+            padding-top: 0.08rem;
+        }
+
+        @media (max-width: 720px) {
+            .digestion-agent-ref-hero,
+            .digestion-agent-ref-actions {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .digestion-agent-ref-actions .btn {
+                width: 100%;
+            }
+        }
+
         .cp-token.keyword {
             color: var(--code-keyword);
             font-weight: 720;

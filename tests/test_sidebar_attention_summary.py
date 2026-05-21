@@ -30,6 +30,7 @@ from canopy.ui.routes import create_ui_blueprint
 from canopy.core.events import (
     EVENT_DM_MESSAGE_CREATED,
     EVENT_FEED_POST_CREATED,
+    EVENT_INBOX_ITEM_CREATED,
     EVENT_MENTION_CREATED,
     WorkspaceEventManager,
 )
@@ -406,6 +407,55 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         self.assertIn(
             f"/messages?group={quote_plus('group:alpha')}#message-group-unread",
             group_dm_items[0].get('href', ''),
+        )
+
+    def test_sidebar_attention_snapshot_links_dm_mentions_and_inbox_to_conversation(self) -> None:
+        self.workspace_events.emit_event(
+            event_type=EVENT_MENTION_CREATED,
+            actor_user_id='peer-a',
+            target_user_id='owner',
+            message_id='dm-unread',
+            visibility_scope='user',
+            dedupe_key='mention:dm:test',
+            payload={
+                'source_type': 'dm',
+                'source_id': 'dm-unread',
+                'preview': 'DM mention',
+                'sender_user_id': 'peer-a',
+            },
+        )
+        self.workspace_events.emit_event(
+            event_type=EVENT_INBOX_ITEM_CREATED,
+            actor_user_id='peer-b',
+            target_user_id='owner',
+            message_id='group-unread',
+            visibility_scope='user',
+            dedupe_key='inbox:dm:test',
+            payload={
+                'source_type': 'direct_message',
+                'source_id': 'group-unread',
+                'trigger_type': 'dm',
+                'preview': 'Group inbox',
+                'sender_user_id': 'peer-b',
+            },
+        )
+
+        response = self.client.get('/ajax/sidebar_attention_snapshot')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        items = payload.get('items') or []
+        dm_mention = next(item for item in items if item.get('event_type') == EVENT_MENTION_CREATED)
+        dm_inbox = next(item for item in items if item.get('event_type') == EVENT_INBOX_ITEM_CREATED)
+
+        self.assertEqual(dm_mention.get('kind'), 'mention')
+        self.assertIn(
+            f"/messages?with={quote_plus('peer-a')}#message-{quote_plus('dm-unread')}",
+            dm_mention.get('href', ''),
+        )
+        self.assertEqual(dm_inbox.get('kind'), 'inbox')
+        self.assertIn(
+            f"/messages?group={quote_plus('group:alpha')}#message-{quote_plus('group-unread')}",
+            dm_inbox.get('href', ''),
         )
 
     def test_sidebar_attention_snapshot_orders_by_freshness_before_priority(self) -> None:

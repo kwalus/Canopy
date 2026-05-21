@@ -1600,6 +1600,37 @@
         font-size: 0.85rem;
     }
     .thread-toggle:hover { text-decoration: underline; }
+    .channel-thread-view-thread-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        width: fit-content;
+        max-width: calc(100% - 2.5rem);
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 28%, var(--canopy-border) 72%);
+        background: color-mix(in srgb, var(--canopy-bg-card) 88%, var(--canopy-primary) 12%);
+        border-radius: 999px;
+        padding: 0.18rem 0.62rem;
+        color: color-mix(in srgb, var(--canopy-primary) 78%, var(--canopy-text-primary) 22%);
+        font-weight: 760;
+        text-decoration: none !important;
+    }
+    .channel-thread-view-thread-toggle.is-thread-unread {
+        border-color: rgba(52, 211, 153, 0.56);
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(45, 212, 191, 0.1));
+        color: #bbf7d0;
+        box-shadow: 0 8px 22px rgba(16, 185, 129, 0.12);
+    }
+    .message-item.channel-thread-view-active.channel-thread-view-unread-message,
+    .message-item.channel-thread-view-active.channel-thread-view-unread-thread:not(.thread-reply):not(.channel-thread-view-thread-expanded):not(.channel-thread-view-unread-message) {
+        border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border) 42%) !important;
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 24%, transparent), 0 16px 36px rgba(2, 6, 23, 0.18);
+    }
+    .message-item.channel-thread-view-active.channel-thread-view-unread-message .message-content,
+    .message-item.channel-thread-view-active.channel-thread-view-unread-message strong,
+    .message-item.channel-thread-view-active.channel-thread-view-unread-thread:not(.thread-reply):not(.channel-thread-view-thread-expanded):not(.channel-thread-view-unread-message) .message-content,
+    .message-item.channel-thread-view-active.channel-thread-view-unread-thread:not(.thread-reply):not(.channel-thread-view-thread-expanded):not(.channel-thread-view-unread-message) strong {
+        font-weight: 840;
+    }
 
     /* Reply context bar */
     #reply-context {
@@ -2103,6 +2134,7 @@
     }
     .channel-thread-filter-toggle,
     .channel-thread-sort-toggle,
+    .channel-thread-view-toggle,
     .channel-human-filter-toggle,
     .channel-attachment-filter-toggle,
     .channel-recent-filter-toggle,
@@ -2111,6 +2143,7 @@
     }
     .channel-thread-filter-toggle.is-active,
     .channel-thread-sort-toggle.is-active,
+    .channel-thread-view-toggle.is-active,
     .channel-human-filter-toggle.is-active,
     .channel-attachment-filter-toggle.is-active,
     .channel-recent-filter-toggle.is-active,
@@ -2122,6 +2155,7 @@
     }
     .channel-thread-filter-toggle.is-active::after,
     .channel-thread-sort-toggle.is-active::after,
+    .channel-thread-view-toggle.is-active::after,
     .channel-human-filter-toggle.is-active::after,
     .channel-attachment-filter-toggle.is-active::after,
     .channel-recent-filter-toggle.is-active::after,
@@ -2360,6 +2394,7 @@
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-thread-filter-toggle.is-active,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-thread-sort-toggle.is-active,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-thread-view-toggle.is-active,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-human-filter-toggle.is-active,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-attachment-filter-toggle.is-active,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-recent-filter-toggle.is-active,
@@ -2368,6 +2403,11 @@
         background: linear-gradient(135deg, rgba(209, 250, 229, 0.96), rgba(236, 253, 245, 0.86)) !important;
         border-color: rgba(16, 185, 129, 0.42) !important;
         box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12) !important;
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-thread-view-thread-toggle.is-thread-unread {
+        color: #065f46;
+        background: linear-gradient(135deg, rgba(209, 250, 229, 0.96), rgba(236, 253, 245, 0.86));
+        border-color: rgba(16, 185, 129, 0.42);
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .channel-human-filter-banner {
         background:
@@ -4981,6 +5021,15 @@
                                 <i class="bi bi-lightning-charge" id="channel-unread-filter-icon"></i>
                                 <span class="channel-header-tool-label" id="channel-unread-filter-label">New</span>
                             </button>
+                            <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-thread-view-toggle"
+                                    id="channel-folded-thread-view-toggle"
+                                    onclick="toggleChannelFoldedThreadView()"
+                                    title="Fold replies into Gmail-style thread summaries"
+                                    aria-label="Fold replies into Gmail-style thread summaries"
+                                    aria-pressed="false">
+                                <i class="bi bi-envelope-paper" id="channel-folded-thread-view-icon"></i>
+                                <span class="channel-header-tool-label" id="channel-folded-thread-view-label">Threads</span>
+                            </button>
                             <div class="dropdown">
                                 <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-thread-filter-toggle channel-recent-filter-toggle dropdown-toggle"
                                         id="channel-recent-filter-toggle"
@@ -4991,7 +5040,7 @@
                                         title="Show only posts from a recent time window"
                                         aria-label="Show only posts from a recent time window"
                                         aria-pressed="false">
-                                    <i class="bi bi-clock-history" id="channel-recent-filter-icon"></i>
+                                    <i class="bi bi-stopwatch" id="channel-recent-filter-icon"></i>
                                     <span class="channel-header-tool-label" id="channel-recent-filter-label">Recent</span>
                                 </button>
                                 <div class="dropdown-menu dropdown-menu-end channel-recent-filter-menu p-3" id="channel-recent-filter-menu" aria-labelledby="channel-recent-filter-toggle">
@@ -5205,8 +5254,13 @@
                                         </button>
                                     </li>
                                     <li>
+                                        <button type="button" class="dropdown-item" id="channel-folded-thread-view-menu-btn" onclick="toggleChannelFoldedThreadView()">
+                                            <i class="bi bi-envelope-paper me-2"></i><span id="channel-folded-thread-view-menu-label">Fold Gmail-style threads</span>
+                                        </button>
+                                    </li>
+                                    <li>
                                         <button type="button" class="dropdown-item" id="channel-recent-filter-menu-btn" onclick="cycleChannelRecentThreadFilter()">
-                                            <i class="bi bi-clock-history me-2"></i><span id="channel-recent-filter-menu-label">Show recent posts</span>
+                                            <i class="bi bi-stopwatch me-2"></i><span id="channel-recent-filter-menu-label">Show recent posts</span>
                                         </button>
                                     </li>
                                     <li>
@@ -8086,6 +8140,7 @@ const CHANNEL_ATTACHMENT_THREAD_FILTER_STORAGE_KEY = `canopy.channel_attachment_
 const CHANNEL_RECENT_THREAD_FILTER_STORAGE_KEY = `canopy.channel_recent_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_MENTION_THREAD_FILTER_STORAGE_KEY = `canopy.channel_mention_threads.v1.${currentUserId || 'anon'}`;
 const CHANNEL_THREAD_ACTIVITY_SORT_STORAGE_KEY = `canopy.channel_thread_activity_sort.v1.${currentUserId || 'anon'}`;
+const CHANNEL_FOLDED_THREAD_VIEW_STORAGE_KEY = `canopy.channel_folded_thread_view.v1.${currentUserId || 'anon'}`;
 const CHANNEL_RECENT_FILTER_PRESETS = [
     { minutes: 5, label: '5 min' },
     { minutes: 15, label: '15 min' },
@@ -8124,6 +8179,7 @@ let channelAttachmentThreadFilterById = {};
 let channelRecentThreadFilterById = {};
 let channelMentionThreadFilterById = {};
 let channelThreadActivitySortById = {};
+let channelFoldedThreadViewById = {};
 let channelReadBaselineById = {};
 let currentChannelMessagesSnapshot = [];
 let currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
@@ -8642,6 +8698,27 @@ function saveChannelThreadActivitySortState() {
     } catch (_) {}
 }
 
+function loadChannelFoldedThreadViewState() {
+    channelFoldedThreadViewById = {};
+    try {
+        const raw = localStorage.getItem(CHANNEL_FOLDED_THREAD_VIEW_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
+        Object.entries(parsed).forEach(([channelId, enabled]) => {
+            const normalized = String(channelId || '').trim();
+            if (normalized && enabled === true) channelFoldedThreadViewById[normalized] = true;
+        });
+    } catch (_) {
+        channelFoldedThreadViewById = {};
+    }
+}
+
+function saveChannelFoldedThreadViewState() {
+    try {
+        localStorage.setItem(CHANNEL_FOLDED_THREAD_VIEW_STORAGE_KEY, JSON.stringify(channelFoldedThreadViewById));
+    } catch (_) {}
+}
+
 function isChannelHumanThreadFilterEnabled(channelId = currentChannelId) {
     const normalized = String(channelId || '').trim();
     return !!(normalized && channelHumanThreadFilterById[normalized]);
@@ -8678,6 +8755,11 @@ function isChannelMentionThreadFilterEnabled(channelId = currentChannelId) {
 function isChannelThreadActivitySortEnabled(channelId = currentChannelId) {
     const normalized = String(channelId || '').trim();
     return !!(normalized && channelThreadActivitySortById[normalized]);
+}
+
+function isChannelFoldedThreadViewEnabled(channelId = currentChannelId) {
+    const normalized = String(channelId || '').trim();
+    return !!(normalized && channelFoldedThreadViewById[normalized]);
 }
 
 function setChannelHumanThreadFilter(channelId, enabled) {
@@ -8750,6 +8832,17 @@ function setChannelThreadActivitySort(channelId, enabled) {
         delete channelThreadActivitySortById[normalized];
     }
     saveChannelThreadActivitySortState();
+}
+
+function setChannelFoldedThreadView(channelId, enabled) {
+    const normalized = String(channelId || '').trim();
+    if (!normalized) return;
+    if (enabled) {
+        channelFoldedThreadViewById[normalized] = true;
+    } else {
+        delete channelFoldedThreadViewById[normalized];
+    }
+    saveChannelFoldedThreadViewState();
 }
 
 function parseChannelReadBoundary(rawValue) {
@@ -8825,6 +8918,20 @@ function channelThreadHasUnreadOrNewActivity(rootMessage, replies) {
     const baselineMs = getChannelUnreadThreadBaselineMs();
     if (!baselineMs) return true;
     return getChannelThreadMaxActivityTime(rootMessage, replies) > baselineMs;
+}
+
+function getChannelMessageUnreadPresentationTime(message) {
+    if (!message) return 0;
+    return Math.max(
+        parseChannelMessageTimestamp(message.created_at),
+        parseChannelMessageTimestamp(message.edited_at)
+    );
+}
+
+function channelMessageIsUnreadForThreadView(message) {
+    const baselineMs = getChannelUnreadThreadBaselineMs();
+    if (!baselineMs || !message) return false;
+    return getChannelMessageUnreadPresentationTime(message) > baselineMs;
 }
 
 function filterChannelThreadsForUnreadActivity(rootMessages, repliesByRoot) {
@@ -9206,7 +9313,7 @@ function updateChannelRecentThreadFilterUI() {
         toggle.setAttribute('aria-label', toggle.title);
     }
     if (icon) {
-        icon.className = enabled ? 'bi bi-clock-fill' : 'bi bi-clock-history';
+        icon.className = enabled ? 'bi bi-stopwatch-fill' : 'bi bi-stopwatch';
     }
     if (label) {
         label.textContent = labelText;
@@ -9254,6 +9361,29 @@ function updateChannelThreadActivitySortUI() {
     }
     if (menuLabel) {
         menuLabel.textContent = enabled ? 'Chronological thread order' : 'Latest active first';
+    }
+}
+
+function updateChannelFoldedThreadViewUI() {
+    const enabled = isChannelFoldedThreadViewEnabled();
+    const toggle = document.getElementById('channel-folded-thread-view-toggle');
+    const icon = document.getElementById('channel-folded-thread-view-icon');
+    const label = document.getElementById('channel-folded-thread-view-label');
+    const menuLabel = document.getElementById('channel-folded-thread-view-menu-label');
+    if (toggle) {
+        toggle.classList.toggle('is-active', enabled);
+        toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        toggle.title = enabled ? 'Show expanded channel flow' : 'Fold replies into Gmail-style thread summaries';
+        toggle.setAttribute('aria-label', enabled ? 'Show expanded channel flow' : 'Fold replies into Gmail-style thread summaries');
+    }
+    if (icon) {
+        icon.className = enabled ? 'bi bi-envelope-open-fill' : 'bi bi-envelope-paper';
+    }
+    if (label) {
+        label.textContent = enabled ? 'Thread view' : 'Threads';
+    }
+    if (menuLabel) {
+        menuLabel.textContent = enabled ? 'Show expanded channel flow' : 'Fold Gmail-style threads';
     }
 }
 
@@ -9362,7 +9492,8 @@ function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterS
     const recentEnabled = isChannelRecentThreadFilterEnabled();
     const mentionEnabled = isChannelMentionThreadFilterEnabled();
     const activitySortEnabled = isChannelThreadActivitySortEnabled();
-    if (!humanEnabled && !unreadEnabled && !attachmentEnabled && !recentEnabled && !mentionEnabled && !activitySortEnabled) {
+    const foldedThreadViewEnabled = isChannelFoldedThreadViewEnabled();
+    if (!humanEnabled && !unreadEnabled && !attachmentEnabled && !recentEnabled && !mentionEnabled && !activitySortEnabled && !foldedThreadViewEnabled) {
         banner.classList.add('d-none');
         banner.innerHTML = '';
         return;
@@ -9424,13 +9555,23 @@ function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterS
     if (activitySortEnabled) {
         details.push('Latest active threads are shown first.');
     }
+    if (foldedThreadViewEnabled) {
+        if (recentEnabled) {
+            details.push('Thread view is on; the Recent window controls visible posts while older context stays behind hidden-post toggles.');
+        } else if (!hasChannelUnreadThreadBaseline()) {
+            details.push('Gmail-style thread view is folding replies by default; unread emphasis starts after a read marker is available.');
+        } else {
+            details.push('Gmail-style thread view is folding replies by default; unread threads and messages are emphasized.');
+        }
+    }
     const chips = [
         humanEnabled ? '<span class="filter-pill"><i class="bi bi-person-fill-check"></i> Human threads</span>' : '',
         unreadEnabled ? '<span class="filter-pill"><i class="bi bi-lightning-charge-fill"></i> New/unread threads</span>' : '',
         attachmentEnabled ? '<span class="filter-pill"><i class="bi bi-paperclip"></i> Attachments</span>' : '',
-        recentEnabled ? `<span class="filter-pill"><i class="bi bi-clock-fill"></i> Last ${escapeHtml(recentWindowLabel)}</span>` : '',
+        recentEnabled ? `<span class="filter-pill"><i class="bi bi-stopwatch-fill"></i> Last ${escapeHtml(recentWindowLabel)}</span>` : '',
         mentionEnabled ? `<span class="filter-pill"><i class="bi bi-at"></i> ${escapeHtml(mentionTargetLabel)}</span>` : '',
         activitySortEnabled ? '<span class="filter-pill"><i class="bi bi-sort-down-alt"></i> Latest first</span>' : '',
+        foldedThreadViewEnabled ? '<span class="filter-pill"><i class="bi bi-envelope-open-fill"></i> Thread view</span>' : '',
     ].filter(Boolean).join('');
     const actions = [
         humanEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelHumanThreadFilter(false)">Show agents</button>' : '',
@@ -9439,6 +9580,7 @@ function updateChannelHumanThreadFilterBanner(stats = currentChannelHumanFilterS
         recentEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearChannelRecentThreadFilterAndRefresh()">Clear recent</button>' : '',
         mentionEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearChannelMentionThreadFilterAndRefresh()">Clear mentions</button>' : '',
         activitySortEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelThreadActivitySort(false)">Chronological</button>' : '',
+        foldedThreadViewEnabled ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleChannelFoldedThreadView(false)">Expanded flow</button>' : '',
     ].filter(Boolean).join('');
     banner.innerHTML = `
         <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
@@ -9625,6 +9767,28 @@ function toggleChannelThreadActivitySort(forceEnabled) {
             forceScroll: !nextEnabled,
             ignoreSignature: true,
             scrollToTop: nextEnabled,
+        });
+    } else if (currentChannelId) {
+        loadChannelMessages(currentChannelId, { forceScroll: false });
+    } else {
+        updateChannelHumanThreadFilterBanner();
+    }
+}
+
+function toggleChannelFoldedThreadView(forceEnabled) {
+    if (!currentChannelId) {
+        showAlert('Select a channel before changing thread view.', 'warning');
+        return;
+    }
+    const nextEnabled = typeof forceEnabled === 'boolean'
+        ? forceEnabled
+        : !isChannelFoldedThreadViewEnabled();
+    setChannelFoldedThreadView(currentChannelId, nextEnabled);
+    updateChannelFoldedThreadViewUI();
+    if (Array.isArray(currentChannelMessagesSnapshot) && currentChannelMessagesSnapshot.length) {
+        displayMessages(currentChannelMessagesSnapshot, {
+            forceScroll: false,
+            ignoreSignature: true,
         });
     } else if (currentChannelId) {
         loadChannelMessages(currentChannelId, { forceScroll: false });
@@ -11240,6 +11404,7 @@ function selectChannel(channelId, channelName, options = {}) {
     updateChannelRecentThreadFilterUI();
     updateChannelMentionThreadFilterUI();
     updateChannelThreadActivitySortUI();
+    updateChannelFoldedThreadViewUI();
     updateChannelHumanThreadFilterBanner();
     refreshChannelMentionBuilderForChannel(channelId);
     
@@ -12242,6 +12407,91 @@ function renderRecentThreadWindow(rootMessage, replies, userInfo, replyMetaById,
     return html;
 }
 
+function renderChannelThreadMessages(rootMessage, replies, userInfo, replyMetaById, options = {}) {
+    const rootId = String((rootMessage && rootMessage.id) || '');
+    const orderedReplies = Array.isArray(replies) ? replies : [];
+    const foldedThreadViewActive = Object.prototype.hasOwnProperty.call(options, 'foldedThreadViewActive')
+        ? !!options.foldedThreadViewActive
+        : isChannelFoldedThreadViewEnabled();
+    let html = renderMessage(rootMessage, userInfo, replyMetaById[rootId] || false);
+    if (!orderedReplies.length) return html;
+    const threadLabel = foldedThreadViewActive
+        ? (orderedReplies.length === 1 ? 'message' : 'messages')
+        : 'replies';
+    const toggleClass = foldedThreadViewActive
+        ? 'thread-toggle ms-5 mb-1 channel-thread-view-thread-toggle'
+        : 'thread-toggle ms-5 mb-1';
+    html += renderThreadToggleHtml(rootId, orderedReplies.length, {
+        expanded: !foldedThreadViewActive,
+        label: threadLabel,
+        className: toggleClass,
+        icon: foldedThreadViewActive ? 'bi-envelope-open' : 'bi-chat-dots',
+        rootId,
+    });
+    html += `<div class="thread-replies${foldedThreadViewActive ? ' channel-thread-view-replies' : ''}"
+                  data-thread-replies="${escapeAttr(rootId)}"
+                  data-thread-root-id="${escapeAttr(rootId)}"${foldedThreadViewActive ? ' style="display:none;"' : ''}>`;
+    orderedReplies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
+    html += `</div>`;
+    return html;
+}
+
+function syncChannelThreadRootExpandedState(toggleEl) {
+    if (!toggleEl) return;
+    const rootId = String(toggleEl.dataset.threadRootId || toggleEl.dataset.threadToggle || '').trim();
+    if (!rootId) return;
+    const container = document.getElementById('messages-list') || document;
+    const rootEl = getRenderedMessageElement(container, rootId);
+    if (!rootEl) return;
+    rootEl.classList.toggle('channel-thread-view-thread-expanded', toggleEl.dataset.expanded === 'true');
+}
+
+function applyChannelThreadViewPresentation(container, rootMessages, repliesByRoot) {
+    const host = container || document.getElementById('messages-list');
+    if (!host) return;
+    const foldedThreadViewActive = isChannelFoldedThreadViewEnabled();
+    const unreadThreadIds = new Set();
+    const unreadMessageIds = new Set();
+    if (foldedThreadViewActive && hasChannelUnreadThreadBaseline()) {
+        (rootMessages || []).forEach((root) => {
+            if (!root || !root.id) return;
+            const rootId = String(root.id);
+            const replies = (repliesByRoot && repliesByRoot[root.id]) || [];
+            if (channelThreadHasUnreadOrNewActivity(root, replies)) {
+                unreadThreadIds.add(rootId);
+            }
+            [root].concat(replies).forEach((message) => {
+                if (message && message.id && channelMessageIsUnreadForThreadView(message)) {
+                    unreadMessageIds.add(String(message.id));
+                }
+            });
+        });
+        host.querySelectorAll('.message-item[data-message-id]').forEach((el) => {
+            const messageId = String(el.getAttribute('data-message-id') || '');
+            if (!messageId || unreadMessageIds.has(messageId)) return;
+            const message = channelMessageCache && channelMessageCache[messageId];
+            if (!message || !channelMessageIsUnreadForThreadView(message)) return;
+            unreadMessageIds.add(messageId);
+            const rootId = String(el.getAttribute('data-thread-root-id') || messageId);
+            if (rootId) unreadThreadIds.add(rootId);
+        });
+    }
+    host.querySelectorAll('.message-item[data-message-id]').forEach((el) => {
+        const messageId = String(el.getAttribute('data-message-id') || '');
+        const rootId = String(el.getAttribute('data-thread-root-id') || messageId);
+        const unreadMessage = unreadMessageIds.has(messageId);
+        const unreadThread = unreadThreadIds.has(rootId);
+        el.classList.toggle('channel-thread-view-active', foldedThreadViewActive);
+        el.classList.toggle('channel-thread-view-unread-message', foldedThreadViewActive && unreadMessage);
+        el.classList.toggle('channel-thread-view-unread-thread', foldedThreadViewActive && unreadThread);
+    });
+    host.querySelectorAll('[data-thread-toggle]').forEach((toggleEl) => {
+        const rootId = String(toggleEl.getAttribute('data-thread-root-id') || toggleEl.getAttribute('data-thread-toggle') || '');
+        toggleEl.classList.toggle('is-thread-unread', foldedThreadViewActive && unreadThreadIds.has(rootId));
+        syncChannelThreadRootExpandedState(toggleEl);
+    });
+}
+
 function displayMessages(messages, options = {}) {
     hideChannelSelectionDock();
     const messagesContainer = document.getElementById('messages-list');
@@ -12318,6 +12568,7 @@ function displayMessages(messages, options = {}) {
             const visibleRootMessages = mentionFilteredView.roots || [];
             const recentMessageIdsByRoot = recentFilteredView.recentMessageIdsByRoot || {};
             const recentFilterActive = isChannelRecentThreadFilterEnabled();
+            const foldedThreadViewActive = isChannelFoldedThreadViewEnabled();
 
             visibleRootMessages.forEach(message => {
                 const replies = repliesByRoot[message.id];
@@ -12325,16 +12576,7 @@ function displayMessages(messages, options = {}) {
                     html += renderRecentThreadWindow(message, replies, userInfo, replyMetaById, recentMessageIdsByRoot[String(message.id || '')]);
                     return;
                 }
-                html += renderMessage(message, userInfo, replyMetaById[message.id] || false);
-
-                // Render all threaded replies (including reply-to-reply) under the root
-                if (replies && replies.length > 0) {
-                    const safeThreadRootId = escapeHtml(String(message.id || ''));
-                    html += renderThreadToggleHtml(safeThreadRootId, replies.length, { expanded: true, label: 'replies' });
-                    html += `<div class="thread-replies" data-thread-replies="${safeThreadRootId}">`;
-                    replies.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
-                    html += `</div>`;
-                }
+                html += renderChannelThreadMessages(message, replies, userInfo, replyMetaById, { foldedThreadViewActive });
             });
 
             // Render orphan replies whose thread root isn't in view (O(n) via Set)
@@ -12426,6 +12668,7 @@ function displayMessages(messages, options = {}) {
                 </div>`;
             }
             messagesContainer.innerHTML = latestFirstThreads ? (html + olderBanner) : (olderBanner + html);
+            applyChannelThreadViewPresentation(messagesContainer, visibleRootMessages, repliesByRoot);
 
             formatTimestamps(messagesContainer);
             if (window.applyInlineTaskAvatars) {
@@ -14207,17 +14450,20 @@ function renderThreadToggleHtml(toggleId, total, options = {}) {
     const count = Math.max(0, parseInt(total, 10) || 0);
     const label = String(options.label || 'replies').trim() || 'replies';
     const expanded = options.expanded !== false;
-    const icon = String(options.icon || 'bi-chat-dots');
+    const icon = String(options.icon || 'bi-chat-dots').replace(/[^A-Za-z0-9_-]/g, '') || 'bi-chat-dots';
     const className = String(options.className || 'thread-toggle ms-5 mb-1');
     const safeToggleId = escapeHtml(String(toggleId || ''));
+    const safeThreadRootId = escapeHtml(String(options.rootId || toggleId || ''));
     const safeLabel = escapeHtml(label);
     const action = expanded ? 'collapse' : 'expand';
     return `<div class="${escapeAttr(className)}"
                  onclick="expandThread(this)"
                  data-thread-toggle="${safeToggleId}"
+                 data-thread-root-id="${safeThreadRootId}"
                  data-expanded="${expanded ? 'true' : 'false'}"
                  data-total="${count}"
                  data-thread-label="${safeLabel}"
+                 data-thread-icon="${escapeAttr(icon)}"
                  role="button"
                  tabindex="0"
                  aria-expanded="${expanded ? 'true' : 'false'}"
@@ -14232,19 +14478,21 @@ function expandThread(el) {
     const expanded = el.dataset.expanded === 'true';
     const label = el.dataset.threadLabel || 'replies';
     const total = el.dataset.total || '';
+    const icon = String(el.dataset.threadIcon || 'bi-chat-dots').replace(/[^A-Za-z0-9_-]/g, '') || 'bi-chat-dots';
     if (expanded) {
         hidden.style.display = 'none';
-        el.innerHTML = `<i class="bi bi-chat-dots me-1"></i>${total} ${label} &mdash; expand`;
+        el.innerHTML = `<i class="bi ${icon} me-1"></i>${total} ${label} &mdash; expand`;
         el.dataset.expanded = 'false';
         el.setAttribute('aria-expanded', 'false');
         el.setAttribute('aria-label', `${total} ${label}, expand thread`);
     } else {
         hidden.style.display = 'block';
-        el.innerHTML = `<i class="bi bi-chat-dots me-1"></i>${total} ${label} &mdash; collapse`;
+        el.innerHTML = `<i class="bi ${icon} me-1"></i>${total} ${label} &mdash; collapse`;
         el.dataset.expanded = 'true';
         el.setAttribute('aria-expanded', 'true');
         el.setAttribute('aria-label', `${total} ${label}, collapse thread`);
     }
+    syncChannelThreadRootExpandedState(el);
 }
 
 function setThreadCollapsed(toggleEl, collapsed) {
@@ -14253,12 +14501,14 @@ function setThreadCollapsed(toggleEl, collapsed) {
     if (!replies) return;
     const total = toggleEl.dataset.total || '';
     const label = toggleEl.dataset.threadLabel || 'replies';
+    const icon = String(toggleEl.dataset.threadIcon || 'bi-chat-dots').replace(/[^A-Za-z0-9_-]/g, '') || 'bi-chat-dots';
     const nextCollapsed = !!collapsed;
     replies.style.display = nextCollapsed ? 'none' : 'block';
     toggleEl.dataset.expanded = nextCollapsed ? 'false' : 'true';
     toggleEl.setAttribute('aria-expanded', nextCollapsed ? 'false' : 'true');
     toggleEl.setAttribute('aria-label', `${total} ${label}, ${nextCollapsed ? 'expand' : 'collapse'} thread`);
-    toggleEl.innerHTML = `<i class="bi bi-chat-dots me-1"></i>${total} ${label} &mdash; ${nextCollapsed ? 'expand' : 'collapse'}`;
+    toggleEl.innerHTML = `<i class="bi ${icon} me-1"></i>${total} ${label} &mdash; ${nextCollapsed ? 'expand' : 'collapse'}`;
+    syncChannelThreadRootExpandedState(toggleEl);
 }
 
 function setAllChannelThreadsCollapsed(collapsed) {
@@ -15259,7 +15509,7 @@ function appendNewMessages(allMessages) {
 
     // The unread/new filter may need to reveal an entire previously hidden thread
     // when a new reply lands, so prefer the full renderer over partial DOM splices.
-    if (isChannelUnreadThreadFilterEnabled() || isChannelAttachmentThreadFilterEnabled() || isChannelRecentThreadFilterEnabled() || isChannelThreadActivitySortEnabled()) {
+    if (isChannelUnreadThreadFilterEnabled() || isChannelAttachmentThreadFilterEnabled() || isChannelRecentThreadFilterEnabled() || isChannelThreadActivitySortEnabled() || isChannelFoldedThreadViewEnabled()) {
         return false;
     }
 
@@ -15462,7 +15712,8 @@ function applyChannelMessagesDelta(messages, options = {}) {
         isChannelAttachmentThreadFilterEnabled() ||
         isChannelRecentThreadFilterEnabled() ||
         isChannelMentionThreadFilterEnabled() ||
-        isChannelThreadActivitySortEnabled()
+        isChannelThreadActivitySortEnabled() ||
+        isChannelFoldedThreadViewEnabled()
     );
 
     if (deletedIds.length) {
@@ -15749,14 +16000,14 @@ function loadOlderMessages() {
                 let recentMatchingMessages = priorRecentFilterStats.matchingMessages + (recentOlderView.matchingMessages || 0);
                 let mentionHiddenThreads = priorMentionFilterStats.hiddenThreads + (mentionOlderView.hiddenThreads || 0);
                 let mentionHiddenMessages = priorMentionFilterStats.hiddenMessages + (mentionOlderView.hiddenMessages || 0);
+                const foldedThreadViewActive = isChannelFoldedThreadViewEnabled();
                 (mentionOlderView.roots || []).forEach(m => {
                     const reps = replies[m.id];
                     if (isChannelRecentThreadFilterEnabled()) {
                         const recentIds = (recentOlderView.recentMessageIdsByRoot || {})[String(m.id || '')];
                         html += renderRecentThreadWindow(m, reps, userInfo, replyMetaById, recentIds);
                     } else {
-                        html += renderMessage(m, userInfo, replyMetaById[m.id] || false);
-                        if (reps) reps.forEach(r => { html += renderMessage(r, userInfo, replyMetaById[r.id] || true); });
+                        html += renderChannelThreadMessages(m, reps, userInfo, replyMetaById, { foldedThreadViewActive });
                     }
                 });
                 // Orphan replies whose root isn't in this batch
@@ -15845,6 +16096,12 @@ function loadOlderMessages() {
                         messagesContainer.insertBefore(fragment.firstChild, insertRef);
                     }
                 }
+                const mergedThreadLayoutForPresentation = buildChannelThreadLayout(currentChannelMessagesSnapshot);
+                applyChannelThreadViewPresentation(
+                    messagesContainer,
+                    mergedThreadLayoutForPresentation.rootMessages || [],
+                    mergedThreadLayoutForPresentation.repliesByRoot || {}
+                );
 
                 // Restore scroll position so the view doesn't jump
                 if (scrollContainer) {
@@ -23416,12 +23673,14 @@ document.addEventListener('DOMContentLoaded', function() {
         loadChannelRecentThreadFilterState();
         loadChannelMentionThreadFilterState();
         loadChannelThreadActivitySortState();
+        loadChannelFoldedThreadViewState();
         updateChannelHumanThreadFilterUI();
         updateChannelUnreadThreadFilterUI();
         updateChannelAttachmentThreadFilterUI();
         updateChannelRecentThreadFilterUI();
         updateChannelMentionThreadFilterUI();
         updateChannelThreadActivitySortUI();
+        updateChannelFoldedThreadViewUI();
         updateChannelHumanThreadFilterBanner();
         bindChannelItemHandlers();
         bindChannelQuickActionHandlers();

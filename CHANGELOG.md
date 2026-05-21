@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.181] - 2026-05-21
+
+### Added
+- **Channels can use opt-in folded thread view** - a per-channel Threads control folds replies into Gmail-style summaries while preserving chronological/latest-active ordering and unread emphasis.
+- **Digestion agent references render as human-readable cards** - pasted agent-reference blocks now render into compact cards with core metadata, endpoints, MCP tools, first moves, permission boundaries, and a copyable raw agent map.
+
+### Fixed
+- **Notification bell targets DM and same-page sources more reliably** - DM mention/inbox links now include conversation context, same-page clicks re-focus rendered targets, and missing-DOM message targets fall back to normal navigation instead of silently doing nothing.
+- **DM reaction-only updates avoid false new-message banners** - reaction-only DM event batches refresh without parking the update behind the deferred new-message notice.
+- **Channel recent filtering uses stopwatch iconography** - the Recent filter is visually distinct from lifecycle timing controls.
+
 ## [0.6.180] - 2026-05-21
 
 ### Added

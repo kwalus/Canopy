@@ -11871,10 +11871,167 @@
                 return working;
             }
 
+            function isCanopyDigestionAgentReferenceText(text) {
+                return String(text || '').trim().split(/\r?\n/, 1)[0] === 'Canopy Digestion Agent Reference';
+            }
+
+            function parseDigestionAgentReferenceText(text) {
+                const raw = String(text || '').trim();
+                if (!isCanopyDigestionAgentReferenceText(raw)) return null;
+                const lines = raw.split(/\r?\n/);
+                const meta = {};
+                const endpoints = [];
+                const firstMoves = [];
+                const permissionBoundary = [];
+                const mcpTools = [];
+                let section = '';
+
+                lines.forEach(function(line, index) {
+                    const trimmed = String(line || '').trim();
+                    if (!trimmed) return;
+                    const normalizedHeader = trimmed.replace(/:$/, '').toLowerCase();
+                    if ([
+                        'recommended first moves for agents',
+                        'rest endpoints',
+                        'mcp tools',
+                        'permission boundary',
+                        'rendered-card option for humans',
+                    ].includes(normalizedHeader)) {
+                        section = normalizedHeader;
+                        return;
+                    }
+                    if (index > 0 && !section) {
+                        const metaMatch = trimmed.match(/^([^:]{1,80}):\s*(.*)$/);
+                        if (metaMatch) meta[metaMatch[1].trim().toLowerCase()] = metaMatch[2].trim();
+                        return;
+                    }
+                    if (section === 'rest endpoints') {
+                        const endpointMatch = trimmed.match(/^-\s*([^:]+):\s*(.+)$/);
+                        if (endpointMatch) {
+                            endpoints.push({
+                                label: endpointMatch[1].trim(),
+                                endpoint: endpointMatch[2].trim(),
+                            });
+                        }
+                        return;
+                    }
+                    if (section === 'mcp tools') {
+                        const toolLine = trimmed.replace(/^-\s*/, '');
+                        toolLine.split(',').map((tool) => tool.trim()).filter(Boolean).forEach((tool) => mcpTools.push(tool));
+                        return;
+                    }
+                    if (section === 'recommended first moves for agents') {
+                        firstMoves.push(trimmed.replace(/^\d+\.\s*/, '').replace(/^-\s*/, ''));
+                        return;
+                    }
+                    if (section === 'permission boundary') {
+                        permissionBoundary.push(trimmed.replace(/^-\s*/, ''));
+                    }
+                });
+
+                function numericMeta(key) {
+                    const value = String(meta[key] || '').replace(/,/g, '').trim();
+                    const num = Number(value);
+                    return Number.isFinite(num) ? num : 0;
+                }
+
+                return {
+                    raw,
+                    name: meta.name || 'Untitled Digestion',
+                    id: meta['digestion id'] || '',
+                    purpose: meta.purpose || 'Reusable permissioned context corpus.',
+                    status: meta.status || 'unknown',
+                    sources: numericMeta('sources visible to current viewer'),
+                    chunks: numericMeta('indexed chunks'),
+                    tokenEstimate: numericMeta('token estimate'),
+                    endpoints,
+                    firstMoves,
+                    permissionBoundary,
+                    mcpTools,
+                };
+            }
+
+            function renderDigestionAgentReferenceCard(reference) {
+                const ref = reference || {};
+                const endpointPriority = [
+                    'Query cited RAG snippets',
+                    'Prompt-ready context pack',
+                    'Append agent work product',
+                    'Add Vault sources',
+                    'Generate incremental datapoints',
+                    'Search structured datapoints',
+                    'Request access guidance',
+                ];
+                const prioritizedRows = endpointPriority
+                    .map((label) => (ref.endpoints || []).find((item) => item && item.label === label))
+                    .filter(Boolean);
+                const endpointRows = (prioritizedRows.length ? prioritizedRows : (ref.endpoints || [])).slice(0, 6);
+                const previewId = `digestion-agent-ref-${String(ref.id || 'unknown').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)}-${Math.random().toString(36).slice(2, 8)}`;
+                registerFilePreviewText(previewId, ref.raw || '');
+                return `
+                    <div class="digestion-agent-ref-card" data-canopy-digestion-agent-ref="${_escapeAttr(ref.id || '')}">
+                        <div class="digestion-agent-ref-hero">
+                            <div>
+                                <div class="digestion-agent-ref-kicker"><i class="bi bi-robot me-1"></i>Digestion agent reference</div>
+                                <h4>${_escapeHtml(ref.name || 'Untitled Digestion')}</h4>
+                                <p>${_escapeHtml(ref.purpose || 'Reusable permissioned context corpus.')}</p>
+                            </div>
+                            <span class="digestion-agent-ref-status">${_escapeHtml(ref.status || 'unknown')}</span>
+                        </div>
+                        <div class="digestion-agent-ref-stats" aria-label="Digestion agent reference statistics">
+                            <span><strong>${Number(ref.sources || 0).toLocaleString()}</strong> sources visible</span>
+                            <span><strong>${Number(ref.chunks || 0).toLocaleString()}</strong> chunks</span>
+                            <span><strong>${Number(ref.tokenEstimate || 0).toLocaleString()}</strong> token est.</span>
+                        </div>
+                        ${ref.id ? `<div class="digestion-agent-ref-id"><span>Digestion ID</span><code>${_escapeHtml(ref.id)}</code></div>` : ''}
+                        ${Array.isArray(ref.firstMoves) && ref.firstMoves.length ? `
+                            <div class="digestion-agent-ref-boundary">
+                                <strong>Recommended first moves</strong>
+                                ${ref.firstMoves.slice(0, 3).map((item) => `<span>${_escapeHtml(item)}</span>`).join('')}
+                            </div>
+                        ` : ''}
+                        ${endpointRows.length ? `
+                            <div class="digestion-agent-ref-section">
+                                <div class="digestion-agent-ref-section-title">Useful agent endpoints</div>
+                                <div class="digestion-agent-ref-endpoints">
+                                    ${endpointRows.map((item) => `
+                                        <span title="${_escapeAttr(item.endpoint)}"><strong>${_escapeHtml(item.label)}</strong>${_escapeHtml(item.endpoint)}</span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${Array.isArray(ref.mcpTools) && ref.mcpTools.length ? `
+                            <div class="digestion-agent-ref-section">
+                                <div class="digestion-agent-ref-section-title">MCP tools</div>
+                                <div class="digestion-agent-ref-tools">
+                                    ${ref.mcpTools.slice(0, 10).map((tool) => `<code>${_escapeHtml(tool)}</code>`).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${Array.isArray(ref.permissionBoundary) && ref.permissionBoundary.length ? `
+                            <div class="digestion-agent-ref-boundary">
+                                <strong>Permission boundary</strong>
+                                ${ref.permissionBoundary.slice(0, 3).map((item) => `<span>${_escapeHtml(item)}</span>`).join('')}
+                            </div>
+                        ` : ''}
+                        <div class="digestion-agent-ref-actions">
+                            <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" onclick="copyFilePreviewText('${_escapeAttr(previewId)}', 'Digestion agent reference')">
+                                <i class="bi bi-clipboard me-1"></i>Copy full agent map
+                            </button>
+                            ${ref.id ? `<a class="btn btn-sm btn-outline-secondary code-preview-copy" href="/vault?digestion=${encodeURIComponent(ref.id)}"><i class="bi bi-box-arrow-up-right me-1"></i>Open Digestion</a>` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
 		        function renderRichContent(text) {
 	            if (!text) return '';
 
 	            const rawText = String(text);
+            const agentReference = parseDigestionAgentReferenceText(rawText);
+            if (agentReference) {
+                return '<div class="rich-content">' + renderDigestionAgentReferenceCard(agentReference) + '</div>';
+            }
             const protectedBlocks = [];
             const BLOCK_PLACEHOLDER = '\x00BLOCK_';
             let sheetBlockOccurrence = 0;
@@ -12035,7 +12192,7 @@
 		                const rawText = el.textContent.trim();
 		                if (!rawText) return;
 		                // Process if it contains a URL worth embedding, markdown image, or code blocks
-		                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText) || hasCanopyMarkdownSyntax(rawText) || containsMathDelimiters(rawText);
+		                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText) || hasCanopyMarkdownSyntax(rawText) || containsMathDelimiters(rawText) || isCanopyDigestionAgentReferenceText(rawText);
 		                if (shouldProcess) {
 		                    const rendered = renderRichContent(rawText);
 		                    if (el.tagName === 'P') {
@@ -14793,6 +14950,94 @@
                     .replace(/~~(.*?)~~/g, '$1');
             }
 
+            function findCanopyDeepLinkElement(prefix, rawId) {
+                const id = String(rawId || '').trim();
+                if (!id) return null;
+                const direct = document.getElementById(`${prefix}-${id}`);
+                if (direct) return direct;
+                if (window.CSS && typeof window.CSS.escape === 'function') {
+                    return document.querySelector(`[data-${prefix}-id="${window.CSS.escape(id)}"], [data-message-id="${window.CSS.escape(id)}"], [data-post-id="${window.CSS.escape(id)}"]`);
+                }
+                return document.querySelector(`[data-message-id="${id.replace(/["\\]/g, '\\$&')}"], [data-post-id="${id.replace(/["\\]/g, '\\$&')}"]`);
+            }
+
+            function flashCanopyDeepLinkElement(el) {
+                if (!el) return false;
+                try {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } catch (_) {
+                    try { el.scrollIntoView(); } catch (__) {}
+                }
+                el.classList.remove('focus-flash');
+                void el.offsetWidth;
+                el.classList.add('focus-flash');
+                window.setTimeout(() => el.classList.remove('focus-flash'), 3200);
+                return true;
+            }
+
+            function focusCanopyAttentionHrefInCurrentPage(href) {
+                const rawHref = String(href || '').trim();
+                if (!rawHref) return false;
+                let targetUrl;
+                try {
+                    targetUrl = new URL(rawHref, window.location.origin);
+                } catch (_) {
+                    return false;
+                }
+                if (targetUrl.origin !== window.location.origin) return false;
+                const locateMessageId = targetUrl.pathname === '/channels/locate'
+                    ? (targetUrl.searchParams.get('message_id') || '')
+                    : '';
+                if (
+                    locateMessageId &&
+                    window.location.pathname === '/channels' &&
+                    typeof window.focusMessageById === 'function' &&
+                    window.focusMessageById(locateMessageId)
+                ) {
+                    return true;
+                }
+                if (targetUrl.pathname !== window.location.pathname) return false;
+                if (targetUrl.search !== window.location.search) return false;
+
+                const hash = decodeURIComponent(String(targetUrl.hash || ''));
+                if (hash.startsWith('#message-')) {
+                    const messageId = hash.slice('#message-'.length);
+                    const messageEl = findCanopyDeepLinkElement('message', messageId);
+                    if (!messageEl) return false;
+                    try {
+                        window.history.pushState({}, document.title, `${targetUrl.pathname}${targetUrl.search}${targetUrl.hash}`);
+                    } catch (_) {}
+                    if (typeof window.jumpToMessage === 'function') {
+                        window.jumpToMessage(messageId);
+                        return true;
+                    }
+                    return flashCanopyDeepLinkElement(messageEl);
+                }
+
+                const focusMessageId = targetUrl.searchParams.get('focus_message') || '';
+                if (focusMessageId && typeof window.focusMessageById === 'function') {
+                    window.focusMessageById(focusMessageId);
+                    return true;
+                }
+                if (focusMessageId) {
+                    return flashCanopyDeepLinkElement(findCanopyDeepLinkElement('message', focusMessageId));
+                }
+
+                const focusPostId = targetUrl.searchParams.get('focus_post') || targetUrl.searchParams.get('post') || '';
+                if (focusPostId) {
+                    return flashCanopyDeepLinkElement(findCanopyDeepLinkElement('post', focusPostId));
+                }
+
+                return false;
+            }
+
+            function openCanopyAttentionItem(item) {
+                const href = String(item && item.href || '').trim();
+                if (!href) return;
+                if (focusCanopyAttentionHrefInCurrentPage(href)) return;
+                window.location.href = href;
+            }
+
             function setBadge(count) {
                 if (!badgeEl) return;
                 const normalized = Math.max(0, Number(count) || 0);
@@ -14939,8 +15184,7 @@
                         row.appendChild(body);
                         btn.appendChild(row);
                         btn.addEventListener('click', () => {
-                            const href = String(item.href || '').trim();
-                            if (href) window.location.href = href;
+                            openCanopyAttentionItem(item);
                         });
                         section.appendChild(btn);
                     });

@@ -2575,6 +2575,24 @@
         return serverFlag === true || String(nextToken || '') !== String(knownToken || '');
     }
 
+    function dmEventPayload(item) {
+        if (!item || typeof item !== 'object') return {};
+        if (item.payload && typeof item.payload === 'object') return item.payload;
+        if (item.extra && typeof item.extra === 'object') return item.extra;
+        if (item.data && typeof item.data === 'object') return item.data;
+        return {};
+    }
+
+    function dmEventItemsAreReactionOnly(items) {
+        const list = Array.isArray(items) ? items : [];
+        return list.length > 0 && list.every((item) => {
+            const eventType = String((item && (item.event_type || item.type || item.name)) || '').trim();
+            const payload = dmEventPayload(item);
+            const reason = String(payload.update_reason || (item && item.update_reason) || '').trim().toLowerCase();
+            return eventType === 'dm.message.edited' && reason === 'reaction';
+        });
+    }
+
     function setKnownSnapshotToken(url, paramName, tokenValue) {
         if (!url || !paramName) return;
         if (tokenValue) {
@@ -2766,8 +2784,9 @@
                 if (!items.length) {
                     return;
                 }
+                const reactionOnly = dmEventItemsAreReactionOnly(items);
                 loadDmSnapshot({
-                    allowDeferred: true,
+                    allowDeferred: !reactionOnly,
                     forceBottom: false,
                     hardFallback: false,
                 }).catch(() => {});
