@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.191] - 2026-05-22
+
+### Changed
+- **Digestion access sharing now supports multi-recipient grants** - owners can stage several users or agents as recipient chips, apply query/source/manage permissions in one flow, and retry only failed recipients if a batch grant partially fails.
+- **Manage/build grants use inline confirmation** - elevated Digestion manage access now shows an integrated acknowledgement panel instead of interrupting the owner with a browser popup.
+
 ## [0.6.190] - 2026-05-22
 
 ### Added

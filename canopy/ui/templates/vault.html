@@ -1141,7 +1141,7 @@
     }
     .vault-digestion-share-user {
         display: grid;
-        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-columns: auto minmax(0, 1fr) auto;
         gap: 0.5rem;
         align-items: center;
         width: 100%;
@@ -1199,24 +1199,42 @@
         color: var(--canopy-text-muted);
     }
     .vault-digestion-share-selected {
-        display: inline-flex;
+        display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 0.4rem;
-        width: fit-content;
+        width: 100%;
         max-width: 100%;
-        padding: 0.35rem 0.55rem;
-        border-radius: 999px;
-        background: color-mix(in srgb, var(--canopy-success) 16%, transparent);
+        padding: 0.38rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-success) 26%, var(--canopy-border));
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--canopy-success) 8%, transparent);
         color: var(--canopy-text-primary);
         font-size: 0.78rem;
     }
-    .vault-digestion-share-selected span {
+    .vault-digestion-share-selected[hidden] {
+        display: none !important;
+    }
+    .vault-digestion-share-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.36rem;
+        min-width: 0;
+        max-width: 100%;
+        padding: 0.24rem 0.42rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-success) 30%, var(--canopy-border));
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canopy-bg-card) 76%, transparent);
+        box-shadow: 0 8px 18px color-mix(in srgb, var(--canopy-shadow) 45%, transparent);
+    }
+    .vault-digestion-share-chip > span {
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
-    .vault-digestion-share-selected button {
+    .vault-digestion-share-chip button,
+    .vault-digestion-share-clear-all {
         border: 0;
         background: transparent;
         color: inherit;
@@ -1224,16 +1242,29 @@
         line-height: 1;
         opacity: 0.72;
     }
-    .vault-digestion-share-selected button:hover,
-    .vault-digestion-share-selected button:focus {
+    .vault-digestion-share-chip button:hover,
+    .vault-digestion-share-chip button:focus,
+    .vault-digestion-share-clear-all:hover,
+    .vault-digestion-share-clear-all:focus {
         opacity: 1;
         outline: none;
     }
-    .vault-digestion-share-selected button:focus-visible {
+    .vault-digestion-share-chip button:focus-visible,
+    .vault-digestion-share-clear-all:focus-visible {
         opacity: 1;
         outline: 2px solid var(--canopy-primary);
         outline-offset: 2px;
         border-radius: 4px;
+    }
+    .vault-digestion-share-clear-all {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.24rem;
+        padding: 0.25rem 0.46rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 80%, transparent);
+        border-radius: 999px;
+        color: var(--canopy-text-muted);
+        font-weight: 760;
     }
     .vault-digestion-share-options {
         display: flex;
@@ -1245,6 +1276,43 @@
     .vault-digestion-share-options .form-check {
         min-height: 0;
         margin: 0;
+    }
+    .vault-digestion-manage-confirm,
+    .vault-digestion-acl-manage-confirm {
+        padding: 0.5rem 0.62rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-warning) 38%, var(--canopy-border));
+        border-radius: 14px;
+        background:
+            radial-gradient(circle at 6% 0%, color-mix(in srgb, var(--canopy-warning) 12%, transparent), transparent 44%),
+            color-mix(in srgb, var(--canopy-bg-card) 82%, transparent);
+        color: var(--canopy-text-primary);
+        font-size: 0.76rem;
+        line-height: 1.25;
+    }
+    .vault-digestion-manage-confirm[hidden],
+    .vault-digestion-acl-manage-confirm[hidden] {
+        display: none !important;
+    }
+    .vault-digestion-manage-confirm .form-check,
+    .vault-digestion-acl-manage-confirm .form-check {
+        min-height: 0;
+        margin: 0;
+    }
+    .vault-digestion-share-user.is-selected {
+        background: color-mix(in srgb, var(--canopy-success) 18%, transparent);
+    }
+    .vault-digestion-share-user.is-selected::after {
+        content: "selected";
+        justify-self: end;
+        align-self: center;
+        border: 1px solid color-mix(in srgb, var(--canopy-success) 36%, transparent);
+        border-radius: 999px;
+        padding: 0.12rem 0.38rem;
+        color: var(--canopy-success);
+        font-size: 0.66rem;
+        font-weight: 850;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
     }
     .vault-digestion-share-status {
         min-height: 1rem;
