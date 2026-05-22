@@ -473,6 +473,16 @@
         gap: 0.75rem;
         margin-bottom: 0.8rem;
     }
+    .vault-digestion-head-main {
+        flex: 1 1 28rem;
+        min-width: min(100%, 18rem);
+    }
+    .vault-digestion-head-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        flex: 0 0 auto;
+    }
     .vault-digestion-title {
         color: var(--canopy-text-primary);
         font-weight: 900;
@@ -484,12 +494,108 @@
         font-size: 0.9rem;
         margin: 0.15rem 0 0;
     }
+    .vault-digestion-toolbar {
+        display: grid;
+        grid-template-columns: minmax(15rem, 1.35fr) minmax(9rem, 0.72fr) minmax(10rem, 0.8fr) auto;
+        gap: 0.55rem;
+        align-items: stretch;
+        margin-bottom: 0.75rem;
+        min-width: 0;
+    }
+    .vault-digestion-search-wrap {
+        position: relative;
+        min-width: 0;
+    }
+    .vault-digestion-search-wrap i {
+        position: absolute;
+        left: 0.78rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--canopy-text-muted);
+        pointer-events: none;
+    }
+    .vault-digestion-control,
+    .vault-digestion-toolbar .form-control,
+    .vault-digestion-toolbar .form-select {
+        width: 100%;
+        min-height: 2.35rem;
+        border-radius: 14px;
+        border: 1px solid var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+        color: var(--canopy-text-primary);
+        font-weight: 760;
+        box-shadow: none;
+    }
+    .vault-digestion-search-wrap .form-control {
+        padding-left: 2.22rem;
+    }
+    .vault-digestion-toolbar .form-control::placeholder {
+        color: var(--canopy-text-muted);
+        opacity: 0.88;
+    }
+    .vault-digestion-toolbar .form-control:focus,
+    .vault-digestion-toolbar .form-select:focus {
+        border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border));
+        box-shadow: 0 0 0 0.18rem color-mix(in srgb, var(--canopy-primary) 16%, transparent);
+    }
+    .vault-digestion-density-btn {
+        min-width: 8.1rem;
+        justify-content: center;
+        gap: 0.35rem;
+        white-space: nowrap;
+    }
+    .vault-digestion-summary {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.42rem;
+        margin: -0.15rem 0 0.75rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.78rem;
+        min-width: 0;
+    }
+    .vault-digestion-summary-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.28rem;
+        max-width: 100%;
+        padding: 0.22rem 0.48rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 22%, var(--canopy-border));
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canopy-primary) 8%, transparent);
+        color: var(--canopy-text-secondary);
+        line-height: 1.12;
+    }
+    .vault-digestion-summary-pill strong {
+        color: var(--canopy-text-primary);
+        font-weight: 900;
+        font-variant-numeric: tabular-nums;
+    }
+    .vault-digestion-clear-filters {
+        display: none;
+    }
+    .vault-digestion-clear-filters.is-visible {
+        display: inline-flex;
+    }
+    .vault-digestion-list-shell {
+        max-height: min(72vh, 58rem);
+        max-height: min(72dvh, 58rem);
+        min-height: 9rem;
+        overflow: auto;
+        overscroll-behavior: contain;
+        padding: 0.18rem 0.16rem 0.28rem 0.02rem;
+        scrollbar-width: thin;
+    }
     .vault-digestion-list {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
         gap: 0.75rem;
         align-items: start;
         min-width: 0;
+    }
+    .vault-digestion-list.is-compact {
+        grid-template-columns: 1fr;
+        gap: 0.55rem;
     }
     .vault-digestion-card {
         position: relative;
@@ -503,6 +609,63 @@
             radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--canopy-secondary) 16%, transparent), transparent 34%),
             color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
         transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease, background 0.16s ease;
+    }
+    .vault-digestion-card.is-compact {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(16rem, 1fr);
+        gap: 0.65rem 0.85rem;
+        align-items: start;
+        padding: 0.68rem;
+    }
+    .vault-digestion-card-main {
+        min-width: 0;
+    }
+    .vault-digestion-card.is-compact .vault-digestion-card-main {
+        grid-column: 1;
+        grid-row: 1;
+    }
+    .vault-digestion-card.is-compact .vault-digestion-card-title {
+        font-size: 0.95rem;
+    }
+    .vault-digestion-card.is-compact .vault-digestion-meta {
+        margin-top: 0.36rem;
+    }
+    .vault-digestion-card.is-compact .vault-digestion-drop-hint {
+        grid-column: 1 / -1;
+        margin-top: 0;
+        padding: 0.35rem 0.5rem;
+    }
+    .vault-digestion-list.is-compact .vault-digestion-drop-hint {
+        display: none;
+    }
+    .vault-digestion-list.is-compact .vault-digestion-card.is-drag-over .vault-digestion-drop-hint {
+        display: flex;
+    }
+    .vault-digestion-card.is-compact .vault-digestion-actions {
+        grid-column: 2;
+        grid-row: 1;
+        margin-top: 0;
+        grid-template-columns: repeat(auto-fit, minmax(6.9rem, 1fr));
+        gap: 0.36rem;
+    }
+    .vault-digestion-card.is-compact .vault-digestion-actions .vault-digestion-btn {
+        min-height: 1.92rem;
+        padding-inline: 0.48rem;
+        font-size: 0.75rem;
+        border-radius: 11px;
+    }
+    .vault-digestion-card.is-compact .vault-digestion-progress,
+    .vault-digestion-card.is-compact .vault-digestion-options,
+    .vault-digestion-card.is-compact .vault-digestion-contributions,
+    .vault-digestion-card.is-compact .vault-digestion-share,
+    .vault-digestion-card.is-compact .vault-digestion-query-toolbar,
+    .vault-digestion-card.is-compact .vault-digestion-query,
+    .vault-digestion-card.is-compact .vault-digestion-results,
+    .vault-digestion-card.is-compact .vault-digestion-output-list {
+        grid-column: 1 / -1;
+    }
+    .vault-digestion-card.is-compact .vault-digestion-query-toolbar {
+        display: none;
     }
     .vault-digestion-card[draggable="true"] {
         cursor: grab;
@@ -732,6 +895,77 @@
         color: var(--canopy-text-muted);
         font-size: 0.76rem;
         line-height: 1.35;
+    }
+    .vault-digestion-contributions {
+        display: none;
+        gap: 0.6rem;
+        margin-top: 0.72rem;
+        padding: 0.72rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-secondary) 28%, var(--canopy-border));
+        border-radius: 16px;
+        background:
+            radial-gradient(circle at 4% 0%, color-mix(in srgb, var(--canopy-secondary) 14%, transparent), transparent 36%),
+            color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+        min-width: 0;
+    }
+    .vault-digestion-contributions.is-visible {
+        display: grid;
+    }
+    .vault-digestion-contributions-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        color: var(--canopy-text-primary);
+    }
+    .vault-digestion-contributions-head strong {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-weight: 900;
+    }
+    .vault-digestion-contributions-head span {
+        color: var(--canopy-text-muted);
+        font-size: 0.76rem;
+    }
+    .vault-digestion-contribution-list {
+        display: grid;
+        gap: 0.55rem;
+        max-height: min(52vh, 34rem);
+        max-height: min(52dvh, 34rem);
+        overflow: auto;
+        padding-right: 0.14rem;
+        scrollbar-width: thin;
+    }
+    .vault-digestion-result.is-contribution {
+        border-color: color-mix(in srgb, var(--canopy-secondary) 24%, var(--canopy-border));
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-secondary) 8%, transparent), transparent),
+            color-mix(in srgb, var(--canopy-bg-secondary) 78%, transparent);
+    }
+    .vault-digestion-contribution-title {
+        display: grid;
+        gap: 0.1rem;
+        min-width: 0;
+    }
+    .vault-digestion-contribution-title strong {
+        color: var(--canopy-text-primary);
+        overflow-wrap: anywhere;
+        line-height: 1.18;
+    }
+    .vault-digestion-contribution-title small {
+        color: var(--canopy-text-muted);
+        font-size: 0.74rem;
+        overflow-wrap: anywhere;
+    }
+    .vault-digestion-contribution-empty {
+        padding: 0.75rem;
+        border: 1px dashed color-mix(in srgb, var(--canopy-border) 80%, transparent);
+        border-radius: 14px;
+        color: var(--canopy-text-secondary);
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 70%, transparent);
+        font-size: 0.82rem;
     }
     .vault-digestion-share {
         display: none;
@@ -2006,11 +2240,25 @@
         .vault-stats {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
+        .vault-digestion-toolbar {
+            grid-template-columns: 1fr 1fr;
+        }
+        .vault-digestion-search-wrap {
+            grid-column: 1 / -1;
+        }
         .vault-digestion-list {
             grid-template-columns: 1fr;
         }
+        .vault-digestion-card.is-compact {
+            grid-template-columns: 1fr;
+        }
+        .vault-digestion-card.is-compact .vault-digestion-actions {
+            grid-column: 1;
+            grid-row: auto;
+        }
 	        .vault-digestion-create,
 	        .vault-digestion-query,
+            .vault-digestion-contributions-head,
 	        .vault-digestion-share-row,
             .vault-file-share-row,
             .vault-digestion-acl-row,
@@ -2107,6 +2355,7 @@
         .vault-list-tools,
         .vault-selection-bar,
         .vault-digestion-head,
+        .vault-digestion-toolbar,
         .vault-digestion-actions,
         .vault-digestion-output-head {
             gap: 0.55rem;
@@ -2188,6 +2437,15 @@
         .vault-card-preview {
             min-height: 138px;
         }
+        .vault-digestion-toolbar {
+            grid-template-columns: 1fr;
+        }
+        .vault-digestion-density-btn {
+            width: 100%;
+        }
+        .vault-digestion-list-shell {
+            max-height: min(76dvh, 42rem);
+        }
     }
 </style>
 {% endblock %}
@@ -2254,17 +2512,61 @@
 
     <section class="vault-panel vault-digestion-panel" aria-label="Vault Digestions">
         <div class="vault-digestion-head">
-            <div>
+            <div class="vault-digestion-head-main">
                 <h2 class="h5 vault-digestion-title">Digestions</h2>
                 <p class="vault-digestion-copy">
                     Turn selected Vault documents into a local, permissioned retrieval corpus for agents. Extract datapoints may call an external provider with indexed chunks and requires source-read access.
                 </p>
             </div>
-            <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-digestion-refresh">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
+            <div class="vault-digestion-head-actions">
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-digestion-refresh">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+        <div class="vault-digestion-toolbar" aria-label="Manage Digestions">
+            <label class="vault-digestion-search-wrap" for="vault-digestion-search">
+                <i class="bi bi-search"></i>
+                <input class="form-control form-control-sm"
+                       type="search"
+                       id="vault-digestion-search"
+                       placeholder="Search Digestions by name, purpose, status, id, or source"
+                       autocomplete="off"
+                       aria-label="Search Digestions">
+            </label>
+            <select class="form-select form-select-sm vault-digestion-control" id="vault-digestion-status-filter" aria-label="Filter Digestions by status or access">
+                <option value="all">All Digestions</option>
+                <option value="ready">Ready / built</option>
+                <option value="needs_build">Needs build</option>
+                <option value="running">Running jobs</option>
+                <option value="owned">Owned by me</option>
+                <option value="shared">Shared with me</option>
+                <option value="issues">Needs attention</option>
+            </select>
+            <select class="form-select form-select-sm vault-digestion-control" id="vault-digestion-sort" aria-label="Sort Digestions">
+                <option value="updated_desc">Recently updated</option>
+                <option value="name_asc">Name A-Z</option>
+                <option value="sources_desc">Most sources</option>
+                <option value="chunks_desc">Most chunks</option>
+                <option value="datapoints_desc">Most datapoints</option>
+            </select>
+            <button class="btn btn-outline-secondary btn-sm vault-digestion-control vault-digestion-density-btn"
+                    type="button"
+                    id="vault-digestion-density-toggle"
+                    aria-pressed="false"
+                    title="Switch between comfortable cards and dense list cards">
+                <i class="bi bi-view-stacked"></i> Compact
             </button>
         </div>
-        <div class="vault-digestion-list" id="vault-digestion-list" aria-live="polite"></div>
+        <div class="vault-digestion-summary" id="vault-digestion-summary" aria-live="polite">
+            <span class="vault-digestion-summary-pill"><strong id="vault-digestion-count">0</strong> visible</span>
+            <button class="btn btn-sm btn-outline-secondary vault-digestion-clear-filters" type="button" id="vault-digestion-clear-filters">
+                <i class="bi bi-x-circle"></i> Clear filters
+            </button>
+        </div>
+        <div class="vault-digestion-list-shell">
+            <div class="vault-digestion-list" id="vault-digestion-list" aria-live="polite"></div>
+        </div>
     </section>
 
     <section class="vault-panel vault-file-panel p-3" id="vault-file-panel" data-vault-file-drop-panel>

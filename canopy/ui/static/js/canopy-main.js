@@ -1072,6 +1072,10 @@
             };
             const VAULT_VIEW_STORAGE_KEY = 'canopy:vault:viewMode';
             const VAULT_VIEW_MODES = new Set(['list', 'icons', 'preview']);
+            const VAULT_DIGESTION_SORT_STORAGE_KEY = 'canopy:vault:digestionSort';
+            const VAULT_DIGESTION_DENSITY_STORAGE_KEY = 'canopy:vault:digestionDensity';
+            const VAULT_DIGESTION_SORT_MODES = new Set(['updated_desc', 'name_asc', 'sources_desc', 'chunks_desc', 'datapoints_desc']);
+            const VAULT_DIGESTION_DENSITY_MODES = new Set(['comfortable', 'compact']);
             const VAULT_FILE_DRAG_TYPE = 'application/x-canopy-vault-file-id';
             const VAULT_DIGESTION_DRAG_TYPE = 'application/x-canopy-digestion-id';
 
@@ -2035,6 +2039,22 @@
                         return 'preview';
                     }
                 }
+                function readVaultDigestionSort() {
+                    try {
+                        const saved = String(global.localStorage && global.localStorage.getItem(VAULT_DIGESTION_SORT_STORAGE_KEY) || '').trim();
+                        return VAULT_DIGESTION_SORT_MODES.has(saved) ? saved : 'updated_desc';
+                    } catch (_) {
+                        return 'updated_desc';
+                    }
+                }
+                function readVaultDigestionDensity() {
+                    try {
+                        const saved = String(global.localStorage && global.localStorage.getItem(VAULT_DIGESTION_DENSITY_STORAGE_KEY) || '').trim();
+                        return VAULT_DIGESTION_DENSITY_MODES.has(saved) ? saved : 'comfortable';
+                    } catch (_) {
+                        return 'comfortable';
+                    }
+                }
                 const state = {
                     files: Array.isArray(global.CANOPY_VAULT_INITIAL?.files) ? global.CANOPY_VAULT_INITIAL.files.slice() : [],
                     folders: Array.isArray(global.CANOPY_VAULT_INITIAL?.folders) ? global.CANOPY_VAULT_INITIAL.folders.slice() : [],
@@ -2043,6 +2063,10 @@
                     currentFolderId: String(global.CANOPY_VAULT_INITIAL?.currentFolderId || ''),
                     stats: global.CANOPY_VAULT_INITIAL?.stats || {},
                     query: '',
+                    digestionSearch: '',
+                    digestionStatusFilter: 'all',
+                    digestionSort: readVaultDigestionSort(),
+                    digestionDensity: readVaultDigestionDensity(),
                     category: '',
                     offset: 0,
                     limit: 48,
@@ -2100,6 +2124,13 @@
 	                const digestionCreateCancel = document.getElementById('vault-digestion-create-cancel');
 	                const digestionList = document.getElementById('vault-digestion-list');
 	                const digestionRefresh = document.getElementById('vault-digestion-refresh');
+	                const digestionSearch = document.getElementById('vault-digestion-search');
+	                const digestionStatusFilter = document.getElementById('vault-digestion-status-filter');
+	                const digestionSort = document.getElementById('vault-digestion-sort');
+	                const digestionDensityToggle = document.getElementById('vault-digestion-density-toggle');
+	                const digestionCount = document.getElementById('vault-digestion-count');
+	                const digestionSummary = document.getElementById('vault-digestion-summary');
+	                const digestionClearFilters = document.getElementById('vault-digestion-clear-filters');
 	                const inlinePreviewPanel = document.getElementById('vault-inline-preview-panel');
 	                const inlinePreviewTitle = document.getElementById('vault-inline-preview-title');
 	                const inlinePreviewMeta = document.getElementById('vault-inline-preview-meta');
@@ -2639,6 +2670,182 @@
                         return sourceCount || Object.values(sourceStats).reduce((total, value) => total + Number(value || 0), 0);
                     }
 
+                    function parseDigestionSourceMetadata(source) {
+                        const raw = source && (source.source_metadata_json || source.metadata_json || source.metadata);
+                        if (!raw) return {};
+                        if (typeof raw === 'object') return raw;
+                        try {
+                            const parsed = JSON.parse(String(raw || '{}'));
+                            return parsed && typeof parsed === 'object' ? parsed : {};
+                        } catch (_) {
+                            return {};
+                        }
+                    }
+
+                    function digestionContributionMeta(source) {
+                        const meta = parseDigestionSourceMetadata(source);
+                        const nested = meta.metadata && typeof meta.metadata === 'object' ? meta.metadata : {};
+                        const sourceKind = String(source && source.source_kind || meta.source_kind || '').trim() || 'vault_file';
+                        const submittedBy = String(meta.submitted_by || nested.contributed_by || nested.submitted_by || '').trim();
+                        const contributionKind = String(nested.contribution_kind || meta.contribution_kind || sourceKind || 'material').trim();
+                        const ownerId = String(meta.digestion_owner_user_id || '').trim();
+                        return { meta, nested, sourceKind, submittedBy, contributionKind, ownerId };
+                    }
+
+                    function isDigestionContributionSource(digestion, source) {
+                        const details = digestionContributionMeta(source);
+                        const ownerId = String(digestion && digestion.owner_user_id || details.ownerId || '').trim();
+                        const ingestPath = String(details.meta.ingest_path || '').trim();
+                        if (details.sourceKind === 'agent_contribution') return true;
+                        if (ingestPath === 'normalized_material_to_vault') return true;
+                        if (details.meta.copied_to_owner_vault && details.submittedBy && details.submittedBy !== ownerId) return true;
+                        if (details.submittedBy && ownerId && details.submittedBy !== ownerId) return true;
+                        return false;
+                    }
+
+                    function digestionContributionSources(digestion) {
+                        const sources = Array.isArray(digestion && digestion.sources) ? digestion.sources : [];
+                        return sources.filter(source => isDigestionContributionSource(digestion, source));
+                    }
+
+                    function digestionSourceIssues(digestion) {
+                        return Array.isArray(digestion && digestion.sources)
+                            ? digestion.sources.filter(source => {
+                                const status = String(source && source.status || '').toLowerCase();
+                                return status === 'error' || status === 'failed' || !!String(source && source.error || '').trim();
+                            })
+                            : [];
+                    }
+
+                    function digestionTimestampValue(digestion) {
+                        const raw = digestion && (
+                            digestion.updated_at
+                            || digestion.updated
+                            || digestion.built_at
+                            || digestion.created_at
+                            || digestion.created
+                            || ''
+                        );
+                        const parsed = typeof parseCanopyTimestamp === 'function' ? parseCanopyTimestamp(raw) : null;
+                        return parsed ? parsed.getTime() : 0;
+                    }
+
+                    function digestionSearchHaystack(digestion, stats) {
+                        const sources = Array.isArray(digestion && digestion.sources)
+                            ? digestion.sources.map(source => [
+                                source && source.file_name,
+                                source && source.source_label,
+                                source && source.file_id,
+                                source && source.status,
+                                source && source.error,
+                            ].filter(Boolean).join(' '))
+                            : [];
+                        return [
+                            digestion && digestion.id,
+                            digestion && digestion.name,
+                            digestion && digestion.purpose,
+                            digestion && digestion.description,
+                            digestion && digestion.provider,
+                            digestion && digestion.status,
+                            digestionStatusLabel(digestion),
+                            stats && stats.chunks,
+                            stats && stats.token_estimate,
+                            stats && stats.datapoint_count,
+                            ...sources,
+                        ].filter(value => value !== undefined && value !== null).join(' ').toLowerCase();
+                    }
+
+                    function digestionMatchesStatusFilter(digestion, stats) {
+                        const filter = String(state.digestionStatusFilter || 'all');
+                        if (filter === 'all') return true;
+                        const status = String(digestion && digestion.status || 'draft').toLowerCase();
+                        const access = digestion && digestion.access || {};
+                        const sourceCount = digestionSourceCount(digestion, stats);
+                        const chunks = Number(stats && stats.chunks || 0);
+                        const sourceIssues = digestionSourceIssues(digestion);
+                        const buildProgress = digestionOperationProgress(digestion, 'build');
+                        const datapointProgress = digestionOperationProgress(digestion, 'datapoints');
+                        if (filter === 'ready') return chunks > 0 || status === 'ready' || status === 'built' || status === 'completed';
+                        if (filter === 'needs_build') return sourceCount > 0 && !digestionProgressActive(buildProgress) && (status === 'draft' || chunks <= 0);
+                        if (filter === 'running') return digestionProgressActive(buildProgress) || digestionProgressActive(datapointProgress);
+                        if (filter === 'owned') return String(access.role || '').toLowerCase() === 'owner';
+                        if (filter === 'shared') return !!String(access.role || '').trim() && String(access.role || '').toLowerCase() !== 'owner';
+                        if (filter === 'issues') return sourceIssues.length > 0 || status === 'error' || status === 'failed';
+                        return true;
+                    }
+
+                    function filteredSortedDigestions() {
+                        const query = String(state.digestionSearch || '').trim().toLowerCase();
+                        const decorated = state.digestions.map((digestion, index) => {
+                            const stats = digestionStats(digestion);
+                            return { digestion, stats, index };
+                        }).filter(({ digestion, stats }) => {
+                            if (!digestionMatchesStatusFilter(digestion, stats)) return false;
+                            return !query || digestionSearchHaystack(digestion, stats).includes(query);
+                        });
+                        decorated.sort((left, right) => {
+                            const sort = String(state.digestionSort || 'updated_desc');
+                            if (sort === 'name_asc') {
+                                const a = String(left.digestion && left.digestion.name || '').toLowerCase();
+                                const b = String(right.digestion && right.digestion.name || '').toLowerCase();
+                                return a.localeCompare(b) || left.index - right.index;
+                            }
+                            if (sort === 'sources_desc') {
+                                return digestionSourceCount(right.digestion, right.stats) - digestionSourceCount(left.digestion, left.stats) || left.index - right.index;
+                            }
+                            if (sort === 'chunks_desc') {
+                                return Number(right.stats.chunks || 0) - Number(left.stats.chunks || 0) || left.index - right.index;
+                            }
+                            if (sort === 'datapoints_desc') {
+                                return Number(right.stats.datapoint_count || 0) - Number(left.stats.datapoint_count || 0) || left.index - right.index;
+                            }
+                            return digestionTimestampValue(right.digestion) - digestionTimestampValue(left.digestion) || left.index - right.index;
+                        });
+                        return decorated.map(item => item.digestion);
+                    }
+
+                    function updateDigestionCollectionControls(visibleDigestions = state.digestions) {
+                        const visibleItems = Array.isArray(visibleDigestions) ? visibleDigestions : state.digestions;
+                        const visibleCount = visibleItems.length;
+                        const totalCount = state.digestions.length;
+                        if (digestionSearch && digestionSearch.value !== state.digestionSearch) {
+                            digestionSearch.value = state.digestionSearch;
+                        }
+                        if (digestionStatusFilter && digestionStatusFilter.value !== state.digestionStatusFilter) {
+                            digestionStatusFilter.value = state.digestionStatusFilter;
+                        }
+                        if (digestionSort && digestionSort.value !== state.digestionSort) {
+                            digestionSort.value = state.digestionSort;
+                        }
+                        const compact = state.digestionDensity === 'compact';
+                        if (digestionDensityToggle) {
+                            digestionDensityToggle.setAttribute('aria-pressed', compact ? 'true' : 'false');
+                            digestionDensityToggle.innerHTML = compact
+                                ? '<i class="bi bi-card-list"></i> Comfortable'
+                                : '<i class="bi bi-view-stacked"></i> Compact';
+                        }
+                        if (digestionCount) digestionCount.textContent = `${visibleCount}/${totalCount}`;
+                        if (digestionSummary) {
+                            const chunks = visibleItems.reduce((total, item) => total + Number(digestionStats(item).chunks || 0), 0);
+                            const datapoints = visibleItems.reduce((total, item) => total + Number(digestionStats(item).datapoint_count || 0), 0);
+                            digestionSummary.querySelectorAll('[data-vault-digestion-summary-extra]').forEach(el => el.remove());
+                            digestionSummary.insertAdjacentHTML('beforeend', `
+                                <span class="vault-digestion-summary-pill" data-vault-digestion-summary-extra><strong>${chunks.toLocaleString()}</strong> chunks</span>
+                                <span class="vault-digestion-summary-pill" data-vault-digestion-summary-extra><strong>${datapoints.toLocaleString()}</strong> datapoints</span>
+                            `);
+                        }
+                        const hasFilter = !!String(state.digestionSearch || '').trim() || String(state.digestionStatusFilter || 'all') !== 'all';
+                        if (digestionClearFilters) {
+                            digestionClearFilters.classList.toggle('is-visible', hasFilter);
+                        }
+                    }
+
+                    function clearDigestionCollectionFilters() {
+                        state.digestionSearch = '';
+                        state.digestionStatusFilter = 'all';
+                        renderDigestions();
+                    }
+
                 function digestionAgentReferenceText(digestion) {
                     const item = digestion || {};
                     const stats = digestionStats(item);
@@ -2757,7 +2964,89 @@
                     };
                 }
 
-		                function renderDigestionCard(digestion) {
+                function renderDigestionContributionItem(source, digestion) {
+                    const details = digestionContributionMeta(source);
+                    const fileId = String(source && source.file_id || details.meta.vault_file_id || '').trim();
+                    const fileName = String(source && (source.file_name || source.source_label) || details.meta.vault_file_name || fileId || 'Contribution source');
+                    const label = String(source && (source.source_label || source.file_name) || details.meta.source_label || fileName || 'Contribution');
+                    const contentType = String(source && source.content_type || details.meta.content_type || '');
+                    const status = String(source && source.status || '').trim();
+                    const chunks = Number(source && source.chunk_count || 0);
+                    const chars = Number(source && source.extracted_chars || 0);
+                    const sourceUri = String(source && source.source_uri || details.meta.source_uri || '');
+                    const submittedBy = details.submittedBy || 'unknown contributor';
+                    const contributedAt = String(details.meta.ingested_at || source.updated_at || '').trim();
+                    const tags = Array.isArray(details.nested.tags) ? details.nested.tags.slice(0, 8) : [];
+                    const sourcePayload = {
+                        file_id: fileId,
+                        file_name: fileName,
+                        content_type: contentType,
+                        page_label: '',
+                    };
+                    const copyTextValue = [
+                        `${label}`,
+                        fileId ? `file:${fileId}` : '',
+                        `kind:${details.contributionKind}`,
+                        submittedBy ? `submitted_by:${submittedBy}` : '',
+                        sourceUri ? `source:${sourceUri}` : '',
+                    ].filter(Boolean).join('\n');
+                    return `
+                        <div class="vault-digestion-result is-contribution">
+                            <div class="vault-digestion-result-head">
+                                <div class="vault-digestion-contribution-title">
+                                    <strong>${vaultEscape(label)}</strong>
+                                    <small>
+                                        ${vaultEscape(details.contributionKind.replace(/_/g, ' '))}
+                                        ${submittedBy ? ` · by ${vaultEscape(submittedBy)}` : ''}
+                                        ${contributedAt ? ` · ${vaultEscape(typeof formatTimestamp === 'function' ? formatTimestamp(contributedAt) : contributedAt)}` : ''}
+                                    </small>
+                                </div>
+                                <div class="vault-digestion-result-badges">
+                                    ${status ? `<span>${vaultEscape(status)}</span>` : ''}
+                                    ${chunks ? `<span>${chunks.toLocaleString()} chunk${chunks === 1 ? '' : 's'}</span>` : ''}
+                                    ${chars ? `<span>${chars.toLocaleString()} chars</span>` : ''}
+                                    ${sourceUri ? `<span title="${vaultEscape(sourceUri)}">source uri</span>` : ''}
+                                </div>
+                            </div>
+                            ${tags.length ? `
+                                <div class="vault-digestion-result-badges mt-1">
+                                    ${tags.map(tag => `<span>${vaultEscape(tag)}</span>`).join('')}
+                                </div>
+                            ` : ''}
+                            ${source && source.error ? `<div class="small text-warning mt-2">${vaultEscape(source.error)}</div>` : ''}
+                            ${renderDigestionResultActions(sourcePayload, copyTextValue)}
+                        </div>
+                    `;
+                }
+
+                function renderDigestionContributionsPanel(digestion) {
+                    const id = vaultEscape(digestion && digestion.id || '');
+                    const contributions = digestionContributionSources(digestion);
+                    const title = contributions.length
+                        ? `${contributions.length} accumulated contribution${contributions.length === 1 ? '' : 's'}`
+                        : 'No contributions yet';
+                    return `
+                        <div class="vault-digestion-contributions" data-vault-digestion-contributions="${id}" hidden>
+                            <div class="vault-digestion-contributions-head">
+                                <div>
+                                    <strong><i class="bi bi-collection"></i>${vaultEscape(title)}</strong>
+                                    <span>Agent and manager additions normalized into the owner-bound Digestion corpus.</span>
+                                </div>
+                            </div>
+                            ${contributions.length ? `
+                                <div class="vault-digestion-contribution-list">
+                                    ${contributions.map(source => renderDigestionContributionItem(source, digestion)).join('')}
+                                </div>
+                            ` : `
+                                <div class="vault-digestion-contribution-empty">
+                                    Contributions appended by agents or managers will appear here after they add notes, files, references, or structured work product to this Digestion.
+                                </div>
+                            `}
+                        </div>
+                    `;
+                }
+
+                function renderDigestionCard(digestion) {
 		                    const id = vaultEscape(digestion.id || '');
 		                    const name = vaultEscape(digestion.name || 'Untitled Digestion');
 		                    const status = vaultEscape(digestionStatusLabel(digestion));
@@ -2772,12 +3061,8 @@
                             const quantitativeCount = Number(stats.quantitative_result_count || 0);
                             const figureCount = Number(stats.figures || 0);
 		                    const sourceCount = digestionSourceCount(digestion, stats);
-	                    const sourceIssues = Array.isArray(digestion.sources)
-	                        ? digestion.sources.filter(source => {
-	                            const status = String(source && source.status || '').toLowerCase();
-	                            return status === 'error' || !!String(source && source.error || '').trim();
-	                        })
-	                        : [];
+                            const contributionCount = digestionContributionSources(digestion).length;
+	                    const sourceIssues = digestionSourceIssues(digestion);
 	                    const sourceIssueTitle = sourceIssues.slice(0, 6).map(source => {
 	                        const name = String(source && (source.file_name || source.source_label || source.file_id) || 'Source');
 	                        const error = String(source && source.error || source.status || 'not indexed');
@@ -2806,7 +3091,8 @@
                     const maxChunksDefault = defaultDatapointMaxChunks(digestion);
                     const maxDatapointsDefault = Math.min(400, Math.max(50, maxChunksDefault * 4));
                     return `
-                        <article class="vault-digestion-card" data-vault-digestion-id="${id}" data-vault-digestion-can-manage="${canManage ? 'true' : 'false'}" data-vault-digestion-can-drop="${canDropSources ? 'true' : 'false'}" draggable="${canDropSources ? 'true' : 'false'}" aria-label="Digestion ${name}. ${canDropSources ? 'Drop Vault files or another Digestion here to expand it.' : 'Read-only or shared Digestion.'}">
+                        <article class="vault-digestion-card${state.digestionDensity === 'compact' ? ' is-compact' : ''}" data-vault-digestion-id="${id}" data-vault-digestion-can-manage="${canManage ? 'true' : 'false'}" data-vault-digestion-can-drop="${canDropSources ? 'true' : 'false'}" draggable="${canDropSources ? 'true' : 'false'}" aria-label="Digestion ${name}. ${canDropSources ? 'Drop Vault files or another Digestion here to expand it.' : 'Read-only or shared Digestion.'}">
+                            <div class="vault-digestion-card-main">
                             <div class="vault-digestion-card-title">${name}</div>
                             ${purpose ? `<div class="small text-muted mt-1">${purpose}</div>` : ''}
 	                            <div class="vault-digestion-meta">
@@ -2820,6 +3106,7 @@
 		                                ${sourceIssues.length ? `<span class="vault-digestion-pill text-warning" title="${vaultEscape(sourceIssueTitle)}"><i class="bi bi-file-earmark-x"></i>${sourceIssues.length} source issue${sourceIssues.length === 1 ? '' : 's'}</span>` : ''}
 		                                ${ragNoChunks && hasBeenBuilt ? `<span class="vault-digestion-pill text-warning" title="No indexed chunks available. Run Build/Rebuild to index sources."><i class="bi bi-exclamation-triangle"></i>No chunks - build first</span>` : ''}
 	                                ${canManage && !canReadSources ? `<span class="vault-digestion-pill text-warning" title="Source-read access is required for Extract datapoints."><i class="bi bi-shield-exclamation"></i>No source-read access</span>` : ''}
+                            </div>
                             </div>
                             ${canDropSources ? `
                             <div class="vault-digestion-drop-hint" data-vault-digestion-drop-hint="${id}">
@@ -2836,6 +3123,9 @@
                                 </button>
                                 <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="outputs" data-vault-digestion-id="${id}" aria-label="View outputs for ${name}">
                                     <i class="bi bi-journal-richtext"></i> Outputs
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="contributions" data-vault-digestion-id="${id}" aria-label="View accumulated contributions for ${name}" aria-expanded="false" title="${canReadSources ? 'Review agent and manager-added materials that have accumulated in this Digestion.' : 'Contribution review requires source metadata access.'}" ${canReadSources ? '' : 'disabled'}>
+                                    <i class="bi bi-collection"></i> Contributions${contributionCount ? ` (${contributionCount})` : ''}
                                 </button>
 	                                ${canManage ? `
 	                                <button class="btn btn-sm btn-outline-info vault-digestion-btn" type="button" data-vault-digestion-action="extract-datapoints" data-vault-digestion-id="${id}" aria-label="Extract structured datapoints for ${name}" title="${extractTitle}" ${extractDisabled ? 'disabled' : ''}>
@@ -2859,6 +3149,7 @@
 	                            </div>
                                 ${renderDigestionProgress('build', 'Build', buildProgress)}
                                 ${renderDigestionProgress('datapoints', 'Datapoint extraction', datapointProgress)}
+                                ${renderDigestionContributionsPanel(digestion)}
 	                            ${canManage ? `
                                     <div class="vault-digestion-options" data-vault-digestion-extract-options="${id}" hidden>
                                         <div class="vault-digestion-options-copy">
@@ -2980,6 +3271,9 @@
 
                 function renderDigestions() {
                     if (!digestionList) return;
+                    const visibleDigestions = filteredSortedDigestions();
+                    digestionList.classList.toggle('is-compact', state.digestionDensity === 'compact');
+                    updateDigestionCollectionControls(visibleDigestions);
                     if (!state.digestions.length) {
                         digestionList.innerHTML = `
                             <div class="vault-digestion-card">
@@ -2991,7 +3285,21 @@
                         `;
                         return;
                     }
-                    digestionList.innerHTML = state.digestions.map(renderDigestionCard).join('');
+                    if (!visibleDigestions.length) {
+                        digestionList.innerHTML = `
+                            <div class="vault-digestion-card">
+                                <div class="vault-digestion-card-title">No matching Digestions</div>
+                                <div class="small text-muted mt-1">
+                                    Adjust the search, status filter, or clear filters to see the full library.
+                                </div>
+                                <button class="btn btn-sm btn-outline-secondary mt-2" type="button" data-vault-digestion-action="clear-collection-filters">
+                                    <i class="bi bi-x-circle"></i> Clear filters
+                                </button>
+                            </div>
+                        `;
+                        return;
+                    }
+                    digestionList.innerHTML = visibleDigestions.map(renderDigestionCard).join('');
                     state.digestions.forEach((digestion) => {
                         const digestionId = String(digestion && digestion.id || '');
                         if (!digestionId) return;
@@ -3014,6 +3322,19 @@
                         const label = operation === 'build' ? 'Build' : 'Datapoint extraction';
                         progressEl.outerHTML = renderDigestionProgress(operation, label, progress);
                     });
+                }
+
+                function toggleDigestionContributions(digestionId) {
+                    const panel = document.querySelector(`[data-vault-digestion-contributions="${vaultCssEscape(digestionId)}"]`);
+                    if (!panel) return;
+                    const willOpen = panel.hidden;
+                    panel.hidden = !willOpen;
+                    panel.classList.toggle('is-visible', willOpen);
+                    const button = digestionList && digestionList.querySelector(`[data-vault-digestion-action="contributions"][data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
+                    if (button) button.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                    if (willOpen) {
+                        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
                 }
 
                 function applyDigestionProgressPayload(digestionId, data) {
@@ -5679,6 +6000,41 @@
                 if (digestionRefresh) {
                     digestionRefresh.addEventListener('click', loadDigestions);
                 }
+                if (digestionSearch) {
+                    digestionSearch.addEventListener('input', () => {
+                        state.digestionSearch = String(digestionSearch.value || '').trim();
+                        renderDigestions();
+                    });
+                }
+                if (digestionStatusFilter) {
+                    digestionStatusFilter.addEventListener('change', () => {
+                        state.digestionStatusFilter = String(digestionStatusFilter.value || 'all');
+                        renderDigestions();
+                    });
+                }
+                if (digestionSort) {
+                    digestionSort.value = state.digestionSort;
+                    digestionSort.addEventListener('change', () => {
+                        const next = String(digestionSort.value || 'updated_desc');
+                        state.digestionSort = VAULT_DIGESTION_SORT_MODES.has(next) ? next : 'updated_desc';
+                        try {
+                            if (global.localStorage) global.localStorage.setItem(VAULT_DIGESTION_SORT_STORAGE_KEY, state.digestionSort);
+                        } catch (_) {}
+                        renderDigestions();
+                    });
+                }
+                if (digestionDensityToggle) {
+                    digestionDensityToggle.addEventListener('click', () => {
+                        state.digestionDensity = state.digestionDensity === 'compact' ? 'comfortable' : 'compact';
+                        try {
+                            if (global.localStorage) global.localStorage.setItem(VAULT_DIGESTION_DENSITY_STORAGE_KEY, state.digestionDensity);
+                        } catch (_) {}
+                        renderDigestions();
+                    });
+                }
+                if (digestionClearFilters) {
+                    digestionClearFilters.addEventListener('click', clearDigestionCollectionFilters);
+                }
 		                if (digestionList) {
                             let draggingDigestionId = '';
                             function digestionCardFromEvent(event) {
@@ -5803,12 +6159,16 @@
 	                        event.stopPropagation();
 	                        const digestionId = actionBtn.getAttribute('data-vault-digestion-id') || '';
 	                        const action = actionBtn.getAttribute('data-vault-digestion-action') || '';
-                        if (action === 'open-deck') {
+                        if (action === 'clear-collection-filters') {
+                            clearDigestionCollectionFilters();
+                        } else if (action === 'open-deck') {
                             openDigestionDeckWorkspace(digestionId, actionBtn);
                         } else if (action === 'build') {
                             buildDigestion(digestionId, actionBtn);
                         } else if (action === 'outputs') {
                             loadDigestionOutputs(digestionId, actionBtn);
+                        } else if (action === 'contributions') {
+                            toggleDigestionContributions(digestionId);
                         } else if (action === 'extract-datapoints') {
                             extractDigestionDatapoints(digestionId, actionBtn);
                         } else if (action === 'extract-options') {
@@ -12003,9 +12363,26 @@
             }
 
             function decodeCanopyHtmlText(html) {
-                const textarea = document.createElement('textarea');
-                textarea.innerHTML = String(html || '');
-                return textarea.value || '';
+                return String(html || '').replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]+);/gi, function(match, entity) {
+                    const key = String(entity || '').toLowerCase();
+                    if (key.startsWith('#x')) {
+                        const code = Number.parseInt(key.slice(2), 16);
+                        return Number.isFinite(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+                    }
+                    if (key.startsWith('#')) {
+                        const code = Number.parseInt(key.slice(1), 10);
+                        return Number.isFinite(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+                    }
+                    const named = {
+                        amp: '&',
+                        apos: "'",
+                        gt: '>',
+                        lt: '<',
+                        nbsp: ' ',
+                        quot: '"',
+                    };
+                    return Object.prototype.hasOwnProperty.call(named, key) ? named[key] : match;
+                });
             }
 
             function linkifyCanopyEntityRefs(html) {

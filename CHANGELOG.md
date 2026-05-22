@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.185] - 2026-05-22
+
+### Added
+- **Vault Digestions scale to larger libraries** - the File Vault Digestions panel now includes collection search, status/access filters, sort controls, visible/total summaries, a persistent compact density mode, and a bounded scroll area for larger Digestion libraries.
+- **Digestion cards expose accumulated contributions** - owners and source-metadata grantees can open a contributions panel to inspect agent/manager-added source material, contributor metadata, tags, status, chunks, and preview/copy actions from the existing source metadata.
+
+### Fixed
+- **Copied file-ref label decoding avoids DOM parsing** - Canopy file/package link cleanup now decodes common HTML entities without assigning captured text to `innerHTML`, closing the linkifier hardening gap found after the previous package-link patch.
+
 ## [0.6.184] - 2026-05-21
 
 ### Added
