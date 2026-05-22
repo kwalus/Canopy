@@ -1082,6 +1082,32 @@
         font-size: 0.78rem;
         color: var(--canopy-text-secondary);
     }
+    .inline-task-actions {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 0.65rem;
+    }
+    .inline-task-open {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        border: 1px solid rgba(94, 234, 212, 0.34);
+        border-radius: 999px;
+        padding: 0.3rem 0.65rem;
+        background: rgba(16, 185, 129, 0.12);
+        color: var(--canopy-accent, #5eead4);
+        font-size: 0.72rem;
+        font-weight: 800;
+        text-decoration: none;
+    }
+    .inline-task-open:hover {
+        color: var(--canopy-accent, #5eead4);
+        background: rgba(16, 185, 129, 0.2);
+        text-decoration: none;
+    }
 
     /* Composer: prevent overlap with bottom of window */
     .channel-composer-wrap {
@@ -14403,7 +14429,7 @@ function renderInlineTaskCards(tasks, userInfo) {
             <div class="inline-task-card" data-task-id="${safeTaskId}" data-status="${status}">
                 <div class="inline-task-header">
                     <span class="inline-task-label">Task</span>
-                    <span class="inline-task-status ${status}">${statusLabel}</span>
+                    <span class="inline-task-status ${status}">Status: ${statusLabel}</span>
                 </div>
                 <div class="inline-task-title">${escapeHtml(task.title || '')}</div>
                 ${task.description ? `<div class="inline-task-desc">${escapeHtml(task.description)}</div>` : ''}
@@ -14418,6 +14444,9 @@ function renderInlineTaskCards(tasks, userInfo) {
                          data-user-avatar="${safeAssigneeAvatar}"
                          data-peer-id="${safeAssigneePeer}"></div>
                     <div class="inline-task-assignee-label">${safeAssigneeId ? `Assigned to ${safeAssigneeName}` : 'Unassigned'}</div>
+                </div>
+                <div class="inline-task-actions">
+                    <a class="inline-task-open" href="/tasks?task=${encodeURIComponent(task.id || '')}">View details</a>
                 </div>
             </div>
         `;

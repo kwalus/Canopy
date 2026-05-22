@@ -448,7 +448,7 @@
                                             <div class="inline-task-card" data-task-id="{{ task.id }}" data-status="{{ task.status }}">
                                                 <div class="inline-task-header">
                                                     <span class="inline-task-label">Task</span>
-                                                    <span class="inline-task-status {{ task.status }}">{{ task.status_label }}</span>
+                                                    <span class="inline-task-status {{ task.status }}">Status: {{ task.status_label }}</span>
                                                 </div>
                                                 <div class="inline-task-title">{{ task.title }}</div>
                                                 {% if task.description %}
@@ -467,6 +467,11 @@
                                                          data-user-avatar="{{ task.assignee_avatar_url or '' }}"
                                                          data-peer-id="{{ task.assignee_origin_peer or '' }}"></div>
                                                     <div class="inline-task-assignee-label">{{ task.assignee_label }}</div>
+                                                </div>
+                                                <div class="inline-task-actions">
+                                                    <a class="inline-task-open" href="{{ url_for('ui.tasks_page') }}?task={{ task.id|urlencode }}">
+                                                        View details
+                                                    </a>
                                                 </div>
                                             </div>
                                         {% endfor %}

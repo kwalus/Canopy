@@ -103,6 +103,25 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("manager.save_instance_settings(", ui_routes)
         self.assertIn("@ui.route('/ajax/admin/canopy_llm/settings'", ui_routes)
 
+    def test_tasks_have_detail_editor_and_inline_view_link(self) -> None:
+        tasks_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'tasks.html').read_text(encoding='utf-8')
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        feed_surface = read_feed_surface()
+
+        self.assertIn('id="task-detail-backdrop"', tasks_template)
+        self.assertIn('id="task-detail-assignee"', tasks_template)
+        self.assertIn('function formatTaskTimestamp(timestamp)', tasks_template)
+        self.assertIn('function openTaskDetail(taskId', tasks_template)
+        self.assertIn('function saveTaskDetail(event)', tasks_template)
+        self.assertIn("event.target.closest('button, a, input, textarea, select, [role=\"button\"]') !== taskCard", tasks_template)
+        self.assertIn("url.searchParams.set('task', taskId)", tasks_template)
+        self.assertIn("actions = [{ action: 'details', label: 'Details' }]", tasks_template)
+        self.assertIn('Status: {{ task.status_label }}', feed_surface)
+        self.assertIn('inline-task-open', feed_surface)
+        self.assertIn("href=\"{{ url_for('ui.tasks_page') }}?task={{ task.id|urlencode }}\"", feed_surface)
+        self.assertIn('Status: ${statusLabel}', channels_template)
+        self.assertIn('/tasks?task=${encodeURIComponent(task.id || \'\')}', channels_template)
+
     def test_digestion_extraction_copy_and_states_cover_external_provider_and_source_access(self) -> None:
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.187] - 2026-05-22
+
+### Added
+- **Tasks can be reopened and edited after creation** - `/tasks` now supports deep-linked task details, keyboard/click-accessible task cards, and an editor for title, details, assignee, status, priority, due date, and visibility using the existing task update endpoint.
+
+### Fixed
+- **Inline task cards no longer make status look like an action** - feed and channel task cards now label status as `Status: Open` and include an explicit `View details` link to the task editor.
+
 ## [0.6.186] - 2026-05-22
 
 ### Fixed

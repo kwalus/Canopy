@@ -256,6 +256,100 @@
         font-size: 0.7rem;
         padding: 0.3rem 0.55rem;
     }
+    .task-card {
+        cursor: pointer;
+    }
+    .task-card:focus-visible {
+        outline: 2px solid rgba(94, 234, 212, 0.75);
+        outline-offset: 3px;
+    }
+    .task-detail-backdrop[hidden] {
+        display: none !important;
+    }
+    .task-detail-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1080;
+        background: rgba(3, 7, 18, 0.68);
+        backdrop-filter: blur(12px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.25rem;
+    }
+    .task-detail-panel {
+        width: min(760px, 100%);
+        max-height: min(820px, calc(100vh - 2.5rem));
+        overflow-y: auto;
+        border: 1px solid rgba(94, 234, 212, 0.28);
+        border-radius: 26px;
+        background:
+            radial-gradient(circle at top right, rgba(52, 211, 153, 0.18), transparent 42%),
+            linear-gradient(145deg, var(--canopy-bg-secondary), var(--canopy-bg-primary));
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+        color: var(--canopy-text-primary);
+    }
+    .task-detail-head,
+    .task-detail-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.15rem;
+        border-bottom: 1px solid var(--canopy-border);
+    }
+    .task-detail-foot {
+        border-top: 1px solid var(--canopy-border);
+        border-bottom: 0;
+        flex-wrap: wrap;
+    }
+    .task-detail-kicker {
+        display: block;
+        color: var(--canopy-accent, #5eead4);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+    .task-detail-body {
+        padding: 1.15rem;
+        display: grid;
+        gap: 1rem;
+    }
+    .task-detail-body .form-label {
+        color: var(--canopy-text-secondary);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    .task-detail-body .form-control,
+    .task-detail-body .form-select {
+        background: var(--canopy-bg-tertiary);
+        border: 1px solid var(--canopy-border);
+        color: var(--canopy-text-primary);
+    }
+    .task-detail-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.76rem;
+    }
+    .task-detail-chip {
+        border: 1px solid var(--canopy-border);
+        border-radius: 999px;
+        padding: 0.2rem 0.55rem;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 76%, transparent);
+    }
+    .task-detail-close {
+        border: 1px solid var(--canopy-border);
+        border-radius: 999px;
+        background: var(--canopy-bg-tertiary);
+        color: var(--canopy-text-primary);
+        width: 38px;
+        height: 38px;
+    }
     .task-progress {
         width: 100%;
         height: 6px;
@@ -301,6 +395,14 @@
         }
         .tasks-hero h1 {
             font-size: 1.6rem;
+        }
+        .task-detail-backdrop {
+            align-items: stretch;
+            padding: 0.75rem;
+        }
+        .task-detail-panel {
+            max-height: calc(100vh - 1.5rem);
+            border-radius: 20px;
         }
     }
 </style>
@@ -409,6 +511,79 @@
         </div>
     </div>
 </div>
+
+<div class="task-detail-backdrop" id="task-detail-backdrop" hidden>
+    <section class="task-detail-panel" role="dialog" aria-modal="true" aria-labelledby="task-detail-title">
+        <div class="task-detail-head">
+            <div>
+                <span class="task-detail-kicker">Task details</span>
+                <h2 id="task-detail-title" class="h4 mb-0">Open task</h2>
+            </div>
+            <button type="button" class="task-detail-close" id="task-detail-close" aria-label="Close task details">X</button>
+        </div>
+        <form id="task-detail-form">
+            <input type="hidden" id="task-detail-id">
+            <div class="task-detail-body">
+                <div class="task-detail-meta" id="task-detail-meta"></div>
+                <div>
+                    <label class="form-label" for="task-detail-title-input">Title</label>
+                    <input type="text" class="form-control" id="task-detail-title-input" required>
+                </div>
+                <div>
+                    <label class="form-label" for="task-detail-description">Details</label>
+                    <textarea class="form-control" id="task-detail-description" rows="5"></textarea>
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <label class="form-label" for="task-detail-assignee">Assignee</label>
+                        <select class="form-select" id="task-detail-assignee"></select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="task-detail-status">Status</label>
+                        <select class="form-select" id="task-detail-status">
+                            <option value="open">Open</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="blocked">Blocked</option>
+                            <option value="done">Done</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-4">
+                        <label class="form-label" for="task-detail-priority">Priority</label>
+                        <select class="form-select" id="task-detail-priority">
+                            <option value="low">Low</option>
+                            <option value="normal">Normal</option>
+                            <option value="high">High</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="task-detail-due">Due</label>
+                        <input type="date" class="form-control" id="task-detail-due">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="task-detail-visibility">Scope</label>
+                        <select class="form-select" id="task-detail-visibility">
+                            <option value="network">Network</option>
+                            <option value="local">Local only</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="task-detail-foot">
+                <div class="small text-muted">Changes update the shared task card and sync network tasks.</div>
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" class="btn btn-outline-light" id="task-detail-unassign">Unassign</button>
+                    <button type="button" class="btn btn-outline-light" id="task-detail-cancel">Close</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-check2-circle me-1"></i> Save task
+                    </button>
+                </div>
+            </div>
+        </form>
+    </section>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -430,9 +605,11 @@
     };
 
     let taskUsers = {};
+    let taskCache = new Map();
     let mentionSuggestions = [];
     let mentionSuggestionsLoading = false;
     let mentionSuggestionsFetchedAt = 0;
+    let pendingOpenTaskId = new URLSearchParams(window.location.search).get('task') || '';
     const TASK_MENTION_CACHE_TTL_MS = 30000;
 
     function escapeHtml(text) {
@@ -458,6 +635,15 @@
         const due = new Date(dueAt);
         if (isNaN(due)) return '';
         return due.toLocaleDateString();
+    }
+
+    function formatTaskTimestamp(timestamp) {
+        if (typeof window.formatCanopyTimestamp === 'function') {
+            return window.formatCanopyTimestamp(timestamp);
+        }
+        if (!timestamp) return '';
+        const date = new Date(timestamp);
+        return isNaN(date) ? String(timestamp) : date.toLocaleString();
     }
 
     function isOverdue(dueAt, status) {
@@ -517,6 +703,9 @@
         card.className = 'task-card';
         card.dataset.taskId = task.id;
         card.dataset.status = task.status;
+        card.tabIndex = 0;
+        card.setAttribute('role', 'button');
+        card.setAttribute('aria-label', `Open task details: ${task.title || task.id}`);
 
         const priorityClass = task.priority || 'normal';
         const statusLabel = STATUS_LABELS[task.status] || task.status;
@@ -533,7 +722,7 @@
             <div class="task-title">${escapeHtml(task.title)}</div>
             ${task.description ? `<div class="task-desc">${escapeHtml(task.description)}</div>` : ''}
             <div class="task-meta">
-                <span>Updated ${formatTimestamp(task.updated_at)}</span>
+                <span>Updated ${formatTaskTimestamp(task.updated_at)}</span>
                 ${dueLabel ? `<span class="task-due ${overdue ? 'overdue' : ''}">Due ${dueLabel}</span>` : ''}
                 ${task.visibility === 'local' ? '<span class="task-scope">Local</span>' : ''}
             </div>
@@ -548,7 +737,7 @@
         renderAssignee(assigneeWrap, task.assigned_to);
 
         const actionsWrap = card.querySelector('.task-actions');
-        const actions = buildTaskActions(task);
+        const actions = [{ action: 'details', label: 'Details' }].concat(buildTaskActions(task));
         if (!actions.length) {
             actionsWrap.innerHTML = '';
         } else {
@@ -570,7 +759,9 @@
             blocked: [],
             done: []
         };
+        taskCache = new Map();
         (tasks || []).forEach(task => {
+            if (task && task.id) taskCache.set(task.id, task);
             const status = TASK_STATUSES.includes(task.status) ? task.status : 'open';
             grouped[status].push(task);
         });
@@ -600,6 +791,16 @@
                 }
                 taskUsers = data.users || {};
                 renderTaskBoard(data.tasks || []);
+                if (pendingOpenTaskId) {
+                    const taskId = pendingOpenTaskId;
+                    if (taskCache.has(taskId)) {
+                        pendingOpenTaskId = '';
+                        openTaskDetail(taskId, { keepUrl: true });
+                    } else {
+                        pendingOpenTaskId = '';
+                        showAlert('Task was not found on this node yet. Try Refresh after sync completes.', 'warning');
+                    }
+                }
             })
             .catch(err => {
                 console.error('Task load error', err);
@@ -635,6 +836,9 @@
             case 'claim':
                 payload.assigned_to = CURRENT_USER_ID;
                 break;
+            case 'details':
+                openTaskDetail(taskId);
+                return;
             default:
                 return;
         }
@@ -642,6 +846,146 @@
             .then(() => loadTasks())
             .catch(err => {
                 console.error('Task update error', err);
+                showAlert('Failed to update task', 'warning');
+            });
+    }
+
+    function taskDateInputValue(value) {
+        if (!value) return '';
+        const dt = new Date(value);
+        if (isNaN(dt)) return '';
+        return dt.toISOString().slice(0, 10);
+    }
+
+    function taskUserLabel(userId) {
+        if (!userId) return 'Unassigned';
+        const known = taskUsers[userId] || {};
+        const suggested = (mentionSuggestions || []).find(user => user.user_id === userId) || {};
+        return known.display_name || known.username || suggested.display_name || suggested.username || userId;
+    }
+
+    function populateDetailAssignees(selectedUserId) {
+        const select = document.getElementById('task-detail-assignee');
+        if (!select) return;
+        const users = new Map();
+        Object.entries(taskUsers || {}).forEach(([uid, info]) => {
+            if (uid) users.set(uid, info || {});
+        });
+        (mentionSuggestions || []).forEach(user => {
+            if (user && user.user_id && !users.has(user.user_id)) {
+                users.set(user.user_id, user);
+            }
+        });
+        if (selectedUserId && !users.has(selectedUserId)) {
+            users.set(selectedUserId, { display_name: selectedUserId, username: selectedUserId });
+        }
+        const options = ['<option value="">Unassigned</option>'];
+        [...users.entries()]
+            .sort((a, b) => {
+                const aName = (a[1].display_name || a[1].username || a[0]).toLowerCase();
+                const bName = (b[1].display_name || b[1].username || b[0]).toLowerCase();
+                return aName.localeCompare(bName);
+            })
+            .forEach(([uid, user]) => {
+                const label = user.display_name || user.username || uid;
+                const handle = user.username && user.username !== label ? ` @${user.username}` : '';
+                options.push(`<option value="${escapeHtml(uid)}">${escapeHtml(label + handle)}</option>`);
+            });
+        select.innerHTML = options.join('');
+        select.value = selectedUserId || '';
+    }
+
+    function renderTaskDetail(task) {
+        if (!task) return;
+        document.getElementById('task-detail-id').value = task.id || '';
+        document.getElementById('task-detail-title').textContent = task.title || 'Task';
+        document.getElementById('task-detail-title-input').value = task.title || '';
+        document.getElementById('task-detail-description').value = task.description || '';
+        document.getElementById('task-detail-status').value = task.status || 'open';
+        document.getElementById('task-detail-priority').value = task.priority || 'normal';
+        document.getElementById('task-detail-due').value = taskDateInputValue(task.due_at);
+        document.getElementById('task-detail-visibility').value = task.visibility || 'network';
+        populateDetailAssignees(task.assigned_to || '');
+        const meta = document.getElementById('task-detail-meta');
+        if (meta) {
+            meta.innerHTML = `
+                <span class="task-detail-chip">Status: ${escapeHtml(STATUS_LABELS[task.status] || task.status || 'Open')}</span>
+                <span class="task-detail-chip">Priority: ${escapeHtml(PRIORITY_LABELS[task.priority] || task.priority || 'Normal')}</span>
+                <span class="task-detail-chip">Assignee: ${escapeHtml(taskUserLabel(task.assigned_to))}</span>
+                <span class="task-detail-chip">Updated: ${escapeHtml(formatTaskTimestamp(task.updated_at) || '')}</span>
+            `;
+        }
+    }
+
+    function openTaskDetail(taskId, options) {
+        const task = taskCache.get(taskId);
+        if (!task) {
+            pendingOpenTaskId = taskId;
+            loadTasks();
+            return;
+        }
+        loadMentionSuggestions().then(() => {
+            renderTaskDetail(task);
+            const backdrop = document.getElementById('task-detail-backdrop');
+            if (backdrop) {
+                backdrop.hidden = false;
+                document.body.classList.add('modal-open');
+            }
+            if (!(options && options.keepUrl)) {
+                const url = new URL(window.location.href);
+                url.searchParams.set('task', taskId);
+                history.replaceState(null, '', url.toString());
+            }
+            const first = document.getElementById('task-detail-title-input');
+            if (first) first.focus();
+        });
+    }
+
+    function closeTaskDetail() {
+        const backdrop = document.getElementById('task-detail-backdrop');
+        if (backdrop) backdrop.hidden = true;
+        document.body.classList.remove('modal-open');
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('task')) {
+            url.searchParams.delete('task');
+            history.replaceState(null, '', url.toString());
+        }
+    }
+
+    function saveTaskDetail(event) {
+        event.preventDefault();
+        const taskId = document.getElementById('task-detail-id').value;
+        if (!taskId) return;
+        const title = document.getElementById('task-detail-title-input').value.trim();
+        if (!title) {
+            showAlert('Task title is required', 'warning');
+            return;
+        }
+        const dueRaw = document.getElementById('task-detail-due').value;
+        const payload = {
+            title,
+            description: document.getElementById('task-detail-description').value.trim(),
+            assigned_to: document.getElementById('task-detail-assignee').value || null,
+            status: document.getElementById('task-detail-status').value,
+            priority: document.getElementById('task-detail-priority').value,
+            due_at: dueRaw ? new Date(dueRaw).toISOString() : null,
+            visibility: document.getElementById('task-detail-visibility').value
+        };
+        updateTask(taskId, payload)
+            .then((data) => {
+                if (!data || !data.success) {
+                    showAlert(data && data.error ? data.error : 'Failed to update task', 'warning');
+                    return;
+                }
+                if (data.task && data.task.id) {
+                    taskCache.set(data.task.id, data.task);
+                    renderTaskDetail(data.task);
+                }
+                showAlert('Task updated', 'success');
+                loadTasks();
+            })
+            .catch(err => {
+                console.error('Task detail save error', err);
                 showAlert('Failed to update task', 'warning');
             });
     }
@@ -807,10 +1151,25 @@
 
     document.addEventListener('click', (event) => {
         const actionBtn = event.target.closest('[data-task-action]');
-        if (!actionBtn) return;
-        const action = actionBtn.dataset.taskAction;
-        const taskId = actionBtn.dataset.taskId;
-        handleTaskAction(action, taskId);
+        if (actionBtn) {
+            event.stopPropagation();
+            const action = actionBtn.dataset.taskAction;
+            const taskId = actionBtn.dataset.taskId;
+            handleTaskAction(action, taskId);
+            return;
+        }
+        const taskCard = event.target.closest('.task-card[data-task-id]');
+        if (taskCard) {
+            openTaskDetail(taskCard.dataset.taskId);
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        const taskCard = event.target.closest && event.target.closest('.task-card[data-task-id]');
+        if (!taskCard || !['Enter', ' '].includes(event.key)) return;
+        if (event.target.closest('button, a, input, textarea, select, [role="button"]') !== taskCard) return;
+        event.preventDefault();
+        openTaskDetail(taskCard.dataset.taskId);
     });
 
     const refreshBtn = document.getElementById('task-refresh-btn');
@@ -823,6 +1182,26 @@
         loadMentionSuggestions();
         setupAssigneeAutocomplete();
         setupTaskForm();
+        const detailForm = document.getElementById('task-detail-form');
+        if (detailForm) detailForm.addEventListener('submit', saveTaskDetail);
+        const closeButtons = [
+            document.getElementById('task-detail-close'),
+            document.getElementById('task-detail-cancel')
+        ].filter(Boolean);
+        closeButtons.forEach(btn => btn.addEventListener('click', closeTaskDetail));
+        const backdrop = document.getElementById('task-detail-backdrop');
+        if (backdrop) {
+            backdrop.addEventListener('click', (event) => {
+                if (event.target === backdrop) closeTaskDetail();
+            });
+        }
+        const unassignBtn = document.getElementById('task-detail-unassign');
+        if (unassignBtn) {
+            unassignBtn.addEventListener('click', () => {
+                const select = document.getElementById('task-detail-assignee');
+                if (select) select.value = '';
+            });
+        }
         setInterval(loadTasks, 15000);
     });
 </script>
