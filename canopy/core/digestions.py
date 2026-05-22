@@ -2320,7 +2320,19 @@ class DigestionManager:
                 "Use append_contributions to preserve durable agent work product: notes, claims, facts, references, files, and optional datapoints.",
                 "Use datapoints_extract with scope='new' after adding documents; use scope='all' only for an explicit full refresh.",
                 "Use package/export_package for portable handoffs; package snapshots do not grant live query access by themselves.",
+                "When receiving a package from another user, treat its counts as a snapshot and call access_request/request_access first if live query fails.",
             ],
+            "live_access": {
+                "self_check": f"GET {api_base}/access-request",
+                "package_is_snapshot": True,
+                "package_does_not_grant_acl": True,
+                "acl_grant_template": {
+                    "grantee_user_id": "<agent_or_user_id>",
+                    "can_query": True,
+                    "can_read_sources": False,
+                    "can_manage": False,
+                },
+            },
             "permissions": {
                 "query_context": "read_files plus Digestion query access",
                 "sources_figures_datapoints": "read_files plus query access plus can_read_sources",
@@ -2341,6 +2353,7 @@ class DigestionManager:
         """Build a reusable machine package for humans or agents to attach/share."""
         digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
         access = self._access_for(digestion, actor_user_id)
+        generated_at = self._now()
         outputs = self.list_outputs(digestion.id, actor_user_id, include_content=include_content)
         if not outputs and access.get("can_manage"):
             try:
@@ -2356,12 +2369,25 @@ class DigestionManager:
         digestion_payload = digestion.to_dict(access=access)
         digestion_payload["access_subject_user_id"] = actor_user_id
         digestion_payload["access_scope"] = "exporting_user"
+        stats = self.stats(digestion.id)
         return {
             "kind": "canopy_digestion_package_v1",
-            "generated_at": self._now(),
+            "generated_at": generated_at,
             "digestion": digestion_payload,
-            "stats": self.stats(digestion.id),
+            "stats": stats,
             "agent_reference": self.agent_reference(digestion.id, actor_user_id),
+            "snapshot": {
+                "kind": "static_package_snapshot",
+                "generated_at": generated_at,
+                "source_count": int(stats.get("source_count") or 0),
+                "chunks": int(stats.get("chunks") or 0),
+                "token_estimate": int(stats.get("token_estimate") or 0),
+                "status_at_export": digestion.status,
+                "exporting_user_id": actor_user_id,
+                "package_access_reflects": "exporting_user",
+                "live_query_access_not_implied": True,
+                "live_access_check_endpoint": f"GET /api/v1/digestions/{digestion.id}/access-request",
+            },
             "access_subject": {
                 "user_id": actor_user_id,
                 "scope": "exporting_user",
@@ -2419,9 +2445,13 @@ class DigestionManager:
             "acl_grant_endpoint": acl_endpoint,
             "acl_grant_body": acl_body,
             "guidance": (
-                f"You do not currently have query access to Digestion '{digestion.name}' ({digestion.id}). "
-                f"Ask the owner ({digestion.owner_user_id}) to grant your user id ({requester}) live query access. "
-                "In the Vault UI, the owner can use Share access on the Digestion card."
+                f"You already have live query access to Digestion '{digestion.name}' ({digestion.id})."
+                if bool(access.get("can_query") or access.get("can_manage"))
+                else (
+                    f"You do not currently have query access to Digestion '{digestion.name}' ({digestion.id}). "
+                    f"Ask the owner ({digestion.owner_user_id}) to grant your user id ({requester}) live query access. "
+                    "In the Vault UI, the owner can use Share access on the Digestion card."
+                )
             ),
         }
 

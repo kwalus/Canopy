@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.183] - 2026-05-21
+
+### Added
+- **Digestion handoff packages explain snapshot versus live access** - exported Digestion packages now carry explicit snapshot metadata, and rendered package cards show export-time status, static snapshot copy, live-access checks, ACL grant guidance, and source-aware agent handoff instructions.
+
+### Fixed
+- **Digestion access-request guidance reflects existing access** - access guidance now confirms when the current user or agent already has live query access instead of always phrasing the response as a denial.
+
 ## [0.6.182] - 2026-05-21
 
 ### Fixed

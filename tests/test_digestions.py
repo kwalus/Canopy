@@ -152,8 +152,15 @@ class TestDigestions(unittest.TestCase):
     def test_digestion_package_file_preview_is_bounded_reader_payload(self) -> None:
         payload = {
             'kind': 'canopy_digestion_package_v1',
+            'generated_at': '2026-05-22T00:00:00+00:00',
             'digestion': {'id': 'dig_123', 'name': 'Materials Digest', 'purpose': 'Human-reader test'},
             'stats': {'source_count': 2, 'chunks': 9, 'token_estimate': 1200, 'output_count': 1},
+            'snapshot': {
+                'kind': 'static_package_snapshot',
+                'generated_at': '2026-05-22T00:00:00+00:00',
+                'status_at_export': 'ready',
+                'live_query_access_not_implied': True,
+            },
             'live_query_access': {'recipient_query_requires_acl': True},
             'agent_reference': {
                 'digestion_id': 'dig_123',
@@ -187,6 +194,9 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(preview['stats']['chunks'], 9)
         self.assertEqual(preview['stats']['source_count'], 2)
         self.assertEqual(preview['stats']['output_count'], 1)
+        self.assertEqual(preview['snapshot']['kind'], 'static_package_snapshot')
+        self.assertTrue(preview['snapshot']['live_query_access_not_implied'])
+        self.assertIn('/access-request', preview['snapshot']['live_access_check_endpoint'])
         self.assertEqual(preview['outputs'][0]['datapoint_count'], 4)
         self.assertEqual(preview['sources'][0]['file_name'], 'paper-a.pdf')
         self.assertIn('append_contributions', preview['agent_reference']['api'])
@@ -540,8 +550,14 @@ class TestDigestions(unittest.TestCase):
         self.assertIn('acl_grant', agent_ref['api'])
         self.assertEqual(agent_ref['mcp']['append_contributions'], 'canopy_digest_append_contributions')
         self.assertIn('sources_figures_datapoints', agent_ref['permissions'])
+        self.assertIn('live_access', agent_ref)
+        self.assertTrue(agent_ref['live_access']['package_is_snapshot'])
         self.assertEqual(package['digestion']['access_subject_user_id'], 'owner-user')
         self.assertEqual(package['digestion']['access_scope'], 'exporting_user')
+        self.assertEqual(package['snapshot']['kind'], 'static_package_snapshot')
+        self.assertEqual(package['snapshot']['package_access_reflects'], 'exporting_user')
+        self.assertTrue(package['snapshot']['live_query_access_not_implied'])
+        self.assertIn('/access-request', package['snapshot']['live_access_check_endpoint'])
         self.assertEqual(package['access_subject']['user_id'], 'owner-user')
         self.assertTrue(package['access_subject']['access']['can_query'])
         self.assertFalse(package['access_subject']['recipient_live_query_implied'])
@@ -1793,6 +1809,10 @@ class TestDigestions(unittest.TestCase):
         self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'other-user', can_query=True)
         self.assertTrue(
             self.digestion_manager.request_access_info(digestion['id'], 'other-user')['already_has_query_access']
+        )
+        self.assertIn(
+            'already have live query access',
+            self.digestion_manager.request_access_info(digestion['id'], 'other-user')['guidance'],
         )
 
         with self.assertRaises(DigestionError) as ctx:

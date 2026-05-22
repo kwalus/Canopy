@@ -11691,6 +11691,24 @@
             background: color-mix(in srgb, var(--canopy-bg-tertiary, #1e1e32) 58%, transparent);
         }
 
+        .digestion-package-access {
+            display: grid;
+            gap: 0.58rem;
+        }
+
+        .digestion-package-access-head,
+        .digestion-package-access-actions {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.65rem;
+        }
+
+        .digestion-package-access-head > div,
+        .digestion-package-access-actions > span {
+            min-width: 0;
+        }
+
         .digestion-package-access strong,
         .digestion-package-live-query-head strong,
         .digestion-package-section-title {
@@ -11699,6 +11717,84 @@
             font-size: 0.82rem;
             font-weight: 900;
             margin-bottom: 0.35rem;
+        }
+
+        .digestion-package-access-actions > span {
+            color: var(--canopy-text-muted, #94a3b8);
+            font-size: 0.76rem;
+            line-height: 1.32;
+        }
+
+        .digestion-package-snapshot-badge {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid color-mix(in srgb, var(--canopy-primary, #22c55e) 32%, transparent);
+            border-radius: 999px;
+            padding: 0.16rem 0.5rem;
+            background: color-mix(in srgb, var(--canopy-primary, #22c55e) 10%, transparent);
+            color: var(--canopy-text-secondary, #cbd5e1);
+            font-size: 0.7rem;
+            font-weight: 850;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .digestion-package-access-status {
+            display: grid;
+            gap: 0.42rem;
+        }
+
+        .digestion-package-access-result {
+            display: grid;
+            gap: 0.34rem;
+            padding: 0.58rem 0.62rem;
+            border: 1px solid color-mix(in srgb, var(--canopy-border, #334155) 78%, var(--canopy-secondary, #4ade80) 14%);
+            border-radius: 12px;
+            background: color-mix(in srgb, var(--canopy-bg-primary, #0f172a) 48%, transparent);
+        }
+
+        .digestion-package-access-result.is-live {
+            border-color: color-mix(in srgb, var(--canopy-secondary, #4ade80) 44%, var(--canopy-border, #334155));
+            background: color-mix(in srgb, var(--canopy-secondary, #4ade80) 9%, var(--canopy-bg-primary, #0f172a));
+        }
+
+        .digestion-package-access-result.needs-access {
+            border-color: color-mix(in srgb, var(--canopy-warning, #f59e0b) 42%, var(--canopy-border, #334155));
+            background: color-mix(in srgb, var(--canopy-warning, #f59e0b) 7%, var(--canopy-bg-primary, #0f172a));
+        }
+
+        .digestion-package-access-result span {
+            color: var(--canopy-text-secondary, #cbd5e1);
+            font-size: 0.76rem;
+            line-height: 1.35;
+        }
+
+        .digestion-package-access-result code {
+            width: fit-content;
+            max-width: 100%;
+            overflow-wrap: anywhere;
+            color: color-mix(in srgb, var(--canopy-secondary, #4ade80) 78%, var(--canopy-text-primary, #f8fafc));
+            background: color-mix(in srgb, var(--canopy-bg-primary, #0f172a) 72%, transparent);
+            border: 1px solid color-mix(in srgb, var(--canopy-secondary, #4ade80) 18%, var(--canopy-border, #334155));
+            border-radius: 8px;
+            padding: 0.16rem 0.38rem;
+            font-size: 0.72rem;
+        }
+
+        .digestion-package-access-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.34rem;
+        }
+
+        .digestion-package-access-chips em {
+            border: 1px solid color-mix(in srgb, var(--canopy-secondary, #4ade80) 24%, transparent);
+            border-radius: 999px;
+            padding: 0.12rem 0.42rem;
+            color: var(--canopy-text-secondary, #cbd5e1);
+            font-size: 0.7rem;
+            font-style: normal;
+            font-weight: 800;
         }
 
         .digestion-package-live-query {
@@ -11923,6 +12019,8 @@
 
         @media (max-width: 720px) {
             .digestion-package-hero,
+            .digestion-package-access-head,
+            .digestion-package-access-actions,
             .digestion-package-live-query-head,
             .digestion-package-actions {
                 align-items: stretch;

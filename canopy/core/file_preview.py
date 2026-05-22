@@ -521,6 +521,7 @@ def _build_digestion_package_preview(file_data: bytes, filename: str, content_ty
     digestion = payload.get("digestion") if isinstance(payload.get("digestion"), dict) else {}
     stats = payload.get("stats") if isinstance(payload.get("stats"), dict) else {}
     live_access = payload.get("live_query_access") if isinstance(payload.get("live_query_access"), dict) else {}
+    snapshot = payload.get("snapshot") if isinstance(payload.get("snapshot"), dict) else {}
     agent_reference = payload.get("agent_reference") if isinstance(payload.get("agent_reference"), dict) else {}
     agent_api = agent_reference.get("api") if isinstance(agent_reference.get("api"), dict) else {}
     agent_mcp = agent_reference.get("mcp") if isinstance(agent_reference.get("mcp"), dict) else {}
@@ -555,7 +556,17 @@ def _build_digestion_package_preview(file_data: bytes, filename: str, content_ty
             "chunks": _safe_int(stats.get("chunks")),
             "token_estimate": _safe_int(stats.get("token_estimate")),
             "source_count": _safe_int(stats.get("source_count")) or len(sources),
-            "output_count": _safe_int(stats.get("output_count")) or len(outputs),
+            "output_count": _safe_int(stats.get("output_count") or stats.get("outputs")) or len(outputs),
+            "datapoint_count": _safe_int(stats.get("datapoint_count")),
+            "figures": _safe_int(stats.get("figures")),
+        },
+        "snapshot": {
+            "kind": str(snapshot.get("kind") or "static_package_snapshot"),
+            "generated_at": str(snapshot.get("generated_at") or payload.get("generated_at") or ""),
+            "status_at_export": str(snapshot.get("status_at_export") or digestion.get("status") or ""),
+            "package_access_reflects": str(snapshot.get("package_access_reflects") or live_access.get("package_access_reflects") or "exporting_user"),
+            "live_query_access_not_implied": bool(snapshot.get("live_query_access_not_implied", True)),
+            "live_access_check_endpoint": str(snapshot.get("live_access_check_endpoint") or (f"GET /api/v1/digestions/{digestion_id}/access-request" if digestion_id else "")),
         },
         "live_query_access": {
             "recipient_query_requires_acl": bool(live_access.get("recipient_query_requires_acl")),

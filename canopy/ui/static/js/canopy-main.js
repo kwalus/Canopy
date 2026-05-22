@@ -10533,6 +10533,7 @@
                 const digestion = payload && payload.digestion && typeof payload.digestion === 'object' ? payload.digestion : {};
                 const stats = payload && payload.stats && typeof payload.stats === 'object' ? payload.stats : {};
                 const liveAccess = payload && payload.live_query_access && typeof payload.live_query_access === 'object' ? payload.live_query_access : {};
+                const snapshot = payload && payload.snapshot && typeof payload.snapshot === 'object' ? payload.snapshot : {};
                 const agentReference = payload && payload.agent_reference && typeof payload.agent_reference === 'object' ? payload.agent_reference : {};
                 const outputs = Array.isArray(payload && payload.outputs) ? payload.outputs : [];
                 const sources = Array.isArray(payload && payload.sources) ? payload.sources : [];
@@ -10553,6 +10554,13 @@
                     stats,
                     agentReference,
                 }));
+                const generatedAt = String(snapshot.generated_at || payload.generated_at || '').trim();
+                let generatedLabel = '';
+                if (generatedAt) {
+                    const generatedDate = new Date(generatedAt);
+                    generatedLabel = Number.isNaN(generatedDate.getTime()) ? generatedAt : generatedDate.toLocaleString();
+                }
+                const statusAtExport = String(snapshot.status_at_export || digestion.status || 'package').trim();
                 const agentEndpointRows = [
                     ['Query', agentApi.query],
                     ['Context', agentApi.context],
@@ -10574,6 +10582,7 @@
                 const rawSummary = registerFilePreviewText(previewId, JSON.stringify({
                     digestion,
                     stats,
+                    snapshot,
                     live_query_access: liveAccess,
                     agent_reference: agentReference,
                     outputs,
@@ -10583,6 +10592,9 @@
                 const accessLabel = liveAccess.recipient_query_requires_acl
                     ? 'Live query requires owner ACL grant'
                     : (liveAccess.recipient_live_query_implied ? 'Live query available to recipient' : 'Snapshot package');
+                const snapshotNote = generatedLabel
+                    ? `Snapshot exported ${generatedLabel}. Counts reflect the exporter at that time; the live Digestion may have changed.`
+                    : 'This is a static package snapshot. Counts may differ from the live Digestion after agents add or index new material.';
                 return `
                     <div class="file-preview-container digestion-package-preview">
                         <div data-preview-pane="rendered">
@@ -10598,11 +10610,28 @@
                                 <span><strong>${Number(stats.source_count || sources.length || 0).toLocaleString()}</strong> sources</span>
                                 <span><strong>${Number(stats.chunks || 0).toLocaleString()}</strong> chunks</span>
                                 <span><strong>${Number(stats.token_estimate || 0).toLocaleString()}</strong> token est.</span>
-                                <span><strong>${Number(stats.output_count || outputs.length || 0).toLocaleString()}</strong> outputs</span>
+                                <span><strong>${Number(stats.output_count || stats.outputs || outputs.length || 0).toLocaleString()}</strong> outputs</span>
                             </div>
-                            <div class="digestion-package-access">
-                                <strong>${_escapeHtml(accessLabel)}</strong>
-                                <span>Packages are portable snapshots. Use live query when this Canopy has the Digestion and your account has ACL access.</span>
+                            <div class="digestion-package-access" data-digestion-package-access-panel>
+                                <div class="digestion-package-access-head">
+                                    <div>
+                                        <strong>${_escapeHtml(accessLabel)}</strong>
+                                        <span>${_escapeHtml(snapshotNote)}</span>
+                                    </div>
+                                    <span class="digestion-package-snapshot-badge">${_escapeHtml(statusAtExport || 'snapshot')}</span>
+                                </div>
+                                <div class="digestion-package-access-actions">
+                                    ${digestionId ? `
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-secondary code-preview-copy"
+                                                data-digestion-id="${_escapeAttr(digestionId)}"
+                                                onclick="checkDigestionPackageAccess(this)">
+                                            <i class="bi bi-shield-check me-1"></i>Check live access
+                                        </button>
+                                    ` : ''}
+                                    <span>Packages do not grant query access by themselves. Use Share access/ACL for the receiving user or agent.</span>
+                                </div>
+                                <div class="digestion-package-access-status" data-digestion-package-access-status aria-live="polite"></div>
                             </div>
                             ${digestionId ? `
                                 <div class="digestion-package-section digestion-package-agent-handoff">
@@ -10697,6 +10726,60 @@
                 navigator.clipboard.writeText(digestionId).then(() => {
                     if (typeof showAlert === 'function') showAlert('Digestion ID copied.', 'success');
                 }).catch(() => {});
+            };
+
+            function renderDigestionPackageAccessStatus(info) {
+                const access = info && info.your_access && typeof info.your_access === 'object' ? info.your_access : {};
+                const already = Boolean(info && info.already_has_query_access);
+                const owner = String(info && info.owner_user_id || '').trim();
+                const yourUserId = String(info && info.your_user_id || '').trim();
+                const endpoint = String(info && info.acl_grant_endpoint || '').trim();
+                const body = info && info.acl_grant_body && typeof info.acl_grant_body === 'object' ? info.acl_grant_body : null;
+                const chips = [
+                    access.can_query ? 'Query' : '',
+                    access.can_read_sources ? 'Sources' : '',
+                    access.can_manage ? 'Manage' : '',
+                ].filter(Boolean);
+                return `
+                    <div class="digestion-package-access-result ${already ? 'is-live' : 'needs-access'}">
+                        <strong>${already ? 'Live access confirmed for this account.' : 'Live access is not granted to this account yet.'}</strong>
+                        <span>${_escapeHtml(info && info.guidance || (already ? 'You can query the live Digestion from this Canopy instance.' : 'Ask the owner to grant this user or agent live query access.'))}</span>
+                        <div class="digestion-package-access-chips">
+                            ${yourUserId ? `<code>your_user_id: ${_escapeHtml(yourUserId)}</code>` : ''}
+                            ${owner ? `<code>owner: ${_escapeHtml(owner)}</code>` : ''}
+                            ${chips.length ? chips.map((chip) => `<em>${_escapeHtml(chip)}</em>`).join('') : '<em>No live ACL grants</em>'}
+                        </div>
+                        ${endpoint ? `<code>${_escapeHtml(endpoint)}</code>` : ''}
+                        ${body ? `<code>${_escapeHtml(JSON.stringify(body))}</code>` : ''}
+                    </div>
+                `;
+            }
+
+            global.checkDigestionPackageAccess = async function(button) {
+                const digestionId = String(button && button.dataset && button.dataset.digestionId || '').trim();
+                const panel = button && button.closest ? button.closest('[data-digestion-package-access-panel]') : null;
+                const statusEl = panel ? panel.querySelector('[data-digestion-package-access-status]') : null;
+                if (!digestionId || !statusEl) return;
+                const original = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Checking';
+                statusEl.innerHTML = '<div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Checking this account against the live Digestion...</div>';
+                try {
+                    const info = await apiCall(`/ajax/digestions/${encodeURIComponent(digestionId)}/access-request`);
+                    statusEl.innerHTML = renderDigestionPackageAccessStatus(info || {});
+                } catch (error) {
+                    const message = String(error && (error.error || error.message) || 'The live Digestion could not be checked from this package.').trim();
+                    statusEl.innerHTML = `
+                        <div class="digestion-package-access-result needs-access">
+                            <strong>Live Digestion not reachable from this package.</strong>
+                            <span>${_escapeHtml(message)} This usually means the package is only a static snapshot here, or the live Digestion belongs to another instance.</span>
+                            <code>GET /api/v1/digestions/${_escapeHtml(digestionId)}/access-request</code>
+                        </div>
+                    `;
+                } finally {
+                    button.disabled = false;
+                    button.innerHTML = original;
+                }
             };
 
             function renderDigestionPackageQueryResults(data) {
