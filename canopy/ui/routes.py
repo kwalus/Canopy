@@ -4805,6 +4805,7 @@ def create_ui_blueprint() -> Blueprint:
             connected_peers = set(p2p_manager.get_connected_peers() or []) if p2p_manager else set()
         except Exception:
             connected_peers = set()
+        now_dt = datetime.now(timezone.utc)
 
         with db_manager.get_connection() as conn:
             rows = conn.execute(
@@ -5015,25 +5016,70 @@ def create_ui_blueprint() -> Blueprint:
 
         _annotate_user_presence(list(user_map.values()), db_manager)
 
-        def _status_payload(user_row: dict[str, Any]) -> tuple[str, str]:
+        def _age_text_for_sidebar(value: Any) -> Optional[str]:
+            parsed = _meshspace_parse_datetime(value)
+            if not parsed:
+                return None
+            seconds = max(0, int((now_dt - parsed).total_seconds()))
+            if seconds < 60:
+                return 'just now'
+            minutes = max(1, seconds // 60)
+            if minutes < 60:
+                return f"{minutes}m ago"
+            hours = minutes // 60
+            if hours < 24:
+                return f"{hours}h ago"
+            days = hours // 24
+            return f"{days}d ago"
+
+        def _message_activity_status(latest_message_at: Any) -> tuple[str, str]:
+            parsed = _meshspace_parse_datetime(latest_message_at)
+            age_text = _age_text_for_sidebar(latest_message_at)
+            if not parsed or not age_text:
+                return ('offline', 'No live signal')
+            age_seconds = max(0, int((now_dt - parsed).total_seconds()))
+            if age_seconds <= 15 * 60:
+                return ('recent', f"Recent DM activity · {age_text}")
+            if age_seconds <= 60 * 60:
+                return ('idle', f"DM activity · {age_text}")
+            return ('offline', f"Last DM {age_text}")
+
+        def _status_payload(user_row: dict[str, Any], latest_message_at: Any = None) -> tuple[str, str]:
             status_norm = str(user_row.get('status') or '').strip().lower()
             if status_norm in {'sleep', 'sleeping', 'asleep', 'paused', 'quiet'}:
                 return ('sleep', 'Sleep')
 
             origin_peer = str(user_row.get('origin_peer') or '').strip()
-            if origin_peer and origin_peer in connected_peers:
-                return ('online', 'Online')
-
             presence_state = str(user_row.get('presence_state') or '').strip().lower()
-            if presence_state == 'online':
-                return ('online', 'Online')
-            if presence_state == 'recent':
-                return ('recent', 'Recent')
-            if presence_state == 'idle':
-                return ('idle', 'Idle')
+            presence_label = str(user_row.get('presence_label') or '').strip()
+            presence_age = str(user_row.get('presence_age_text') or '').strip()
+            account_type = str(user_row.get('account_type') or '').strip().lower()
+
+            if account_type == 'agent':
+                if presence_state in {'online', 'recent', 'idle'}:
+                    label = presence_label or presence_state.title()
+                    if presence_age:
+                        label = f"{label} · check-in {presence_age} ago"
+                    return (presence_state, label)
+                if presence_state == 'offline' and origin_peer and origin_peer in connected_peers:
+                    label = 'Peer reachable · agent check-in stale'
+                    if presence_age:
+                        label = f"{label} ({presence_age} ago)"
+                    return ('reachable', label)
+                if presence_state == 'offline':
+                    label = 'Agent offline'
+                    if presence_age:
+                        label = f"{label} · last check-in {presence_age} ago"
+                    return ('offline', label)
+                if origin_peer and origin_peer in connected_peers:
+                    return ('reachable', 'Peer reachable · no agent check-in')
+
+            if origin_peer and origin_peer in connected_peers:
+                return ('reachable', 'Peer reachable · user presence unknown')
+
             if not origin_peer or (local_peer_id and origin_peer == str(local_peer_id).strip()):
                 return ('local', 'Local')
-            return ('offline', 'Offline')
+            return _message_activity_status(latest_message_at)
 
         def _fallback_user_row(contact_id: str) -> dict[str, Any]:
             return {
@@ -5048,22 +5094,40 @@ def create_ui_blueprint() -> Blueprint:
                 'agent_directives': None,
             }
 
-        def _group_title_and_avatar(member_ids: list[str]) -> tuple[str, str, Optional[str]]:
+        def _group_title_avatar_status(member_ids: list[str], latest_message_at: Any = None) -> tuple[str, str, Optional[str], str, str]:
             other_members = [member_id for member_id in member_ids if member_id and member_id != user_id]
             displays = []
             avatar_url = None
+            reachable_count = 0
+            active_count = 0
             for member_id in other_members[:4]:
                 user_row = user_map.get(member_id) or _fallback_user_row(member_id)
                 displays.append(str(user_row.get('display_name') or user_row.get('username') or member_id))
                 if not avatar_url and user_row.get('avatar_url'):
                     avatar_url = user_row.get('avatar_url')
+            for member_id in other_members:
+                user_row = user_map.get(member_id) or _fallback_user_row(member_id)
+                member_state, _ = _status_payload(user_row, latest_message_at)
+                if member_state in {'online', 'reachable', 'local'}:
+                    reachable_count += 1
+                if member_state in {'online', 'recent', 'idle'}:
+                    active_count += 1
             if not displays:
-                return ('Group DM', 'Group', avatar_url)
+                state, activity_label = _message_activity_status(latest_message_at)
+                return ('Group DM', 'Group', avatar_url, state if state != 'offline' else 'group', f"Group DM · {activity_label}")
             title = ', '.join(displays[:3])
             if len(other_members) > 3:
                 title += f" +{len(other_members) - 3}"
             subtitle = f"{len(other_members)} participant{'s' if len(other_members) != 1 else ''}"
-            return (title, subtitle, avatar_url)
+            details = [f"{subtitle}"]
+            if reachable_count:
+                details.append(f"{reachable_count} reachable")
+            elif active_count:
+                details.append(f"{active_count} recently active")
+            else:
+                _, activity_label = _message_activity_status(latest_message_at)
+                details.append(activity_label)
+            return (title, subtitle, avatar_url, 'group', 'Group DM · ' + ' · '.join(details))
 
         contacts: list[dict[str, Any]] = []
         messages_base = url_for('ui.messages')
@@ -5073,7 +5137,10 @@ def create_ui_blueprint() -> Blueprint:
             if entry.get('kind') == 'group':
                 group_id = str(entry.get('canonical_group_key') or entry.get('group_id') or '').strip()
                 member_ids = [str(member_id or '').strip() for member_id in (entry.get('member_ids') or []) if str(member_id or '').strip()]
-                display_name, username, avatar_url = _group_title_and_avatar(member_ids)
+                display_name, username, avatar_url, group_status_state, group_status_label = _group_title_avatar_status(
+                    member_ids,
+                    entry.get('latest_message_at'),
+                )
                 href = f"{messages_base}?group={quote_plus(group_id)}" if group_id else messages_base
                 if target_message_id:
                     href = f"{href}#message-{quote_plus(target_message_id)}"
@@ -5088,8 +5155,8 @@ def create_ui_blueprint() -> Blueprint:
                     'avatar_url': avatar_url,
                     'origin_peer': None,
                     'account_type': 'group',
-                    'status_state': 'group',
-                    'status_label': username,
+                    'status_state': group_status_state,
+                    'status_label': group_status_label,
                     'href': href,
                     'latest_message_id': entry.get('latest_message_id'),
                     'target_message_id': target_message_id,
@@ -5107,7 +5174,7 @@ def create_ui_blueprint() -> Blueprint:
                 agent_directives=user_row.get('agent_directives'),
                 has_presence_checkin=bool(user_row.get('last_check_in_at')),
             )
-            status_state, status_label = _status_payload(user_row)
+            status_state, status_label = _status_payload(user_row, entry.get('latest_message_at'))
             is_self_contact = contact_id == user_id
             href = f"{messages_base}?with={quote_plus(contact_id)}" if contact_id else messages_base
             if target_message_id:

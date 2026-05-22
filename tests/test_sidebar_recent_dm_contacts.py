@@ -7,6 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote_plus
 from unittest.mock import MagicMock, patch
@@ -79,7 +80,10 @@ class _FakeP2PManager:
         return True
 
     def get_connected_peers(self):
-        return ['peer-alpha']
+        return self.connection_manager.get_connected_peers()
+
+    def set_connected_peers(self, peer_ids):
+        self.connection_manager = _FakeConnectionManager(peer_ids)
 
     def get_peer_id(self):
         return 'peer-local'
@@ -130,6 +134,12 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
                 edited_at TEXT,
                 metadata TEXT
             );
+            CREATE TABLE agent_presence (
+                user_id TEXT PRIMARY KEY,
+                last_checkin_at TEXT NOT NULL,
+                last_source TEXT,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         self.conn.executemany(
@@ -166,6 +176,15 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
                     json.dumps({'group_id': 'group:abc123', 'group_members': ['owner', 'peer-a', 'peer-b']}),
                 ),
             ],
+        )
+        self.conn.commit()
+        now_sql = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
+        self.conn.execute(
+            """
+            INSERT INTO agent_presence (user_id, last_checkin_at, last_source, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            ('peer-b', now_sql, 'heartbeat', now_sql),
         )
         self.conn.commit()
 
@@ -260,7 +279,28 @@ class TestSidebarRecentDmContacts(unittest.TestCase):
         self.assertEqual([contact.get('user_id') for contact in contacts[1:3]], ['peer-a', 'peer-b'])
         self.assertEqual(contacts[1].get('unread_count'), 1)
         self.assertEqual(contacts[1].get('target_message_id'), 'DM-a-unread')
-        self.assertEqual(contacts[1].get('status_state'), 'online')
+        self.assertEqual(contacts[1].get('status_state'), 'reachable')
+        self.assertIn('Peer reachable', contacts[1].get('status_label') or '')
+        self.assertEqual(contacts[2].get('status_state'), 'online')
+        self.assertIn('check-in', contacts[2].get('status_label') or '')
+
+    def test_sidebar_dm_status_falls_back_to_recent_message_activity(self) -> None:
+        self.p2p_manager.set_connected_peers([])
+        now_iso = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "UPDATE messages SET created_at = ? WHERE id = ?",
+            (now_iso, 'DM-a-unread'),
+        )
+        self.conn.commit()
+
+        response = self.client.get('/ajax/sidebar_dm_snapshot')
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        contacts = payload.get('recent_dm_contacts') or []
+        alice = next(contact for contact in contacts if contact.get('user_id') == 'peer-a')
+
+        self.assertEqual(alice.get('status_state'), 'recent')
+        self.assertIn('Recent DM activity', alice.get('status_label') or '')
 
     def test_sidebar_dm_snapshot_delta_request_omits_contacts_when_unchanged(self) -> None:
         first = self.client.get('/ajax/sidebar_dm_snapshot')

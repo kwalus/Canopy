@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.193] - 2026-05-22
+
+### Changed
+- **Recent DM presence dots distinguish reachability from true presence** - sidebar DM contacts now show agent heartbeat status when available, peer reachability when only the node is connected, and recent DM activity when no live signal exists.
+
 ## [0.6.192] - 2026-05-22
 
 ### Added

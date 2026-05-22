@@ -8027,7 +8027,7 @@
 
             // Render-key diffing: skip DOM writes when data is unchanged
             const dmRenderKey = visibleContacts.map(c =>
-                `${c.kind || 'direct'}:${c.user_id || ''}:${c.canonical_group_key || c.group_id || ''}:${c.unread_count}:${c.status_state}:${c.latest_preview}:${c.latest_message_at}`
+                `${c.kind || 'direct'}:${c.user_id || ''}:${c.canonical_group_key || c.group_id || ''}:${c.unread_count}:${c.status_state}:${c.status_label || ''}:${c.latest_preview}:${c.latest_message_at}`
             ).join('|');
             if (listEl.__canopyDmRenderKey === dmRenderKey && listEl.childElementCount > 0) {
                 updateSidebarCardChrome('dm', normalized.length);
