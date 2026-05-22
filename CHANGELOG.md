@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.188] - 2026-05-22
+
+### Fixed
+- **Mobile navigation closes cleanly after page selection** - tapping sidebar page links on phones now collapses the drawer before navigation so Channels, Messages, and other pages do not load behind an open sidebar.
+- **Channel mobile controls stay usable as the header grows** - primary channel filters remain available in a horizontal phone toolbar, lower-frequency controls move into the More menu, and Recent/Mention filter panels use viewport-safe mobile positioning.
+- **Reaction pickers fit phone screens** - channel, feed, and DM reaction palettes now render as safe-area-aware mobile bottom sheets instead of cramped popovers.
+
 ## [0.6.187] - 2026-05-22
 
 ### Added

@@ -8077,7 +8077,7 @@
             updateDeckInboxUnreadBadge(safeSummary.messages || 0);
         }
 
-        const CANOPY_TITLE_ATTENTION_PREFIX_RE = /^\(\d{1,4}\+?\)\s+/;
+        const CANOPY_TITLE_ATTENTION_PREFIX_RE = /^\(\d[\d,]*\+?\)\s+/;
         const canopyBaseDocumentTitle = (() => {
             const rawTitle = String(document.title || 'Canopy').trim() || 'Canopy';
             return rawTitle.replace(CANOPY_TITLE_ATTENTION_PREFIX_RE, '') || 'Canopy';
@@ -8377,6 +8377,11 @@
             const routes = (window.CANOPY_VARS && window.CANOPY_VARS.urls) || {};
             const endpoint = routes.sidebarAttentionSnapshot || '/ajax/sidebar_attention_snapshot';
             const params = new URLSearchParams();
+            const requestCursorFloor = Math.max(
+                0,
+                Number(canopySidebarAttentionState.currentEventCursor || 0) || 0,
+                Number(canopySidebarAttentionState.dismissedThroughCursor || 0) || 0
+            );
             if (force) {
                 params.set('force', '1');
                 params.set('_', String(Date.now()));
@@ -8392,9 +8397,21 @@
                 })
                 .then((data) => {
                     if (!data || data.success === false) return data || null;
+                    const serverCursor = Math.max(0, Number(data.workspace_event_cursor || data.cleared_through_seq || 0) || 0);
+                    const localCursorFloor = Math.max(
+                        requestCursorFloor,
+                        Number(canopySidebarAttentionState.currentEventCursor || 0) || 0,
+                        Number(canopySidebarAttentionState.dismissedThroughCursor || 0) || 0
+                    );
+                    const staleSnapshot = !force && serverCursor > 0 && localCursorFloor > 0 && serverCursor < localCursorFloor;
+                    if (staleSnapshot) {
+                        canopySidebarAttentionState.queued = true;
+                        canopySidebarAttentionState.queuedForce = true;
+                        syncCanopyAttentionDocumentTitle();
+                        return data;
+                    }
                     if (data.summary_rev) canopySidebarAttentionState.currentSummaryRev = String(data.summary_rev || '');
                     if (data.activity_rev) canopySidebarAttentionState.currentActivityRev = String(data.activity_rev || '');
-                    const serverCursor = Math.max(0, Number(data.workspace_event_cursor || data.cleared_through_seq || 0) || 0);
                     if (serverCursor > Number(canopySidebarAttentionState.currentEventCursor || 0)) {
                         canopySidebarAttentionState.currentEventCursor = serverCursor;
                     }
@@ -23638,6 +23655,24 @@
                     }
                 });
             }
+
+            function collapseMobileSidebarForNavigation() {
+                if (!isMobileSidebarMode() || currentState !== 'expanded') return;
+                currentState = 'hidden';
+                applySidebarState('hidden');
+                saveSidebarState('hidden');
+            }
+
+            sidebar.addEventListener('click', function(event) {
+                const link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+                if (!link || !sidebar.contains(link)) return;
+                if (!isMobileSidebarMode() || currentState !== 'expanded') return;
+                if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                if (link.hasAttribute('download')) return;
+                const target = String(link.getAttribute('target') || '').trim().toLowerCase();
+                if (target && target !== '_self') return;
+                collapseMobileSidebarForNavigation();
+            });
             
             function applySidebarState(state) {
                 const toggleIcon = toggleBtn.querySelector('i');

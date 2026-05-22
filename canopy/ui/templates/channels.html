@@ -4651,6 +4651,69 @@
             font-size: 0.68rem;
         }
     }
+
+    @media (max-width: 575.98px) {
+        .channel-header-row {
+            grid-template-columns: minmax(0, 1fr) auto;
+        }
+
+        .channel-header-right {
+            grid-column: 1 / -1;
+            width: 100%;
+            justify-content: stretch;
+            flex-wrap: wrap;
+            overflow: visible;
+            padding-bottom: 0;
+        }
+
+        .channel-header-controls {
+            order: 1;
+            margin-left: auto;
+            flex: 0 0 auto;
+        }
+
+        .channel-header-actions {
+            order: 2;
+            display: flex;
+            width: 100%;
+            flex: 1 1 100%;
+            gap: 0.32rem;
+            overflow-x: auto;
+            overscroll-behavior-x: contain;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+            padding: 0.14rem 0.02rem 0.22rem;
+        }
+
+        .channel-header-actions .channel-mobile-secondary-tool {
+            display: none !important;
+        }
+
+        .channel-header-actions > .dropdown,
+        .channel-header-actions > .channel-header-tool-btn {
+            flex: 0 0 auto;
+        }
+
+        .channel-header-actions .channel-header-tool-btn {
+            min-width: 2.45rem;
+            min-height: 2.45rem;
+        }
+
+        .channel-recent-filter-menu,
+        .mention-filter-menu {
+            position: fixed !important;
+            left: 0.65rem !important;
+            right: 0.65rem !important;
+            top: calc(env(safe-area-inset-top) + 4.25rem) !important;
+            width: auto !important;
+            min-width: 0;
+            max-width: none;
+            max-height: min(68vh, 520px);
+            max-height: min(68dvh, 520px);
+            overflow: auto;
+            transform: none !important;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -4940,7 +5003,7 @@
                     </div>
                     <div class="channel-header-right">
                         <div class="channel-header-actions">
-                            <div class="dropdown">
+                            <div class="dropdown channel-mobile-secondary-tool">
                                 <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-post-policy-btn channel-header-tool-btn"
                                         id="channel-post-policy-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i class="bi bi-megaphone" id="channel-post-policy-icon"></i>
@@ -4965,7 +5028,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="dropdown">
+                            <div class="dropdown channel-mobile-secondary-tool">
                                 <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-privacy-btn channel-header-tool-btn"
                                         id="channel-privacy-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i class="bi bi-shield-check" id="channel-privacy-icon"></i>
@@ -4990,7 +5053,7 @@
                                     </a></li>
                                 </ul>
                             </div>
-                            <div class="dropdown">
+                            <div class="dropdown channel-mobile-secondary-tool">
                                 <button class="btn btn-outline-secondary btn-sm dropdown-toggle channel-lifecycle-btn channel-header-tool-btn"
                                         id="channel-lifecycle-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                                     <i class="bi bi-clock-history" id="channel-lifecycle-icon"></i>
@@ -5025,7 +5088,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn" id="channel-mute-toggle"
+                            <button class="btn btn-outline-secondary btn-sm channel-header-tool-btn channel-mobile-secondary-tool" id="channel-mute-toggle"
                                     onclick="toggleChannelNotifications()" title="Mute notifications">
                                 <i class="bi bi-bell" id="channel-mute-icon"></i>
                             </button>
@@ -5249,6 +5312,12 @@
                                     <li class="channel-header-mobile-only">
                                         <button type="button" class="dropdown-item" onclick="restoreCurrentChannel()">
                                             <i class="bi bi-arrow-counterclockwise me-2"></i>Restore channel
+                                        </button>
+                                    </li>
+                                    <li class="channel-header-mobile-only"><hr class="dropdown-divider"></li>
+                                    <li class="channel-header-mobile-only">
+                                        <button type="button" class="dropdown-item" onclick="toggleChannelNotifications()">
+                                            <i class="bi bi-bell me-2"></i>Mute / unmute notifications
                                         </button>
                                     </li>
                                     <li class="channel-header-mobile-only"><hr class="dropdown-divider"></li>
