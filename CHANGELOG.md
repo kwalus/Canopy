@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.190] - 2026-05-22
+
+### Added
+- **Instance Updates panel can restart the active meshspace** - admins can now restart the current local meshspace directly from the Admin update panel after applying source updates, without switching to Meshspace Admin.
+
 ## [0.6.189] - 2026-05-22
 
 ### Fixed

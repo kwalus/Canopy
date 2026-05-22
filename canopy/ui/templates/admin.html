@@ -3505,6 +3505,9 @@
                     <button class="btn btn-success btn-sm" id="instance-update-apply-btn" onclick="applyInstanceUpdate()" {% if not update_last.get('can_apply') %}disabled{% endif %}>
                         <i class="bi bi-cloud-arrow-down"></i> Apply Update
                     </button>
+                    <button class="btn btn-warning btn-sm" id="instance-update-restart-btn" onclick="restartInstanceAfterUpdate()">
+                        <i class="bi bi-arrow-clockwise"></i> Restart Meshspace
+                    </button>
                     <button class="btn btn-outline-secondary btn-sm" id="instance-update-refresh-btn" onclick="loadInstanceUpdateStatus()">
                         <i class="bi bi-arrow-clockwise"></i> Refresh
                     </button>
@@ -3574,7 +3577,7 @@
                         </div>
                         <div class="update-security-note small mt-3">
                             <i class="bi bi-shield-lock"></i>
-                            Updates are local operator actions. Canopy fetches without writing credentials into <code>remote.origin.url</code>, refuses dirty or divergent working trees, and requires a restart after code changes.
+                            Updates are local operator actions. Canopy fetches without writing credentials into <code>remote.origin.url</code>, refuses dirty or divergent working trees, and requires a restart after code changes. Use <strong>Restart Meshspace</strong> here after applying an update to relaunch the active local meshspace.
                         </div>
                         <div id="instance-update-settings-status" class="small text-muted mt-2"></div>
                     </div>
@@ -4943,13 +4946,39 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         try {
             const { ok, data } = await api('POST', '/ajax/admin/updates/apply', {});
             if (!ok || !data.success) throw new Error(data.error || data.message || 'Could not apply update');
-            showAlert(data.message || 'Update applied. Restart Canopy to use the new version.', data.changed ? 'success' : 'info');
+            showAlert(data.message || 'Update applied. Use Restart Meshspace to run the new version.', data.changed ? 'success' : 'info');
+            const resultLine = document.getElementById('instance-update-result');
+            if (resultLine && data.changed) {
+                resultLine.textContent = data.message || 'Update applied. Restart this meshspace to run the new code.';
+                resultLine.classList.remove('text-danger', 'text-muted', 'text-info');
+                resultLine.classList.add('text-success');
+            }
             await loadInstanceUpdateStatus();
         } catch (err) {
             showAlert('Update failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
             await loadInstanceUpdateStatus();
         } finally {
             setButtonBusy('instance-update-apply-btn', false);
+        }
+    }
+
+    async function restartInstanceAfterUpdate() {
+        if (!confirm('Restart the active local meshspace now? The page may briefly disconnect while Canopy relaunches.')) return;
+        setButtonBusy('instance-update-restart-btn', true, '<i class="bi bi-hourglass-split"></i> Restarting...');
+        try {
+            const { ok, data } = await api('POST', '/ajax/admin/updates/restart', {});
+            if (!ok || !data.success) throw new Error(data.error || data.message || 'Restart failed');
+            showAlert(data.message || 'Restart scheduled. This page will reconnect after the meshspace comes back up.', 'success');
+            const resultLine = document.getElementById('instance-update-result');
+            if (resultLine) {
+                resultLine.textContent = data.message || 'Restart scheduled. Refresh this page after the meshspace comes back up.';
+                resultLine.classList.remove('text-danger', 'text-muted', 'text-info');
+                resultLine.classList.add('text-success');
+            }
+            setTimeout(() => window.location.reload(), 4500);
+        } catch (err) {
+            showAlert('Restart failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+            setButtonBusy('instance-update-restart-btn', false);
         }
     }
 
@@ -5525,6 +5554,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     window.saveInstanceUpdateSettings = saveInstanceUpdateSettings;
     window.checkInstanceUpdates = checkInstanceUpdates;
     window.applyInstanceUpdate = applyInstanceUpdate;
+    window.restartInstanceAfterUpdate = restartInstanceAfterUpdate;
     window.updateRelayPolicy = updateRelayPolicy;
     window.saveLargeAttachmentSettings = saveLargeAttachmentSettings;
 

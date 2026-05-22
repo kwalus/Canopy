@@ -12962,15 +12962,12 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Admin transport disable error: %s", exc, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not disable transport security'}), 500
 
-    @ui.route('/ajax/admin/transport-security/restart', methods=['POST'])
-    @require_login
-    @require_admin
-    def ajax_admin_transport_security_restart():
-        """Restart the current meshspace runtime after transport settings change."""
+    def _schedule_current_meshspace_restart_response(reason: str = 'admin restart'):
+        """Schedule a restart for the active local meshspace and return an AJAX payload."""
         try:
             config = current_app.config.get('CANOPY_CONFIG')
             if not config:
-                return jsonify({'success': False, 'error': 'Canopy config unavailable'}), 503
+                return {'success': False, 'error': 'Canopy config unavailable'}, 503
             env_map = build_runtime_environment_from_config(config)
             schedule_self_restart(
                 env_map,
@@ -12997,16 +12994,25 @@ def create_ui_blueprint() -> Blueprint:
                 try:
                     os.kill(os.getpid(), signal.SIGTERM)
                 except Exception:
-                    logger.warning("Failed to terminate current meshspace process during transport restart", exc_info=True)
+                    logger.warning("Failed to terminate current meshspace process during %s", reason, exc_info=True)
 
             threading.Thread(target=_terminate_current_runtime, daemon=True).start()
-            return jsonify({
+            return {
                 'success': True,
                 'message': 'Restart scheduled. This page will reconnect after the meshspace comes back up.',
-            })
+                'meshspace_id': current_mid,
+            }, 200
         except Exception as exc:
-            logger.error("Admin transport restart error: %s", exc, exc_info=True)
-            return jsonify({'success': False, 'error': 'Restart failed'}), 500
+            logger.error("Admin meshspace restart error during %s: %s", reason, exc, exc_info=True)
+            return {'success': False, 'error': 'Restart failed'}, 500
+
+    @ui.route('/ajax/admin/transport-security/restart', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_transport_security_restart():
+        """Restart the current meshspace runtime after transport settings change."""
+        payload, status = _schedule_current_meshspace_restart_response('transport restart')
+        return jsonify(payload), status
 
     @ui.route('/ajax/admin/users/<user_id>/repair-shadow-duplicates', methods=['POST'])
     @require_login
@@ -24016,6 +24022,13 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error("Instance update apply error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not apply update'}), 500
+
+    @ui.route('/ajax/admin/updates/restart', methods=['POST'])
+    @require_admin
+    def ajax_admin_updates_restart():
+        """AJAX: Restart the active local meshspace after an instance update."""
+        payload, status = _schedule_current_meshspace_restart_response('instance update restart')
+        return jsonify(payload), status
 
     # Database management AJAX endpoints for Settings page
     @ui.route('/ajax/database_cleanup', methods=['POST'])

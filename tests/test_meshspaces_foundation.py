@@ -1159,6 +1159,31 @@ class MeshspaceFoundationTest(unittest.TestCase):
         self.assertIn('Restarting Family Lab', body)
         restart_mock.assert_called_once()
 
+    def test_admin_update_panel_can_restart_current_meshspace(self) -> None:
+        self._authenticate()
+
+        class _NoopThread:
+            def __init__(self, target=None, daemon=None):
+                self.target = target
+                self.daemon = daemon
+
+            def start(self):
+                return None
+
+        with patch('canopy.ui.routes.schedule_self_restart', return_value=999) as restart_mock, \
+             patch('canopy.ui.routes.threading.Thread', _NoopThread):
+            response = self.client.post(
+                '/ajax/admin/updates/restart',
+                json={},
+                headers={'X-CSRFToken': 'csrf-mesh'},
+            )
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('meshspace_id'), 'family-lab')
+        self.assertIn('Restart scheduled', payload.get('message') or '')
+        restart_mock.assert_called_once()
+
     def test_admin_can_refresh_meshspace_runtime_state(self) -> None:
         self._authenticate()
 
