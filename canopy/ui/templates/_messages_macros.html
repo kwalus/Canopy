@@ -339,6 +339,23 @@
                             <i class="bi bi-eye"></i>
                             <span class="preview-label">Open reader</span>
                         </button>
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                data-canopy-file-id="{{ attachment_file_id|e }}"
+                                data-canopy-file-name="{{ attachment.name|e }}"
+                                onclick="copyCanopyFileRefMarkdown(this)"
+                                title="Copy a clean Canopy package link for reposting or DMs">
+                            <i class="bi bi-link-45deg"></i>
+                            <span>Copy link</span>
+                        </button>
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary"
+                                data-canopy-file-id="{{ attachment_file_id|e }}"
+                                onclick="openDigestionPackageAccessFromAttachment(this)"
+                                title="Open the live Digestion access manager if you own or manage this Digestion">
+                            <i class="bi bi-person-check"></i>
+                            <span>Manage access</span>
+                        </button>
                     {% endif %}
                     {% if attachment.url %}
                         <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" title="Save to File Vault" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)'>

@@ -2056,11 +2056,20 @@
 				                    shareActiveIndex: new Map(),
 				                    fileShareTimers: new Map(),
 				                    fileShareUsers: new Map(),
-				                    fileShareAcl: new Map(),
-				                    fileShareActiveIndex: new Map(),
+                    fileShareAcl: new Map(),
+                    fileShareActiveIndex: new Map(),
 		                                digestionProgressTimers: new Map(),
 					                    previewFileId: '',
-		                                selectionDigestionMenuOpen: false
+		                                selectionDigestionMenuOpen: false,
+                                pendingUrlDigestionId: (() => {
+                                    try { return String(new URLSearchParams(global.location.search).get('digestion') || '').trim(); } catch (_) { return ''; }
+                                })(),
+                                pendingUrlShareAccess: (() => {
+                                    try {
+                                        const params = new URLSearchParams(global.location.search);
+                                        return params.get('share') === '1' || params.get('access') === '1';
+                                    } catch (_) { return false; }
+                                })()
 		                };
 	                const grid = document.getElementById('vault-grid');
 	                const filePanel = document.getElementById('vault-file-panel');
@@ -2099,6 +2108,22 @@
 	                const inlinePreviewDownload = document.getElementById('vault-inline-preview-download');
 	                const inlinePreviewExpand = document.getElementById('vault-inline-preview-expand');
 	                const inlinePreviewClose = document.getElementById('vault-inline-preview-close');
+
+                    function openPendingVaultDigestionFromUrl() {
+                        const digestionId = String(state.pendingUrlDigestionId || '').trim();
+                        if (!digestionId || !digestionList) return;
+                        const card = digestionList.querySelector(`[data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
+                        if (!card) return;
+                        card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        card.classList.add('is-url-target');
+                        global.setTimeout(() => card.classList.remove('is-url-target'), 2200);
+                        if (state.pendingUrlShareAccess) {
+                            const form = digestionShareForm(digestionId);
+                            if (form && form.hidden) toggleDigestionShare(digestionId);
+                        }
+                        state.pendingUrlDigestionId = '';
+                        state.pendingUrlShareAccess = false;
+                    }
 
 	                function vaultFileName(file) {
 	                    return String(file && (file.name || file.filename || file.original_name || file.id) || 'Vault file');
@@ -3051,6 +3076,7 @@
 	                        const data = await apiCall(`${vaultUrls().digestions}?include_sources=1`);
 	                        state.digestions = Array.isArray(data.digestions) ? data.digestions : [];
 	                        renderDigestions();
+                            openPendingVaultDigestionFromUrl();
 	                        updateSelectionUi();
 	                    } catch (error) {
                         const errMsg = vaultEscape(error.error || 'Refresh to try again.');
@@ -10711,6 +10737,7 @@
                         </div>
                         <div class="digestion-package-actions">
                             ${digestionId ? `<button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" data-digestion-package-id="${_escapeAttr(digestionId)}" onclick="copyDigestionPackageId(this)"><i class="bi bi-clipboard me-1"></i>Copy ID</button>` : ''}
+                            ${digestionId ? `<a class="btn btn-sm btn-outline-secondary code-preview-copy" href="/vault?digestion=${encodeURIComponent(digestionId)}&share=1"><i class="bi bi-person-check me-1"></i>Manage access</a>` : ''}
                             ${digestionId ? `<button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" onclick="copyFilePreviewText('${_escapeAttr(agentReferencePreviewId)}', 'Digestion agent reference')"><i class="bi bi-robot me-1"></i>Copy agent ref</button>` : ''}
                             <button type="button" class="btn btn-sm btn-outline-secondary code-preview-copy" onclick="copyFilePreviewText('${_escapeAttr(previewId)}', 'Digestion package summary')"><i class="bi bi-clipboard me-1"></i>Copy summary</button>
                             ${renderPreviewModeButtons(previewId, 'Reader', 'Raw summary')}
@@ -10726,6 +10753,62 @@
                 navigator.clipboard.writeText(digestionId).then(() => {
                     if (typeof showAlert === 'function') showAlert('Digestion ID copied.', 'success');
                 }).catch(() => {});
+            };
+
+            global.copyCanopyFileRefMarkdown = function(button) {
+                const fileId = String(button && button.dataset && button.dataset.canopyFileId || '').trim();
+                const name = String(button && button.dataset && button.dataset.canopyFileName || fileId || 'Canopy file').trim();
+                if (!/^F[A-Za-z0-9_-]{6,}$/.test(fileId)) return;
+                const text = `[${name.replace(/[\[\]\r\n]/g, ' ').replace(/\s+/g, ' ').trim() || fileId}](/file-ref/${encodeURIComponent(fileId)})`;
+                const done = function() {
+                    if (typeof showAlert === 'function') showAlert('Canopy file link copied.', 'success');
+                };
+                const fail = function() {
+                    if (typeof showAlert === 'function') showAlert('Could not copy Canopy file link.', 'warning');
+                };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(done).catch(fail);
+                } else {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try {
+                        document.execCommand('copy');
+                        done();
+                    } catch (_) {
+                        fail();
+                    }
+                    ta.remove();
+                }
+            };
+
+            global.openDigestionPackageAccessFromAttachment = async function(button) {
+                const fileId = String(button && button.dataset && button.dataset.canopyFileId || '').trim();
+                if (!/^F[A-Za-z0-9_-]{6,}$/.test(fileId)) return;
+                const original = button.innerHTML;
+                button.disabled = true;
+                button.setAttribute('aria-busy', 'true');
+                button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Opening';
+                try {
+                    const payload = await apiCall(`/ajax/files/${encodeURIComponent(fileId)}/preview`);
+                    const digestion = payload && payload.digestion && typeof payload.digestion === 'object' ? payload.digestion : {};
+                    const agentReference = payload && payload.agent_reference && typeof payload.agent_reference === 'object' ? payload.agent_reference : {};
+                    const digestionId = String(digestion.id || agentReference.digestion_id || '').trim();
+                    if (!digestionId) {
+                        throw new Error('This package did not expose a Digestion ID.');
+                    }
+                    window.location.href = `/vault?digestion=${encodeURIComponent(digestionId)}&share=1`;
+                } catch (error) {
+                    const message = String(error && (error.error || error.message) || 'Could not open Digestion access manager.').trim();
+                    if (typeof showAlert === 'function') showAlert(message, 'warning');
+                } finally {
+                    button.disabled = false;
+                    button.removeAttribute('aria-busy');
+                    button.innerHTML = original;
+                }
             };
 
             function renderDigestionPackageAccessStatus(info) {
@@ -11919,15 +12002,40 @@
                     '<i class="bi bi-paperclip" aria-hidden="true"></i><span>' + safeLabel + '</span></a>';
             }
 
+            function decodeCanopyHtmlText(html) {
+                const textarea = document.createElement('textarea');
+                textarea.innerHTML = String(html || '');
+                return textarea.value || '';
+            }
+
             function linkifyCanopyEntityRefs(html) {
                 const value = String(html || '');
                 if (!value || (!value.includes('/files/') && !value.includes('/file-ref/') && !/[`'"]F[A-Za-z0-9_-]{6,}[`'"]/.test(value) && !/file\s*:/.test(value))) {
                     return value;
                 }
                 const fileId = '(F[A-Za-z0-9_-]{6,})';
-                let working = value.replace(new RegExp('<a\\b[^>]*href=(["\\\'])(?:https?:\\/\\/[^"\\\']+)?\\/(?:files|file-ref)\\/' + fileId + '(?:[/?#][^"\\\']*)?\\1[^>]*>([\\s\\S]*?)<\\/a>', 'gi'), function(match, quote, id, labelHtml) {
+                const fileRefTokens = [];
+                const fileRefTokenPrefix = '\x00CANOPY_FILE_REF_TOKEN_';
+                function canopyFileRefToken(id, label) {
+                    const index = fileRefTokens.length;
+                    fileRefTokens.push({ id: String(id || ''), label: String(label || '') });
+                    return fileRefTokenPrefix + index + '\x00';
+                }
+                let working = value.replace(new RegExp('(?:&lt;|<)a\\b[\\s\\S]{0,800}?href=(?:&quot;|"|\\\')(?:https?:\\/\\/[^"&\\\']+)?\\/(?:files|file-ref)\\/' + fileId + '[\\s\\S]{0,800}?(?:&gt;|>)([\\s\\S]{0,500}?)(?:(?:&lt;|<)\\/a(?:&gt;|>))', 'gi'), function(match, id, labelHtml) {
+                    const textLabel = decodeCanopyHtmlText(labelHtml).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+                    return canopyFileRefToken(id, textLabel || shortCanopyEntityId(id));
+                });
+                working = working.replace(new RegExp('(^|[\\s([{<])(?:href=)?(?:&quot;|"|\\\')(?:https?:\\/\\/[^"&\\\']+)?\\/(?:files|file-ref)\\/' + fileId + '(?:[/?#][^"&\\s]*)?(?:&quot;|"|\\\')\\s+data-canopy-file-id=(?:&quot;|"|\\\')[^"&\\\']+(?:&quot;|"|\\\')[\\s\\S]{0,450}?(?:&gt;|>)\\s*([^<\\n]{0,220})?', 'gi'), function(match, prefix, id, labelHtml) {
+                    const textLabel = decodeCanopyHtmlText(labelHtml).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+                    return (prefix || '') + canopyFileRefToken(id, textLabel || shortCanopyEntityId(id));
+                });
+                working = working.replace(new RegExp('&lt;a\\b[\\s\\S]{0,600}?href=(?:&quot;|"|\\\')(?:https?:\\/\\/[^"&\\\']+)?\\/(?:files|file-ref)\\/' + fileId + '(?:[/?#][^"&\\\']*)?(?:&quot;|"|\\\')[\\s\\S]{0,600}?&gt;([\\s\\S]{0,500}?)&lt;\\/a&gt;', 'gi'), function(match, id, labelHtml) {
+                    const textLabel = decodeCanopyHtmlText(labelHtml).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+                    return canopyFileRefToken(id, textLabel || shortCanopyEntityId(id));
+                });
+                working = working.replace(new RegExp('<a\\b[^>]*href=(["\\\'])(?:https?:\\/\\/[^"\\\']+)?\\/(?:files|file-ref)\\/' + fileId + '(?:[/?#][^"\\\']*)?\\1[^>]*>([\\s\\S]*?)<\\/a>', 'gi'), function(match, quote, id, labelHtml) {
                     const textLabel = String(labelHtml || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-                    return canopyFileRefAnchor(id, textLabel || shortCanopyEntityId(id));
+                    return canopyFileRefToken(id, textLabel || shortCanopyEntityId(id));
                 });
                 const protectedBlocks = [];
                 const placeholder = '\x00CANOPY_ENTITY_REF_';
@@ -11937,19 +12045,30 @@
                     return placeholder + index + '\x00';
                 });
                 working = working.replace(new RegExp('\\[([^\\]]+)\\]\\((?:https?:\\/\\/[^\\s)]+)?\\/(?:files|file-ref)\\/' + fileId + '(?:[/?#][^)]*)?\\)', 'g'), function(match, text, id) {
-                    return canopyFileRefAnchor(id, text);
+                    return canopyFileRefToken(id, text);
                 });
                 working = working.replace(new RegExp("(^|[\\s([{<>\"'`])file\\s*:\\s*(['\"`])?" + fileId + "\\2", 'gi'), function(match, prefix, quote, id) {
-                    return (prefix || '') + canopyFileRefAnchor(id, 'file:' + shortCanopyEntityId(id));
+                    return (prefix || '') + canopyFileRefToken(id, 'file:' + shortCanopyEntityId(id));
                 });
                 working = working.replace(new RegExp("(^|[\\s([{<>\"'`])(?:https?:\\/\\/[^\\s)]+)?\\/(?:files|file-ref)\\/" + fileId + "(?=$|[\\s)\\]}>\\'\",.;:!?#/])", 'g'), function(match, prefix, id) {
-                    return (prefix || '') + canopyFileRefAnchor(id, shortCanopyEntityId(id));
+                    return (prefix || '') + canopyFileRefToken(id, shortCanopyEntityId(id));
+                });
+                // Users sometimes paste a rendered Canopy file pill, which arrives as a partial
+                // anchor attribute tail after the href has already been linkified. Collapse that
+                // copied-HTML residue into one clean file-ref pill instead of showing raw attrs.
+                working = working.replace(new RegExp('<a class="canopy-entity-link canopy-file-ref"[^>]*data-canopy-file-id="(F[A-Za-z0-9_-]{6,})"[^>]*>[\\s\\S]*?<\\/a>(?:&quot;|")\\s+data-canopy-file-id=(?:&quot;|")[^"&]+(?:&quot;|")[\\s\\S]{0,450}?(?:&gt;|>)\\s*([^<\\n]{0,220})?', 'g'), function(match, id, tailLabel) {
+                    const label = decodeCanopyHtmlText(tailLabel || '').replace(/\s+/g, ' ').trim();
+                    return canopyFileRefToken(id, label || shortCanopyEntityId(id));
                 });
                 working = working.replace(new RegExp("(^|[\\s([{<])(['\"`])" + fileId + "\\2(?=$|[\\s)\\]}>.,;:!?])", 'g'), function(match, prefix, quote, id) {
-                    return (prefix || '') + canopyFileRefAnchor(id, shortCanopyEntityId(id));
+                    return (prefix || '') + canopyFileRefToken(id, shortCanopyEntityId(id));
                 });
                 for (let i = 0; i < protectedBlocks.length; i++) {
                     working = working.replace(placeholder + i + '\x00', protectedBlocks[i]);
+                }
+                for (let i = 0; i < fileRefTokens.length; i++) {
+                    const token = fileRefTokens[i] || {};
+                    working = working.replace(fileRefTokenPrefix + i + '\x00', canopyFileRefAnchor(token.id, token.label || shortCanopyEntityId(token.id)));
                 }
                 return working;
             }

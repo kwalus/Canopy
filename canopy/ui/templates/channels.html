@@ -18041,6 +18041,10 @@ function displayAttachments(attachments, sourceLayout, sourceId = '') {
             const previewBtn = attachmentFileId
                 ? `<button type="button" class="btn btn-sm btn-outline-success" data-preview-toggle="${previewId}" data-preview-label="Open reader" data-preview-expanded-label="Hide reader" onclick="toggleAttachmentPreview('${previewId}', '/ajax/files/${encodeURIComponent(attachmentFileId)}/preview')"><i class="bi bi-eye me-1"></i><span class="preview-label">Open reader</span></button>`
                 : '';
+            const handoffBtns = attachmentFileId
+                ? `<button type="button" class="btn btn-sm btn-outline-secondary" data-canopy-file-id="${_escapeAttr(attachmentFileId)}" data-canopy-file-name="${safeDownloadName}" onclick="copyCanopyFileRefMarkdown(this)" title="Copy a clean Canopy package link for reposting or DMs"><i class="bi bi-link-45deg"></i> Copy link</button>
+                   <button type="button" class="btn btn-sm btn-outline-secondary" data-canopy-file-id="${_escapeAttr(attachmentFileId)}" onclick="openDigestionPackageAccessFromAttachment(this)" title="Open the live Digestion access manager if you own or manage this Digestion"><i class="bi bi-person-check"></i> Manage access</button>`
+                : '';
             const downloadBtn = hasUrl ? `
                 <div class="d-flex align-items-center gap-2">
                     ${buildSaveToVaultButton(att)}
@@ -18067,7 +18071,7 @@ function displayAttachments(attachments, sourceLayout, sourceId = '') {
                     </div>
                     <div class="d-flex align-items-center justify-content-between mt-3 gap-2 flex-wrap">
                         <span class="small text-muted">${safeName}</span>
-                        <div class="stream-card-actions">${previewBtn}${downloadBtn}</div>
+                        <div class="stream-card-actions">${previewBtn}${handoffBtns}${downloadBtn}</div>
                     </div>
                     ${attachmentFileId ? `<div id="${previewId}" class="file-preview-wrapper mt-2" style="display:none;"></div>` : ''}
                 </div>

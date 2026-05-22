@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.184] - 2026-05-21
+
+### Added
+- **Digestion package cards provide clean resharing and access navigation** - package cards in channels, feed, DMs, and expanded previews now offer clean Markdown link copying and a Manage access path that opens the existing Vault access manager without granting permissions from posts.
+
+### Fixed
+- **Copied Canopy package links no longer leak raw anchor attributes** - rich-content linkification now normalizes copied `/file-ref/F...` anchor HTML into one clean file pill and tokenizes generated file-reference anchors so later link passes do not reprocess them.
+
 ## [0.6.183] - 2026-05-21
 
 ### Added
