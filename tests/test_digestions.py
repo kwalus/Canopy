@@ -1106,6 +1106,45 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(build['success'])
         self.assertGreaterEqual(build['chunk_count'], 1)
 
+    def test_manager_added_multiple_vault_sources_copy_without_lock_skips(self) -> None:
+        manager_files = [
+            self._save_text(
+                f'agent-found-paper-{idx}.txt',
+                f'A delegated source {idx} has local bytes and should copy into the owner corpus.',
+                owner='reader-user',
+            )
+            for idx in range(4)
+        ]
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Multi-source agent contribution',
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+
+        added = self.digestion_manager.add_sources(
+            digestion['id'],
+            'reader-user',
+            [source.id for source in manager_files],
+        )
+
+        self.assertTrue(added['success'])
+        self.assertEqual(added['added'], 4)
+        self.assertEqual(added['skipped'], [])
+        self.assertTrue(all(source['copied_to_owner_vault'] for source in added['sources']))
+        sources = self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')
+        self.assertEqual(len(sources), 4)
+        for source in sources:
+            saved_file = self.file_manager.get_file(source['file_id'])
+            self.assertEqual(saved_file.uploaded_by, 'owner-user')
+
     def test_manager_added_vault_sources_use_file_manager_path_resolver(self) -> None:
         manager_file = self._save_text(
             'resolver-owned-paper.txt',

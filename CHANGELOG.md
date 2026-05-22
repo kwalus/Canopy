@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.186] - 2026-05-22
+
+### Fixed
+- **Digestion managers can add multiple owner-copied sources in one request** - adding several manager-owned Vault files to another user's Digestion now releases the Digestion write lock after each source upsert, preventing subsequent owner-side Vault copies from being skipped behind SQLite's write lock.
+
 ## [0.6.185] - 2026-05-22
 
 ### Added

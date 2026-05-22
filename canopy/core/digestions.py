@@ -499,6 +499,10 @@ class DigestionManager:
                         json.dumps(metadata, sort_keys=True),
                     ),
                 )
+                # Release the Digestion write lock before the next manager-owned
+                # source is copied through FileManager, which performs its own
+                # Vault/file-table write on a separate SQLite connection.
+                conn.commit()
                 added += 1
                 source_results.append({
                     "input_file_id": original_info.id,
