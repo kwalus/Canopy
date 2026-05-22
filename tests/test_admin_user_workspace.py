@@ -30,6 +30,7 @@ if 'zeroconf' not in sys.modules:
 
 from canopy.ui.routes import create_ui_blueprint
 from canopy.security.api_keys import Permission
+from canopy.security.password import verify_password
 
 
 class _FakeDbManager:
@@ -857,6 +858,8 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertIn('Agent launchpad', html)
         self.assertIn('Create Agent', html)
         self.assertIn('Agent default', html)
+        self.assertIn('Password recovery', html)
+        self.assertIn('Generate reset password', html)
         self.assertIn('Meshspace Agent API Template', html)
         self.assertIn('Read only', html)
         self.assertNotIn('Subsystem Visibility', html)
@@ -1012,6 +1015,65 @@ class TestAdminUserWorkspace(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertEqual(payload.get('reason_code'), 'not_local_registered_user')
         self.api_key_manager.generate_key.assert_not_called()
+
+    def test_admin_can_set_local_user_password(self) -> None:
+        csrf_token = 'csrf-admin-password-set'
+        self._set_authenticated_session(csrf_token=csrf_token)
+
+        response = self.client.post(
+            '/ajax/admin/users/agent-local/password',
+            json={'new_password': 'ResetPass123!', 'generate': False},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertFalse(payload.get('generated'))
+        self.assertNotIn('temporary_password', payload)
+
+        row = self.conn.execute(
+            "SELECT password_hash FROM users WHERE id = ?",
+            ('agent-local',),
+        ).fetchone()
+        self.assertTrue(verify_password('ResetPass123!', row['password_hash']))
+
+    def test_admin_can_generate_local_user_temporary_password(self) -> None:
+        csrf_token = 'csrf-admin-password-generate'
+        self._set_authenticated_session(csrf_token=csrf_token)
+
+        response = self.client.post(
+            '/ajax/admin/users/agent-local/password',
+            json={'generate': True},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertTrue(payload.get('generated'))
+        temporary_password = payload.get('temporary_password') or ''
+        self.assertGreaterEqual(len(temporary_password), 12)
+
+        row = self.conn.execute(
+            "SELECT password_hash FROM users WHERE id = ?",
+            ('agent-local',),
+        ).fetchone()
+        self.assertTrue(verify_password(temporary_password, row['password_hash']))
+
+    def test_admin_password_reset_rejects_remote_identity_rows(self) -> None:
+        csrf_token = 'csrf-admin-password-remote'
+        self._set_authenticated_session(csrf_token=csrf_token)
+
+        response = self.client.post(
+            '/ajax/admin/users/agent-remote/password',
+            json={'generate': True},
+            headers={'X-CSRFToken': csrf_token},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('reason_code'), 'not_local_registered_user')
 
     def test_admin_key_creation_reports_store_write_failure_clearly(self) -> None:
         csrf_token = 'csrf-admin-key-failure'

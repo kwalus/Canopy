@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.192] - 2026-05-22
+
+### Added
+- **Admins can reset local user passwords from the Admin workspace** - selected local registered users now have a password recovery panel with generated one-time passwords and manual temporary password setting; remote/shadow identities are explicitly rejected.
+
 ## [0.6.191] - 2026-05-22
 
 ### Changed

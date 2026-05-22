@@ -1465,6 +1465,58 @@ def create_ui_blueprint() -> Blueprint:
 
         # New bcrypt hash
         return verify_password(password, password_hash)
+
+    def _generate_temporary_password(length: int = 22) -> str:
+        """Generate a one-time password that satisfies the current strength policy."""
+        from ..security.password import validate_password_strength
+
+        uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+        lowercase = 'abcdefghijkmnopqrstuvwxyz'
+        digits = '23456789'
+        special = '!@#$%^&*()-_=+'
+        alphabet = uppercase + lowercase + digits + special
+        length = max(12, int(length or 22))
+        for _ in range(100):
+            chars = [
+                secrets.choice(uppercase),
+                secrets.choice(lowercase),
+                secrets.choice(digits),
+                secrets.choice(special),
+            ]
+            chars.extend(secrets.choice(alphabet) for _ in range(length - len(chars)))
+            secrets.SystemRandom().shuffle(chars)
+            candidate = ''.join(chars)
+            ok, _ = validate_password_strength(candidate)
+            if ok:
+                return candidate
+        raise RuntimeError('Could not generate a policy-compliant temporary password')
+
+    def _set_user_password_hash(db_manager: Any, user_id: str, password_hash: str) -> bool:
+        """Persist a password hash while tolerating older test/fixture schemas."""
+        if not db_manager or not user_id or not password_hash:
+            return False
+        with db_manager.get_connection() as conn:
+            columns = set()
+            try:
+                for row in conn.execute("PRAGMA table_info(users)").fetchall():
+                    if hasattr(row, 'keys') and 'name' in row.keys():
+                        columns.add(str(row['name']))
+                    elif len(row) > 1:
+                        columns.add(str(row[1]))
+            except Exception:
+                columns = set()
+            if 'updated_at' in columns:
+                cursor = conn.execute(
+                    "UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (password_hash, user_id),
+                )
+            else:
+                cursor = conn.execute(
+                    "UPDATE users SET password_hash = ? WHERE id = ?",
+                    (password_hash, user_id),
+                )
+            conn.commit()
+            return cast(int, cursor.rowcount) > 0
     
     def _is_authenticated() -> bool:
         """Check if the current session has a logged-in user."""
@@ -13664,6 +13716,65 @@ def create_ui_blueprint() -> Blueprint:
             return jsonify({'success': True, 'user': payload})
         except Exception as e:
             logger.error(f"Admin classification update error: {e}", exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/admin/users/<user_id>/password', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_reset_user_password(user_id: str):
+        """Admin: issue or set a password for a local registered user account."""
+        try:
+            db_manager, _, _, _, _, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user = _admin_registered_user_row(db_manager, user_id)
+            if not user:
+                return jsonify({'error': 'User not found or not a registered local account'}), 404
+            if user_id in {'system', 'local_user'}:
+                return jsonify({'error': 'Reserved system users cannot receive password resets'}), 400
+            if user.get('origin_peer'):
+                return jsonify({
+                    'error': 'Password reset is only available for local registered accounts on this instance.',
+                    'reason_code': 'not_local_registered_user',
+                }), 403
+
+            data = request.get_json(silent=True) or {}
+            generated = bool(data.get('generate', False))
+            new_password = str(data.get('new_password') or '').strip()
+            if generated or not new_password:
+                new_password = _generate_temporary_password()
+                generated = True
+
+            from ..security.password import validate_password_strength
+            is_valid, error_msg = validate_password_strength(new_password)
+            if not is_valid:
+                return jsonify({'error': error_msg or 'Password does not meet strength requirements'}), 400
+
+            new_hash = _hash_password(new_password)
+            if not _set_user_password_hash(db_manager, user_id, new_hash):
+                return jsonify({'error': 'Failed to update password'}), 500
+
+            admin_user_id = get_current_user()
+            logger.info(
+                "Admin password reset completed by %s for user %s (%s)",
+                admin_user_id,
+                user_id,
+                user.get('username') or '',
+            )
+            response = {
+                'success': True,
+                'user_id': user_id,
+                'username': user.get('username'),
+                'generated': generated,
+                'message': (
+                    'Temporary password generated. Copy it now; it will not be shown again.'
+                    if generated else
+                    'Password updated.'
+                ),
+            }
+            if generated:
+                response['temporary_password'] = new_password
+            return jsonify(response)
+        except Exception as e:
+            logger.error(f"Admin password reset error: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @ui.route('/ajax/admin/users/<user_id>', methods=['DELETE'])
