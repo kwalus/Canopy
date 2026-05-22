@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.189] - 2026-05-22
+
+### Fixed
+- **Channel privacy changes now persist the effective channel type** - changing an accidental private channel back to Open now promotes it to a public/open channel in storage and sync metadata instead of leaving a private channel type behind.
+- **Open channel conversion backfills local public membership** - formerly-private channels switched to Open now run the normal public membership repair so visible public/open channel behavior is consistent after reload and sync.
+- **Instance admins are no longer auto-rebound into private channels** - private-channel recovery no longer adds the instance owner from stale local membership aliases; private visibility now requires explicit channel membership.
+
 ## [0.6.188] - 2026-05-22
 
 ### Fixed

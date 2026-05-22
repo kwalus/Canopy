@@ -12224,13 +12224,27 @@ function setChannelPrivacy(mode) {
     .then((data) => {
         showAlert('Privacy mode updated', 'success');
         const item = document.querySelector(`[data-channel-id="${currentChannelId}"]`);
+        const nextChannelType = String(
+            data && data.channel_type
+                ? data.channel_type
+                : ((normalized === 'private' || normalized === 'confidential') ? 'private' : 'public')
+        ).toLowerCase();
         if (item) {
             item.setAttribute('data-privacy-mode', normalized);
-            item.setAttribute('data-channel-type', (normalized === 'private' || normalized === 'confidential') ? 'private' : 'public');
+            item.setAttribute('data-channel-type', nextChannelType);
+            if (Object.prototype.hasOwnProperty.call(data || {}, 'member_count')) {
+                item.setAttribute('data-member-count', String(data.member_count || 0));
+            }
         }
         currentChannelPrivacy = normalized;
-        currentChannelType = (normalized === 'private' || normalized === 'confidential') ? 'private' : 'public';
+        currentChannelType = nextChannelType;
+        if (Object.prototype.hasOwnProperty.call(data || {}, 'member_count')) {
+            currentChannelMemberCount = parseInt(data.member_count || '0', 10) || 0;
+            updateChannelMembersCount(currentChannelMemberCount);
+        }
         applyChannelPrivacyFromSelection(currentChannelId);
+        updateChannelE2EBadge();
+        updateMemberGate();
         delete channelMentionCache[currentChannelId];
         delete channelMentionCacheFetchedAt[currentChannelId];
         fetchChannelMentionCandidates(currentChannelId);

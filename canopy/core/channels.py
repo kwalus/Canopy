@@ -5443,15 +5443,18 @@ class ChannelManager:
                 role = role_row['role'] if isinstance(role_row, dict) or hasattr(role_row, '__getitem__') else role_row[0]
 
                 chan_row = conn.execute(
-                    "SELECT origin_peer FROM channels WHERE id = ?",
+                    "SELECT origin_peer, channel_type FROM channels WHERE id = ?",
                     (channel_id,)
                 ).fetchone()
                 origin_peer = None
+                current_channel_type = 'public'
                 if chan_row:
                     try:
                         origin_peer = chan_row['origin_peer']
+                        current_channel_type = chan_row['channel_type'] or 'public'
                     except Exception:
                         origin_peer = chan_row[0]
+                        current_channel_type = chan_row[1] if len(chan_row) > 1 else 'public'
 
                 is_origin_local = not origin_peer
                 if local_peer_id and origin_peer:
@@ -5461,9 +5464,14 @@ class ChannelManager:
                     return False
                 if role != 'admin' and not allow_admin:
                     return False
+                next_channel_type = (
+                    'private'
+                    if privacy_mode in self.TARGETED_PRIVACY_MODES
+                    else ('general' if str(current_channel_type or '').lower() == 'general' else 'public')
+                )
                 conn.execute(
-                    "UPDATE channels SET privacy_mode = ? WHERE id = ?",
-                    (privacy_mode, channel_id)
+                    "UPDATE channels SET privacy_mode = ?, channel_type = ? WHERE id = ?",
+                    (privacy_mode, next_channel_type, channel_id)
                 )
                 if privacy_mode in self.TARGETED_PRIVACY_MODES:
                     # Prune members so targeted channels don't keep broad-era membership.
@@ -5505,6 +5513,14 @@ class ChannelManager:
                             f"DELETE FROM channel_members WHERE channel_id = ? AND user_id NOT IN ({placeholders})",
                             params
                         )
+                else:
+                    self._ensure_public_channel_membership_conn(
+                        conn,
+                        channel_id,
+                        next_channel_type,
+                        privacy_mode,
+                        fallback_user_id=user_id,
+                    )
                 conn.commit()
                 current_member_count = 0
                 try:
@@ -5525,7 +5541,7 @@ class ChannelManager:
                     payload={
                         "reason": "privacy_updated",
                         "privacy_mode": privacy_mode,
-                        "channel_type": 'private' if privacy_mode in self.TARGETED_PRIVACY_MODES else 'public',
+                        "channel_type": next_channel_type,
                         "member_count": current_member_count,
                     },
                     dedupe_suffix=f"privacy:{privacy_mode}:{current_member_count}",

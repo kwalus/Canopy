@@ -3633,66 +3633,14 @@ def create_app(config: Optional[Config] = None) -> Flask:
             source: str,
             require_existing_activity: bool = False,
         ) -> list[str]:
-            clean_channel_id = str(channel_id or '').strip()
-            normalized_local_members = [
-                str(uid or '').strip() for uid in (local_member_ids or []) if str(uid or '').strip()
-            ]
-            if not clean_channel_id or not normalized_local_members:
-                return []
-
-            owner_user_id = str(db_manager.get_instance_owner_user_id() or '').strip()
-            if not owner_user_id or owner_user_id in normalized_local_members:
-                return []
-
-            active_local_registered_ids = _get_active_local_registered_user_ids(conn)
-            if owner_user_id not in active_local_registered_ids:
-                return []
-
-            try:
-                existing_owner = conn.execute(
-                    "SELECT 1 FROM channel_members WHERE channel_id = ? AND user_id = ?",
-                    (clean_channel_id, owner_user_id),
-                ).fetchone()
-            except Exception:
-                existing_owner = None
-            if existing_owner:
-                return []
-
-            if require_existing_activity:
-                try:
-                    has_activity = conn.execute(
-                        "SELECT 1 FROM channel_messages WHERE channel_id = ? LIMIT 1",
-                        (clean_channel_id,),
-                    ).fetchone()
-                except Exception:
-                    has_activity = None
-                if not has_activity:
-                    return []
-
-            alias_user_ids = [
-                uid for uid in normalized_local_members
-                if uid and uid != owner_user_id
-            ]
-            if not alias_user_ids:
-                return []
-
-            if _owner_shares_local_principal(conn, owner_user_id, alias_user_ids):
-                logger.info(
-                    "Private membership continuity rebind for %s: added instance owner %s via shared principal (%s)",
-                    clean_channel_id,
-                    owner_user_id,
-                    source,
-                )
-                return [owner_user_id]
-
-            logger.info(
-                "Private membership continuity rebind for %s: added instance owner %s from stale local membership alias(es) %s (%s)",
-                clean_channel_id,
-                owner_user_id,
-                ",".join(alias_user_ids),
-                source,
-            )
-            return [owner_user_id]
+            # Privacy boundary: instance ownership is not channel membership.
+            # Earlier recovery logic tried to preserve visibility after account
+            # resets by adding the instance owner when a stale local alias
+            # appeared in a private channel. That can expose user-created
+            # private channels to admins who were never invited, so private
+            # membership recovery must now use only explicit member rows from
+            # the remote payload or direct channel-member management.
+            return []
 
         def _repair_private_membership_visibility_continuity() -> int:
             repaired = 0

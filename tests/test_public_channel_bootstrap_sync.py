@@ -706,7 +706,7 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         self.assertEqual(finalized['channel_type'], 'public')
         self.assertEqual(finalized['privacy_mode'], 'open')
 
-    def test_membership_recovery_rebinds_private_visibility_to_instance_owner(self) -> None:
+    def test_membership_recovery_does_not_rebind_private_visibility_to_instance_owner(self) -> None:
         self.trust_manager.set_trust_score('peer-origin', 100, reason='test-origin-trusted')
 
         with self.db_manager.get_connection() as conn:
@@ -760,7 +760,7 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
                 "SELECT 1 FROM channel_members WHERE channel_id = 'Cprivrebind001' AND user_id = 'old-owner'"
             ).fetchone()
 
-        self.assertIsNotNone(owner_membership)
+        self.assertIsNone(owner_membership)
         self.assertIsNotNone(stale_membership)
 
     def test_untrusted_catchup_upgrades_existing_placeholder_via_channel_origin(self) -> None:
@@ -836,7 +836,7 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
         self.assertGreaterEqual(repaired, 1)
         self.assertIsNotNone(local_membership)
 
-    def test_startup_repairs_private_channel_visibility_for_instance_owner(self) -> None:
+    def test_startup_does_not_repair_private_channel_visibility_for_instance_owner(self) -> None:
         with self.db_manager.get_connection() as conn:
             conn.execute(
                 """
@@ -874,7 +874,7 @@ class TestPublicChannelBootstrapSync(unittest.TestCase):
                 (private_channel.id,),
             ).fetchone()
 
-        self.assertIsNotNone(owner_membership)
+        self.assertIsNone(owner_membership)
 
     def test_resync_user_avatar_reads_sqlite_rows_without_row_get(self) -> None:
         with self.db_manager.get_connection() as conn:

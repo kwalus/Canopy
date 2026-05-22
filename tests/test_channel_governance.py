@@ -260,6 +260,46 @@ class TestChannelGovernance(unittest.TestCase):
         self.assertIn('member-user', member_ids)
         self.assertNotIn('agent-user', member_ids)
 
+    def test_private_channel_changed_to_open_promotes_type_and_backfills_members(self) -> None:
+        private_channel = self.channel_manager.create_channel(
+            name='accidental-private',
+            channel_type=ChannelType.PRIVATE,
+            created_by='member-user',
+            description='should become public/open',
+            privacy_mode='private',
+            initial_members=['member-user'],
+        )
+        self.assertIsNotNone(private_channel)
+        assert private_channel is not None
+
+        self.assertTrue(
+            self.channel_manager.update_channel_privacy(
+                private_channel.id,
+                user_id='member-user',
+                privacy_mode='open',
+            )
+        )
+
+        row = self.db.conn.execute(
+            "SELECT channel_type, privacy_mode FROM channels WHERE id = ?",
+            (private_channel.id,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row['channel_type'], 'public')
+        self.assertEqual(row['privacy_mode'], 'open')
+
+        members = self.db.conn.execute(
+            "SELECT user_id FROM channel_members WHERE channel_id = ? ORDER BY user_id",
+            (private_channel.id,),
+        ).fetchall()
+        member_ids = [row['user_id'] for row in members]
+        self.assertIn('member-user', member_ids)
+        self.assertIn('owner-user', member_ids)
+        self.assertIn('agent-user', member_ids)
+
+        public_ids = {channel['id'] for channel in self.channel_manager.get_all_public_channels()}
+        self.assertIn(private_channel.id, public_ids)
+
     def test_add_member_respects_governance_policy(self) -> None:
         open_channel = self.channel_manager.create_channel(
             name='governance-open',

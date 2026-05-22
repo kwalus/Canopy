@@ -21330,7 +21330,28 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as ann_err:
                     logger.warning(f"Channel privacy announce failed: {ann_err}")
 
-            return jsonify({'success': True, 'privacy_mode': privacy_mode})
+            response_payload = {'success': True, 'privacy_mode': privacy_mode}
+            try:
+                with db_manager.get_connection() as conn:
+                    refreshed = conn.execute(
+                        """
+                        SELECT channel_type,
+                               (SELECT COUNT(*) FROM channel_members WHERE channel_id = channels.id) AS member_count
+                        FROM channels
+                        WHERE id = ?
+                        """,
+                        (channel_id,),
+                    ).fetchone()
+                if refreshed:
+                    response_payload['channel_type'] = (
+                        refreshed['channel_type'] if hasattr(refreshed, 'keys') else refreshed[0]
+                    ) or ('private' if privacy_mode in {'private', 'confidential'} else 'public')
+                    response_payload['member_count'] = int(
+                        (refreshed['member_count'] if hasattr(refreshed, 'keys') else refreshed[1]) or 0
+                    )
+            except Exception:
+                response_payload['channel_type'] = 'private' if privacy_mode in {'private', 'confidential'} else 'public'
+            return jsonify(response_payload)
         except Exception as e:
             logger.error(f"Update channel privacy error: {e}", exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
