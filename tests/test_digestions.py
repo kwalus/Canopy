@@ -1264,6 +1264,12 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(result['materials_added'], 1)
         self.assertEqual(result['source_files_added'], 1)
         self.assertEqual(result['datapoints_added'], 1)
+        self.assertEqual(result['contributions_recorded'], 1)
+        ledger = self.digestion_manager.list_contributions(digestion['id'], 'owner-user')
+        self.assertEqual(ledger['count'], 1)
+        self.assertEqual(ledger['contributions'][0]['status'], 'accepted')
+        self.assertEqual(ledger['contributions'][0]['contributor_user_id'], 'reader-user')
+        self.assertEqual(ledger['contributions'][0]['datapoint_count'], 1)
         sources = self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')
         source_kinds = {source['source_kind'] for source in sources}
         self.assertIn('agent_contribution', source_kinds)
@@ -1284,6 +1290,60 @@ class TestDigestions(unittest.TestCase):
         )
         self.assertGreaterEqual(search['result_count'], 1)
         self.assertEqual(search['results'][0]['quantitative_results'][0]['value_text'], '17')
+
+    def test_pending_contribution_review_promotes_to_live_corpus(self) -> None:
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Pending contribution digest',
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+
+        pending = self.digestion_manager.append_contributions(
+            digestion['id'],
+            'reader-user',
+            contributions=[
+                {
+                    'kind': 'agent_note',
+                    'title': 'Teleoperation latency note',
+                    'content': 'Latency above 150 ms should be flagged for human review.',
+                    'tags': ['latency', 'teleoperation'],
+                }
+            ],
+            review_required=True,
+        )
+
+        self.assertTrue(pending['success'])
+        self.assertEqual(pending['pending_contributions'], 1)
+        self.assertEqual(pending['materials_added'], 0)
+        self.assertEqual(self.digestion_manager.stats(digestion['id'])['pending_contribution_count'], 1)
+        ledger = self.digestion_manager.list_contributions(digestion['id'], 'owner-user', status='pending', include_payload=True)
+        self.assertEqual(ledger['count'], 1)
+        contribution_id = ledger['contributions'][0]['id']
+        self.assertEqual(ledger['contributions'][0]['payload']['title'], 'Teleoperation latency note')
+
+        accepted = self.digestion_manager.review_contribution(
+            digestion['id'],
+            contribution_id,
+            'owner-user',
+            action='accept',
+        )
+
+        self.assertTrue(accepted['success'])
+        self.assertEqual(accepted['contribution']['status'], 'accepted')
+        self.assertEqual(accepted['apply_result']['materials_added'], 1)
+        stats = self.digestion_manager.stats(digestion['id'])
+        self.assertEqual(stats['contribution_count'], 1)
+        self.assertEqual(stats['pending_contribution_count'], 0)
+        sources = self.digestion_manager.list_sources(digestion['id'], user_id='owner-user')
+        self.assertEqual(len([source for source in sources if source['source_kind'] == 'agent_contribution']), 1)
 
     def test_manage_only_contribution_datapoints_are_rejected_without_source_access(self) -> None:
         digestion = self.digestion_manager.create_digestion(
@@ -1758,6 +1818,16 @@ class TestDigestions(unittest.TestCase):
             contribution_payload = contribution_response.get_json() or {}
             self.assertEqual(contribution_payload['materials_added'], 1)
             self.assertEqual(contribution_payload['datapoints_added'], 1)
+            self.assertEqual(contribution_payload['contributions_recorded'], 1)
+
+            contribution_list_response = client.get(
+                f'/api/v1/digestions/{digestion_id}/contributions',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(contribution_list_response.status_code, 200)
+            contribution_list_payload = contribution_list_response.get_json() or {}
+            self.assertEqual(contribution_list_payload['count'], 1)
+            self.assertEqual(contribution_list_payload['contributions'][0]['status'], 'accepted')
 
             export_response = client.post(
                 f'/api/v1/digestions/{digestion_id}/outputs/human_brief/export',

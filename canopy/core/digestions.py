@@ -52,6 +52,17 @@ MIN_PARTIAL_QUERY_TERM_CHARS = int(os.getenv("CANOPY_DIGESTION_PARTIAL_QUERY_TER
 STRUCTURED_DATAPOINT_OUTPUT_KIND = "structured_datapoints"
 STRUCTURED_DATAPOINT_SCHEMA_VERSION = "canopy_structured_datapoints_v1"
 AGENT_CONTRIBUTION_SCHEMA_VERSION = "canopy_agent_digestion_contribution_v1"
+DIGESTION_CONTRIBUTION_LEDGER_SCHEMA_VERSION = "canopy_digestion_contribution_ledger_v1"
+CONTRIBUTION_STATUS_PENDING = "pending"
+CONTRIBUTION_STATUS_ACCEPTED = "accepted"
+CONTRIBUTION_STATUS_REVIEWED = "reviewed"
+CONTRIBUTION_STATUS_REJECTED = "rejected"
+CONTRIBUTION_STATUSES = {
+    CONTRIBUTION_STATUS_PENDING,
+    CONTRIBUTION_STATUS_ACCEPTED,
+    CONTRIBUTION_STATUS_REVIEWED,
+    CONTRIBUTION_STATUS_REJECTED,
+}
 DEFAULT_STRUCTURED_DATAPOINT_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_DEFAULT_CHUNKS", "80"))
 MAX_STRUCTURED_DATAPOINT_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_MAX_CHUNKS", "240"))
 DEFAULT_STRUCTURED_DATAPOINTS_PER_RUN = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_DEFAULT_RECORDS", "400"))
@@ -271,12 +282,43 @@ class DigestionManager:
                     FOREIGN KEY (image_file_id) REFERENCES files(id) ON DELETE SET NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS digestion_contributions (
+                    id TEXT PRIMARY KEY,
+                    digestion_id TEXT NOT NULL,
+                    contributor_user_id TEXT,
+                    contribution_kind TEXT NOT NULL DEFAULT 'agent_output',
+                    title TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'accepted',
+                    payload_json TEXT,
+                    summary TEXT,
+                    tags_json TEXT,
+                    confidence REAL,
+                    source_file_ids_json TEXT,
+                    material_file_ids_json TEXT,
+                    added_source_file_ids_json TEXT,
+                    datapoint_count INTEGER NOT NULL DEFAULT 0,
+                    skipped_json TEXT,
+                    result_json TEXT,
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    reviewed_by TEXT,
+                    reviewed_at TIMESTAMP,
+                    review_note TEXT,
+                    accepted_at TIMESTAMP,
+                    rejected_at TIMESTAMP,
+                    FOREIGN KEY (digestion_id) REFERENCES digestions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (contributor_user_id) REFERENCES users(id) ON DELETE SET NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_digestions_owner ON digestions(owner_user_id, updated_at);
                 CREATE INDEX IF NOT EXISTS idx_digestion_acl_grantee ON digestion_acl(grantee_user_id, can_query, can_manage);
                 CREATE INDEX IF NOT EXISTS idx_digestion_chunks_digestion ON digestion_chunks(digestion_id, file_id, chunk_index);
                 CREATE INDEX IF NOT EXISTS idx_digestion_sources_status ON digestion_sources(digestion_id, status);
                 CREATE INDEX IF NOT EXISTS idx_digestion_outputs ON digestion_outputs(digestion_id, output_kind);
                 CREATE INDEX IF NOT EXISTS idx_digestion_pdf_figures ON digestion_pdf_figures(digestion_id, source_file_id, page_number);
+                CREATE INDEX IF NOT EXISTS idx_digestion_contributions_digestion ON digestion_contributions(digestion_id, status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_digestion_contributions_contributor ON digestion_contributions(contributor_user_id, created_at);
                 """
             )
             source_columns = {
@@ -766,6 +808,8 @@ class DigestionManager:
         source_file_ids: Optional[Iterable[str]] = None,
         datapoints: Optional[Iterable[dict[str, Any]]] = None,
         build_after: bool = False,
+        review_required: bool = False,
+        _record_ledger: bool = True,
     ) -> dict[str, Any]:
         """Append durable agent/human work product to a managed Digestion.
 
@@ -778,7 +822,9 @@ class DigestionManager:
         material_items: list[dict[str, Any]] = []
         direct_datapoints: list[dict[str, Any]] = []
         skipped: list[dict[str, str]] = []
-        contribution_file_ids = self._clean_id_list(source_file_ids)
+        top_level_file_ids = self._clean_id_list(source_file_ids)
+        contribution_file_ids = list(top_level_file_ids)
+        valid_contributions: list[dict[str, Any]] = []
 
         if isinstance(contributions, dict):
             raw_contributions = [contributions]
@@ -790,31 +836,64 @@ class DigestionManager:
             if not isinstance(contribution, dict):
                 skipped.append({"index": str(index), "reason": "contribution_not_object"})
                 continue
+            contribution_payload = dict(contribution)
+            valid_contributions.append(contribution_payload)
             contribution_file_ids.extend(self._contribution_file_ids(contribution))
-            material = self._contribution_to_material(digestion, actor_user_id, contribution, index=index)
+            material = self._contribution_to_material(digestion, actor_user_id, contribution_payload, index=index)
             if material:
                 material_items.append(material)
-            contribution_datapoints = contribution.get("datapoints") or contribution.get("structured_datapoints") or []
+            contribution_datapoints = contribution_payload.get("datapoints") or contribution_payload.get("structured_datapoints") or []
             if isinstance(contribution_datapoints, dict):
                 contribution_datapoints = [contribution_datapoints]
             if isinstance(contribution_datapoints, list):
                 for item in contribution_datapoints:
                     if isinstance(item, dict):
                         item_copy = dict(item)
-                        item_copy.setdefault("_contribution_title", material.get("title") if material else contribution.get("title"))
-                        item_copy.setdefault("_contribution_kind", contribution.get("kind") or contribution.get("type"))
-                        item_copy.setdefault("_contribution_tags", contribution.get("tags"))
+                        item_copy.setdefault("_contribution_title", material.get("title") if material else contribution_payload.get("title"))
+                        item_copy.setdefault("_contribution_kind", contribution_payload.get("kind") or contribution_payload.get("type"))
+                        item_copy.setdefault("_contribution_tags", contribution_payload.get("tags"))
                         direct_datapoints.append(item_copy)
 
         top_level_datapoints = datapoints or []
         if isinstance(top_level_datapoints, dict):
             top_level_datapoints = [top_level_datapoints]
+        top_level_datapoint_list: list[dict[str, Any]] = []
         if isinstance(top_level_datapoints, list):
-            direct_datapoints.extend([item for item in top_level_datapoints if isinstance(item, dict)])
+            top_level_datapoint_list = [dict(item) for item in top_level_datapoints if isinstance(item, dict)]
+            direct_datapoints.extend(top_level_datapoint_list)
 
         contribution_file_ids = self._clean_id_list(contribution_file_ids)
         if skipped_extra:
             skipped.append({"reason": "contribution_limit_reached", "count": str(skipped_extra)})
+        if review_required:
+            pending_rows = self._record_pending_contribution_ledger(
+                digestion,
+                actor_user_id,
+                contributions=valid_contributions,
+                source_file_ids=top_level_file_ids,
+                datapoints=top_level_datapoint_list,
+            )
+            if not pending_rows:
+                raise DigestionError(
+                    "Provide at least one contribution, source_file_id, or datapoint to append.",
+                    status_code=400,
+                    reason="missing_contribution_payload",
+                )
+            return {
+                "success": True,
+                "digestion_id": digestion.id,
+                "schema_version": AGENT_CONTRIBUTION_SCHEMA_VERSION,
+                "ledger_schema_version": DIGESTION_CONTRIBUTION_LEDGER_SCHEMA_VERSION,
+                "review_required": True,
+                "pending_contributions": len(pending_rows),
+                "contributions": pending_rows,
+                "materials_added": 0,
+                "source_files_added": 0,
+                "datapoints_added": 0,
+                "skipped": skipped,
+                "build_result": None,
+                "stats": self.stats(digestion.id),
+            }
         if not material_items and not contribution_file_ids and not direct_datapoints:
             raise DigestionError(
                 "Provide at least one contribution, source_file_id, or datapoint to append.",
@@ -866,10 +945,11 @@ class DigestionManager:
                         reason="datapoint_source_metadata_denied",
                     )
 
-        return {
+        result = {
             "success": True,
             "digestion_id": digestion.id,
             "schema_version": AGENT_CONTRIBUTION_SCHEMA_VERSION,
+            "ledger_schema_version": DIGESTION_CONTRIBUTION_LEDGER_SCHEMA_VERSION,
             "materials_added": int(material_result.get("added") or 0),
             "source_files_added": int(source_result.get("added") or 0),
             "datapoints_added": int(datapoint_result.get("added") or 0),
@@ -878,6 +958,209 @@ class DigestionManager:
             "datapoints": datapoint_result,
             "skipped": skipped,
             "build_result": build_result,
+            "stats": self.stats(digestion.id),
+        }
+        if _record_ledger:
+            accepted_rows = self._record_accepted_contribution_ledger(
+                digestion,
+                actor_user_id,
+                contributions=valid_contributions,
+                source_file_ids=top_level_file_ids,
+                datapoints=top_level_datapoint_list,
+                result=result,
+            )
+            result["contributions_recorded"] = len(accepted_rows)
+            result["contributions"] = accepted_rows
+            result["stats"] = self.stats(digestion.id)
+        return result
+
+    def list_contributions(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        status: str = "",
+        include_payload: bool = False,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """List the durable contribution ledger for a managed Digestion."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        access = self._access_for(digestion, actor_user_id)
+        requested_status = self._normalize_contribution_status(status)
+        max_rows = max(1, min(int(limit or 100), 250))
+        params: list[Any] = [digestion.id]
+        status_clause = ""
+        if requested_status:
+            status_clause = "AND c.status = ?"
+            params.append(requested_status)
+        params.append(max_rows)
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    c.*,
+                    u.username AS contributor_username,
+                    u.avatar_file_id AS contributor_avatar_file_id
+                FROM digestion_contributions c
+                LEFT JOIN users u ON u.id = c.contributor_user_id
+                WHERE c.digestion_id = ?
+                {status_clause}
+                ORDER BY
+                    CASE c.status
+                        WHEN 'pending' THEN 0
+                        WHEN 'accepted' THEN 1
+                        WHEN 'reviewed' THEN 2
+                        ELSE 3
+                    END,
+                    c.created_at DESC,
+                    c.id DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        include_sensitive = bool(access.get("can_read_sources")) and bool(include_payload)
+        contributions = [
+            self._contribution_row_to_dict(row, include_payload=include_sensitive)
+            for row in rows
+        ]
+        pending_count = sum(1 for item in contributions if item.get("status") == CONTRIBUTION_STATUS_PENDING)
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "schema_version": DIGESTION_CONTRIBUTION_LEDGER_SCHEMA_VERSION,
+            "contributions": contributions,
+            "count": len(contributions),
+            "pending_count": pending_count,
+            "access": access,
+        }
+
+    def review_contribution(
+        self,
+        digestion_id: str,
+        contribution_id: str,
+        actor_user_id: str,
+        *,
+        action: str,
+        note: str = "",
+        build_after: bool = False,
+    ) -> dict[str, Any]:
+        """Accept, reject, or mark a contribution ledger row as reviewed."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        contribution_id = self._clean_id(contribution_id)
+        action_clean = str(action or "").strip().lower()
+        if action_clean not in {"accept", "reject", "review", "mark_reviewed"}:
+            raise DigestionError("Invalid contribution review action.", status_code=400, reason="invalid_contribution_action")
+        row = self._get_contribution_row(digestion.id, contribution_id)
+        if not row:
+            raise DigestionError("Contribution not found.", status_code=404, reason="contribution_not_found")
+        status = str(row["status"] or "").strip().lower()
+        now = self._now()
+        apply_result: Optional[dict[str, Any]] = None
+        if action_clean == "accept":
+            if status != CONTRIBUTION_STATUS_PENDING:
+                raise DigestionError("Only pending contributions can be accepted.", status_code=400, reason="contribution_not_pending")
+            payload = self._json_loads(row["payload_json"], {})
+            if not isinstance(payload, dict):
+                payload = {}
+            apply_actor_id = str(row["contributor_user_id"] or actor_user_id).strip() or actor_user_id
+            def _apply_pending(actor_id: str) -> dict[str, Any]:
+                if str(payload.get("_ledger_payload_kind") or "") == "source_datapoint_bundle":
+                    return self.append_contributions(
+                        digestion.id,
+                        actor_id,
+                        contributions=[],
+                        source_file_ids=payload.get("source_file_ids") if isinstance(payload.get("source_file_ids"), list) else [],
+                        datapoints=payload.get("datapoints") if isinstance(payload.get("datapoints"), list) else [],
+                        build_after=build_after,
+                        _record_ledger=False,
+                    )
+                return self.append_contributions(
+                    digestion.id,
+                    actor_id,
+                    contributions=[payload],
+                    build_after=build_after,
+                    _record_ledger=False,
+                )
+
+            try:
+                apply_result = _apply_pending(apply_actor_id)
+            except DigestionError as exc:
+                if apply_actor_id != actor_user_id and getattr(exc, "reason", "") == "manage_denied":
+                    apply_result = _apply_pending(actor_user_id)
+                else:
+                    raise
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE digestion_contributions
+                    SET status = ?, accepted_at = ?, reviewed_by = ?, reviewed_at = ?,
+                        review_note = ?, result_json = ?, updated_at = ?
+                    WHERE id = ? AND digestion_id = ?
+                    """,
+                    (
+                        CONTRIBUTION_STATUS_ACCEPTED,
+                        now,
+                        actor_user_id,
+                        now,
+                        str(note or "").strip()[:2000],
+                        json.dumps(apply_result or {}, sort_keys=True),
+                        now,
+                        contribution_id,
+                        digestion.id,
+                    ),
+                )
+                conn.commit()
+        elif action_clean == "reject":
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE digestion_contributions
+                    SET status = ?, rejected_at = ?, reviewed_by = ?, reviewed_at = ?,
+                        review_note = ?, updated_at = ?
+                    WHERE id = ? AND digestion_id = ?
+                    """,
+                    (
+                        CONTRIBUTION_STATUS_REJECTED,
+                        now,
+                        actor_user_id,
+                        now,
+                        str(note or "").strip()[:2000],
+                        now,
+                        contribution_id,
+                        digestion.id,
+                    ),
+                )
+                conn.commit()
+        else:
+            if status == CONTRIBUTION_STATUS_REJECTED:
+                raise DigestionError("Rejected contributions cannot be marked reviewed.", status_code=400, reason="contribution_rejected")
+            if status == CONTRIBUTION_STATUS_PENDING:
+                raise DigestionError("Pending contributions must be accepted or rejected before they can be marked reviewed.", status_code=400, reason="contribution_pending")
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE digestion_contributions
+                    SET status = ?, reviewed_by = ?, reviewed_at = ?, review_note = ?, updated_at = ?
+                    WHERE id = ? AND digestion_id = ?
+                    """,
+                    (
+                        CONTRIBUTION_STATUS_REVIEWED,
+                        actor_user_id,
+                        now,
+                        str(note or "").strip()[:2000],
+                        now,
+                        contribution_id,
+                        digestion.id,
+                    ),
+                )
+                conn.commit()
+        updated = self._get_contribution_row(digestion.id, contribution_id)
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "action": action_clean,
+            "contribution": self._contribution_row_to_dict(updated, include_payload=True) if updated else {},
+            "apply_result": apply_result,
             "stats": self.stats(digestion.id),
         }
 
@@ -1662,6 +1945,8 @@ class DigestionManager:
             "source_count": 0,
             "datapoint_count": 0,
             "quantitative_result_count": 0,
+            "contribution_count": 0,
+            "pending_contribution_count": 0,
             "sources_by_status": {},
         }
 
@@ -1714,6 +1999,15 @@ class DigestionManager:
                 """,
                 ids,
             ).fetchall()
+            contribution_rows = conn.execute(
+                f"""
+                SELECT digestion_id, status, COUNT(*) AS count
+                FROM digestion_contributions
+                WHERE digestion_id IN ({placeholders})
+                GROUP BY digestion_id, status
+                """,
+                ids,
+            ).fetchall()
         for row in chunk_rows:
             digestion_id = str(row["digestion_id"] or "")
             if digestion_id not in stats_by_id:
@@ -1756,6 +2050,16 @@ class DigestionManager:
                     0,
                     1_000_000_000,
                 )
+        for row in contribution_rows:
+            digestion_id = str(row["digestion_id"] or "")
+            if digestion_id not in stats_by_id:
+                continue
+            count = int(row["count"] or 0)
+            stats_by_id[digestion_id]["contribution_count"] = int(
+                stats_by_id[digestion_id].get("contribution_count") or 0
+            ) + count
+            if str(row["status"] or "").strip().lower() == CONTRIBUTION_STATUS_PENDING:
+                stats_by_id[digestion_id]["pending_contribution_count"] = count
         return stats_by_id
 
     def generate_outputs(
@@ -2227,7 +2531,9 @@ class DigestionManager:
             "add_sources": f"POST {api_base}/sources",
             "merge_sources": f"POST {api_base}/merge",
             "add_materials": f"POST {api_base}/materials",
+            "list_contributions": f"GET {api_base}/contributions",
             "append_contributions": f"POST {api_base}/contributions",
+            "review_contribution": f"POST {api_base}/contributions/<contribution_id>",
             "build": f"POST {api_base}/build",
             "progress": f"GET {api_base}/progress",
             "query": f"POST {api_base}/query",
@@ -2255,6 +2561,7 @@ class DigestionManager:
             "add_sources": "canopy_digest_add_sources",
             "add_materials": "canopy_digest_add_materials",
             "append_contributions": "canopy_digest_append_contributions",
+            "contributions": "canopy_digest_contributions",
             "datapoints_extract": "canopy_digest_datapoints_extract",
             "datapoints_search": "canopy_digest_datapoints_search",
             "figures": "canopy_digest_figures",
@@ -2301,6 +2608,12 @@ class DigestionManager:
                         }
                     ],
                     "build_after": False,
+                    "review_required": False,
+                },
+                "review_contribution": {
+                    "action": "accept|reject|review",
+                    "note": "optional owner or manager review note",
+                    "build_after": False,
                 },
                 "datapoints_extract": {
                     "lens": "optional extraction focus",
@@ -2322,6 +2635,7 @@ class DigestionManager:
                 "Use sources/figures/datapoints only when source-metadata access is granted.",
                 "Use add_sources or add_materials only when the human wants this Digestion expanded.",
                 "Use append_contributions to preserve durable agent work product: notes, claims, facts, references, files, and optional datapoints.",
+                "Use list_contributions/review_contribution or canopy_digest_contributions when additions should be staged, accepted, rejected, or marked owner-reviewed.",
                 "Use datapoints_extract with scope='new' after adding documents; use scope='all' only for an explicit full refresh.",
                 "Use package/export_package for portable handoffs; package snapshots do not grant live query access by themselves.",
                 "When receiving a package from another user, treat its counts as a snapshot and call access_request/request_access first if live query fails.",
@@ -4847,6 +5161,307 @@ Use this as a permissioned retrieval capability, not as raw file access.
             return max(0, int((current - started).total_seconds()))
         except Exception:
             return 0
+
+    # ------------------------------------------------------------------
+    # Contribution ledger helpers
+    # ------------------------------------------------------------------
+    def _record_pending_contribution_ledger(
+        self,
+        digestion: Digestion,
+        actor_user_id: str,
+        *,
+        contributions: list[dict[str, Any]],
+        source_file_ids: list[str],
+        datapoints: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for index, contribution in enumerate(contributions or [], start=1):
+            rows.append(
+                self._insert_contribution_ledger(
+                    digestion,
+                    actor_user_id,
+                    contribution,
+                    status=CONTRIBUTION_STATUS_PENDING,
+                    index=index,
+                    source_file_ids=self._contribution_file_ids(contribution),
+                    datapoint_count=self._contribution_datapoint_count(contribution),
+                )
+            )
+        if source_file_ids or datapoints:
+            bundle = {
+                "_ledger_payload_kind": "source_datapoint_bundle",
+                "kind": "source_bundle",
+                "title": "Referenced files and structured datapoints",
+                "summary": "Top-level source_file_ids and/or structured datapoints submitted for owner review.",
+                "source_file_ids": list(source_file_ids or []),
+                "datapoints": list(datapoints or []),
+            }
+            rows.append(
+                self._insert_contribution_ledger(
+                    digestion,
+                    actor_user_id,
+                    bundle,
+                    status=CONTRIBUTION_STATUS_PENDING,
+                    index=len(rows) + 1,
+                    source_file_ids=source_file_ids,
+                    datapoint_count=len(datapoints or []),
+                )
+            )
+        return rows
+
+    def _record_accepted_contribution_ledger(
+        self,
+        digestion: Digestion,
+        actor_user_id: str,
+        *,
+        contributions: list[dict[str, Any]],
+        source_file_ids: list[str],
+        datapoints: list[dict[str, Any]],
+        result: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        aggregate_material_ids = self._result_source_file_ids(result.get("materials"))
+        aggregate_source_ids = self._result_source_file_ids(result.get("source_files"))
+        skipped = result.get("skipped") if isinstance(result.get("skipped"), list) else []
+        for index, contribution in enumerate(contributions or [], start=1):
+            rows.append(
+                self._insert_contribution_ledger(
+                    digestion,
+                    actor_user_id,
+                    contribution,
+                    status=CONTRIBUTION_STATUS_ACCEPTED,
+                    index=index,
+                    source_file_ids=self._contribution_file_ids(contribution),
+                    datapoint_count=self._contribution_datapoint_count(contribution),
+                    material_file_ids=aggregate_material_ids,
+                    added_source_file_ids=aggregate_source_ids,
+                    skipped=skipped,
+                    result=result,
+                )
+            )
+        if source_file_ids or datapoints:
+            bundle = {
+                "_ledger_payload_kind": "source_datapoint_bundle",
+                "kind": "source_bundle",
+                "title": "Referenced files and structured datapoints",
+                "summary": "Top-level source_file_ids and/or structured datapoints appended to the Digestion.",
+                "source_file_ids": list(source_file_ids or []),
+                "datapoints": list(datapoints or []),
+            }
+            rows.append(
+                self._insert_contribution_ledger(
+                    digestion,
+                    actor_user_id,
+                    bundle,
+                    status=CONTRIBUTION_STATUS_ACCEPTED,
+                    index=len(rows) + 1,
+                    source_file_ids=source_file_ids,
+                    datapoint_count=len(datapoints or []),
+                    material_file_ids=aggregate_material_ids,
+                    added_source_file_ids=aggregate_source_ids,
+                    skipped=skipped,
+                    result=result,
+                )
+            )
+        return rows
+
+    def _insert_contribution_ledger(
+        self,
+        digestion: Digestion,
+        actor_user_id: str,
+        payload: dict[str, Any],
+        *,
+        status: str,
+        index: int,
+        source_file_ids: Optional[Iterable[str]] = None,
+        datapoint_count: int = 0,
+        material_file_ids: Optional[Iterable[str]] = None,
+        added_source_file_ids: Optional[Iterable[str]] = None,
+        skipped: Optional[Iterable[dict[str, Any]]] = None,
+        result: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        title, contribution_kind = self._contribution_title_kind(payload, index=index)
+        contribution_id = f"Dc{secrets.token_hex(12)}"
+        now = self._now()
+        tags = self._llm_string_list(payload.get("tags"), limit=24, item_limit=80) if isinstance(payload, dict) else []
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        with self.db.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO digestion_contributions (
+                    id, digestion_id, contributor_user_id, contribution_kind, title,
+                    status, payload_json, summary, tags_json, confidence,
+                    source_file_ids_json, material_file_ids_json, added_source_file_ids_json,
+                    datapoint_count, skipped_json, result_json, metadata_json,
+                    created_at, updated_at, accepted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    contribution_id,
+                    digestion.id,
+                    self._clean_id(actor_user_id),
+                    contribution_kind,
+                    title,
+                    self._normalize_contribution_status(status) or CONTRIBUTION_STATUS_ACCEPTED,
+                    self._json_dumps(payload),
+                    self._contribution_summary(payload),
+                    self._json_dumps(tags),
+                    self._normalize_confidence(payload.get("confidence") if isinstance(payload, dict) else None),
+                    self._json_dumps(self._clean_id_list(source_file_ids)),
+                    self._json_dumps(self._clean_id_list(material_file_ids)),
+                    self._json_dumps(self._clean_id_list(added_source_file_ids)),
+                    max(0, int(datapoint_count or 0)),
+                    self._json_dumps(list(skipped or [])),
+                    self._json_dumps(result or {}),
+                    self._json_dumps(metadata or {}),
+                    now,
+                    now,
+                    now if self._normalize_contribution_status(status) == CONTRIBUTION_STATUS_ACCEPTED else None,
+                ),
+            )
+            conn.commit()
+        row = self._get_contribution_row(digestion.id, contribution_id)
+        return self._contribution_row_to_dict(row, include_payload=False) if row else {"id": contribution_id, "status": status}
+
+    def _get_contribution_row(self, digestion_id: str, contribution_id: str) -> Any:
+        with self.db.get_connection() as conn:
+            return conn.execute(
+                """
+                SELECT
+                    c.*,
+                    u.username AS contributor_username,
+                    u.avatar_file_id AS contributor_avatar_file_id
+                FROM digestion_contributions c
+                LEFT JOIN users u ON u.id = c.contributor_user_id
+                WHERE c.digestion_id = ? AND c.id = ?
+                """,
+                (self._clean_id(digestion_id), self._clean_id(contribution_id)),
+            ).fetchone()
+
+    def _contribution_row_to_dict(self, row: Any, *, include_payload: bool = False) -> dict[str, Any]:
+        if not row:
+            return {}
+        source_file_ids = self._json_loads(row["source_file_ids_json"], [])
+        material_file_ids = self._json_loads(row["material_file_ids_json"], [])
+        added_source_file_ids = self._json_loads(row["added_source_file_ids_json"], [])
+        tags = self._json_loads(row["tags_json"], [])
+        skipped = self._json_loads(row["skipped_json"], [])
+        result = self._json_loads(row["result_json"], {})
+        contributor_id = str(row["contributor_user_id"] or "").strip()
+        contributor_username = str(self._row_get(row, "contributor_username", "") or contributor_id).strip()
+        avatar_file_id = str(self._row_get(row, "contributor_avatar_file_id", "") or "").strip()
+        item = {
+            "id": str(row["id"] or ""),
+            "digestion_id": str(row["digestion_id"] or ""),
+            "schema_version": DIGESTION_CONTRIBUTION_LEDGER_SCHEMA_VERSION,
+            "contributor_user_id": contributor_id,
+            "contributor": {
+                "user_id": contributor_id,
+                "username": contributor_username or "unknown contributor",
+                "display_name": contributor_username or contributor_id or "Unknown contributor",
+                "account_type": "",
+                "avatar_file_id": avatar_file_id,
+                "avatar_url": f"/files/{avatar_file_id}" if avatar_file_id else "",
+            },
+            "contribution_kind": str(row["contribution_kind"] or "agent_output"),
+            "title": str(row["title"] or "Contribution"),
+            "status": str(row["status"] or CONTRIBUTION_STATUS_ACCEPTED),
+            "summary": str(row["summary"] or ""),
+            "tags": tags if isinstance(tags, list) else [],
+            "confidence": row["confidence"],
+            "source_file_ids": source_file_ids if isinstance(source_file_ids, list) else [],
+            "material_file_ids": material_file_ids if isinstance(material_file_ids, list) else [],
+            "added_source_file_ids": added_source_file_ids if isinstance(added_source_file_ids, list) else [],
+            "datapoint_count": int(row["datapoint_count"] or 0),
+            "skipped": skipped if isinstance(skipped, list) else [],
+            "created_at": str(row["created_at"] or ""),
+            "updated_at": str(row["updated_at"] or ""),
+            "reviewed_by": str(row["reviewed_by"] or ""),
+            "reviewed_at": str(row["reviewed_at"] or ""),
+            "review_note": str(row["review_note"] or ""),
+            "accepted_at": str(row["accepted_at"] or ""),
+            "rejected_at": str(row["rejected_at"] or ""),
+        }
+        if include_payload:
+            item["payload"] = self._json_loads(row["payload_json"], {})
+            item["result"] = result if isinstance(result, dict) else {}
+            item["metadata"] = self._json_loads(row["metadata_json"], {})
+        return item
+
+    def _contribution_title_kind(self, payload: dict[str, Any], *, index: int) -> tuple[str, str]:
+        title = str(
+            payload.get("title")
+            or payload.get("name")
+            or payload.get("label")
+            or payload.get("summary")
+            or f"Contribution {index}"
+        ).strip()
+        if len(title) > 220:
+            title = title[:217].rstrip() + "..."
+        contribution_kind = self._normalize_material_kind(
+            payload.get("contribution_kind")
+            or payload.get("kind")
+            or payload.get("type")
+            or "agent_output"
+        )
+        return title or f"Contribution {index}", contribution_kind
+
+    def _contribution_summary(self, payload: dict[str, Any]) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        for key in ("summary", "content", "text", "body", "notes", "claims", "facts", "useful_facts"):
+            value = payload.get(key)
+            if value:
+                text = self._markdownish_value(value)
+                text = re.sub(r"\s+", " ", str(text or "")).strip()
+                if len(text) > 520:
+                    text = text[:517].rstrip() + "..."
+                return text
+        file_ids = self._contribution_file_ids(payload)
+        if file_ids:
+            return f"References {len(file_ids)} Vault file{'s' if len(file_ids) != 1 else ''}."
+        datapoint_count = self._contribution_datapoint_count(payload)
+        if datapoint_count:
+            return f"Includes {datapoint_count} structured datapoint{'s' if datapoint_count != 1 else ''}."
+        return ""
+
+    def _contribution_datapoint_count(self, payload: dict[str, Any]) -> int:
+        if not isinstance(payload, dict):
+            return 0
+        raw = payload.get("datapoints") or payload.get("structured_datapoints") or []
+        if isinstance(raw, dict):
+            return 1
+        if isinstance(raw, list):
+            return sum(1 for item in raw if isinstance(item, dict))
+        return 0
+
+    def _result_source_file_ids(self, result: Any) -> list[str]:
+        if not isinstance(result, dict):
+            return []
+        sources = result.get("sources") if isinstance(result.get("sources"), list) else []
+        return self._clean_id_list(
+            item.get("file_id") or item.get("id")
+            for item in sources
+            if isinstance(item, dict)
+        )
+
+    def _normalize_contribution_status(self, status: Any) -> str:
+        clean = str(status or "").strip().lower()
+        return clean if clean in CONTRIBUTION_STATUSES else ""
+
+    def _json_dumps(self, value: Any) -> str:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+    def _json_loads(self, value: Any, default: Any) -> Any:
+        if value is None or value == "":
+            return default
+        if isinstance(value, (dict, list)):
+            return value
+        try:
+            parsed = json.loads(str(value))
+            return parsed
+        except Exception:
+            return default
 
     # ------------------------------------------------------------------
     # Utility helpers

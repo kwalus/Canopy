@@ -11225,6 +11225,27 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API add materials failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/contributions', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def list_digestion_contributions_api(digestion_id: str):
+        """List the durable contribution ledger for a managed Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.list_contributions(
+                digestion_id,
+                g.api_key_info.user_id,
+                status=request.args.get('status') or '',
+                include_payload=_as_bool(request.args.get('include_payload')),
+                limit=_api_int_param(request.args.get('limit'), default=100, minimum=1, maximum=250),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API list contributions failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/contributions', methods=['POST'])
     @require_auth(Permission.WRITE_FILES)
     def append_digestion_contributions_api(digestion_id: str):
@@ -11255,12 +11276,36 @@ def create_api_blueprint() -> Blueprint:
                 source_file_ids=source_file_ids if isinstance(source_file_ids, list) else [],
                 datapoints=datapoints if isinstance(datapoints, list) else [],
                 build_after=_as_bool(data.get('build_after') or data.get('auto_build')),
+                review_required=_as_bool(data.get('review_required') or data.get('pending_review')),
             )
             return jsonify(result)
         except DigestionError as exc:
             return _api_digestion_error(exc)
         except Exception as e:
             logger.error("Digestion API append contributions failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/contributions/<contribution_id>', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def review_digestion_contribution_api(digestion_id: str, contribution_id: str):
+        """Accept, reject, or mark a Digestion contribution ledger row as reviewed."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.review_contribution(
+                digestion_id,
+                contribution_id,
+                g.api_key_info.user_id,
+                action=data.get('action') or data.get('decision') or '',
+                note=data.get('note') or data.get('review_note') or '',
+                build_after=_as_bool(data.get('build_after') or data.get('auto_build')),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API review contribution failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/digestions/<digestion_id>/build', methods=['POST'])

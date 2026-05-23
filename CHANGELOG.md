@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.199] - 2026-05-23
+
+### Added
+- **Digestions now have a durable contribution ledger and owner-review loop** - agent/human contributions are recorded with contributor, status, source/datapoint counts, and review metadata; owners/managers can list, accept, reject, or mark contributions reviewed through REST, MCP, and the Vault Digestion panel.
+- **Agent-facing Digestion references now include contribution-review tooling** - API docs, MCP quick start, onboarding, and copied agent references teach `review_required`, contribution listing, and review actions so agents can stage corpus additions instead of always mutating the live Digestion.
+
 ## [0.6.198] - 2026-05-23
 
 ### Fixed

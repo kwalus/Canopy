@@ -1167,6 +1167,28 @@ class CanopyMCPServer:
                                 "items": {"type": "object"},
                                 "description": "Optional normalized datapoints with subject, claim, materials, methods, measurements, numerical_results, quantitative_results, relationships, evidence, tags, and source metadata."
                             },
+                            "build_after": {"type": "boolean", "default": False},
+                            "review_required": {"type": "boolean", "default": False, "description": "Stage contributions in the owner-review ledger instead of immediately mutating the live corpus."}
+                        },
+                        "required": ["digestion_id"]
+                    }
+                ),
+                Tool(
+                    name="canopy_digest_contributions",
+                    description=(
+                        "List or review the durable Digestion contribution ledger. "
+                        "Use list mode to inspect accepted/pending agent work product; use action=accept/reject/review to process one contribution."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "digestion_id": {"type": "string"},
+                            "contribution_id": {"type": "string"},
+                            "action": {"type": "string", "enum": ["list", "accept", "reject", "review"], "default": "list"},
+                            "status": {"type": "string", "description": "Optional list filter: pending, accepted, reviewed, or rejected."},
+                            "include_payload": {"type": "boolean", "default": False},
+                            "limit": {"type": "integer", "default": 100},
+                            "note": {"type": "string"},
                             "build_after": {"type": "boolean", "default": False}
                         },
                         "required": ["digestion_id"]
@@ -1821,6 +1843,12 @@ class CanopyMCPServer:
                     if not self._check_permission(Permission.WRITE_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: write_files required")]
                     return await self._digest_append_contributions(arguments or {})
+                elif name == "canopy_digest_contributions":
+                    action = str((arguments or {}).get("action") or "list").strip().lower()
+                    required_permission = Permission.READ_FILES if action in {"", "list"} else Permission.WRITE_FILES
+                    if not self._check_permission(required_permission):
+                        return [TextContent(type="text", text=f"Error: Permission denied: {required_permission.value} required")]
+                    return await self._digest_contributions(arguments or {})
                 elif name == "canopy_digest_query":
                     if not self._check_permission(Permission.READ_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: read_files required")]
@@ -4872,12 +4900,53 @@ class CanopyMCPServer:
                     source_file_ids=source_file_ids,
                     datapoints=datapoints,
                     build_after=_mcp_flag(args.get("build_after") or args.get("auto_build"), default=False),
+                    review_required=_mcp_flag(args.get("review_required") or args.get("pending_review"), default=False),
                 )
                 return _mcp_json(result)
         except DigestionError as exc:
             return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
         except Exception as e:
             raise Exception(f"Failed to append Digestion contributions: {str(e)}")
+
+    async def _digest_contributions(self, args: Dict[str, Any]) -> List[TextContent]:
+        """List or review Digestion contribution ledger rows."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
+        contribution_id = str(args.get("contribution_id") or "").strip()
+        action = str(args.get("action") or "list").strip().lower()
+        try:
+            from canopy.core.app import create_app
+
+            if not digestion_id:
+                return [TextContent(type="text", text="Error: digestion_id is required")]
+            app = create_app()
+            with app.app_context():
+                manager = app.config.get('DIGESTION_MANAGER')
+                if not manager:
+                    return [TextContent(type="text", text="Error: Digestion manager unavailable")]
+                if action in {"", "list"}:
+                    result = manager.list_contributions(
+                        digestion_id,
+                        self.user_id,
+                        status=str(args.get("status") or ""),
+                        include_payload=_mcp_flag(args.get("include_payload"), default=False),
+                        limit=max(1, min(int(args.get("limit") or 100), 250)),
+                    )
+                    return _mcp_json(result)
+                if not contribution_id:
+                    return [TextContent(type="text", text="Error: contribution_id is required for review actions")]
+                result = manager.review_contribution(
+                    digestion_id,
+                    contribution_id,
+                    self.user_id,
+                    action=action,
+                    note=str(args.get("note") or ""),
+                    build_after=_mcp_flag(args.get("build_after") or args.get("auto_build"), default=False),
+                )
+                return _mcp_json(result)
+        except DigestionError as exc:
+            return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
+        except Exception as e:
+            raise Exception(f"Failed to process Digestion contributions: {str(e)}")
 
     async def _digest_query(self, args: Dict[str, Any]) -> List[TextContent]:
         """Query a Digestion."""

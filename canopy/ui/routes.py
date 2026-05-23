@@ -7161,6 +7161,32 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI add materials error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not add Digestion materials'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/contributions', methods=['GET'])
+    @require_login
+    def ajax_list_digestion_contributions(digestion_id: str):
+        """List the durable contribution ledger for a managed Digestion."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            limit_raw = request.args.get('limit') or 100
+            try:
+                limit = max(1, min(int(limit_raw), 250))
+            except (TypeError, ValueError):
+                limit = 100
+            return jsonify(manager.list_contributions(
+                digestion_id,
+                get_current_user(),
+                status=request.args.get('status') or '',
+                include_payload=_ui_as_bool(request.args.get('include_payload')),
+                limit=limit,
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI list contributions error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load Digestion contributions'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/contributions', methods=['POST'])
     @require_login
     def ajax_append_digestion_contributions(digestion_id: str):
@@ -7186,12 +7212,36 @@ def create_ui_blueprint() -> Blueprint:
                 source_file_ids=source_file_ids if isinstance(source_file_ids, list) else [],
                 datapoints=datapoints if isinstance(datapoints, list) else [],
                 build_after=_ui_as_bool(data.get('build_after') or data.get('auto_build')),
+                review_required=_ui_as_bool(data.get('review_required') or data.get('pending_review')),
             ))
         except DigestionError as exc:
             return _ajax_digestion_error(exc)
         except Exception as e:
             logger.error("Digestion UI append contributions error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not append Digestion contributions'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/contributions/<contribution_id>', methods=['POST'])
+    @require_login
+    def ajax_review_digestion_contribution(digestion_id: str, contribution_id: str):
+        """Accept, reject, or mark a Digestion contribution ledger row as reviewed."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.review_contribution(
+                digestion_id,
+                contribution_id,
+                get_current_user(),
+                action=data.get('action') or data.get('decision') or '',
+                note=data.get('note') or data.get('review_note') or '',
+                build_after=_ui_as_bool(data.get('build_after') or data.get('auto_build')),
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI review contribution error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not review Digestion contribution'}), 500
 
     @ui.route('/ajax/digestions/<digestion_id>/query', methods=['POST'])
     @require_login
