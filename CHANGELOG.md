@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.200] - 2026-05-23
+
+### Fixed
+- **Messages page DM list keeps names readable with compact dates** - direct and group conversation cards now use the shared compact timestamp formatter and constrain the time rail so older timestamps do not cut off participant names.
+
 ## [0.6.199] - 2026-05-23
 
 ### Added

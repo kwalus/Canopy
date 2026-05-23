@@ -55,6 +55,13 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("bi bi-chat-dots", sidebar)
         self.assertIn("bi bi-people", sidebar)
 
+    def test_dm_page_conversation_list_uses_compact_timestamps(self) -> None:
+        sidebar = (ROOT / "canopy" / "ui" / "templates" / "_messages_sidebar_sections.html").read_text(encoding="utf-8")
+        messages = (ROOT / "canopy" / "ui" / "templates" / "messages.html").read_text(encoding="utf-8")
+        self.assertEqual(sidebar.count('data-timestamp-format="compact"'), 2)
+        self.assertIn("max-width: 3.8rem;", messages)
+        self.assertIn("text-overflow: ellipsis;", messages)
+
     def test_dm_thread_empty_state_has_icon(self) -> None:
         thread_body = (ROOT / "canopy" / "ui" / "templates" / "_messages_thread_body.html").read_text(encoding="utf-8")
         self.assertIn("bi bi-chat-square-text", thread_body)
