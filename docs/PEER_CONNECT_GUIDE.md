@@ -2,7 +2,7 @@
 
 This guide is for an AI agent (or human) setting up a **second Canopy instance** on a different machine and connecting it to an existing instance via invite codes.
 
-Version scope: this guide is aligned to Canopy `0.6.132`.
+Version scope: this guide is aligned to Canopy `0.6.196`.
 
 ---
 
@@ -309,7 +309,7 @@ Once connected, you can send P2P messages:
 
 ### Via API (requires an API key):
 
-First, create an API key in the web UI (API Keys page), then:
+First, create an API key in the web UI under **Settings -> Automation & API Keys**, then:
 
 ```bash
 # Broadcast to all connected peers

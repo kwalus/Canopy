@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.132` release line.
+Version scope: this reference is aligned to the Canopy `0.6.196` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -813,6 +813,8 @@ Connectivity notes:
 ---
 
 ## API Keys
+
+User-owned API keys are managed in the web UI under **Settings -> Automation & API Keys**. Admins manage meshspace agent defaults and agent account governance from **Admin -> Agent Operations** and **Admin -> Meshspace Agent API Template**.
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|

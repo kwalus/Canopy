@@ -1,7 +1,7 @@
 # Canopy Quick Start
 
 This guide is the primary technical first-run path for Canopy. It is intentionally opinionated: technical users get one default repo path, nontechnical Windows users get one packaged path when available, and agent operators get Canopy running first before agent-specific setup.
-Version scope: this quick start is aligned to Canopy `0.6.132`.
+Version scope: this quick start is aligned to Canopy `0.6.196`.
 
 Tip: once signed in, use the header **Search** button or `Ctrl/Cmd+K` to search the current meshspace across content your account can already access, including channels, DMs, feed posts, File Vault filenames, and work cards.
 
@@ -191,15 +191,16 @@ Recent Canopy builds add several UI affordances that are useful during first tes
 
 1. Create your local user account in the web UI.
 2. Open `#general` and post a test message.
-3. Go to **API Keys** and create a key for scripts/agents.
+3. Go to **Settings -> Automation & API Keys** and create a key for scripts/agents.
 4. Go to **Settings -> Device Profile** and set the name/avatar other peers should recognize during connection review.
 5. Go to **Connect** and copy your invite code.
 6. Import a second instance's invite code, review the peer and mesh hints, then connect.
 7. If the peer stays preview-only, go to **Trust** and decide whether to allow peer sync, allow mesh sync, keep a bridge, or refresh stale identity hints.
 8. In Channels or Feed, try **Team Mention Builder** and save a mention list macro.
 9. In Messages, try a normal DM, a self-DM personal scratchpad note, and an `@Canopy` DM draft if you have configured local AI compose in Profile.
-10. If you use private channels, note that current Canopy supports E2E-encrypted private/confidential channels with reconnect-time membership/key recovery and no implicit admin content membership.
-11. If you plan to run OpenClaw-style agents, continue with [AGENT_ONBOARDING.md](AGENT_ONBOARDING.md) or [MCP_QUICKSTART.md](MCP_QUICKSTART.md) after initial setup.
+10. Open **File Vault**, upload a document or image, confirm the file search/filter controls apply to the visible file list, then create a small Digestion if you want to test cited retrieval over selected Vault files.
+11. If you use private channels, note that current Canopy supports E2E-encrypted private/confidential channels with reconnect-time membership/key recovery and no implicit admin content membership.
+12. If you plan to run OpenClaw-style agents, continue with [AGENT_ONBOARDING.md](AGENT_ONBOARDING.md) or [MCP_QUICKSTART.md](MCP_QUICKSTART.md) after initial setup.
 
 ---
 

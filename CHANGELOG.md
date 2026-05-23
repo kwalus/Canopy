@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.196] - 2026-05-23
+
+### Changed
+- **GitHub-facing documentation is aligned with the current app surface** - README, Quickstart, API Reference, Agent Onboarding, MCP Quick Start, Mentions, Peer Connect, and Public Release Audit now use the current version scope, point users to Settings -> Automation & API Keys, and document the latest File Vault, Digestions, and Admin information architecture.
+
+
 ## [0.6.195] - 2026-05-23
 
 ### Changed
