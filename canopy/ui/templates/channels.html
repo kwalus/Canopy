@@ -19816,8 +19816,12 @@ function getChannelSelectionContextFromWindow() {
     ).trim();
     const channel = currentChannelName ? `#${currentChannelName}` : 'this channel';
     const channelId = currentChannelId ? String(currentChannelId) : '';
+    const pasteText = (window.CanopySelectionDock && typeof window.CanopySelectionDock.getPasteSafeSelectionText === 'function')
+        ? window.CanopySelectionDock.getPasteSafeSelectionText(selection, text, startContent)
+        : text;
     return {
         text: text.length > 6000 ? text.slice(0, 6000).trim() : text,
+        pasteText: pasteText.length > 6000 ? pasteText.slice(0, 6000).trim() : pasteText,
         wasTrimmed: text.length > 6000,
         rect,
         rects,
@@ -20001,7 +20005,8 @@ function insertTextIntoChannelComposer(text, opts = {}) {
 }
 
 function buildChannelSelectionInsertion(action, ctx) {
-    const quote = formatChannelSelectionQuote(ctx.text);
+    const reusableText = ctx.pasteText || ctx.text;
+    const quote = formatChannelSelectionQuote(reusableText);
     if (action === 'quote') {
         return `${quote}\n\n`;
     }
@@ -20011,7 +20016,7 @@ function buildChannelSelectionInsertion(action, ctx) {
     if (action === 'canopy') {
         return `@Canopy Use this selected context while drafting the next message:\n${quote}\n\n`;
     }
-    return ctx.text;
+    return reusableText;
 }
 
 function copyChannelSelectedText(text) {
@@ -20062,7 +20067,7 @@ async function handleChannelSelectionDockAction(action) {
         return;
     }
     if (action === 'copy') {
-        const copied = await copyChannelSelectedText(ctx.text);
+        const copied = await copyChannelSelectedText(ctx.pasteText || ctx.text);
         if (typeof showAlert === 'function') {
             showAlert(copied ? 'Selected text copied.' : 'Could not copy selected text.', copied ? 'success' : 'warning');
         }
