@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.202] - 2026-05-23
+
+### Added
+- **Digestion outputs now expose explicit access-policy metadata** - generated outputs and package snapshots report source-reveal tier, sensitivity label, raw-source withholding, citation requirements, and source-metadata requirements so agents and UIs can distinguish static packages, derived context, source metadata, structured datapoints, and visual evidence.
+- **Digestion stats now surface pending/stale build state** - stats include indexed, pending, and error source counts plus retrieval-ready, needs-build, outputs-stale, and build-state flags so owners can see when agent contributions or added files require a rebuild.
+
 ## [0.6.201] - 2026-05-23
 
 ### Added
