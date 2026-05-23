@@ -7307,6 +7307,32 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI figures error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not load Digestion PDF figures'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/visual-evidence', methods=['GET'])
+    @require_login
+    def ajax_digestion_visual_evidence(digestion_id: str):
+        """List PDF visual evidence records for the Digestion Deck and Vault UI."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            try:
+                limit = int(request.args.get('limit', 160) or 160)
+            except (TypeError, ValueError):
+                limit = 160
+            limit = max(1, min(limit, 320))
+            evidence_kind = str(request.args.get('kind') or request.args.get('evidence_kind') or '').strip().lower()
+            return jsonify(manager.list_visual_evidence(
+                digestion_id,
+                get_current_user(),
+                limit=limit,
+                evidence_kind=evidence_kind,
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI visual evidence error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not load Digestion visual evidence'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/context', methods=['POST'])
     @require_login
     def ajax_digestion_context(digestion_id: str):

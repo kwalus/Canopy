@@ -11411,6 +11411,28 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API figures failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/visual-evidence', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def digestion_visual_evidence_api(digestion_id: str):
+        """List source-derived PDF visual evidence records for an accessible Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            limit = _api_int_param(request.args.get('limit'), default=160, minimum=1, maximum=320)
+            evidence_kind = str(request.args.get('kind') or request.args.get('evidence_kind') or '').strip().lower()
+            return jsonify(manager.list_visual_evidence(
+                digestion_id,
+                g.api_key_info.user_id,
+                limit=limit,
+                evidence_kind=evidence_kind,
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API visual evidence failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/context', methods=['POST'])
     @require_auth(Permission.READ_FILES)
     def digestion_context_api(digestion_id: str):

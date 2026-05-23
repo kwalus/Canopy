@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.201] - 2026-05-23
+
+### Added
+- **Digestions capture source-gated visual evidence records** - PDF builds now persist caption-derived figure, table, chart, diagram, and visual-evidence records; REST, AJAX, MCP, generated outputs, package snapshots, agent references, and the Deck Digestion workspace can consume the new visual-evidence surface.
+
+### Fixed
+- **Digestion contribution previews target owner-bound source copies** - the contribution ledger now exposes safe preview targets for files agents/managers append into a Digestion, so `Preview source` opens the owner-side intake copy instead of failing on stale contributor-side references.
+
 ## [0.6.200] - 2026-05-23
 
 ### Fixed
