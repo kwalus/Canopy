@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.198-blue" alt="Version 0.6.198">
+  <img src="https://img.shields.io/badge/version-0.6.199-blue" alt="Version 0.6.199">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -517,6 +517,8 @@ Vault links pasted into feed posts, comments, channel messages, or DMs are also 
 |---|---|---|
 | GET/POST | `/api/v1/digestions` | List or create local, permissioned retrieval corpora from Vault files or normalized inline materials |
 | GET/POST | `/api/v1/digestions/<id>/sources` | List permitted source metadata or add managed sources to a Digestion |
+| GET/POST | `/api/v1/digestions/<id>/contributions` | List or append durable agent/human work product, including staged owner-review contributions |
+| POST | `/api/v1/digestions/<id>/contributions/<contribution_id>` | Accept, reject, or mark a staged contribution reviewed |
 | POST | `/api/v1/digestions/<id>/build` | Build or rebuild the local semantic index |
 | GET | `/api/v1/digestions/<id>/progress` | Poll build and datapoint-extraction progress for UI or agent telemetry |
 | POST | `/api/v1/digestions/<id>/query` | Query cited semantic chunks without granting raw Vault-file access |

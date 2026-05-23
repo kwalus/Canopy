@@ -2683,6 +2683,8 @@
                             datapoint_count: Number(stats.datapoint_count ?? item.datapoint_count ?? progressDetails.datapoint_count ?? 0),
                             quantitative_result_count: Number(stats.quantitative_result_count ?? item.quantitative_result_count ?? progressDetails.quantitative_result_count ?? 0),
 	                        sources_by_status: stats.sources_by_status || item.sources_by_status || {},
+	                        contribution_count: Number(stats.contribution_count ?? item.contribution_count ?? 0),
+	                        pending_contribution_count: Number(stats.pending_contribution_count ?? item.pending_contribution_count ?? 0),
 	                    };
 	                }
 
@@ -2731,6 +2733,20 @@
                     function digestionContributionSources(digestion) {
                         const sources = Array.isArray(digestion && digestion.sources) ? digestion.sources : [];
                         return sources.filter(source => isDigestionContributionSource(digestion, source));
+                    }
+
+                    function digestionLedgerContributions(digestion) {
+                        return Array.isArray(digestion && digestion.contributions) ? digestion.contributions : [];
+                    }
+
+                    function digestionContributionCounts(digestion, stats = null) {
+                        const safeStats = stats || digestionStats(digestion);
+                        const ledger = digestionLedgerContributions(digestion);
+                        const fallbackSources = digestionContributionSources(digestion);
+                        const total = Number(safeStats.contribution_count || 0) || ledger.length || fallbackSources.length;
+                        const pending = Number(safeStats.pending_contribution_count || 0)
+                            || ledger.filter(item => String(item && item.status || '').toLowerCase() === 'pending').length;
+                        return { total, pending };
                     }
 
                     function digestionSourceIssues(digestion) {
@@ -3044,29 +3060,125 @@
                     `;
                 }
 
+                function renderDigestionContributionLedgerItem(contribution, digestion) {
+                    const id = vaultEscape(contribution && contribution.id || '');
+                    const title = vaultEscape(contribution && contribution.title || 'Contribution');
+                    const status = String(contribution && contribution.status || 'accepted').toLowerCase();
+                    const kind = String(contribution && contribution.contribution_kind || 'agent_output').replace(/_/g, ' ');
+                    const contributor = contribution && contribution.contributor && typeof contribution.contributor === 'object' ? contribution.contributor : {};
+                    const contributorName = contributor.display_name || contributor.username || contribution.contributor_user_id || 'Unknown contributor';
+                    const createdAt = String(contribution && contribution.created_at || '');
+                    const summary = String(contribution && contribution.summary || '').trim();
+                    const tags = Array.isArray(contribution && contribution.tags) ? contribution.tags.slice(0, 8) : [];
+                    const sourceCount = Array.isArray(contribution && contribution.source_file_ids) ? contribution.source_file_ids.length : 0;
+                    const materialCount = Array.isArray(contribution && contribution.material_file_ids) ? contribution.material_file_ids.length : 0;
+                    const addedSourceCount = Array.isArray(contribution && contribution.added_source_file_ids) ? contribution.added_source_file_ids.length : 0;
+                    const datapointCount = Number(contribution && contribution.datapoint_count || 0);
+                    const reviewedAt = String(contribution && contribution.reviewed_at || '');
+                    const access = digestion && digestion.access || {};
+                    const canManage = !!access.can_manage;
+                    const copyTextValue = [
+                        title,
+                        `Contribution ID: ${contribution && contribution.id || ''}`,
+                        `Status: ${status}`,
+                        `Contributor: ${contributorName}`,
+                        summary,
+                    ].filter(Boolean).join('\n');
+                    const statusClass = status === 'pending'
+                        ? 'text-warning'
+                        : (status === 'rejected' ? 'text-danger' : (status === 'reviewed' ? 'text-success' : ''));
+                    const reviewActions = canManage && status === 'pending' ? `
+                        <button class="btn btn-sm btn-success" type="button" data-vault-digestion-action="review-contribution" data-vault-digestion-id="${vaultEscape(digestion && digestion.id || '')}" data-vault-contribution-id="${id}" data-vault-review-action="accept">
+                            <i class="bi bi-check2-circle"></i> Accept
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" type="button" data-vault-digestion-action="review-contribution" data-vault-digestion-id="${vaultEscape(digestion && digestion.id || '')}" data-vault-contribution-id="${id}" data-vault-review-action="reject">
+                            <i class="bi bi-x-circle"></i> Reject
+                        </button>
+                    ` : (canManage && status === 'accepted' ? `
+                        <button class="btn btn-sm btn-outline-success" type="button" data-vault-digestion-action="review-contribution" data-vault-digestion-id="${vaultEscape(digestion && digestion.id || '')}" data-vault-contribution-id="${id}" data-vault-review-action="review">
+                            <i class="bi bi-check2-square"></i> Mark reviewed
+                        </button>
+                    ` : '');
+                    return `
+                        <div class="vault-digestion-result is-contribution" data-vault-contribution-row="${id}">
+                            <div class="vault-digestion-result-head">
+                                <div class="vault-digestion-contribution-title">
+                                    <strong>${title}</strong>
+                                    <small>
+                                        ${vaultEscape(kind)}
+                                        · by ${vaultEscape(contributorName)}
+                                        ${createdAt ? ` · ${vaultEscape(typeof formatTimestamp === 'function' ? formatTimestamp(createdAt) : createdAt)}` : ''}
+                                        ${reviewedAt ? ` · reviewed ${vaultEscape(typeof formatTimestamp === 'function' ? formatTimestamp(reviewedAt) : reviewedAt)}` : ''}
+                                    </small>
+                                </div>
+                                <div class="vault-digestion-result-badges">
+                                    <span class="${statusClass}">${vaultEscape(status)}</span>
+                                    ${sourceCount ? `<span>${sourceCount} referenced file${sourceCount === 1 ? '' : 's'}</span>` : ''}
+                                    ${addedSourceCount ? `<span>${addedSourceCount} source${addedSourceCount === 1 ? '' : 's'} added</span>` : ''}
+                                    ${materialCount ? `<span>${materialCount} material${materialCount === 1 ? '' : 's'}</span>` : ''}
+                                    ${datapointCount ? `<span>${datapointCount.toLocaleString()} datapoint${datapointCount === 1 ? '' : 's'}</span>` : ''}
+                                </div>
+                            </div>
+                            ${summary ? `<div class="vault-digestion-result-snippet">${vaultEscape(summary)}</div>` : ''}
+                            ${tags.length ? `
+                                <div class="vault-digestion-result-badges mt-1">
+                                    ${tags.map(tag => `<span>${vaultEscape(tag)}</span>`).join('')}
+                                </div>
+                            ` : ''}
+                            <div class="vault-digestion-result-actions vault-digestion-contribution-review">
+                                ${reviewActions}
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="copy-result-text" data-vault-digestion-copy-text="${vaultEscape(copyTextValue)}">
+                                    <i class="bi bi-clipboard"></i> Copy
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                function renderDigestionContributionsBody(digestion) {
+                    const ledger = digestionLedgerContributions(digestion);
+                    if (ledger.length) {
+                        return `
+                            <div class="vault-digestion-contribution-list">
+                                ${ledger.map(item => renderDigestionContributionLedgerItem(item, digestion)).join('')}
+                            </div>
+                        `;
+                    }
+                    const fallback = digestionContributionSources(digestion);
+                    if (fallback.length) {
+                        return `
+                            <div class="vault-digestion-contribution-list">
+                                ${fallback.map(source => renderDigestionContributionItem(source, digestion)).join('')}
+                            </div>
+                        `;
+                    }
+                    return `
+                        <div class="vault-digestion-contribution-empty">
+                            Contributions appended by agents or managers will appear here after they add notes, files, references, or structured work product to this Digestion.
+                        </div>
+                    `;
+                }
+
                 function renderDigestionContributionsPanel(digestion) {
                     const id = vaultEscape(digestion && digestion.id || '');
-                    const contributions = digestionContributionSources(digestion);
-                    const title = contributions.length
-                        ? `${contributions.length} accumulated contribution${contributions.length === 1 ? '' : 's'}`
+                    const counts = digestionContributionCounts(digestion);
+                    const title = counts.total
+                        ? `${counts.total} ledger contribution${counts.total === 1 ? '' : 's'}`
                         : 'No contributions yet';
                     return `
                         <div class="vault-digestion-contributions" data-vault-digestion-contributions="${id}" hidden>
                             <div class="vault-digestion-contributions-head">
                                 <div>
                                     <strong><i class="bi bi-collection"></i>${vaultEscape(title)}</strong>
-                                    <span>Agent and manager additions normalized into the owner-bound Digestion corpus.</span>
+                                    <span>${counts.pending ? `${counts.pending} pending owner review. ` : ''}Agent and manager additions normalized into the owner-bound Digestion corpus.</span>
                                 </div>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="refresh-contributions" data-vault-digestion-id="${id}">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh ledger
+                                </button>
                             </div>
-                            ${contributions.length ? `
-                                <div class="vault-digestion-contribution-list">
-                                    ${contributions.map(source => renderDigestionContributionItem(source, digestion)).join('')}
-                                </div>
-                            ` : `
-                                <div class="vault-digestion-contribution-empty">
-                                    Contributions appended by agents or managers will appear here after they add notes, files, references, or structured work product to this Digestion.
-                                </div>
-                            `}
+                            <div data-vault-digestion-contributions-body="${id}">
+                                ${renderDigestionContributionsBody(digestion)}
+                            </div>
                         </div>
                     `;
                 }
@@ -3086,7 +3198,9 @@
                             const quantitativeCount = Number(stats.quantitative_result_count || 0);
                             const figureCount = Number(stats.figures || 0);
 		                    const sourceCount = digestionSourceCount(digestion, stats);
-                            const contributionCount = digestionContributionSources(digestion).length;
+                            const contributionCounts = digestionContributionCounts(digestion, stats);
+                            const contributionCount = contributionCounts.total;
+                            const pendingContributionCount = contributionCounts.pending;
 	                    const sourceIssues = digestionSourceIssues(digestion);
 	                    const sourceIssueTitle = sourceIssues.slice(0, 6).map(source => {
 	                        const name = String(source && (source.file_name || source.source_label || source.file_id) || 'Source');
@@ -3150,7 +3264,7 @@
                                     <i class="bi bi-journal-richtext"></i> Outputs
                                 </button>
                                 <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="contributions" data-vault-digestion-id="${id}" aria-label="View accumulated contributions for ${name}" aria-expanded="false" title="${canReadSources ? 'Review agent and manager-added materials that have accumulated in this Digestion.' : 'Contribution review requires source metadata access.'}" ${canReadSources ? '' : 'disabled'}>
-                                    <i class="bi bi-collection"></i> Contributions${contributionCount ? ` (${contributionCount})` : ''}
+                                    <i class="bi bi-collection"></i> Contributions${contributionCount ? ` (${contributionCount})` : ''}${pendingContributionCount ? ` · ${pendingContributionCount} pending` : ''}
                                 </button>
 	                                ${canManage ? `
 	                                <button class="btn btn-sm btn-outline-info vault-digestion-btn" type="button" data-vault-digestion-action="extract-datapoints" data-vault-digestion-id="${id}" aria-label="Extract structured datapoints for ${name}" title="${extractTitle}" ${extractDisabled ? 'disabled' : ''}>
@@ -3357,6 +3471,81 @@
                     });
                 }
 
+                function updateDigestionContributionsPanel(digestionId) {
+                    const digestion = findDigestion(digestionId);
+                    const body = document.querySelector(`[data-vault-digestion-contributions-body="${vaultCssEscape(digestionId)}"]`);
+                    if (body && digestion) {
+                        body.innerHTML = renderDigestionContributionsBody(digestion);
+                    }
+                    const counts = digestion ? digestionContributionCounts(digestion) : { total: 0, pending: 0 };
+                    const button = digestionList && digestionList.querySelector(`[data-vault-digestion-action="contributions"][data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
+                    if (button) {
+                        button.innerHTML = `<i class="bi bi-collection"></i> Contributions${counts.total ? ` (${counts.total})` : ''}${counts.pending ? ` · ${counts.pending} pending` : ''}`;
+                    }
+                }
+
+                async function loadDigestionContributions(digestionId, { force = false } = {}) {
+                    const id = String(digestionId || '');
+                    const panel = document.querySelector(`[data-vault-digestion-contributions="${vaultCssEscape(id)}"]`);
+                    const body = document.querySelector(`[data-vault-digestion-contributions-body="${vaultCssEscape(id)}"]`);
+                    if (!id || !panel || !body) return;
+                    if (!force && panel.dataset.loaded === 'true') return;
+                    body.innerHTML = `
+                        <div class="vault-digestion-contribution-empty">
+                            <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                            Loading contribution ledger...
+                        </div>
+                    `;
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(id)}/contributions?limit=150`);
+                        const digestion = findDigestion(id) || {};
+                        const nextStats = {
+                            ...(digestion.stats || {}),
+                            contribution_count: Number(data.count || 0),
+                            pending_contribution_count: Number(data.pending_count || 0),
+                        };
+                        updateDigestionInState(id, {
+                            contributions: Array.isArray(data.contributions) ? data.contributions : [],
+                            stats: nextStats,
+                        });
+                        panel.dataset.loaded = 'true';
+                        updateDigestionContributionsPanel(id);
+                    } catch (err) {
+                        const message = err && (err.error || err.message) ? (err.error || err.message) : 'Could not load contribution ledger.';
+                        body.innerHTML = `<div class="vault-digestion-contribution-empty text-warning">${vaultEscape(message)}</div>`;
+                    }
+                }
+
+                async function reviewDigestionContribution(button) {
+                    const digestionId = button && button.getAttribute('data-vault-digestion-id') || '';
+                    const contributionId = button && button.getAttribute('data-vault-contribution-id') || '';
+                    const reviewAction = button && button.getAttribute('data-vault-review-action') || '';
+                    if (!digestionId || !contributionId || !reviewAction) return;
+                    button.disabled = true;
+                    const original = button.innerHTML;
+                    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Working';
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/contributions/${encodeURIComponent(contributionId)}`, {
+                            method: 'POST',
+                            body: JSON.stringify({ action: reviewAction }),
+                        });
+                        const digestion = findDigestion(digestionId) || {};
+                        updateDigestionInState(digestionId, {
+                            stats: data.stats || digestion.stats || {},
+                        });
+                        await loadDigestionContributions(digestionId, { force: true });
+                    } catch (err) {
+                        const panelBody = document.querySelector(`[data-vault-digestion-contributions-body="${vaultCssEscape(digestionId)}"]`);
+                        const message = err && (err.error || err.message) ? (err.error || err.message) : 'Could not update contribution.';
+                        if (panelBody) {
+                            panelBody.insertAdjacentHTML('afterbegin', `<div class="vault-digestion-contribution-empty text-warning">${vaultEscape(message)}</div>`);
+                        }
+                    } finally {
+                        button.disabled = false;
+                        button.innerHTML = original;
+                    }
+                }
+
                 function toggleDigestionContributions(digestionId) {
                     const panel = document.querySelector(`[data-vault-digestion-contributions="${vaultCssEscape(digestionId)}"]`);
                     if (!panel) return;
@@ -3366,6 +3555,7 @@
                     const button = digestionList && digestionList.querySelector(`[data-vault-digestion-action="contributions"][data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
                     if (button) button.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
                     if (willOpen) {
+                        loadDigestionContributions(digestionId);
                         panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     }
                 }
@@ -6337,6 +6527,10 @@
                             loadDigestionOutputs(digestionId, actionBtn);
                         } else if (action === 'contributions') {
                             toggleDigestionContributions(digestionId);
+                        } else if (action === 'refresh-contributions') {
+                            loadDigestionContributions(digestionId, { force: true });
+                        } else if (action === 'review-contribution') {
+                            reviewDigestionContribution(actionBtn);
                         } else if (action === 'extract-datapoints') {
                             extractDigestionDatapoints(digestionId, actionBtn);
                         } else if (action === 'extract-options') {
