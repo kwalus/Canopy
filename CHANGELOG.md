@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.194] - 2026-05-22
+
+### Fixed
+- **Recent DMs rail preserves visible names in narrow sidebars** - timestamps now render as compact labels inside the name row instead of occupying a separate grid column that squeezed usernames and previews.
+
 ## [0.6.193] - 2026-05-22
 
 ### Changed
