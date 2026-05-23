@@ -77,10 +77,19 @@ MAX_STRUCTURED_DATAPOINT_LLM_OUTPUT_TOKENS = int(os.getenv("CANOPY_DIGESTION_DAT
 DATAPOINT_MIN_TERM_OVERLAP = float(os.getenv("CANOPY_DIGESTION_DATAPOINT_MIN_TERM_OVERLAP", "0.75"))
 PDF_FIGURE_OUTPUT_KIND = "pdf_figures"
 PDF_FIGURE_SCHEMA_VERSION = "canopy_pdf_figures_v1"
+VISUAL_EVIDENCE_OUTPUT_KIND = "visual_evidence"
+VISUAL_EVIDENCE_SCHEMA_VERSION = "canopy_visual_evidence_v1"
 MAX_PDF_FIGURES_PER_SOURCE = int(os.getenv("CANOPY_DIGESTION_MAX_PDF_FIGURES_PER_SOURCE", "80"))
+MAX_PDF_VISUAL_EVIDENCE_PER_SOURCE = int(os.getenv("CANOPY_DIGESTION_MAX_PDF_VISUAL_EVIDENCE_PER_SOURCE", "120"))
 MAX_PDF_FIGURE_BYTES = int(os.getenv("CANOPY_DIGESTION_MAX_PDF_FIGURE_BYTES", str(8 * 1024 * 1024)))
 MIN_PDF_FIGURE_DIMENSION = int(os.getenv("CANOPY_DIGESTION_MIN_PDF_FIGURE_DIMENSION", "64"))
-_SOURCE_REVEALING_OUTPUT_KINDS = {"manifest", "human_brief", STRUCTURED_DATAPOINT_OUTPUT_KIND, PDF_FIGURE_OUTPUT_KIND}
+_SOURCE_REVEALING_OUTPUT_KINDS = {
+    "manifest",
+    "human_brief",
+    STRUCTURED_DATAPOINT_OUTPUT_KIND,
+    PDF_FIGURE_OUTPUT_KIND,
+    VISUAL_EVIDENCE_OUTPUT_KIND,
+}
 _OPENAI_EMBEDDINGS_URL = os.getenv(
     "CANOPY_DIGESTION_OPENAI_EMBEDDINGS_URL",
     "https://api.openai.com/v1/embeddings",
@@ -282,6 +291,30 @@ class DigestionManager:
                     FOREIGN KEY (image_file_id) REFERENCES files(id) ON DELETE SET NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS digestion_visual_evidence (
+                    id TEXT PRIMARY KEY,
+                    digestion_id TEXT NOT NULL,
+                    source_file_id TEXT NOT NULL,
+                    source_checksum TEXT,
+                    evidence_kind TEXT NOT NULL DEFAULT 'visual',
+                    evidence_index INTEGER NOT NULL,
+                    page_number INTEGER NOT NULL DEFAULT 0,
+                    page_label TEXT,
+                    title TEXT,
+                    caption TEXT,
+                    context_text TEXT,
+                    image_file_id TEXT,
+                    table_text TEXT,
+                    confidence REAL,
+                    extraction_method TEXT,
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(digestion_id, source_file_id, evidence_kind, evidence_index),
+                    FOREIGN KEY (digestion_id) REFERENCES digestions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (source_file_id) REFERENCES files(id) ON DELETE CASCADE,
+                    FOREIGN KEY (image_file_id) REFERENCES files(id) ON DELETE SET NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS digestion_contributions (
                     id TEXT PRIMARY KEY,
                     digestion_id TEXT NOT NULL,
@@ -317,6 +350,7 @@ class DigestionManager:
                 CREATE INDEX IF NOT EXISTS idx_digestion_sources_status ON digestion_sources(digestion_id, status);
                 CREATE INDEX IF NOT EXISTS idx_digestion_outputs ON digestion_outputs(digestion_id, output_kind);
                 CREATE INDEX IF NOT EXISTS idx_digestion_pdf_figures ON digestion_pdf_figures(digestion_id, source_file_id, page_number);
+                CREATE INDEX IF NOT EXISTS idx_digestion_visual_evidence ON digestion_visual_evidence(digestion_id, source_file_id, page_number, evidence_kind);
                 CREATE INDEX IF NOT EXISTS idx_digestion_contributions_digestion ON digestion_contributions(digestion_id, status, created_at);
                 CREATE INDEX IF NOT EXISTS idx_digestion_contributions_contributor ON digestion_contributions(contributor_user_id, created_at);
                 """
@@ -1023,6 +1057,8 @@ class DigestionManager:
             self._contribution_row_to_dict(row, include_payload=include_sensitive)
             for row in rows
         ]
+        if access.get("can_read_sources"):
+            self._attach_contribution_preview_sources(digestion.id, contributions)
         pending_count = sum(1 for item in contributions if item.get("status") == CONTRIBUTION_STATUS_PENDING)
         return {
             "success": True,
@@ -1313,6 +1349,63 @@ class DigestionManager:
             "stats": self.stats(digestion.id),
         }
 
+    def list_visual_evidence(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        limit: int = 160,
+        evidence_kind: str = "",
+    ) -> dict[str, Any]:
+        """List caption/table/chart/diagram evidence captured from source-readable PDFs."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
+        access = self._access_for(digestion, actor_user_id)
+        if not access.get("can_read_sources"):
+            raise DigestionError(
+                "Visual evidence includes source-derived captions, page labels, and optional figure images. Source metadata access is required.",
+                status_code=403,
+                reason="source_metadata_denied",
+            )
+        evidence_limit = max(1, min(int(limit or 160), 320))
+        kind = str(evidence_kind or "").strip().lower()
+        params: list[Any] = [digestion.id]
+        kind_clause = ""
+        if kind:
+            kind_clause = "AND v.evidence_kind = ?"
+            params.append(kind)
+        params.append(evidence_limit)
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    v.*,
+                    s.file_name AS source_file_name,
+                    s.content_type AS source_content_type,
+                    img.original_name AS vault_image_name,
+                    img.size AS vault_image_size
+                FROM digestion_visual_evidence v
+                LEFT JOIN digestion_sources s
+                  ON s.digestion_id = v.digestion_id
+                 AND s.file_id = v.source_file_id
+                LEFT JOIN files img ON img.id = v.image_file_id
+                WHERE v.digestion_id = ?
+                {kind_clause}
+                ORDER BY COALESCE(s.file_name, v.source_file_id) COLLATE NOCASE,
+                         v.source_file_id, v.page_number, v.evidence_index
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        evidence = [self._visual_evidence_row_to_dict(row) for row in rows]
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "schema_version": VISUAL_EVIDENCE_SCHEMA_VERSION,
+            "count": len(evidence),
+            "visual_evidence": evidence,
+            "stats": self.stats(digestion.id),
+        }
+
     def grant_access(
         self,
         digestion_id: str,
@@ -1507,6 +1600,7 @@ class DigestionManager:
         total_chunks = 0
         embedded_count = 0
         total_figures = 0
+        total_visual_evidence = 0
         errors: list[dict[str, str]] = []
         try:
             if rebuild:
@@ -1582,6 +1676,7 @@ class DigestionManager:
                     total_chunks += file_chunks["chunk_count"]
                     embedded_count += file_chunks["embedded_count"]
                     total_figures += int(file_chunks.get("figure_count") or 0)
+                    total_visual_evidence += int(file_chunks.get("visual_evidence_count") or 0)
                     self._set_operation_progress(
                         digestion.id,
                         "build",
@@ -1596,6 +1691,7 @@ class DigestionManager:
                             "chunk_count": total_chunks,
                             "embedded_count": embedded_count,
                             "figure_count": total_figures,
+                            "visual_evidence_count": total_visual_evidence,
                             "source_index": source_index,
                             "source_total": source_total,
                         },
@@ -1618,6 +1714,7 @@ class DigestionManager:
                             "chunk_count": total_chunks,
                             "embedded_count": embedded_count,
                             "figure_count": total_figures,
+                            "visual_evidence_count": total_visual_evidence,
                             "errors": errors[:8],
                         },
                     )
@@ -1644,6 +1741,7 @@ class DigestionManager:
                             "chunk_count": total_chunks,
                             "embedded_count": embedded_count,
                             "figure_count": total_figures,
+                            "visual_evidence_count": total_visual_evidence,
                             "errors": errors[:8],
                         },
                     )
@@ -1668,6 +1766,7 @@ class DigestionManager:
                     "chunk_count": total_chunks,
                     "embedded_count": embedded_count,
                     "figure_count": total_figures,
+                    "visual_evidence_count": total_visual_evidence,
                     "errors": errors[:8],
                     "final_status": status,
                 },
@@ -1681,6 +1780,7 @@ class DigestionManager:
                 "chunk_count": total_chunks,
                 "embedded_count": embedded_count,
                 "figure_count": total_figures,
+                "visual_evidence_count": total_visual_evidence,
                 "errors": errors,
                 "outputs": outputs.get("outputs") or [],
                 "stats": self.stats(digestion.id),
@@ -1941,6 +2041,7 @@ class DigestionManager:
             "chunks": 0,
             "token_estimate": 0,
             "figures": 0,
+            "visual_evidence": 0,
             "outputs": 0,
             "source_count": 0,
             "datapoint_count": 0,
@@ -1991,6 +2092,15 @@ class DigestionManager:
                 """,
                 ids,
             ).fetchall()
+            visual_evidence_rows = conn.execute(
+                f"""
+                SELECT digestion_id, COUNT(*) AS count
+                FROM digestion_visual_evidence
+                WHERE digestion_id IN ({placeholders})
+                GROUP BY digestion_id
+                """,
+                ids,
+            ).fetchall()
             output_rows = conn.execute(
                 f"""
                 SELECT digestion_id, output_kind, metadata_json
@@ -2026,6 +2136,11 @@ class DigestionManager:
             if digestion_id not in stats_by_id:
                 continue
             stats_by_id[digestion_id]["figures"] = int(row["count"] or 0)
+        for row in visual_evidence_rows:
+            digestion_id = str(row["digestion_id"] or "")
+            if digestion_id not in stats_by_id:
+                continue
+            stats_by_id[digestion_id]["visual_evidence"] = int(row["count"] or 0)
         for row in output_rows:
             digestion_id = str(row["digestion_id"] or "")
             if digestion_id not in stats_by_id:
@@ -2076,9 +2191,19 @@ class DigestionManager:
         requested = {str(kind or "").strip().lower() for kind in (kinds or []) if str(kind or "").strip()}
         if not requested:
             requested = {"manifest", "human_brief", "agent_context"}
-            if int(self.stats(digestion.id).get("figures") or 0) > 0:
+            stats = self.stats(digestion.id)
+            if int(stats.get("figures") or 0) > 0:
                 requested.add(PDF_FIGURE_OUTPUT_KIND)
-        allowed = {"manifest", "human_brief", "agent_context", STRUCTURED_DATAPOINT_OUTPUT_KIND, PDF_FIGURE_OUTPUT_KIND}
+            if int(stats.get("visual_evidence") or 0) > 0:
+                requested.add(VISUAL_EVIDENCE_OUTPUT_KIND)
+        allowed = {
+            "manifest",
+            "human_brief",
+            "agent_context",
+            STRUCTURED_DATAPOINT_OUTPUT_KIND,
+            PDF_FIGURE_OUTPUT_KIND,
+            VISUAL_EVIDENCE_OUTPUT_KIND,
+        }
         requested = requested & allowed
         if not requested:
             raise DigestionError("No supported output kinds requested.", status_code=400, reason="unsupported_output_kind")
@@ -2095,6 +2220,8 @@ class DigestionManager:
                 outputs.append(self._upsert_output(digestion, actor_user_id, *self._build_agent_context_output(digestion)))
             elif kind == PDF_FIGURE_OUTPUT_KIND:
                 outputs.append(self._upsert_output(digestion, actor_user_id, *self._build_pdf_figures_output(digestion)))
+            elif kind == VISUAL_EVIDENCE_OUTPUT_KIND:
+                outputs.append(self._upsert_output(digestion, actor_user_id, *self._build_visual_evidence_output(digestion)))
             elif kind == STRUCTURED_DATAPOINT_OUTPUT_KIND:
                 outputs.append(self.generate_structured_datapoints(digestion.id, actor_user_id)["output"])
         return {"success": True, "digestion_id": digestion.id, "outputs": outputs, "count": len(outputs)}
@@ -2459,8 +2586,9 @@ class DigestionManager:
                         WHEN 'human_brief' THEN 1
                         WHEN 'agent_context' THEN 2
                         WHEN 'pdf_figures' THEN 3
-                        WHEN 'structured_datapoints' THEN 4
-                        WHEN 'manifest' THEN 5
+                        WHEN 'visual_evidence' THEN 4
+                        WHEN 'structured_datapoints' THEN 5
+                        WHEN 'manifest' THEN 6
                         ELSE 9
                     END,
                     updated_at DESC
@@ -2541,6 +2669,7 @@ class DigestionManager:
             "datapoints_extract": f"POST {api_base}/datapoints/extract",
             "datapoints_search": f"POST {api_base}/datapoints/search",
             "figures": f"GET {api_base}/figures",
+            "visual_evidence": f"GET {api_base}/visual-evidence",
             "outputs": f"GET|POST {api_base}/outputs",
             "get_output": f"GET {api_base}/outputs/<output_ref>",
             "export_output": f"POST {api_base}/outputs/<output_ref>/export",
@@ -2565,6 +2694,7 @@ class DigestionManager:
             "datapoints_extract": "canopy_digest_datapoints_extract",
             "datapoints_search": "canopy_digest_datapoints_search",
             "figures": "canopy_digest_figures",
+            "visual_evidence": "canopy_digest_visual_evidence",
             "outputs": "canopy_digest_outputs",
             "request_access": "canopy_digest_request_access",
         }
@@ -2681,9 +2811,11 @@ class DigestionManager:
                 outputs = []
         sources: list[dict[str, Any]] = []
         figures: list[dict[str, Any]] = []
+        visual_evidence: list[dict[str, Any]] = []
         if access.get("can_read_sources"):
             sources = self.list_sources(digestion.id, user_id=actor_user_id)
             figures = self.list_figures(digestion.id, actor_user_id, limit=80).get("figures") or []
+            visual_evidence = self.list_visual_evidence(digestion.id, actor_user_id, limit=120).get("visual_evidence") or []
         digestion_payload = digestion.to_dict(access=access)
         digestion_payload["access_subject_user_id"] = actor_user_id
         digestion_payload["access_scope"] = "exporting_user"
@@ -2728,6 +2860,8 @@ class DigestionManager:
             "sources": sources,
             "figures_included": bool(figures),
             "figures": figures,
+            "visual_evidence_included": bool(visual_evidence),
+            "visual_evidence": visual_evidence,
             "outputs": outputs,
             "reuse_guidance": [
                 "Attach this package to a post, DM, task, or agent request when you want another consumer to understand what the Digestion is.",
@@ -2871,6 +3005,8 @@ class DigestionManager:
         segments = self.extract_text_segments(file_data, info)
         figure_segments: list[ExtractedSegment] = []
         figure_count = 0
+        visual_evidence_segments: list[ExtractedSegment] = []
+        visual_evidence_count = 0
         if self._is_pdf_file(info):
             if callable(progress_callback):
                 progress_callback(
@@ -2888,23 +3024,32 @@ class DigestionManager:
                 )
                 figure_count = int(figure_result.get("figure_count") or 0)
                 figure_segments = figure_result.get("segments") if isinstance(figure_result.get("segments"), list) else []
+                visual_result = self._extract_pdf_visual_evidence_for_source(
+                    digestion,
+                    info,
+                    text_segments=segments,
+                    figures=figure_result.get("figures") if isinstance(figure_result.get("figures"), list) else [],
+                )
+                visual_evidence_count = int(visual_result.get("visual_evidence_count") or 0)
+                visual_evidence_segments = visual_result.get("segments") if isinstance(visual_result.get("segments"), list) else []
                 if callable(progress_callback):
                     progress_callback(
                         "figures_extracted",
                         (
-                            f"Captured {figure_count} PDF figure preview{'' if figure_count == 1 else 's'} from {info.original_name}."
-                            if figure_count
-                            else f"No reusable embedded figures were detected in {info.original_name}."
+                            f"Captured {figure_count} PDF figure preview{'' if figure_count == 1 else 's'} and "
+                            f"{visual_evidence_count} visual evidence record{'' if visual_evidence_count == 1 else 's'} from {info.original_name}."
+                            if (figure_count or visual_evidence_count)
+                            else f"No reusable embedded figures or visual evidence records were detected in {info.original_name}."
                         ),
                         0.32,
-                        {"figure_count": figure_count},
+                        {"figure_count": figure_count, "visual_evidence_count": visual_evidence_count},
                     )
             except Exception as exc:
-                logger.warning("PDF figure extraction failed for %s in %s: %s", info.id, digestion.id, exc, exc_info=True)
+                logger.warning("PDF visual extraction failed for %s in %s: %s", info.id, digestion.id, exc, exc_info=True)
                 if callable(progress_callback):
                     progress_callback(
                         "figures_unavailable",
-                        "PDF text indexing will continue; figure extraction was unavailable for this source.",
+                        "PDF text indexing will continue; figure/visual evidence extraction was unavailable for this source.",
                         0.32,
                         {"figure_error": str(exc)[:500]},
                     )
@@ -2914,7 +3059,13 @@ class DigestionManager:
                     "DELETE FROM digestion_pdf_figures WHERE digestion_id = ? AND source_file_id = ?",
                     (digestion.id, info.id),
                 )
+                conn.execute(
+                    "DELETE FROM digestion_visual_evidence WHERE digestion_id = ? AND source_file_id = ?",
+                    (digestion.id, info.id),
+                )
                 conn.commit()
+        if visual_evidence_segments:
+            segments = [*segments, *visual_evidence_segments]
         if figure_segments:
             segments = [*segments, *figure_segments]
         if not segments:
@@ -2925,7 +3076,12 @@ class DigestionManager:
                 "text_extracted",
                 f"Extracted {extracted_chars:,} characters from {info.original_name}.",
                 0.34,
-                {"extracted_chars": extracted_chars, "file_size": len(file_data), "figure_count": figure_count},
+                {
+                    "extracted_chars": extracted_chars,
+                    "file_size": len(file_data),
+                    "figure_count": figure_count,
+                    "visual_evidence_count": visual_evidence_count,
+                },
             )
         chunks = self._chunk_segments(segments, digestion.chunk_size, digestion.chunk_overlap, remaining_chunks=remaining_chunks)
         if not chunks:
@@ -2935,7 +3091,12 @@ class DigestionManager:
                 "chunking",
                 f"Prepared {len(chunks)} semantic chunk{'' if len(chunks) == 1 else 's'} from {info.original_name}.",
                 0.58,
-                {"source_chunk_count": len(chunks), "extracted_chars": extracted_chars, "figure_count": figure_count},
+                {
+                    "source_chunk_count": len(chunks),
+                    "extracted_chars": extracted_chars,
+                    "figure_count": figure_count,
+                    "visual_evidence_count": visual_evidence_count,
+                },
             )
             progress_callback(
                 "embedding",
@@ -2995,7 +3156,12 @@ class DigestionManager:
                 ),
             )
             conn.commit()
-        return {"chunk_count": len(chunks), "embedded_count": len(vectors), "figure_count": figure_count}
+        return {
+            "chunk_count": len(chunks),
+            "embedded_count": len(vectors),
+            "figure_count": figure_count,
+            "visual_evidence_count": visual_evidence_count,
+        }
 
     def extract_text_segments(self, file_data: bytes, info: FileInfo) -> list[ExtractedSegment]:
         filename = str(info.original_name or "")
@@ -3413,6 +3579,202 @@ class DigestionManager:
                 segments.append(ExtractedSegment(text=text, page_label=str(data.get("page_label") or "")))
         return segments
 
+    def _extract_pdf_visual_evidence_for_source(
+        self,
+        digestion: Digestion,
+        info: FileInfo,
+        *,
+        text_segments: list[ExtractedSegment],
+        figures: Optional[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
+        cached = self._cached_visual_evidence_rows(digestion.id, info.id, info.checksum)
+        if cached:
+            return {
+                "visual_evidence_count": len(cached),
+                "visual_evidence": [self._visual_evidence_row_to_dict(row) for row in cached],
+                "segments": self._visual_evidence_rows_to_segments(cached, source_name=info.original_name),
+                "cached": True,
+            }
+
+        captions_by_page = self._pdf_caption_candidates_by_page(text_segments)
+        with self.db.get_connection() as conn:
+            conn.execute(
+                "DELETE FROM digestion_visual_evidence WHERE digestion_id = ? AND source_file_id = ?",
+                (digestion.id, info.id),
+            )
+            conn.commit()
+
+        rows: list[dict[str, Any]] = []
+        kind_counts: dict[str, int] = {}
+        for page_label, candidates in captions_by_page.items():
+            page_number = self._page_number_from_label(page_label)
+            for page_order, caption in enumerate(candidates or [], start=1):
+                if len(rows) >= MAX_PDF_VISUAL_EVIDENCE_PER_SOURCE:
+                    break
+                evidence_kind = self._classify_visual_evidence_kind(caption)
+                kind_counts[evidence_kind] = kind_counts.get(evidence_kind, 0) + 1
+                image = self._matching_visual_evidence_image(figures or [], page_label=page_label, order=page_order)
+                image_file_id = str(image.get("image_file_id") or "") if image else ""
+                title = self._visual_evidence_title(caption, evidence_kind=evidence_kind, page_label=page_label)
+                context_text = self._visual_evidence_context_text(
+                    caption,
+                    evidence_kind=evidence_kind,
+                    title=title,
+                    page_label=page_label,
+                    source_name=info.original_name,
+                    image_file_id=image_file_id,
+                )
+                payload = {
+                    "id": f"Dve{secrets.token_hex(12)}",
+                    "digestion_id": digestion.id,
+                    "source_file_id": info.id,
+                    "source_checksum": info.checksum,
+                    "evidence_kind": evidence_kind,
+                    "evidence_index": kind_counts[evidence_kind],
+                    "page_number": page_number,
+                    "page_label": page_label,
+                    "title": title,
+                    "caption": caption[:1200],
+                    "context_text": context_text,
+                    "image_file_id": image_file_id,
+                    "table_text": caption[:2000] if evidence_kind == "table" else "",
+                    "confidence": 0.72 if evidence_kind in {"table", "chart", "diagram"} else 0.64,
+                    "extraction_method": "pdf.caption_candidate",
+                    "metadata": {
+                        "source_file_name": info.original_name,
+                        "source_content_type": info.content_type,
+                        "caption_order_on_page": page_order,
+                        "image_status": "linked_extracted_image" if image_file_id else "caption_only",
+                        "image_name": str(image.get("image_name") or "") if image else "",
+                    },
+                }
+                self._insert_visual_evidence(payload)
+                rows.append(payload)
+            if len(rows) >= MAX_PDF_VISUAL_EVIDENCE_PER_SOURCE:
+                break
+        return {
+            "visual_evidence_count": len(rows),
+            "visual_evidence": rows,
+            "segments": self._visual_evidence_rows_to_segments(rows, source_name=info.original_name),
+            "cached": False,
+        }
+
+    def _cached_visual_evidence_rows(self, digestion_id: str, source_file_id: str, source_checksum: str) -> list[Any]:
+        with self.db.get_connection() as conn:
+            return conn.execute(
+                """
+                SELECT
+                    v.*,
+                    s.file_name AS source_file_name,
+                    s.content_type AS source_content_type,
+                    img.original_name AS vault_image_name,
+                    img.size AS vault_image_size
+                FROM digestion_visual_evidence v
+                LEFT JOIN digestion_sources s
+                  ON s.digestion_id = v.digestion_id
+                 AND s.file_id = v.source_file_id
+                LEFT JOIN files img ON img.id = v.image_file_id
+                WHERE v.digestion_id = ?
+                  AND v.source_file_id = ?
+                  AND COALESCE(v.source_checksum, '') = COALESCE(?, '')
+                ORDER BY v.page_number, v.evidence_kind, v.evidence_index
+                """,
+                (digestion_id, source_file_id, source_checksum or ""),
+            ).fetchall()
+
+    def _insert_visual_evidence(self, payload: dict[str, Any]) -> None:
+        with self.db.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO digestion_visual_evidence (
+                    id, digestion_id, source_file_id, source_checksum, evidence_kind,
+                    evidence_index, page_number, page_label, title, caption,
+                    context_text, image_file_id, table_text, confidence,
+                    extraction_method, metadata_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(digestion_id, source_file_id, evidence_kind, evidence_index) DO UPDATE SET
+                    source_checksum = excluded.source_checksum,
+                    page_number = excluded.page_number,
+                    page_label = excluded.page_label,
+                    title = excluded.title,
+                    caption = excluded.caption,
+                    context_text = excluded.context_text,
+                    image_file_id = excluded.image_file_id,
+                    table_text = excluded.table_text,
+                    confidence = excluded.confidence,
+                    extraction_method = excluded.extraction_method,
+                    metadata_json = excluded.metadata_json
+                """,
+                (
+                    payload.get("id") or f"Dve{secrets.token_hex(12)}",
+                    payload.get("digestion_id") or "",
+                    payload.get("source_file_id") or "",
+                    payload.get("source_checksum") or "",
+                    payload.get("evidence_kind") or "visual",
+                    int(payload.get("evidence_index") or 0),
+                    int(payload.get("page_number") or 0),
+                    payload.get("page_label") or "",
+                    payload.get("title") or "",
+                    payload.get("caption") or "",
+                    payload.get("context_text") or "",
+                    payload.get("image_file_id") or "",
+                    payload.get("table_text") or "",
+                    payload.get("confidence"),
+                    payload.get("extraction_method") or "",
+                    json.dumps(payload.get("metadata") or {}, sort_keys=True),
+                    self._now(),
+                ),
+            )
+            conn.commit()
+
+    def _visual_evidence_rows_to_segments(self, rows: list[Any], *, source_name: str) -> list[ExtractedSegment]:
+        segments: list[ExtractedSegment] = []
+        for row in rows:
+            data = self._visual_evidence_row_to_dict(row)
+            text = self._visual_evidence_context_text(
+                str(data.get("caption") or data.get("context_text") or ""),
+                evidence_kind=str(data.get("evidence_kind") or "visual"),
+                title=str(data.get("title") or ""),
+                page_label=str(data.get("page_label") or ""),
+                source_name=source_name or str(data.get("source_file_name") or ""),
+                image_file_id=str(data.get("image_file_id") or ""),
+            )
+            if text:
+                segments.append(ExtractedSegment(text=text, page_label=str(data.get("page_label") or "")))
+        return segments
+
+    def _visual_evidence_row_to_dict(self, row: Any) -> dict[str, Any]:
+        try:
+            metadata = json.loads(self._row_get(row, "metadata_json", "{}") or "{}")
+        except Exception:
+            metadata = self._row_get(row, "metadata", {}) if isinstance(self._row_get(row, "metadata", {}), dict) else {}
+        image_file_id = str(self._row_get(row, "image_file_id", "") or "")
+        source_file_id = str(self._row_get(row, "source_file_id", "") or "")
+        return {
+            "id": str(self._row_get(row, "id", "") or ""),
+            "digestion_id": str(self._row_get(row, "digestion_id", "") or ""),
+            "schema_version": VISUAL_EVIDENCE_SCHEMA_VERSION,
+            "source_file_id": source_file_id,
+            "source_file_name": str(self._row_get(row, "source_file_name", "") or source_file_id),
+            "source_content_type": str(self._row_get(row, "source_content_type", "") or ""),
+            "evidence_kind": str(self._row_get(row, "evidence_kind", "visual") or "visual"),
+            "evidence_index": int(self._row_get(row, "evidence_index", 0) or 0),
+            "page_number": int(self._row_get(row, "page_number", 0) or 0),
+            "page_label": str(self._row_get(row, "page_label", "") or ""),
+            "title": str(self._row_get(row, "title", "") or ""),
+            "caption": str(self._row_get(row, "caption", "") or ""),
+            "context_text": str(self._row_get(row, "context_text", "") or ""),
+            "image_file_id": image_file_id,
+            "image_name": str(self._row_get(row, "vault_image_name", "") or image_file_id),
+            "image_url": f"/files/{image_file_id}" if image_file_id else "",
+            "thumb_url": f"/files/{image_file_id}/thumb" if image_file_id else "",
+            "table_text": str(self._row_get(row, "table_text", "") or ""),
+            "confidence": self._row_get(row, "confidence", None),
+            "extraction_method": str(self._row_get(row, "extraction_method", "") or ""),
+            "metadata": metadata if isinstance(metadata, dict) else {},
+            "created_at": str(self._row_get(row, "created_at", "") or ""),
+        }
+
     def _figure_row_to_dict(self, row: Any) -> dict[str, Any]:
         try:
             metadata = json.loads(self._row_get(row, "metadata_json", "{}") or "{}")
@@ -3549,6 +3911,80 @@ class DigestionManager:
             f"Caption/context: {caption}." if caption else "Caption/context: no nearby figure caption was detected.",
             f"Image file id: {image_file_id}." if image_file_id else "",
             f"Vision description: {vision_description}." if vision_description else "Vision description: not yet generated by an image-capable model.",
+        ]
+        return DigestionManager._normalize_text(" ".join(part for part in parts if part))
+
+    @staticmethod
+    def _page_number_from_label(page_label: Any) -> int:
+        match = re.search(r"(\d+)", str(page_label or ""))
+        if not match:
+            return 0
+        try:
+            return max(0, int(match.group(1)))
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _classify_visual_evidence_kind(text: Any) -> str:
+        clean = str(text or "").lower()
+        if re.search(r"\btable\b", clean):
+            return "table"
+        if re.search(r"\b(chart|graph|plot|histogram|bar chart|scatter)\b", clean):
+            return "chart"
+        if re.search(r"\b(diagram|schematic|flowchart|architecture|pipeline|layout)\b", clean):
+            return "diagram"
+        if re.search(r"\b(fig(?:ure)?\.?)\b", clean):
+            return "figure"
+        return "visual"
+
+    @staticmethod
+    def _visual_evidence_title(caption: Any, *, evidence_kind: str, page_label: str) -> str:
+        text = DigestionManager._normalize_text(str(caption or ""))
+        first_sentence = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0] if text else ""
+        if first_sentence:
+            return first_sentence[:180].rstrip()
+        prefix = str(evidence_kind or "visual").replace("_", " ").title()
+        return f"{prefix} evidence{f' on {page_label}' if page_label else ''}"
+
+    @staticmethod
+    def _matching_visual_evidence_image(
+        figures: list[dict[str, Any]],
+        *,
+        page_label: str,
+        order: int,
+    ) -> dict[str, Any]:
+        if not figures:
+            return {}
+        same_page = [
+            item for item in figures
+            if isinstance(item, dict)
+            and str(item.get("page_label") or "") == str(page_label or "")
+            and str(item.get("image_file_id") or "").strip()
+        ]
+        if not same_page:
+            return {}
+        index = max(0, min(len(same_page) - 1, int(order or 1) - 1))
+        return same_page[index] if isinstance(same_page[index], dict) else {}
+
+    @staticmethod
+    def _visual_evidence_context_text(
+        caption: str,
+        *,
+        evidence_kind: str,
+        title: str,
+        page_label: str,
+        source_name: str,
+        image_file_id: str = "",
+    ) -> str:
+        kind = str(evidence_kind or "visual").replace("_", " ")
+        parts = [
+            "PDF visual evidence extracted for Canopy Digestion.",
+            f"Evidence kind: {kind}.",
+            f"Title: {title}." if title else "",
+            f"Source: {source_name}." if source_name else "",
+            f"Page: {page_label}." if page_label else "",
+            f"Caption/context: {caption}." if caption else "Caption/context: no nearby caption text was detected.",
+            f"Image file id: {image_file_id}." if image_file_id else "Image file id: none; this record is caption/table/text-derived evidence.",
         ]
         return DigestionManager._normalize_text(" ".join(part for part in parts if part))
 
@@ -4782,6 +5218,7 @@ Required JSON shape:
                     "type_detection",
                     "text_extraction",
                     "pdf_figure_extraction",
+                    "pdf_visual_evidence_caption_table_extraction",
                     "caption_context_binding",
                     "normalization",
                     "semantic_chunking",
@@ -4908,6 +5345,41 @@ Use this as a permissioned retrieval capability, not as raw file access.
             {
                 "schema_version": PDF_FIGURE_SCHEMA_VERSION,
                 "figure_count": len(figures),
+                "source_revealing": True,
+            },
+        )
+
+    def _build_visual_evidence_output(self, digestion: Digestion) -> tuple[str, str, str, str, dict[str, Any]]:
+        evidence = self.list_visual_evidence(digestion.id, digestion.owner_user_id, limit=320).get("visual_evidence") or []
+        payload = {
+            "kind": VISUAL_EVIDENCE_SCHEMA_VERSION,
+            "schema_version": VISUAL_EVIDENCE_SCHEMA_VERSION,
+            "digestion": {
+                "id": digestion.id,
+                "name": digestion.name,
+                "status": digestion.status,
+                "built_at": digestion.built_at,
+            },
+            "stats": self.stats(digestion.id),
+            "visual_evidence": evidence,
+            "evidence_kinds": self._count_by_key(evidence, "evidence_kind"),
+            "reuse_guidance": [
+                "Use source_file_name, page_label, evidence_kind, caption, context_text, and optional image_file_id together.",
+                "Table/chart/diagram records may be caption-derived even when no embedded image file was recoverable.",
+                "Treat visual_evidence as source metadata; cite source and page before using it as evidence.",
+                "Image-capable model interpretation can be layered later using image_file_id values where present.",
+            ],
+            "generated_at": self._now(),
+        }
+        return (
+            VISUAL_EVIDENCE_OUTPUT_KIND,
+            f"{digestion.name or 'Digestion'} Visual Evidence",
+            "application/json",
+            json.dumps(payload, indent=2, sort_keys=True),
+            {
+                "schema_version": VISUAL_EVIDENCE_SCHEMA_VERSION,
+                "visual_evidence_count": len(evidence),
+                "evidence_kinds": payload["evidence_kinds"],
                 "source_revealing": True,
             },
         )
@@ -5387,6 +5859,93 @@ Use this as a permissioned retrieval capability, not as raw file access.
             item["result"] = result if isinstance(result, dict) else {}
             item["metadata"] = self._json_loads(row["metadata_json"], {})
         return item
+
+    def _attach_contribution_preview_sources(self, digestion_id: str, contributions: list[dict[str, Any]]) -> None:
+        """Attach source-readable preview targets for contribution ledger rows.
+
+        Contribution rows may retain the contributor's original file ids as well as
+        owner-side material/source copies. The UI should preview the owner-bound
+        corpus copy when it exists, because that is the file actually present in
+        the Digestion intake folder and covered by Digestion source permissions.
+        """
+        candidate_order: dict[str, list[tuple[str, str]]] = {}
+        file_ids: list[str] = []
+        seen: set[str] = set()
+        for item in contributions or []:
+            row_id = str(item.get("id") or "")
+            candidates: list[tuple[str, str]] = []
+            for relationship, key in (
+                ("added_source", "added_source_file_ids"),
+                ("material", "material_file_ids"),
+                ("referenced_source", "source_file_ids"),
+            ):
+                for file_id in self._clean_id_list(item.get(key) if isinstance(item.get(key), list) else []):
+                    candidates.append((file_id, relationship))
+                    if file_id not in seen:
+                        seen.add(file_id)
+                        file_ids.append(file_id)
+            candidate_order[row_id] = candidates
+        if not file_ids:
+            return
+        placeholders = ",".join("?" for _ in file_ids)
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    f.id AS file_id,
+                    f.original_name AS original_name,
+                    f.content_type AS file_content_type,
+                    f.size AS file_size,
+                    f.uploaded_by AS uploaded_by,
+                    ds.file_name AS source_file_name,
+                    ds.content_type AS source_content_type,
+                    ds.source_kind AS source_kind,
+                    ds.source_label AS source_label,
+                    ds.source_uri AS source_uri,
+                    ds.status AS source_status
+                FROM files f
+                LEFT JOIN digestion_sources ds
+                  ON ds.digestion_id = ?
+                 AND ds.file_id = f.id
+                WHERE f.id IN ({placeholders})
+                """,
+                [self._clean_id(digestion_id), *file_ids],
+            ).fetchall()
+        info_by_id: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            file_id = str(row["file_id"] or "")
+            if not file_id:
+                continue
+            source_name = str(row["source_file_name"] or row["original_name"] or file_id)
+            content_type = str(row["source_content_type"] or row["file_content_type"] or "")
+            info_by_id[file_id] = {
+                "file_id": file_id,
+                "file_name": source_name,
+                "name": source_name,
+                "filename": source_name,
+                "original_name": source_name,
+                "content_type": content_type,
+                "type": content_type,
+                "source_kind": str(row["source_kind"] or ""),
+                "source_label": str(row["source_label"] or source_name),
+                "source_uri": str(row["source_uri"] or ""),
+                "source_status": str(row["source_status"] or ""),
+                "size": int(row["file_size"] or 0),
+                "uploaded_by": str(row["uploaded_by"] or ""),
+                "in_digestion_sources": bool(str(row["source_status"] or "")),
+            }
+        for item in contributions or []:
+            previews: list[dict[str, Any]] = []
+            preview_seen: set[str] = set()
+            for file_id, relationship in candidate_order.get(str(item.get("id") or ""), []):
+                info = info_by_id.get(file_id)
+                if not info or file_id in preview_seen:
+                    continue
+                preview = dict(info)
+                preview["relationship"] = relationship
+                previews.append(preview)
+                preview_seen.add(file_id)
+            item["preview_sources"] = previews
 
     def _contribution_title_kind(self, payload: dict[str, Any], *, index: int) -> tuple[str, str]:
         title = str(

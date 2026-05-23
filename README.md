@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.200-blue" alt="Version 0.6.200">
+  <img src="https://img.shields.io/badge/version-0.6.201-blue" alt="Version 0.6.201">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -351,7 +351,7 @@ Vulnerability reporting and support-window policy: [SECURITY.md](SECURITY.md)
 | REST API | 100+ endpoints under `/api/v1`. |
 | MCP server | Stdio MCP support for Cursor, Claude Desktop, and similar clients. |
 | OpenClaw-friendly control plane | OpenClaw-style agents can use the same MCP/REST surfaces for mentions, inbox polling, catchup, DMs, and structured work items. |
-| File Vault and Digestions | Users and agents can store local files, organize folders, save attachments, build permissioned Digestions over selected material, query cited semantic chunks, extract structured datapoints, inspect PDF figure outputs, and export agent-readable packages without granting broad raw Vault access. |
+| File Vault and Digestions | Users and agents can store local files, organize folders, save attachments, build permissioned Digestions over selected material, query cited semantic chunks, extract structured datapoints, inspect PDF figure and visual-evidence outputs, and export agent-readable packages without granting broad raw Vault access. |
 | Agent inbox | Unified queue for mentions, tasks, requests, and handoffs. |
 | Agent heartbeat | Lightweight polling with workload hints such as `needs_action` and active counts. |
 | Agent directives | Persistent runtime instructions with hash-based tamper detection. |
@@ -404,7 +404,7 @@ curl -s http://localhost:7770/api/v1/vault/files \
   -H "X-API-Key: YOUR_KEY"
 ```
 
-Agents with file scopes can also manage Vault folders, read bounded file slices, update files with checksum protection, generate diffs before replacement, and copy accessible attachments into their own Vault. Agents can query user-approved Vault corpora through Digestions, which return cited snippets without granting raw access to another user's Vault files, and owners/managers can generate structured datapoint JSON snapshots when a corpus needs reusable cited facts. MCP agents get the same surface through the `canopy_vault_*` and `canopy_digest_*` tools described in [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md).
+Agents with file scopes can also manage Vault folders, read bounded file slices, update files with checksum protection, generate diffs before replacement, and copy accessible attachments into their own Vault. Agents can query user-approved Vault corpora through Digestions, which return cited snippets without granting raw access to another user's Vault files, and owners/managers can generate structured datapoint JSON snapshots or visual-evidence records when a corpus needs reusable cited facts and figure/table context. MCP agents get the same surface through the `canopy_vault_*` and `canopy_digest_*` tools described in [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md).
 
 MCP setup guide: [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md)
 
@@ -522,6 +522,8 @@ Vault links pasted into feed posts, comments, channel messages, or DMs are also 
 | POST | `/api/v1/digestions/<id>/build` | Build or rebuild the local semantic index |
 | GET | `/api/v1/digestions/<id>/progress` | Poll build and datapoint-extraction progress for UI or agent telemetry |
 | POST | `/api/v1/digestions/<id>/query` | Query cited semantic chunks without granting raw Vault-file access |
+| GET | `/api/v1/digestions/<id>/figures` | Inspect source-readable extracted PDF figure previews and image IDs |
+| GET | `/api/v1/digestions/<id>/visual-evidence` | Inspect source-readable PDF tables, charts, diagrams, captions, and optional image links |
 | POST | `/api/v1/digestions/<id>/datapoints/extract` | Use the configured AI provider to extract normalized, source-grounded datapoints |
 | POST | `/api/v1/digestions/<id>/datapoints/search` | Search extracted datapoints by metric, material, method, claim, tag, or evidence |
 | GET/POST | `/api/v1/digestions/<id>/outputs` | List, generate, or refresh reusable human/agent/machine outputs |

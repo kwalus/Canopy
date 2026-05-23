@@ -592,6 +592,73 @@ class TestDigestions(unittest.TestCase):
         self.assertIn('Chart 3', joined)
         self.assertIn('Diagram IV', joined)
 
+    def test_pdf_visual_evidence_records_are_source_gated_and_output_ready(self) -> None:
+        source = self._save_text(
+            'visual-evidence-source.txt',
+            'Placeholder text; the visual evidence extractor is tested with explicit page segments.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Visual evidence digest',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        digestion_obj = self.digestion_manager._get_digestion_obj(digestion['id'])
+        self.assertIsNotNone(digestion_obj)
+
+        result = self.digestion_manager._extract_pdf_visual_evidence_for_source(
+            digestion_obj,
+            source,
+            text_segments=[
+                ExtractedSegment(
+                    text=(
+                        'Table 1 summarizes latency measurements for teleoperation trials.\n\n'
+                        'Chart 2 plots operator workload against network delay.\n\n'
+                        'Diagram 3 shows the supervised autonomy pipeline.'
+                    ),
+                    page_label='p. 7',
+                )
+            ],
+            figures=[],
+        )
+
+        self.assertEqual(result['visual_evidence_count'], 3)
+        evidence = self.digestion_manager.list_visual_evidence(digestion['id'], 'owner-user')
+        self.assertEqual(evidence['count'], 3)
+        self.assertEqual(evidence['stats']['visual_evidence'], 3)
+        kinds = {item['evidence_kind'] for item in evidence['visual_evidence']}
+        self.assertTrue({'table', 'chart', 'diagram'}.issubset(kinds))
+        table = next(item for item in evidence['visual_evidence'] if item['evidence_kind'] == 'table')
+        self.assertEqual(table['source_file_id'], source.id)
+        self.assertEqual(table['source_file_name'], source.original_name)
+        self.assertEqual(table['page_label'], 'p. 7')
+        self.assertIn('latency measurements', table['caption'])
+
+        outputs = self.digestion_manager.generate_outputs(digestion['id'], 'owner-user', kinds=['visual_evidence'])
+        self.assertEqual([row['output_kind'] for row in outputs['outputs']], ['visual_evidence'])
+        output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'visual_evidence')
+        self.assertIn('canopy_visual_evidence_v1', output['content'])
+        self.assertIn('teleoperation trials', output['content'])
+
+        package = self.digestion_manager.package_payload(digestion['id'], 'owner-user')
+        self.assertTrue(package['visual_evidence_included'])
+        self.assertEqual(package['visual_evidence'][0]['source_file_id'], source.id)
+
+        self.digestion_manager.grant_access(digestion['id'], 'owner-user', 'reader-user', can_query=True)
+        with self.assertRaises(DigestionError) as denied_context:
+            self.digestion_manager.list_visual_evidence(digestion['id'], 'reader-user')
+        self.assertEqual(denied_context.exception.reason, 'source_metadata_denied')
+
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_read_sources=True,
+        )
+        reader_evidence = self.digestion_manager.list_visual_evidence(digestion['id'], 'reader-user', evidence_kind='table')
+        self.assertEqual(reader_evidence['count'], 1)
+
     def test_pdf_figures_are_source_gated_packaged_and_output_ready(self) -> None:
         source = self._save_text(
             'figure-corpus.txt',
@@ -1270,6 +1337,11 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(ledger['contributions'][0]['status'], 'accepted')
         self.assertEqual(ledger['contributions'][0]['contributor_user_id'], 'reader-user')
         self.assertEqual(ledger['contributions'][0]['datapoint_count'], 1)
+        preview_sources = ledger['contributions'][0]['preview_sources']
+        self.assertGreaterEqual(len(preview_sources), 1)
+        self.assertEqual(preview_sources[0]['relationship'], 'added_source')
+        self.assertEqual(preview_sources[0]['file_name'], manager_file.original_name)
+        self.assertEqual(self.file_manager.get_file(preview_sources[0]['file_id']).uploaded_by, 'owner-user')
         sources = self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')
         source_kinds = {source['source_kind'] for source in sources}
         self.assertIn('agent_contribution', source_kinds)

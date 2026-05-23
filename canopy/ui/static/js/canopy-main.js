@@ -3060,6 +3060,36 @@
                     `;
                 }
 
+                function digestionContributionPreviewSource(contribution) {
+                    const previewSources = Array.isArray(contribution && contribution.preview_sources)
+                        ? contribution.preview_sources
+                        : [];
+                    const firstPreview = previewSources.find(item => item && String(item.file_id || item.id || '').trim());
+                    if (firstPreview) {
+                        const fileId = String(firstPreview.file_id || firstPreview.id || '').trim();
+                        const fileName = String(firstPreview.file_name || firstPreview.original_name || firstPreview.name || fileId || 'Contribution source');
+                        return {
+                            file_id: fileId,
+                            file_name: fileName,
+                            content_type: String(firstPreview.content_type || firstPreview.type || ''),
+                            page_label: String(firstPreview.page_label || ''),
+                        };
+                    }
+                    for (const key of ['added_source_file_ids', 'material_file_ids', 'source_file_ids']) {
+                        const ids = Array.isArray(contribution && contribution[key]) ? contribution[key] : [];
+                        const fileId = String(ids[0] || '').trim();
+                        if (fileId) {
+                            return {
+                                file_id: fileId,
+                                file_name: fileId,
+                                content_type: '',
+                                page_label: '',
+                            };
+                        }
+                    }
+                    return null;
+                }
+
                 function renderDigestionContributionLedgerItem(contribution, digestion) {
                     const id = vaultEscape(contribution && contribution.id || '');
                     const title = vaultEscape(contribution && contribution.title || 'Contribution');
@@ -3077,6 +3107,8 @@
                     const reviewedAt = String(contribution && contribution.reviewed_at || '');
                     const access = digestion && digestion.access || {};
                     const canManage = !!access.can_manage;
+                    const previewSource = digestionContributionPreviewSource(contribution);
+                    const previewSourceData = previewSource ? vaultEscape(JSON.stringify(previewSource)) : '';
                     const copyTextValue = [
                         title,
                         `Contribution ID: ${contribution && contribution.id || ''}`,
@@ -3099,6 +3131,11 @@
                             <i class="bi bi-check2-square"></i> Mark reviewed
                         </button>
                     ` : '');
+                    const previewAction = previewSource ? `
+                        <button class="btn btn-sm btn-outline-primary" type="button" data-vault-digestion-action="open-result-source" data-vault-digestion-source="${previewSourceData}" title="Preview the owner-bound source file for this contribution.">
+                            <i class="bi bi-file-earmark-text"></i> Preview source
+                        </button>
+                    ` : '';
                     return `
                         <div class="vault-digestion-result is-contribution" data-vault-contribution-row="${id}">
                             <div class="vault-digestion-result-head">
@@ -3127,10 +3164,12 @@
                             ` : ''}
                             <div class="vault-digestion-result-actions vault-digestion-contribution-review">
                                 ${reviewActions}
+                                ${previewAction}
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="copy-result-text" data-vault-digestion-copy-text="${vaultEscape(copyTextValue)}">
                                     <i class="bi bi-clipboard"></i> Copy
                                 </button>
                             </div>
+                            ${previewSource ? '<div class="vault-digestion-source-preview" data-vault-digestion-source-preview hidden></div>' : ''}
                         </div>
                     `;
                 }
@@ -7045,6 +7084,7 @@
                 datapoints_extract: api.datapoints_extract || api.structured_datapoints || `POST ${base}/datapoints/extract`,
                 datapoints_search: api.datapoints_search || `POST ${base}/datapoints/search`,
                 figures: api.figures || `GET ${base}/figures`,
+                visual_evidence: api.visual_evidence || `GET ${base}/visual-evidence`,
                 outputs: api.outputs || `GET|POST ${base}/outputs`,
                 get_output: api.get_output || `GET ${base}/outputs/<output_ref>`,
                 export_output: api.export_output || `POST ${base}/outputs/<output_ref>/export`,
@@ -7072,6 +7112,7 @@
                 datapoints_extract: mcp.datapoints_extract || 'canopy_digest_datapoints_extract',
                 datapoints_search: mcp.datapoints_search || 'canopy_digest_datapoints_search',
                 figures: mcp.figures || 'canopy_digest_figures',
+                visual_evidence: mcp.visual_evidence || 'canopy_digest_visual_evidence',
                 outputs: mcp.outputs || 'canopy_digest_outputs',
                 request_access: mcp.request_access || 'canopy_digest_request_access',
             };
@@ -7091,6 +7132,7 @@
                 ['Poll build/extraction progress', api.progress],
                 ['List source metadata', api.sources],
                 ['List extracted PDF figures', api.figures],
+                ['List PDF visual evidence', api.visual_evidence],
                 ['Generate incremental datapoints', `${api.datapoints_extract} with {"scope":"new","lens":"...","max_chunks":80,"max_datapoints":400}`],
                 ['Search structured datapoints', `${api.datapoints_search} with {"query":"...","limit":25}`],
                 ['List/generate outputs', api.outputs],
@@ -7120,7 +7162,7 @@
                 '',
                 'Recommended first moves for agents:',
                 '1. Use query or context first; cite returned file_name/page_label/snippet.',
-                '2. Use sources, figures, datapoints, source-revealing outputs only when can_read_sources is granted.',
+                '2. Use sources, figures, visual_evidence, datapoints, source-revealing outputs only when can_read_sources is granted.',
                 '3. Use append_contributions to preserve durable notes, claims, references, added files, and useful facts back into the Digestion.',
                 '4. Use datapoints_extract with scope="new" after newly added papers/docs; use scope="all" only for an explicit full refresh.',
                 '5. If a live call returns 403/query_denied or source_metadata_denied, call access_request or canopy_digest_request_access and ask the owner for the exact ACL grant.',
@@ -7133,7 +7175,7 @@
                 '',
                 'Permission boundary:',
                 '- Query access returns cited snippets; it does not grant raw File Vault access.',
-                '- Source lists, PDF figures, structured datapoints, manifest, and human brief are source-revealing and require can_read_sources.',
+                '- Source lists, PDF figures, visual evidence, structured datapoints, manifest, and human brief are source-revealing and require can_read_sources.',
                 '- Build/add/merge/contribution operations require write_files plus Digestion manage access.',
                 '- Package exports are portable snapshots; live query still requires ACL access on this Canopy instance.',
                 '',
@@ -11349,6 +11391,7 @@
                     ['Context', agentApi.context],
                     ['Sources', agentApi.sources],
                     ['Figures', agentApi.figures],
+                    ['Visual evidence', agentApi.visual_evidence],
                     ['Datapoints', agentApi.datapoints_search],
                     ['Contribute', agentApi.append_contributions],
                     ['Access help', agentApi.access_request],
@@ -11358,6 +11401,7 @@
                     agentMcp.context,
                     agentMcp.sources,
                     agentMcp.figures,
+                    agentMcp.visual_evidence,
                     agentMcp.datapoints_search,
                     agentMcp.append_contributions,
                     agentMcp.request_access,
@@ -20636,29 +20680,33 @@
                 const summaryEl = host && host.querySelector('[data-deck-digestion-figures-summary]');
                 if (!listEl) return;
                 const figures = Array.isArray(data && data.figures) ? data.figures : [];
+                const visualEvidence = Array.isArray(data && data.visual_evidence) ? data.visual_evidence : [];
+                const captionOnlyEvidence = visualEvidence.filter((item) => !String(item && item.image_file_id || '').trim());
                 const stats = data && data.stats && typeof data.stats === 'object' ? data.stats : {};
                 const finiteFigureStat = (value, fallback = 0) => {
                     const parsed = Number(value);
                     return Number.isFinite(parsed) ? parsed : fallback;
                 };
                 const statsFigures = finiteFigureStat(((data && data.count) ?? stats.figures), figures.length);
+                const statsVisualEvidence = finiteFigureStat(((data && data.visual_evidence_count) ?? stats.visual_evidence), visualEvidence.length);
                 const statsChunks = finiteFigureStat(stats.chunks ?? (data && data.indexed_chunks), 0);
                 const statsSources = finiteFigureStat(stats.source_count ?? stats.sources, 0);
-                const hasBuiltIndex = statsChunks > 0 || Number(stats.token_estimate || 0) > 0 || statsFigures > 0;
+                const hasBuiltIndex = statsChunks > 0 || Number(stats.token_estimate || 0) > 0 || statsFigures > 0 || statsVisualEvidence > 0;
                 if (summaryEl) {
-                    summaryEl.textContent = statsFigures
-                        ? (figures.length && figures.length < statsFigures
-                            ? `Showing ${figures.length} of ${statsFigures} extracted figures`
-                            : `${statsFigures} extracted figure${statsFigures === 1 ? '' : 's'}`)
-                        : (hasBuiltIndex ? 'No extracted figures found in this built Digestion' : 'No extracted figures yet');
+                    const pieces = [];
+                    if (statsFigures) pieces.push(`${statsFigures} extracted figure${statsFigures === 1 ? '' : 's'}`);
+                    if (statsVisualEvidence) pieces.push(`${statsVisualEvidence} visual evidence record${statsVisualEvidence === 1 ? '' : 's'}`);
+                    summaryEl.textContent = pieces.length
+                        ? pieces.join(' · ')
+                        : (hasBuiltIndex ? 'No visual evidence found in this built Digestion' : 'No visual evidence yet');
                 }
-                if (!figures.length) {
+                if (!figures.length && !captionOnlyEvidence.length) {
                     listEl.innerHTML = hasBuiltIndex
-                        ? `<div class="deck-digestion-figure-empty">No extracted PDF figures are available for this built Digestion${statsSources ? ` (${statsSources} source${statsSources === 1 ? '' : 's'}, ${statsChunks} chunk${statsChunks === 1 ? '' : 's'} indexed)` : ''}. Some PDFs store diagrams as vector/text content or images below the extraction threshold, so they can still be searchable as chunks without producing figure preview cards.</div>`
-                        : '<div class="deck-digestion-figure-empty">Build or refresh this Digestion to extract embedded PDF figures and caption context.</div>';
+                        ? `<div class="deck-digestion-figure-empty">No extracted PDF visual evidence is available for this built Digestion${statsSources ? ` (${statsSources} source${statsSources === 1 ? '' : 's'}, ${statsChunks} chunk${statsChunks === 1 ? '' : 's'} indexed)` : ''}. Some PDFs may not expose recoverable captions, tables, or embedded image objects.</div>`
+                        : '<div class="deck-digestion-figure-empty">Build or refresh this Digestion to extract PDF figures, tables, charts, diagrams, and caption context.</div>';
                     return;
                 }
-                listEl.innerHTML = figures.slice(0, 36).map((figure) => {
+                const figureCards = figures.slice(0, 30).map((figure) => {
                     const imageUrl = String(figure.thumb_url || figure.image_url || '').trim();
                     const fullUrl = String(figure.image_url || imageUrl || '').trim();
                     const sourceName = String(figure.source_file_name || figure.image_name || 'PDF figure');
@@ -20682,7 +20730,26 @@
                             </div>
                         </article>
                     `;
-                }).join('');
+                });
+                const evidenceCards = captionOnlyEvidence.slice(0, 30).map((evidence) => {
+                    const kind = String(evidence.evidence_kind || 'visual').replace(/_/g, ' ');
+                    const sourceName = String(evidence.source_file_name || 'PDF source');
+                    const page = String(evidence.page_label || '');
+                    const caption = String(evidence.caption || evidence.context_text || 'No caption text detected.');
+                    const title = String(evidence.title || `${kind} evidence`);
+                    const meta = [page, sourceName].filter(Boolean).join(' · ');
+                    return `
+                        <article class="deck-digestion-figure-card is-caption-evidence">
+                            <div class="deck-digestion-figure-thumb is-empty"><i class="bi bi-bounding-box"></i></div>
+                            <div class="deck-digestion-figure-copy">
+                                <strong>${escapeEmbedHtml(kind)} · ${escapeEmbedHtml(title)}</strong>
+                                <span>${escapeEmbedHtml(meta)}</span>
+                                <p>${escapeEmbedHtml(caption)}</p>
+                            </div>
+                        </article>
+                    `;
+                });
+                listEl.innerHTML = [...figureCards, ...evidenceCards].join('');
             }
 
             async function loadDeckDigestionFigures(host, item, button = null) {
@@ -20698,17 +20765,34 @@
                 try {
                     const urls = deckDigestionUrls();
                     const data = await apiCall(`${urls.digestions}/${encodeURIComponent(digestionId)}/figures?limit=80`);
-                    host.__canopyDeckDigestionFigures = data || {};
-                    const stats = data && data.stats && typeof data.stats === 'object' ? data.stats : {};
+                    let visualData = {};
+                    try {
+                        visualData = await apiCall(`${urls.digestions}/${encodeURIComponent(digestionId)}/visual-evidence?limit=120`);
+                    } catch (_) {
+                        visualData = {};
+                    }
+                    const combinedData = {
+                        ...(data || {}),
+                        visual_evidence: Array.isArray(visualData && visualData.visual_evidence) ? visualData.visual_evidence : [],
+                        visual_evidence_count: Number((visualData && visualData.count) ?? (visualData && visualData.stats && visualData.stats.visual_evidence) ?? 0),
+                        stats: {
+                            ...((data && data.stats && typeof data.stats === 'object') ? data.stats : {}),
+                            ...((visualData && visualData.stats && typeof visualData.stats === 'object') ? visualData.stats : {}),
+                        },
+                    };
+                    host.__canopyDeckDigestionFigures = combinedData || {};
+                    const stats = combinedData && combinedData.stats && typeof combinedData.stats === 'object' ? combinedData.stats : {};
                     const digestion = deckDigestionPayload(item);
                     const manifest = item && item.manifest && typeof item.manifest === 'object' ? item.manifest : {};
                     const manifestDigestion = manifest.digestion && typeof manifest.digestion === 'object' ? manifest.digestion : null;
                     const nextFigureCount = Number(((data && data.count) ?? stats.figures ?? 0));
+                    const nextVisualEvidenceCount = Number((combinedData && combinedData.visual_evidence_count) || stats.visual_evidence || 0);
                     if (manifestDigestion) {
                         manifestDigestion.stats = {
                             ...(manifestDigestion.stats || {}),
                             ...stats,
                             figures: nextFigureCount,
+                            visual_evidence: nextVisualEvidenceCount,
                         };
                     }
                     if (digestion && digestion.stats && typeof digestion.stats === 'object') {
@@ -20716,15 +20800,16 @@
                             ...digestion.stats,
                             ...stats,
                             figures: nextFigureCount,
+                            visual_evidence: nextVisualEvidenceCount,
                         };
                     }
                     const figureStat = host.querySelector('[data-deck-digestion-stat-figures]');
                     if (figureStat) figureStat.textContent = String(nextFigureCount);
-                    renderDeckDigestionFigures(host, data || {});
+                    renderDeckDigestionFigures(host, combinedData || {});
                 } catch (error) {
                     const message = error && (error.error || error.message)
                         ? (error.error || error.message)
-                        : 'Could not load extracted PDF figures.';
+                        : 'Could not load extracted PDF visual evidence.';
                     listEl.innerHTML = `<div class="deck-digestion-figure-empty text-danger">${escapeEmbedHtml(message)}</div>`;
                 } finally {
                     if (button) {
@@ -20941,7 +21026,7 @@
 		                                    <section class="deck-digestion-figures-panel">
 		                                        <div class="deck-digestion-figures-head">
 		                                            <div>
-		                                                <strong><i class="bi bi-images"></i> PDF figures</strong>
+		                                                <strong><i class="bi bi-images"></i> Visual evidence</strong>
 		                                                <span data-deck-digestion-figures-summary>${figureCount ? `${figureCount} extracted figure${figureCount === 1 ? '' : 's'}` : 'Load extracted figure previews'}</span>
 		                                            </div>
 		                                            <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-load-figures>Load</button>
