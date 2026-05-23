@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.197] - 2026-05-23
+
+### Fixed
+- **Profile theme picker previews are stable across theme changes** - theme option cards now use self-contained sample palettes so selecting a different app theme no longer recolors every preview panel.
+- **Local-only DM security state is no longer shown as a user-facing warning badge** - same-instance DMs still retain backend security metadata, but the normal DM header/body surfaces only show actionable E2E, warning, or failure states.
+
 ## [0.6.196] - 2026-05-23
 
 ### Changed

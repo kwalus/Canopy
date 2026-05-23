@@ -120,24 +120,128 @@
         margin-top: 1rem;
     }
     
+    /* Theme picker samples must remain static; do not inherit the active app theme. */
     .theme-option {
-        background: var(--canopy-bg-tertiary);
-        border: 2px solid var(--canopy-border);
+        --theme-sample-bg: linear-gradient(145deg, #101827 0%, #0f172a 100%);
+        --theme-sample-border: rgba(148, 163, 184, 0.26);
+        --theme-sample-active: #22c55e;
+        --theme-sample-ring: rgba(34, 197, 94, 0.22);
+        --theme-sample-text: #f8fafc;
+        --theme-sample-muted: #a8b3c7;
+        background: var(--theme-sample-bg);
+        border: 2px solid var(--theme-sample-border);
         border-radius: 12px;
         padding: 1rem;
         cursor: pointer;
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         text-align: center;
+        color: var(--theme-sample-text);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 26px rgba(2, 6, 23, 0.12);
+    }
+
+    .theme-option strong {
+        color: var(--theme-sample-text);
+    }
+
+    .theme-option .text-muted {
+        color: var(--theme-sample-muted) !important;
     }
     
     .theme-option:hover {
-        border-color: var(--canopy-primary);
+        border-color: var(--theme-sample-active);
         transform: translateY(-2px);
+        box-shadow: 0 0 0 3px var(--theme-sample-ring), 0 16px 34px rgba(2, 6, 23, 0.18);
     }
     
     .theme-option.active {
-        border-color: var(--canopy-primary);
-        background: rgba(34, 197, 94, 0.1);
+        border-color: var(--theme-sample-active);
+        background: var(--theme-sample-bg);
+        box-shadow: 0 0 0 3px var(--theme-sample-ring), 0 18px 38px rgba(2, 6, 23, 0.22);
+    }
+
+    .theme-dark {
+        --theme-sample-bg: linear-gradient(145deg, #0f0f1a 0%, #171728 100%);
+        --theme-sample-border: rgba(34, 197, 94, 0.22);
+        --theme-sample-active: #22c55e;
+        --theme-sample-ring: rgba(34, 197, 94, 0.25);
+        --theme-sample-text: #f8fafc;
+        --theme-sample-muted: #94a3b8;
+    }
+
+    .theme-graphite {
+        --theme-sample-bg: linear-gradient(145deg, #1e1e1e 0%, #252526 52%, #2d2d30 100%);
+        --theme-sample-border: rgba(55, 148, 255, 0.3);
+        --theme-sample-active: #3794ff;
+        --theme-sample-ring: rgba(55, 148, 255, 0.24);
+        --theme-sample-text: #f3f4f6;
+        --theme-sample-muted: #b5bac1;
+    }
+
+    .theme-outlook {
+        --theme-sample-bg: linear-gradient(145deg, #ffffff 0%, #eef6ff 54%, #d8eafe 100%);
+        --theme-sample-border: rgba(0, 120, 212, 0.34);
+        --theme-sample-active: #0078d4;
+        --theme-sample-ring: rgba(0, 120, 212, 0.18);
+        --theme-sample-text: #0f172a;
+        --theme-sample-muted: #475569;
+    }
+
+    .theme-teams {
+        --theme-sample-bg: linear-gradient(145deg, #ffffff 0%, #f1f1fb 54%, #e2e3f6 100%);
+        --theme-sample-border: rgba(98, 100, 167, 0.34);
+        --theme-sample-active: #6264a7;
+        --theme-sample-ring: rgba(98, 100, 167, 0.18);
+        --theme-sample-text: #1f2147;
+        --theme-sample-muted: #555974;
+    }
+
+    .theme-light {
+        --theme-sample-bg: linear-gradient(145deg, #ffffff 0%, #f8fafc 52%, #e2e8f0 100%);
+        --theme-sample-border: rgba(15, 23, 42, 0.16);
+        --theme-sample-active: #16a34a;
+        --theme-sample-ring: rgba(22, 163, 74, 0.18);
+        --theme-sample-text: #0f172a;
+        --theme-sample-muted: #475569;
+    }
+
+    .theme-auto {
+        --theme-sample-bg: linear-gradient(145deg, #0f172a 0%, #1e293b 100%);
+        --theme-sample-border: rgba(20, 184, 166, 0.28);
+        --theme-sample-active: #14b8a6;
+        --theme-sample-ring: rgba(20, 184, 166, 0.2);
+        --theme-sample-text: #f8fafc;
+        --theme-sample-muted: #b9c4d4;
+    }
+
+    .theme-liquid-glass {
+        --theme-sample-bg: linear-gradient(145deg, rgba(20, 27, 48, 0.92) 0%, rgba(54, 66, 115, 0.76) 50%, rgba(76, 96, 154, 0.62) 100%);
+        --theme-sample-border: rgba(255, 255, 255, 0.26);
+        --theme-sample-active: #9bdcff;
+        --theme-sample-ring: rgba(155, 220, 255, 0.2);
+        --theme-sample-text: #f8fbff;
+        --theme-sample-muted: #c5d3e7;
+    }
+
+    .theme-eco {
+        --theme-sample-bg: linear-gradient(145deg, #052e16 0%, #14532d 54%, #166534 100%);
+        --theme-sample-border: rgba(74, 222, 128, 0.32);
+        --theme-sample-active: #86efac;
+        --theme-sample-ring: rgba(134, 239, 172, 0.22);
+        --theme-sample-text: #ecfdf5;
+        --theme-sample-muted: #a7f3d0;
+    }
+
+    .theme-custom {
+        --theme-sample-bg:
+            linear-gradient(145deg,
+                var(--custom-preview-bg-a, #0f172a) 0%,
+                var(--custom-preview-bg-b, #1e293b) 58%,
+                var(--custom-preview-accent, #22c55e) 100%);
+        --theme-sample-border: var(--custom-preview-border, rgba(34, 197, 94, 0.3));
+        --theme-sample-active: var(--custom-preview-accent, #22c55e);
+        --theme-sample-ring: rgba(34, 197, 94, 0.22);
+        --theme-sample-text: #f8fafc;
+        --theme-sample-muted: #cbd5e1;
     }
     
     .theme-preview {
@@ -1241,11 +1345,14 @@ function setupThemeSelection() {
 
     function updateCustomPreview(colors) {
         const preview = document.getElementById('custom-theme-preview');
-        if (!preview) return;
-        preview.style.setProperty('--custom-preview-bg-a', normalizeHex(colors.bgPrimary, '#0f172a'));
-        preview.style.setProperty('--custom-preview-bg-b', normalizeHex(colors.cardBg, '#1e293b'));
-        preview.style.setProperty('--custom-preview-accent', normalizeHex(colors.primary, '#22c55e'));
-        preview.style.setProperty('--custom-preview-border', normalizeHex(colors.borderLight, '#22c55e'));
+        const customOption = document.getElementById('custom-theme-option');
+        if (!preview && !customOption) return;
+        [preview, customOption].filter(Boolean).forEach(target => {
+            target.style.setProperty('--custom-preview-bg-a', normalizeHex(colors.bgPrimary, '#0f172a'));
+            target.style.setProperty('--custom-preview-bg-b', normalizeHex(colors.cardBg, '#1e293b'));
+            target.style.setProperty('--custom-preview-accent', normalizeHex(colors.primary, '#22c55e'));
+            target.style.setProperty('--custom-preview-border', normalizeHex(colors.borderLight, '#22c55e'));
+        });
     }
 
     function applyCurrentCustomTheme() {

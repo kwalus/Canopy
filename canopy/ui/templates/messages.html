@@ -4334,14 +4334,12 @@
         if (!security || typeof security !== 'object') return '';
         const mode = String(security.mode || '').trim();
         const state = String(security.state || '').trim();
+        if (mode === 'local_only') return '';
         let kind = 'warning';
         let icon = 'shield-exclamation';
         if (mode === 'peer_e2e_v1') {
             kind = 'e2e';
             icon = 'shield-lock-fill';
-        } else if (mode === 'local_only') {
-            kind = 'local';
-            icon = 'pc-display';
         } else if (state === 'decrypt_failed') {
             kind = 'failure';
             icon = 'shield-x';

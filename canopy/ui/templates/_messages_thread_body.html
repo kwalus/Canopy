@@ -230,15 +230,17 @@
                             {% if message.security %}
                                 {% set msg_sec_mode = message.security.get('mode') %}
                                 {% set msg_sec_state = message.security.get('state') %}
-                                {% set msg_sec_class = 'e2e' if msg_sec_mode == 'peer_e2e_v1' else ('local' if msg_sec_mode == 'local_only' else ('failure' if msg_sec_state == 'decrypt_failed' else 'warning')) %}
-                                {% set msg_sec_title = message.security.get('label') or 'DM security' %}
-                                {% if message.security.get('warning') %}
-                                    {% set msg_sec_title = msg_sec_title ~ ': ' ~ message.security.get('warning') %}
+                                {% if msg_sec_mode != 'local_only' %}
+                                    {% set msg_sec_class = 'e2e' if msg_sec_mode == 'peer_e2e_v1' else ('failure' if msg_sec_state == 'decrypt_failed' else 'warning') %}
+                                    {% set msg_sec_title = message.security.get('label') or 'DM security' %}
+                                    {% if message.security.get('warning') %}
+                                        {% set msg_sec_title = msg_sec_title ~ ': ' ~ message.security.get('warning') %}
+                                    {% endif %}
+                                    <span class="dm-security-chip {{ msg_sec_class }}" title="{{ msg_sec_title }}" aria-label="{{ msg_sec_title }}">
+                                        <i class="bi bi-{% if msg_sec_mode == 'peer_e2e_v1' %}shield-lock-fill{% elif msg_sec_state == 'decrypt_failed' %}shield-x{% else %}shield-exclamation{% endif %}"></i>
+                                        <span class="visually-hidden security-text">{{ message.security.get('label') }}</span>
+                                    </span>
                                 {% endif %}
-                                <span class="dm-security-chip {{ msg_sec_class }}" title="{{ msg_sec_title }}" aria-label="{{ msg_sec_title }}">
-                                    <i class="bi bi-{% if msg_sec_mode == 'peer_e2e_v1' %}shield-lock-fill{% elif msg_sec_mode == 'local_only' %}pc-display{% elif msg_sec_state == 'decrypt_failed' %}shield-x{% else %}shield-exclamation{% endif %}"></i>
-                                    <span class="visually-hidden security-text">{{ message.security.get('label') }}</span>
-                                </span>
                             {% endif %}
                             {% if message.edited_at %}
                                 <span title="Edited {{ message.edited_at }}">Edited</span>

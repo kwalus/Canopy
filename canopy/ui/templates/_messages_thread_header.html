@@ -32,15 +32,17 @@
             {% if active_thread.security %}
                 {% set thread_sec_mode = active_thread.security.get('mode') %}
                 {% set thread_sec_state = active_thread.security.get('state') %}
-                {% set thread_sec_class = 'e2e' if thread_sec_mode == 'peer_e2e_v1' else ('local' if thread_sec_mode == 'local_only' else ('failure' if thread_sec_state == 'decrypt_failed' else 'warning')) %}
-                {% set thread_sec_title = active_thread.security.get('label') or 'DM security' %}
-                {% if active_thread.security.get('warning') %}
-                    {% set thread_sec_title = thread_sec_title ~ ': ' ~ active_thread.security.get('warning') %}
+                {% if thread_sec_mode != 'local_only' %}
+                    {% set thread_sec_class = 'e2e' if thread_sec_mode == 'peer_e2e_v1' else ('failure' if thread_sec_state == 'decrypt_failed' else 'warning') %}
+                    {% set thread_sec_title = active_thread.security.get('label') or 'DM security' %}
+                    {% if active_thread.security.get('warning') %}
+                        {% set thread_sec_title = thread_sec_title ~ ': ' ~ active_thread.security.get('warning') %}
+                    {% endif %}
+                    <span class="dm-security-pill {{ thread_sec_class }}" title="{{ thread_sec_title }}" aria-label="{{ thread_sec_title }}">
+                        <i class="bi bi-{% if thread_sec_mode == 'peer_e2e_v1' %}shield-lock-fill{% elif thread_sec_state == 'decrypt_failed' %}shield-x{% else %}shield-exclamation{% endif %}"></i>
+                        <span class="visually-hidden security-text">{{ active_thread.security.get('label') }}</span>
+                    </span>
                 {% endif %}
-                <span class="dm-security-pill {{ thread_sec_class }}" title="{{ thread_sec_title }}" aria-label="{{ thread_sec_title }}">
-                    <i class="bi bi-{% if thread_sec_mode == 'peer_e2e_v1' %}shield-lock-fill{% elif thread_sec_mode == 'local_only' %}pc-display{% elif thread_sec_state == 'decrypt_failed' %}shield-x{% else %}shield-exclamation{% endif %}"></i>
-                    <span class="visually-hidden security-text">{{ active_thread.security.get('label') }}</span>
-                </span>
             {% endif %}
             {% if active_thread.kind == 'group' %}
                 {% if dm_is_deck %}

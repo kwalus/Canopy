@@ -256,6 +256,10 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('theme-custom', profile_template)
         self.assertIn('custom-theme-editor', profile_template)
         self.assertIn('custom-theme-load-base', profile_template)
+        self.assertIn('Theme picker samples must remain static', profile_template)
+        self.assertIn('--theme-sample-bg', profile_template)
+        self.assertIn('.theme-option .text-muted', profile_template)
+        self.assertIn("const customOption = document.getElementById('custom-theme-option');", profile_template)
         self.assertIn('data-custom-theme-color="mentionText"', profile_template)
         self.assertIn('data-custom-theme-color="cardHeader"', profile_template)
         self.assertIn('window.getCurrentProfileCustomTheme', profile_template)
@@ -1546,6 +1550,17 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('window.formatTimestamps = formatTimestamps;', main_js)
         self.assertIn("document.addEventListener('DOMContentLoaded', () => formatTimestamps());", main_js)
         self.assertIn('setInterval(() => formatTimestamps(), 30000);', main_js)
+
+    def test_local_only_dm_security_is_not_rendered_as_user_facing_badge(self) -> None:
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        thread_body = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_thread_body.html').read_text(encoding='utf-8')
+        thread_header = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_thread_header.html').read_text(encoding='utf-8')
+
+        self.assertIn("if (mode === 'local_only') return '';", messages_template)
+        self.assertIn("thread_sec_mode != 'local_only'", thread_header)
+        self.assertIn("msg_sec_mode != 'local_only'", thread_body)
+        self.assertNotIn("thread_sec_mode == 'local_only' %}pc-display", thread_header)
+        self.assertNotIn("msg_sec_mode == 'local_only' %}pc-display", thread_body)
 
     def test_user_display_info_hydration_uses_shared_cache(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
