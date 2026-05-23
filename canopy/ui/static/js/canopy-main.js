@@ -12883,10 +12883,18 @@
                 const id = String(fileId || '').trim();
                 if (!id) return '';
                 const safeId = _escapeHtml(id);
-                const safeLabel = _escapeHtml(label || ('file:' + shortCanopyEntityId(id)));
+                const shortId = shortCanopyEntityId(id);
+                const fallbackLabel = 'file:' + shortId;
+                const rawLabel = String(label || fallbackLabel).replace(/\s+/g, ' ').trim() || fallbackLabel;
+                const isFallbackLabel = !label
+                    || rawLabel === id
+                    || rawLabel === shortId
+                    || rawLabel.toLowerCase() === ('file:' + id).toLowerCase()
+                    || rawLabel === fallbackLabel;
+                const safeLabel = _escapeHtml(rawLabel);
                 return '<a class="canopy-entity-link canopy-file-ref" href="/file-ref/' + encodeURIComponent(id) + '" ' +
-                    'data-canopy-file-id="' + safeId + '" data-canopy-file-ref="1" title="Resolve Canopy file ' + safeId + '">' +
-                    '<i class="bi bi-paperclip" aria-hidden="true"></i><span>' + safeLabel + '</span></a>';
+                    'data-canopy-file-id="' + safeId + '" data-canopy-file-ref="1" data-canopy-file-label-fallback="' + (isFallbackLabel ? '1' : '0') + '" title="Resolve Canopy file ' + safeId + '">' +
+                    '<i class="bi bi-paperclip" aria-hidden="true"></i><span data-canopy-file-ref-label="1">' + safeLabel + '</span></a>';
             }
 
             function decodeCanopyHtmlText(html) {
@@ -12975,6 +12983,83 @@
                     working = working.replace(fileRefTokenPrefix + i + '\x00', canopyFileRefAnchor(token.id, token.label || shortCanopyEntityId(token.id)));
                 }
                 return working;
+            }
+
+            const _canopyFileReferenceMetadataCache = new Map();
+            const _canopyFileReferenceMetadataPending = new Map();
+
+            function resolveCanopyFileReferenceMetadata(fileId) {
+                const id = String(fileId || '').trim();
+                if (!id) return Promise.resolve(null);
+                if (_canopyFileReferenceMetadataCache.has(id)) {
+                    return Promise.resolve(_canopyFileReferenceMetadataCache.get(id));
+                }
+                if (_canopyFileReferenceMetadataPending.has(id)) {
+                    return _canopyFileReferenceMetadataPending.get(id);
+                }
+                const promise = fetch('/ajax/files/' + encodeURIComponent(id) + '/reference', {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                })
+                    .then(async (response) => {
+                        const payload = await response.json().catch(() => ({}));
+                        const filename = String(payload && payload.filename || '').replace(/\s+/g, ' ').trim();
+                        const result = filename ? {
+                            file_id: id,
+                            filename,
+                            content_type: String(payload.content_type || ''),
+                            size: Number(payload.size || 0),
+                            can_open: !!payload.can_open,
+                        } : null;
+                        _canopyFileReferenceMetadataCache.set(id, result);
+                        return result;
+                    })
+                    .catch(() => {
+                        _canopyFileReferenceMetadataCache.set(id, null);
+                        return null;
+                    })
+                    .finally(() => {
+                        _canopyFileReferenceMetadataPending.delete(id);
+                    });
+                _canopyFileReferenceMetadataPending.set(id, promise);
+                return promise;
+            }
+
+            function applyCanopyFileReferenceLabels(root = document) {
+                const scope = root && root.querySelectorAll ? root : document;
+                const anchors = [];
+                if (scope.matches && scope.matches('a[data-canopy-file-ref="1"][data-canopy-file-label-fallback="1"]')) {
+                    anchors.push(scope);
+                }
+                scope.querySelectorAll('a[data-canopy-file-ref="1"][data-canopy-file-label-fallback="1"]').forEach((anchor) => {
+                    anchors.push(anchor);
+                });
+                anchors.forEach((anchor) => {
+                    if (!(anchor instanceof HTMLElement)) return;
+                    if (anchor.getAttribute('data-canopy-file-label-hydrated')) return;
+                    const fileId = String(anchor.getAttribute('data-canopy-file-id') || '').trim();
+                    if (!fileId) return;
+                    anchor.setAttribute('data-canopy-file-label-hydrated', 'pending');
+                    resolveCanopyFileReferenceMetadata(fileId).then((meta) => {
+                        if (!meta || !meta.filename) {
+                            anchor.setAttribute('data-canopy-file-label-hydrated', 'unavailable');
+                            return;
+                        }
+                        const label = anchor.querySelector('[data-canopy-file-ref-label="1"]') || anchor.querySelector('span');
+                        if (label) {
+                            label.textContent = meta.filename;
+                        }
+                        anchor.setAttribute('title', meta.can_open
+                            ? 'Open ' + meta.filename + ' (' + fileId + ')'
+                            : meta.filename + ' (' + fileId + ')');
+                        anchor.setAttribute('data-canopy-file-label-hydrated', '1');
+                        anchor.setAttribute('data-canopy-file-name', meta.filename);
+                    });
+                });
+            }
+
+            if (typeof window !== 'undefined') {
+                window.applyCanopyFileReferenceLabels = applyCanopyFileReferenceLabels;
+                window.resolveCanopyFileReferenceMetadata = resolveCanopyFileReferenceMetadata;
             }
 
             function isCanopyDigestionAgentReferenceText(text) {
@@ -13317,6 +13402,9 @@
 	            if (typeof hydrateXEmbeds === 'function') {
 	                hydrateXEmbeds(document);
 	            }
+                    if (typeof applyCanopyFileReferenceLabels === 'function') {
+                        applyCanopyFileReferenceLabels(document);
+                    }
 	        }
 
         // --- Global Lightbox for full-res image viewing ---
@@ -23970,6 +24058,9 @@
                     if (state.deckOpen && state.current && state.current.sourceEl === source) return;
                     applySourceLayoutsInScope(source);
                     syncSourceMediaDeckLauncher(source);
+                    if (typeof applyCanopyFileReferenceLabels === 'function') {
+                        applyCanopyFileReferenceLabels(source);
+                    }
                 });
                 updateSourceDeckLauncherActiveStates();
                 scheduleMiniUpdate();
@@ -25095,6 +25186,9 @@
             initCanopyAttentionCenter();
             startCanopySidebarPeerPolling();
             applyWorkspaceOnboardingVisibility(document);
+            if (typeof applyCanopyFileReferenceLabels === 'function') {
+                applyCanopyFileReferenceLabels(document);
+            }
         });
         
         // Mobile-specific optimizations
