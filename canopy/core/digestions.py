@@ -1417,9 +1417,7 @@ class DigestionManager:
         can_read_sources: bool = False,
     ) -> dict[str, Any]:
         digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
-        grantee = self._clean_id(grantee_user_id)
-        if not grantee:
-            raise DigestionError("grantee_user_id is required", status_code=400, reason="missing_grantee")
+        grantee, grantee_row, row_keys = self._require_local_digestion_user(grantee_user_id)
         if grantee == digestion.owner_user_id:
             raise DigestionError(
                 "The Digestion owner already has full access and cannot be added as a separate grantee.",
@@ -1427,21 +1425,6 @@ class DigestionManager:
                 reason="owner_not_grantable",
             )
         with self.db.get_connection() as conn:
-            grantee_row = conn.execute("SELECT * FROM users WHERE id = ?", (grantee,)).fetchone()
-            if not grantee_row:
-                raise DigestionError(
-                    "Digestion live query access can only be granted to local users or agents on this node.",
-                    status_code=400,
-                    reason="grantee_not_eligible",
-                )
-            row_keys = set(grantee_row.keys()) if hasattr(grantee_row, "keys") else set()
-            origin_peer = str((grantee_row["origin_peer"] if "origin_peer" in row_keys else "") or "").strip()
-            if origin_peer:
-                raise DigestionError(
-                    "Digestion live query access can only be granted to local users or agents on this node.",
-                    status_code=400,
-                    reason="grantee_not_eligible",
-                )
             conn.execute(
                 """
                 INSERT INTO digestion_acl (
@@ -1479,6 +1462,207 @@ class DigestionManager:
                 "display_name": display_name or username or grantee,
                 "account_type": account_type or "",
             },
+        }
+
+    def transfer_ownership(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        new_owner_user_id: str,
+        *,
+        keep_previous_owner_access: bool = True,
+        copy_sources: bool = True,
+        strict_source_copy: bool = True,
+    ) -> dict[str, Any]:
+        """Transfer a Digestion to another local user or agent without orphaning the corpus.
+
+        The actor must be the current owner. When source copying is enabled, all
+        current source files are copied into the new owner's Digestion Intake
+        folder and the Digestion source/chunk/figure references are remapped so
+        the new owner can rebuild later. The previous owner is retained as a
+        manager by default so an agent can continue iterating after a handoff.
+        """
+        actor = self._clean_id(actor_user_id)
+        digestion = self._require_digestion(digestion_id, actor, manage=True)
+        if actor != str(digestion.owner_user_id):
+            raise DigestionError(
+                "Only the current Digestion owner can transfer ownership.",
+                status_code=403,
+                reason="owner_required",
+            )
+        new_owner, new_owner_row, row_keys = self._require_local_digestion_user(new_owner_user_id)
+        if new_owner == str(digestion.owner_user_id):
+            raise DigestionError(
+                "Choose a different user or agent to receive this Digestion.",
+                status_code=400,
+                reason="same_owner",
+            )
+
+        now = self._now()
+        source_rows = self._source_rows(digestion.id)
+        remapped_sources: list[dict[str, Any]] = []
+        skipped_sources: list[dict[str, Any]] = []
+        source_map: dict[str, FileInfo] = {}
+        target_folder_id: Optional[str] = None
+        if copy_sources and source_rows:
+            root_id = self._find_or_create_vault_folder(new_owner, "Digestion Intake")
+            if root_id:
+                target_folder_id = self._find_or_create_vault_folder(
+                    new_owner,
+                    self._digestion_intake_folder_name(digestion),
+                    root_id,
+                )
+            if not target_folder_id:
+                raise DigestionError(
+                    "Could not create the recipient's Digestion Intake folder.",
+                    status_code=500,
+                    reason="recipient_intake_unavailable",
+                )
+
+            for row in source_rows:
+                old_file_id = str(row["file_id"] or "").strip()
+                info = self.file_manager.get_file(old_file_id)
+                if not info:
+                    skipped_sources.append({"file_id": old_file_id, "reason": "source_file_not_found"})
+                    continue
+                source_owner = str(info.uploaded_by or "")
+                if source_owner == new_owner:
+                    source_map[old_file_id] = info
+                    continue
+                if source_owner != actor:
+                    skipped_sources.append({
+                        "file_id": old_file_id,
+                        "reason": "source_not_owned_by_current_owner",
+                        "source_owner_user_id": source_owner,
+                    })
+                    continue
+                copied = self.file_manager.copy_file_to_user_vault(
+                    info.id,
+                    new_owner,
+                    vault_folder_id=target_folder_id,
+                    duplicate_if_owned=True,
+                )
+                if not copied:
+                    skipped_sources.append({
+                        "file_id": old_file_id,
+                        "reason": "copy_to_new_owner_failed",
+                    })
+                    continue
+                source_map[old_file_id] = copied
+                remapped_sources.append({
+                    "from_file_id": old_file_id,
+                    "to_file_id": copied.id,
+                    "file_name": copied.original_name,
+                })
+
+            if skipped_sources and strict_source_copy:
+                raise DigestionError(
+                    "Could not transfer all Digestion source files to the new owner.",
+                    status_code=409,
+                    reason="source_transfer_failed",
+                )
+
+        with self.db.get_connection() as conn:
+            for row in source_rows:
+                old_file_id = str(row["file_id"] or "").strip()
+                new_info = source_map.get(old_file_id)
+                if not new_info or old_file_id == new_info.id:
+                    continue
+                try:
+                    metadata = json.loads(row["source_metadata_json"] or "{}")
+                except Exception:
+                    metadata = {}
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                transfer_meta = dict(metadata)
+                transfer_meta.update({
+                    "ownership_transfer": {
+                        "from_owner_user_id": str(digestion.owner_user_id),
+                        "to_owner_user_id": new_owner,
+                        "transferred_by": actor,
+                        "transferred_at": now,
+                        "previous_source_file_id": old_file_id,
+                    },
+                    "original_file_id": metadata.get("original_file_id") or old_file_id,
+                    "copied_to_owner_vault": True,
+                    "owner_intake_folder_id": target_folder_id,
+                    "owner_intake_folder": self._digestion_intake_folder_name(digestion),
+                })
+                conn.execute(
+                    """
+                    UPDATE digestion_sources
+                    SET file_id = ?, file_checksum = ?, file_name = ?, content_type = ?,
+                        source_metadata_json = ?, updated_at = ?
+                    WHERE digestion_id = ? AND file_id = ?
+                    """,
+                    (
+                        new_info.id,
+                        new_info.checksum,
+                        new_info.original_name,
+                        new_info.content_type,
+                        json.dumps(transfer_meta, sort_keys=True),
+                        now,
+                        digestion.id,
+                        old_file_id,
+                    ),
+                )
+                conn.execute(
+                    "UPDATE digestion_chunks SET file_id = ? WHERE digestion_id = ? AND file_id = ?",
+                    (new_info.id, digestion.id, old_file_id),
+                )
+                conn.execute(
+                    "UPDATE digestion_pdf_figures SET source_file_id = ? WHERE digestion_id = ? AND source_file_id = ?",
+                    (new_info.id, digestion.id, old_file_id),
+                )
+            if source_map:
+                self._rewrite_output_source_ids(conn, digestion.id, {old: info.id for old, info in source_map.items() if old != info.id}, now)
+            conn.execute(
+                "UPDATE digestions SET owner_user_id = ?, updated_at = ? WHERE id = ?",
+                (new_owner, now, digestion.id),
+            )
+            conn.execute(
+                "DELETE FROM digestion_acl WHERE digestion_id = ? AND grantee_user_id = ?",
+                (digestion.id, new_owner),
+            )
+            if keep_previous_owner_access:
+                conn.execute(
+                    """
+                    INSERT INTO digestion_acl (
+                        digestion_id, grantee_user_id, grantee_kind, can_query,
+                        can_manage, can_read_sources, created_at
+                    ) VALUES (?, ?, 'user', 1, 1, 1, ?)
+                    ON CONFLICT(digestion_id, grantee_user_id) DO UPDATE SET
+                        can_query = 1,
+                        can_manage = 1,
+                        can_read_sources = 1
+                    """,
+                    (digestion.id, actor, now),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM digestion_acl WHERE digestion_id = ? AND grantee_user_id = ?",
+                    (digestion.id, actor),
+                )
+            conn.commit()
+
+        username = new_owner_row["username"] if "username" in row_keys else new_owner
+        display_name = new_owner_row["display_name"] if "display_name" in row_keys else username
+        transferred = self.get_digestion(digestion.id, user_id=new_owner) or {}
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "previous_owner_user_id": str(digestion.owner_user_id),
+            "new_owner_user_id": new_owner,
+            "new_owner": {
+                "user_id": new_owner,
+                "username": username or new_owner,
+                "display_name": display_name or username or new_owner,
+                "account_type": (new_owner_row["account_type"] if "account_type" in row_keys else "") or "",
+            },
+            "keep_previous_owner_access": bool(keep_previous_owner_access),
+            "sources_remapped": remapped_sources,
+            "skipped_sources": skipped_sources,
+            "digestion": transferred,
         }
 
     def list_access(self, digestion_id: str, actor_user_id: str) -> dict[str, Any]:
@@ -4315,6 +4499,29 @@ class DigestionManager:
             "can_read_sources": can_read_sources,
         }
 
+    def _require_local_digestion_user(self, user_id: str) -> tuple[str, Any, set[str]]:
+        """Return a local, non-shadow user row eligible for live Digestion access."""
+        grantee = self._clean_id(user_id)
+        if not grantee:
+            raise DigestionError("grantee_user_id is required", status_code=400, reason="missing_grantee")
+        with self.db.get_connection() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (grantee,)).fetchone()
+        if not row:
+            raise DigestionError(
+                "Digestion live access can only be granted to local users or agents on this node.",
+                status_code=400,
+                reason="grantee_not_eligible",
+            )
+        row_keys = set(row.keys()) if hasattr(row, "keys") else set()
+        origin_peer = str((row["origin_peer"] if "origin_peer" in row_keys else "") or "").strip()
+        if origin_peer:
+            raise DigestionError(
+                "Digestion live access can only be granted to local users or agents on this node.",
+                status_code=400,
+                reason="grantee_not_eligible",
+            )
+        return grantee, row, row_keys
+
     def _digestion_from_row(self, row: Any) -> Digestion:
         settings_raw = row["settings_json"] if "settings_json" in row.keys() else "{}"
         try:
@@ -5586,6 +5793,39 @@ Use this as a permissioned retrieval capability, not as raw file access.
                 (status, built_at, error, self._now(), digestion_id),
             )
             conn.commit()
+
+    def _rewrite_output_source_ids(self, conn: Any, digestion_id: str, source_id_map: dict[str, str], now: str) -> None:
+        """Rewrite generated output snapshots after source files are re-homed."""
+        clean_map = {
+            str(old or "").strip(): str(new or "").strip()
+            for old, new in (source_id_map or {}).items()
+            if str(old or "").strip()
+            and str(new or "").strip()
+            and str(old or "").strip() != str(new or "").strip()
+        }
+        if not clean_map:
+            return
+        rows = conn.execute(
+            "SELECT id, content, metadata_json FROM digestion_outputs WHERE digestion_id = ?",
+            (digestion_id,),
+        ).fetchall()
+        for row in rows:
+            content = str(row["content"] or "")
+            metadata = str(row["metadata_json"] or "")
+            rewritten_content = content
+            rewritten_metadata = metadata
+            for old_id, new_id in clean_map.items():
+                rewritten_content = rewritten_content.replace(old_id, new_id)
+                rewritten_metadata = rewritten_metadata.replace(old_id, new_id)
+            if rewritten_content != content or rewritten_metadata != metadata:
+                conn.execute(
+                    """
+                    UPDATE digestion_outputs
+                    SET content = ?, metadata_json = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (rewritten_content, rewritten_metadata, now, row["id"]),
+                )
 
     def _mark_source_error(self, digestion_id: str, file_id: str, message: str) -> None:
         with self.db.get_connection() as conn:

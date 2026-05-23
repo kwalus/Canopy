@@ -11638,6 +11638,43 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API ACL failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/transfer', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def transfer_digestion_ownership_api(digestion_id: str):
+        """Transfer Digestion ownership to another local user or agent."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            result = manager.transfer_ownership(
+                digestion_id,
+                g.api_key_info.user_id,
+                str(
+                    data.get('new_owner_user_id')
+                    or data.get('owner_user_id')
+                    or data.get('user_id')
+                    or ''
+                ),
+                keep_previous_owner_access=(
+                    True
+                    if 'keep_previous_owner_access' not in data
+                    else _as_bool(data.get('keep_previous_owner_access'))
+                ),
+                copy_sources=True if 'copy_sources' not in data else _as_bool(data.get('copy_sources')),
+                strict_source_copy=(
+                    True
+                    if 'strict_source_copy' not in data
+                    else _as_bool(data.get('strict_source_copy'))
+                ),
+            )
+            return jsonify(result)
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API ownership transfer failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/acl/<grantee_user_id>', methods=['DELETE'])
     @require_auth(Permission.WRITE_FILES)
     def revoke_digestion_access_api(digestion_id: str, grantee_user_id: str):

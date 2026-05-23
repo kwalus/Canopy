@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.204] - 2026-05-23
+
+### Added
+- **Agents can create and hand off Digestions safely** - Digestions created under an agent account can now be transferred to a local human/user owner through REST and MCP while copying/remapping source files into the recipient Vault and keeping the agent as a manager by default so the corpus remains discoverable for continued iteration.
+
 ## [0.6.203] - 2026-05-23
 
 ### Fixed
