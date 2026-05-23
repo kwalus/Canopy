@@ -139,6 +139,84 @@
                 return normalizeSelectedText(text).replace(/\s+/g, ' ').trim();
             }
 
+            function getMentionTokenFromElement(el) {
+                if (!el || !el.getAttribute) return '';
+                const handle = String(el.getAttribute('data-mention') || '').trim();
+                if (handle) return handle.charAt(0) === '@' ? handle : `@${handle}`;
+                const visible = normalizeSelectedText(el.textContent || '').replace(/\s+/g, ' ');
+                return visible.charAt(0) === '@' ? visible.replace(/\s+/g, '_') : '';
+            }
+
+            function rangeIntersectsElement(range, el) {
+                if (!range || !el) return false;
+                if (typeof range.intersectsNode === 'function') {
+                    try {
+                        return range.intersectsNode(el);
+                    } catch (_) {}
+                }
+                if (typeof document.createRange !== 'function') return false;
+                const nodeRange = document.createRange();
+                try {
+                    nodeRange.selectNodeContents(el);
+                    return (
+                        range.compareBoundaryPoints(Range.END_TO_START, nodeRange) > 0 &&
+                        range.compareBoundaryPoints(Range.START_TO_END, nodeRange) < 0
+                    );
+                } catch (_) {
+                    return false;
+                } finally {
+                    if (typeof nodeRange.detach === 'function') {
+                        nodeRange.detach();
+                    }
+                }
+            }
+
+            function getMentionElementsInSelection(selection, root) {
+                if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return [];
+                const selector = '.mention-tag[data-mention], .detected-mention[data-mention], .user-mention[data-mention]';
+                const range = selection.getRangeAt(0);
+                const scope = getElementFromSelectionNode(range.commonAncestorContainer);
+                if (!scope) return [];
+                const scopeRoot = root && root.contains ? root : null;
+                const seen = new Set();
+                const matches = [];
+                const push = (el) => {
+                    if (!el || seen.has(el)) return;
+                    if (scopeRoot && !scopeRoot.contains(el)) return;
+                    if (!rangeIntersectsElement(range, el)) return;
+                    seen.add(el);
+                    matches.push(el);
+                };
+                if (scope.matches && scope.matches(selector)) push(scope);
+                if (scope.closest) push(scope.closest(selector));
+                if (scope.querySelectorAll) {
+                    scope.querySelectorAll(selector).forEach(push);
+                }
+                return matches;
+            }
+
+            function replaceFirstSelectionToken(text, visible, token) {
+                if (!text || !visible || !token || visible === token) return text;
+                const index = text.indexOf(visible);
+                if (index === -1) return text;
+                return `${text.slice(0, index)}${token}${text.slice(index + visible.length)}`;
+            }
+
+            function getPasteSafeSelectionText(selection, fallbackText, root) {
+                let text = normalizeSelectedText(
+                    fallbackText !== undefined && fallbackText !== null
+                        ? fallbackText
+                        : (selection ? selection.toString() : '')
+                );
+                if (!selection || selection.rangeCount === 0 || !text) return text;
+                getMentionElementsInSelection(selection, root).forEach((el) => {
+                    const visible = normalizeSelectedText(el.textContent || '').replace(/\s+/g, ' ');
+                    const token = getMentionTokenFromElement(el);
+                    text = replaceFirstSelectionToken(text, visible, token);
+                });
+                return normalizeSelectedText(text);
+            }
+
             function getElementFromSelectionNode(node) {
                 if (!node) return null;
                 return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
@@ -623,15 +701,21 @@
                     const sourceId = meta.sourceId || itemEl.getAttribute(config.sourceIdAttr || 'data-message-id') || itemEl.getAttribute('data-post-id') || '';
                     const author = String(meta.author || meta.sender || meta.user || config.defaultAuthor || 'author').trim();
                     const sourceLabel = meta.sourceLabel || [author, meta.surfaceLabel || config.surfaceLabel].filter(Boolean).join(' in ') || config.surfaceLabel || 'Canopy';
-                    const trimmedText = text.length > Number(config.maxSelectionLength || 6000)
-                        ? text.slice(0, Number(config.maxSelectionLength || 6000)).trim()
+                    const maxLength = Number(config.maxSelectionLength || 6000);
+                    const pasteText = getPasteSafeSelectionText(selection, text, startContent);
+                    const trimmedText = text.length > maxLength
+                        ? text.slice(0, maxLength).trim()
                         : text;
+                    const trimmedPasteText = pasteText.length > maxLength
+                        ? pasteText.slice(0, maxLength).trim()
+                        : pasteText;
 
                     return {
                         ...meta,
                         surface: config.surface,
                         text: trimmedText,
-                        wasTrimmed: text.length > Number(config.maxSelectionLength || 6000),
+                        pasteText: trimmedPasteText,
+                        wasTrimmed: text.length > maxLength,
                         rect,
                         rects,
                         sourceId,
@@ -759,11 +843,12 @@
                 }
 
                 function buildInsertion(action, ctx) {
-                    const quote = formatQuote(ctx.text);
+                    const reusableText = ctx.pasteText || ctx.text;
+                    const quote = formatQuote(reusableText);
                     if (action === 'quote') return `${quote}\n\n`;
                     if (action === 'context') return buildContextBlock(ctx, quote);
                     if (action === 'canopy') return `@Canopy Use this selected context while drafting the next message:\n${quote}\n\n`;
-                    return ctx.text;
+                    return reusableText;
                 }
 
                 function insertIntoComposer(text, opts = {}) {
@@ -811,7 +896,7 @@
                         return;
                     }
                     if (action === 'copy') {
-                        const copied = await copyText(ctx.text);
+                        const copied = await copyText(ctx.pasteText || ctx.text);
                         if (typeof showAlert === 'function') {
                             showAlert(copied ? 'Selected text copied.' : 'Could not copy selected text.', copied ? 'success' : 'warning');
                         }
@@ -935,6 +1020,7 @@
                 formatQuote,
                 insertIntoTextarea,
                 normalizeSelectedText,
+                getPasteSafeSelectionText,
                 copyText,
             };
         })(window);

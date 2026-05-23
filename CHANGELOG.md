@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.203] - 2026-05-23
+
+### Fixed
+- **Selected rendered mentions copy back as composer-safe handles** - channel, feed, and DM selection toolbars now preserve pretty `@Display Name` mention rendering for reading while copying, quoting, contextualizing, and `@Canopy` reuse with canonical `@Display_Name` handles so pasted excerpts keep recognized identities intact.
+
 ## [0.6.202] - 2026-05-23
 
 ### Added
