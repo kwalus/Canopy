@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.201` release line.
+Version scope: this reference is aligned to the Canopy `0.6.204` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -419,7 +419,7 @@ Vault notes:
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | GET | `/digestions` | Yes (`read_files`) | List Digestions owned by or shared with the authenticated user. Optional `include_sources=1` only returns source metadata when the caller has source-read access. |
-| POST | `/digestions` | Yes (`write_files`) | Create a local semantic Digestion over selected user-owned Vault file IDs and/or inline `materials`. Optional `purpose`, `provider`, `embedding_model`, `chunk_size`, `chunk_overlap`, and `auto_build`. |
+| POST | `/digestions` | Yes (`write_files`) | Create a local semantic Digestion owned by the authenticated user or agent over selected Vault file IDs and/or inline `materials`. Optional `purpose`, `provider`, `embedding_model`, `chunk_size`, `chunk_overlap`, and `auto_build`. |
 | GET | `/digestions/<digestion_id>` | Yes (`read_files`) | Return Digestion metadata, stats, and source metadata when permitted. |
 | GET | `/digestions/<digestion_id>/sources` | Yes (`read_files`) | List source metadata and build status; requires owner or explicit source-metadata access. |
 | GET | `/digestions/<digestion_id>/figures` | Yes (`read_files`) | List extracted PDF figure previews, image file IDs, page labels, captions, and caption-context text; requires query access plus explicit source-metadata access. |
@@ -444,11 +444,13 @@ Vault notes:
 | GET | `/digestions/<digestion_id>/access-request` | Yes (`read_files`) | Return owner, caller, and ACL body guidance for requesting live query/source access when a package recipient or agent receives a 403. |
 | GET | `/digestions/<digestion_id>/acl` | Yes (`write_files`) | List all local users/agents with explicit live access. Requires manage access. |
 | POST | `/digestions/<digestion_id>/acl` | Yes (`write_files`) | Add or update one local user/agent's query, manage, or source-metadata access without changing other grantees. Manage/build access does not imply source-metadata access; set `can_read_sources` explicitly when the recipient should see source lists or manifest outputs. |
+| POST | `/digestions/<digestion_id>/transfer` | Yes (`write_files`) | Transfer an owned Digestion to another local user or agent. Body: `new_owner_user_id`, optional `keep_previous_owner_access` (default `true`), `copy_sources` (default `true`), and `strict_source_copy` (default `true`). Source files are copied/remapped into the recipient's Vault by default so future rebuilds are owner-safe; the prior owner remains a manager by default so agents can continue the work after handoff. |
 | DELETE | `/digestions/<digestion_id>/acl/<grantee_user_id>` | Yes (`write_files`) | Revoke one local user/agent's explicit live access without changing other grantees. |
 
 Digestion notes:
 - Digestions stay local to the node by default; source files, normalized material files, chunks, vectors, outputs, and query logs are not mesh-synced unless a user deliberately shares/export-attaches an output.
 - Inline `materials` accept fields such as `title`, `content`/`text`, `kind`/`source_kind`, `source_uri`, `content_type`, and `metadata`. They are persisted as owner-bound Vault files before indexing so the normal file safety boundary remains intact.
+- Agents can create their own Digestions for assigned research jobs, rediscover them later with `GET /digestions`, add humans with `/acl`, and transfer ownership with `/transfer` when a corpus is ready for human stewardship. Keeping previous-owner access enabled prevents the agent from losing its work record after transfer.
 - `provider=local_hash` is available for offline testing. OpenAI-backed builds use `OPENAI_API_KEY` or `CANOPY_OPENAI_API_KEY` and send extracted chunks to the embedding provider.
 - Query responses include cited snippets with `file_name`, `file_id`, `page_label`, `chunk_index`, `score`, and `snippet`.
 - PDF builds can extract embedded figure images into owner Vault-backed preview files, bind them to source page labels/caption candidates, include that context in the indexed chunks, and expose them through `/figures`, `pdf_figures` output, whole-Digestion packages, and MCP `canopy_digest_figures`. The visual-evidence pipeline additionally captures caption-derived table, chart, diagram, and figure records even when the PDF stores visuals as vector/text content without recoverable image bytes.

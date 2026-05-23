@@ -495,6 +495,79 @@ class TestDigestions(unittest.TestCase):
             self.digestion_manager.query(digestion['id'], 'reader-user', 'access')
         self.assertTrue(self.digestion_manager.query(digestion['id'], 'other-user', 'access')['success'])
 
+    def test_agent_owned_digestion_transfers_to_human_with_source_remap(self) -> None:
+        source = self._save_text(
+            'agent-corpus.txt',
+            'Agent-built corpora can be handed back to humans without losing retrieval.',
+            owner='reader-user',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'reader-user',
+            name='Agent assembled corpus',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'reader-user')
+
+        transfer = self.digestion_manager.transfer_ownership(
+            digestion['id'],
+            'reader-user',
+            'owner-user',
+        )
+
+        self.assertTrue(transfer['success'])
+        self.assertEqual(transfer['previous_owner_user_id'], 'reader-user')
+        self.assertEqual(transfer['new_owner_user_id'], 'owner-user')
+        self.assertTrue(transfer['keep_previous_owner_access'])
+        self.assertEqual(len(transfer['sources_remapped']), 1)
+        new_file_id = transfer['sources_remapped'][0]['to_file_id']
+        self.assertNotEqual(new_file_id, source.id)
+        self.assertEqual(self.file_manager.get_file(new_file_id).uploaded_by, 'owner-user')
+
+        owner_item = self.digestion_manager.get_digestion(digestion['id'], user_id='owner-user')
+        self.assertIsNotNone(owner_item)
+        self.assertEqual(owner_item['owner_user_id'], 'owner-user')
+        self.assertEqual(owner_item['access']['role'], 'owner')
+        owner_sources = self.digestion_manager.list_sources(digestion['id'], user_id='owner-user')
+        self.assertEqual(owner_sources[0]['file_id'], new_file_id)
+
+        agent_items = self.digestion_manager.list_digestions('reader-user', include_sources=True)
+        self.assertEqual(len(agent_items), 1)
+        self.assertEqual(agent_items[0]['access']['role'], 'manager')
+        self.assertTrue(agent_items[0]['access']['can_read_sources'])
+
+        query = self.digestion_manager.query(digestion['id'], 'owner-user', 'handed back humans', top_k=2)
+        self.assertTrue(query['success'])
+        self.assertEqual(query['results'][0]['file_id'], new_file_id)
+
+        rebuild = self.digestion_manager.build_digestion(digestion['id'], 'owner-user', rebuild=True)
+        self.assertTrue(rebuild['success'])
+
+    def test_digestion_transfer_requires_current_owner(self) -> None:
+        source = self._save_text('transfer-owner-only.txt', 'Only the owner can hand off this Digestion.')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Owner-only transfer',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+
+        with self.assertRaises(DigestionError) as ctx:
+            self.digestion_manager.transfer_ownership(
+                digestion['id'],
+                'reader-user',
+                'other-user',
+            )
+        self.assertEqual(ctx.exception.reason, 'owner_required')
+
     def test_material_sources_outputs_context_and_export(self) -> None:
         digestion = self.digestion_manager.create_digestion(
             'owner-user',
