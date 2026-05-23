@@ -2547,10 +2547,10 @@
     <section class="vault-panel vault-toolbar" aria-label="Vault tools">
         <div class="vault-search-wrap">
             <i class="bi bi-search"></i>
-            <input class="form-control vault-search" id="vault-search" type="search" placeholder="Search your vault by file name or type">
+            <input class="form-control vault-search" id="vault-search" type="search" placeholder="Search files by name or type">
         </div>
         <div class="vault-filter-row" aria-label="File filters">
-            <button class="vault-filter active" type="button" data-vault-filter="">All</button>
+            <button class="vault-filter active" type="button" data-vault-filter="">All files</button>
             <button class="vault-filter" type="button" data-vault-filter="documents">Docs</button>
             <button class="vault-filter" type="button" data-vault-filter="images">Images</button>
             <button class="vault-filter" type="button" data-vault-filter="video">Video</button>
@@ -2575,65 +2575,6 @@
         <div class="vault-stat">
             <div class="vault-stat-label">Media</div>
             <div class="vault-stat-value" id="vault-stat-media">0</div>
-        </div>
-    </section>
-
-    <section class="vault-panel vault-digestion-panel" aria-label="Vault Digestions">
-        <div class="vault-digestion-head">
-            <div class="vault-digestion-head-main">
-                <h2 class="h5 vault-digestion-title">Digestions</h2>
-                <p class="vault-digestion-copy">
-                    Turn selected Vault documents into a local, permissioned retrieval corpus for agents. Extract datapoints may call an external provider with indexed chunks and requires source-read access.
-                </p>
-            </div>
-            <div class="vault-digestion-head-actions">
-                <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-digestion-refresh">
-                    <i class="bi bi-arrow-clockwise"></i> Refresh
-                </button>
-            </div>
-        </div>
-        <div class="vault-digestion-toolbar" aria-label="Manage Digestions">
-            <label class="vault-digestion-search-wrap" for="vault-digestion-search">
-                <i class="bi bi-search"></i>
-                <input class="form-control form-control-sm"
-                       type="search"
-                       id="vault-digestion-search"
-                       placeholder="Search Digestions by name, purpose, status, id, or source"
-                       autocomplete="off"
-                       aria-label="Search Digestions">
-            </label>
-            <select class="form-select form-select-sm vault-digestion-control" id="vault-digestion-status-filter" aria-label="Filter Digestions by status or access">
-                <option value="all">All Digestions</option>
-                <option value="ready">Ready / built</option>
-                <option value="needs_build">Needs build</option>
-                <option value="running">Running jobs</option>
-                <option value="owned">Owned by me</option>
-                <option value="shared">Shared with me</option>
-                <option value="issues">Needs attention</option>
-            </select>
-            <select class="form-select form-select-sm vault-digestion-control" id="vault-digestion-sort" aria-label="Sort Digestions">
-                <option value="updated_desc">Recently updated</option>
-                <option value="name_asc">Name A-Z</option>
-                <option value="sources_desc">Most sources</option>
-                <option value="chunks_desc">Most chunks</option>
-                <option value="datapoints_desc">Most datapoints</option>
-            </select>
-            <button class="btn btn-outline-secondary btn-sm vault-digestion-control vault-digestion-density-btn"
-                    type="button"
-                    id="vault-digestion-density-toggle"
-                    aria-pressed="false"
-                    title="Switch between comfortable cards and dense list cards">
-                <i class="bi bi-view-stacked"></i> Compact
-            </button>
-        </div>
-        <div class="vault-digestion-summary" id="vault-digestion-summary" aria-live="polite">
-            <span class="vault-digestion-summary-pill"><strong id="vault-digestion-count">0</strong> visible</span>
-            <button class="btn btn-sm btn-outline-secondary vault-digestion-clear-filters" type="button" id="vault-digestion-clear-filters">
-                <i class="bi bi-x-circle"></i> Clear filters
-            </button>
-        </div>
-        <div class="vault-digestion-list-shell">
-            <div class="vault-digestion-list" id="vault-digestion-list" aria-live="polite"></div>
         </div>
     </section>
 
@@ -2779,6 +2720,66 @@
             </button>
         </div>
     </section>
+
+    <section class="vault-panel vault-digestion-panel" aria-label="Vault Digestions">
+        <div class="vault-digestion-head">
+            <div class="vault-digestion-head-main">
+                <h2 class="h5 vault-digestion-title">Digestions</h2>
+                <p class="vault-digestion-copy">
+                    Turn selected Vault documents into a local, permissioned retrieval corpus for agents. Use this panel's search and filters to manage Digestions separately from the file list. Extract datapoints may call an external provider with indexed chunks and requires source-read access.
+                </p>
+            </div>
+            <div class="vault-digestion-head-actions">
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="vault-digestion-refresh">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+        </div>
+        <div class="vault-digestion-toolbar" aria-label="Manage Digestions">
+            <label class="vault-digestion-search-wrap" for="vault-digestion-search">
+                <i class="bi bi-search"></i>
+                <input class="form-control form-control-sm"
+                       type="search"
+                       id="vault-digestion-search"
+                       placeholder="Search Digestions by name, purpose, status, id, or source"
+                       autocomplete="off"
+                       aria-label="Search Digestions">
+            </label>
+            <select class="form-select form-select-sm vault-digestion-control" id="vault-digestion-status-filter" aria-label="Filter Digestions by status or access">
+                <option value="all">All Digestions</option>
+                <option value="ready">Ready / built</option>
+                <option value="needs_build">Needs build</option>
+                <option value="running">Running jobs</option>
+                <option value="owned">Owned by me</option>
+                <option value="shared">Shared with me</option>
+                <option value="issues">Needs attention</option>
+            </select>
+            <select class="form-select form-select-sm vault-digestion-control" id="vault-digestion-sort" aria-label="Sort Digestions">
+                <option value="updated_desc">Recently updated</option>
+                <option value="name_asc">Name A-Z</option>
+                <option value="sources_desc">Most sources</option>
+                <option value="chunks_desc">Most chunks</option>
+                <option value="datapoints_desc">Most datapoints</option>
+            </select>
+            <button class="btn btn-outline-secondary btn-sm vault-digestion-control vault-digestion-density-btn"
+                    type="button"
+                    id="vault-digestion-density-toggle"
+                    aria-pressed="false"
+                    title="Switch between comfortable cards and dense list cards">
+                <i class="bi bi-view-stacked"></i> Compact
+            </button>
+        </div>
+        <div class="vault-digestion-summary" id="vault-digestion-summary" aria-live="polite">
+            <span class="vault-digestion-summary-pill"><strong id="vault-digestion-count">0</strong> visible</span>
+            <button class="btn btn-sm btn-outline-secondary vault-digestion-clear-filters" type="button" id="vault-digestion-clear-filters">
+                <i class="bi bi-x-circle"></i> Clear filters
+            </button>
+        </div>
+        <div class="vault-digestion-list-shell">
+            <div class="vault-digestion-list" id="vault-digestion-list" aria-live="polite"></div>
+        </div>
+    </section>
+
 </div>
 {% endblock %}
 

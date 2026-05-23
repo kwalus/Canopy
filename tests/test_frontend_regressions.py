@@ -318,11 +318,17 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('vault-selection-add-existing', vault_template)
         self.assertIn('vault-selection-digestion-menu', vault_template)
         self.assertIn('Drag files onto this list', vault_template)
+        self.assertIn('Search files by name or type', vault_template)
+        self.assertIn("Use this panel's search and filters to manage Digestions separately from the file list", vault_template)
         self.assertIn('.vault-grid.is-external-dragging::before', vault_template)
         self.assertIn('Drop files to upload to this folder', vault_template)
         self.assertLess(
             vault_template.index('id="vault-file-panel"'),
             vault_template.index('id="vault-breadcrumb"'),
+        )
+        self.assertLess(
+            vault_template.index('id="vault-file-panel"'),
+            vault_template.index('aria-label="Vault Digestions"'),
         )
         self.assertLess(
             vault_template.index('id="vault-breadcrumb"'),
@@ -1144,8 +1150,9 @@ class TestFrontendRegressions(unittest.TestCase):
     def test_admin_users_section_is_prioritized_near_top(self) -> None:
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
         self.assertIn('.admin-section-pending { order: 1; }', admin_template)
-        self.assertIn('.admin-section-users-primary { order: 2; }', admin_template)
-        self.assertIn('.admin-section-agent-template { order: 3; }', admin_template)
+        self.assertIn('.admin-section-agent-ops { order: 2; }', admin_template)
+        self.assertIn('.admin-section-users-primary { order: 3; }', admin_template)
+        self.assertIn('.admin-section-agent-template { order: 4; }', admin_template)
 
     def test_admin_pending_panel_covers_all_pending_accounts(self) -> None:
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')

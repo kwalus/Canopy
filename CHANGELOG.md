@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.195] - 2026-05-23
+
+### Changed
+- **File Vault information architecture keeps file search with file results** - the Vault now presents the file search, filters, file summary, and file list before the Digestions workspace, with clearer file-search and Digestion-search copy so users can tell which collection they are filtering.
+- **Admin page prioritizes day-to-day governance work** - Agent Operations now appears directly after Pending approvals, the All users table follows it, and duplicate-identity diagnostics move below routine instance controls.
+
+
 ## [0.6.194] - 2026-05-22
 
 ### Fixed
