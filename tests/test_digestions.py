@@ -519,10 +519,21 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(transfer['previous_owner_user_id'], 'reader-user')
         self.assertEqual(transfer['new_owner_user_id'], 'owner-user')
         self.assertTrue(transfer['keep_previous_owner_access'])
+        self.assertEqual(transfer['caller_access_after_transfer']['role'], 'manager')
+        self.assertEqual(transfer['new_owner_access']['role'], 'owner')
+        self.assertEqual(transfer['source_counts']['before'], 1)
+        self.assertEqual(transfer['source_counts']['after'], 1)
+        self.assertEqual(transfer['source_counts']['remapped'], 1)
         self.assertEqual(len(transfer['sources_remapped']), 1)
         new_file_id = transfer['sources_remapped'][0]['to_file_id']
         self.assertNotEqual(new_file_id, source.id)
         self.assertEqual(self.file_manager.get_file(new_file_id).uploaded_by, 'owner-user')
+        self.assertEqual(transfer['source_state_after_transfer'][0]['file_id'], new_file_id)
+        self.assertTrue(transfer['source_state_after_transfer'][0]['ownership_transfer'])
+        self.assertEqual(
+            transfer['source_state_after_transfer'][0]['ownership_transfer']['previous_source_file_id'],
+            source.id,
+        )
 
         owner_item = self.digestion_manager.get_digestion(digestion['id'], user_id='owner-user')
         self.assertIsNotNone(owner_item)
@@ -542,6 +553,60 @@ class TestDigestions(unittest.TestCase):
 
         rebuild = self.digestion_manager.build_digestion(digestion['id'], 'owner-user', rebuild=True)
         self.assertTrue(rebuild['success'])
+
+    def test_agent_contribution_sources_remain_visible_after_transfer(self) -> None:
+        digestion = self.digestion_manager.create_digestion(
+            'reader-user',
+            name='Agent contribution handoff',
+            provider='local_hash',
+        )
+        appended = self.digestion_manager.append_contributions(
+            digestion['id'],
+            'reader-user',
+            contributions=[
+                {
+                    'kind': 'agent_note',
+                    'title': 'Operator note',
+                    'content': 'The agent assembled a source-backed note before transferring ownership.',
+                    'tags': ['handoff'],
+                }
+            ],
+            build_after=True,
+        )
+        self.assertEqual(appended['materials_added'], 1)
+        before_sources = self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')
+        self.assertEqual(len(before_sources), 1)
+        self.assertEqual(before_sources[0]['source_kind'], 'agent_contribution')
+
+        transfer = self.digestion_manager.transfer_ownership(
+            digestion['id'],
+            'reader-user',
+            'owner-user',
+        )
+
+        self.assertTrue(transfer['success'])
+        self.assertEqual(transfer['caller_access_after_transfer']['role'], 'manager')
+        self.assertTrue(transfer['caller_access_after_transfer']['can_read_sources'])
+        self.assertEqual(transfer['source_counts']['before'], 1)
+        self.assertEqual(transfer['source_counts']['after'], 1)
+        self.assertEqual(transfer['source_state_after_transfer'][0]['source_kind'], 'agent_contribution')
+        self.assertEqual(
+            transfer['source_state_after_transfer'][0]['ownership_transfer']['from_owner_user_id'],
+            'reader-user',
+        )
+        self.assertEqual(
+            transfer['caller_digestion_after_transfer']['access']['role'],
+            'manager',
+        )
+        self.assertEqual(len(transfer['caller_digestion_after_transfer']['sources']), 1)
+        self.assertEqual(
+            transfer['caller_digestion_after_transfer']['sources'][0]['source_kind'],
+            'agent_contribution',
+        )
+        self.assertEqual(
+            transfer['digestion']['sources'][0]['metadata']['ownership_transfer']['previous_source_file_id'],
+            before_sources[0]['file_id'],
+        )
 
     def test_digestion_transfer_requires_current_owner(self) -> None:
         source = self._save_text('transfer-owner-only.txt', 'Only the owner can hand off this Digestion.')

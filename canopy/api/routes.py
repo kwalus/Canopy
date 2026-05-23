@@ -11128,7 +11128,18 @@ def create_api_blueprint() -> Blueprint:
         item = manager.get_digestion(digestion_id, user_id=g.api_key_info.user_id)
         if not item:
             return jsonify({'error': 'Digestion not found or not shared with this key'}), 404
-        return jsonify({'success': True, 'digestion': item})
+        return jsonify({
+            'success': True,
+            'digestion_id': item.get('id') or digestion_id,
+            'digestion': item,
+            # Mirrors are intentionally top-level so agents do not have to know
+            # the nested web-UI payload shape to inspect live access state.
+            'access': item.get('access') or {},
+            'stats': item.get('stats') or {},
+            'sources': item.get('sources') or [],
+            'operation_progress': item.get('operation_progress') or {},
+            'owner_user_id': item.get('owner_user_id') or '',
+        })
 
     @api.route('/digestions/<digestion_id>/sources', methods=['GET'])
     @require_auth(Permission.READ_FILES)
@@ -11138,10 +11149,12 @@ def create_api_blueprint() -> Blueprint:
         if not manager:
             return jsonify({'error': 'Digestion manager unavailable'}), 503
         try:
+            sources = manager.list_sources(digestion_id, user_id=g.api_key_info.user_id)
             return jsonify({
                 'success': True,
                 'digestion_id': digestion_id,
-                'sources': manager.list_sources(digestion_id, user_id=g.api_key_info.user_id),
+                'sources': sources,
+                'count': len(sources),
             })
         except DigestionError as exc:
             return _api_digestion_error(exc)
