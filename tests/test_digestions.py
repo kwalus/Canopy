@@ -522,6 +522,17 @@ class TestDigestions(unittest.TestCase):
         outputs = self.digestion_manager.list_outputs(digestion['id'], 'owner-user')
         output_kinds = {item['output_kind'] for item in outputs}
         self.assertTrue({'manifest', 'human_brief', 'agent_context'}.issubset(output_kinds))
+        output_by_kind = {item['output_kind']: item for item in outputs}
+        self.assertEqual(
+            output_by_kind['agent_context']['access_policy']['source_reveal_tier'],
+            'derived_context_only',
+        )
+        self.assertFalse(output_by_kind['agent_context']['access_policy']['requires_source_metadata'])
+        self.assertEqual(
+            output_by_kind['manifest']['access_policy']['sensitivity_label'],
+            'source_manifest',
+        )
+        self.assertTrue(output_by_kind['manifest']['access_policy']['requires_source_metadata'])
         manifest = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'manifest')
         self.assertEqual(manifest['content_type'], 'application/json')
         self.assertIn('canopy_digestion_manifest_v2', manifest['content'])
@@ -541,6 +552,9 @@ class TestDigestions(unittest.TestCase):
         package = self.digestion_manager.package_payload(digestion['id'], 'owner-user')
         self.assertEqual(package['kind'], 'canopy_digestion_package_v1')
         self.assertTrue(package['sources_included'])
+        self.assertEqual(package['output_policy_schema'], 'canopy_digestion_output_policy_v1')
+        self.assertEqual(package['stats']['indexed_source_count'], 1)
+        self.assertFalse(package['stats']['needs_build'])
         self.assertIn('agent_reference', package)
         agent_ref = package['agent_reference']
         self.assertIn('/query', agent_ref['query_endpoint'])
@@ -570,6 +584,15 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(any('content' in item for item in package['outputs']))
         light_package = self.digestion_manager.package_payload(digestion['id'], 'owner-user', include_content=False)
         self.assertFalse(any('content' in item for item in light_package['outputs']))
+
+        new_source = self._save_text('follow-on-note.txt', 'A second source should make reusable outputs stale until rebuilt.')
+        add_result = self.digestion_manager.add_sources(digestion['id'], 'owner-user', [new_source.id])
+        self.assertEqual(add_result['added'], 1)
+        stale_stats = self.digestion_manager.stats(digestion['id'])
+        self.assertEqual(stale_stats['pending_source_count'], 1)
+        self.assertTrue(stale_stats['needs_build'])
+        self.assertTrue(stale_stats['outputs_stale'])
+        self.assertEqual(stale_stats['build_state'], 'built_with_pending_sources')
 
         exported_package = self.digestion_manager.export_package_to_vault(digestion['id'], 'owner-user')
         self.assertTrue(exported_package['success'])
@@ -1047,9 +1070,12 @@ class TestDigestions(unittest.TestCase):
 
         reader_outputs = self.digestion_manager.list_outputs(digestion['id'], 'reader-user', include_content=True)
         self.assertEqual({output['output_kind'] for output in reader_outputs}, {'agent_context'})
+        self.assertEqual(reader_outputs[0]['access_policy']['sensitivity_label'], 'agent_operating_context')
+        self.assertFalse(reader_outputs[0]['access_policy']['requires_source_metadata'])
         reader_package = self.digestion_manager.package_payload(digestion['id'], 'reader-user')
         self.assertFalse(reader_package['sources_included'])
         self.assertEqual({output['output_kind'] for output in reader_package['outputs']}, {'agent_context'})
+        self.assertFalse(reader_package['outputs'][0]['access_policy']['source_revealing'])
         with self.assertRaisesRegex(Exception, 'Source metadata access'):
             self.digestion_manager.get_output(digestion['id'], 'reader-user', 'manifest')
         with self.assertRaisesRegex(Exception, 'Source metadata access'):
@@ -1092,6 +1118,7 @@ class TestDigestions(unittest.TestCase):
         )
         reader_manifest = self.digestion_manager.get_output(digestion['id'], 'reader-user', 'manifest')
         self.assertIn('source-revealing-corpus.txt', reader_manifest['content'])
+        self.assertEqual(reader_manifest['access_policy']['source_reveal_tier'], 'source_metadata')
 
     def test_manager_added_materials_remain_owner_bound_and_buildable(self) -> None:
         digestion = self.digestion_manager.create_digestion(

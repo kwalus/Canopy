@@ -2044,10 +2044,17 @@ class DigestionManager:
             "visual_evidence": 0,
             "outputs": 0,
             "source_count": 0,
+            "indexed_source_count": 0,
+            "pending_source_count": 0,
+            "error_source_count": 0,
             "datapoint_count": 0,
             "quantitative_result_count": 0,
             "contribution_count": 0,
             "pending_contribution_count": 0,
+            "retrieval_ready": False,
+            "needs_build": False,
+            "outputs_stale": False,
+            "build_state": "empty",
             "sources_by_status": {},
         }
 
@@ -2175,6 +2182,32 @@ class DigestionManager:
             ) + count
             if str(row["status"] or "").strip().lower() == CONTRIBUTION_STATUS_PENDING:
                 stats_by_id[digestion_id]["pending_contribution_count"] = count
+        for digestion_id, stats in stats_by_id.items():
+            statuses = stats.get("sources_by_status") if isinstance(stats.get("sources_by_status"), dict) else {}
+            indexed = int(statuses.get("indexed") or 0)
+            pending = int(statuses.get("pending") or 0)
+            errors = int(statuses.get("error") or 0)
+            chunks = int(stats.get("chunks") or 0)
+            source_count = int(stats.get("source_count") or 0)
+            pending_contributions = int(stats.get("pending_contribution_count") or 0)
+            stats["indexed_source_count"] = indexed
+            stats["pending_source_count"] = pending
+            stats["error_source_count"] = errors
+            stats["retrieval_ready"] = chunks > 0
+            stats["needs_build"] = source_count > 0 and (chunks <= 0 or pending > 0)
+            stats["outputs_stale"] = pending > 0 or pending_contributions > 0
+            if source_count <= 0:
+                stats["build_state"] = "empty"
+            elif pending > 0 and chunks > 0:
+                stats["build_state"] = "built_with_pending_sources"
+            elif pending > 0:
+                stats["build_state"] = "needs_build"
+            elif chunks > 0:
+                stats["build_state"] = "ready"
+            elif errors > 0:
+                stats["build_state"] = "error"
+            else:
+                stats["build_state"] = "needs_build"
         return stats_by_id
 
     def generate_outputs(
@@ -2516,7 +2549,6 @@ class DigestionManager:
                 "chunks_without_datapoints": extraction["stats"].get("chunks_without_datapoints", 0),
                 "field_counts": field_counts,
                 "source_count": len(sources),
-                "source_revealing": True,
                 "extraction_scope": scope,
                 "new_datapoint_count": len(extracted_datapoints),
                 "preserved_datapoint_count": len(preserved_datapoints),
@@ -2825,6 +2857,7 @@ class DigestionManager:
             "generated_at": generated_at,
             "digestion": digestion_payload,
             "stats": stats,
+            "output_policy_schema": "canopy_digestion_output_policy_v1",
             "agent_reference": self.agent_reference(digestion.id, actor_user_id),
             "snapshot": {
                 "kind": "static_package_snapshot",
@@ -5345,7 +5378,6 @@ Use this as a permissioned retrieval capability, not as raw file access.
             {
                 "schema_version": PDF_FIGURE_SCHEMA_VERSION,
                 "figure_count": len(figures),
-                "source_revealing": True,
             },
         )
 
@@ -5380,7 +5412,6 @@ Use this as a permissioned retrieval capability, not as raw file access.
                 "schema_version": VISUAL_EVIDENCE_SCHEMA_VERSION,
                 "visual_evidence_count": len(evidence),
                 "evidence_kinds": payload["evidence_kinds"],
-                "source_revealing": True,
             },
         )
 
@@ -5395,6 +5426,10 @@ Use this as a permissioned retrieval capability, not as raw file access.
         metadata: dict[str, Any],
     ) -> dict[str, Any]:
         now = self._now()
+        policy = self._output_access_policy(output_kind, metadata)
+        metadata = dict(metadata or {})
+        metadata["source_revealing"] = bool(policy.get("source_revealing"))
+        metadata["access_policy"] = policy
         with self.db.get_connection() as conn:
             existing = conn.execute(
                 "SELECT id FROM digestion_outputs WHERE digestion_id = ? AND output_kind = ?",
@@ -5440,11 +5475,72 @@ Use this as a permissioned retrieval capability, not as raw file access.
             conn.commit()
         return self._output_row_to_dict(row, include_content=False) if row else {}
 
+    @staticmethod
+    def _output_access_policy(output_kind: str, metadata: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        """Describe how a generated output may be reused without exposing raw sources."""
+        kind = str(output_kind or "").strip().lower()
+        details = metadata if isinstance(metadata, dict) else {}
+        source_revealing = kind in _SOURCE_REVEALING_OUTPUT_KINDS or bool(details.get("source_revealing"))
+        policy: dict[str, Any] = {
+            "schema_version": "canopy_digestion_output_policy_v1",
+            "output_kind": kind,
+            "source_revealing": source_revealing,
+            "requires_source_metadata": source_revealing,
+            "allowed_without_source_metadata": not source_revealing,
+            "raw_source_withhold": True,
+            "citation_required": source_revealing,
+            "source_reveal_tier": "none",
+            "sensitivity_label": "derived_guidance",
+            "policy_decision_basis": "digestion_acl",
+        }
+        if kind == "manifest":
+            policy.update({
+                "source_reveal_tier": "source_metadata",
+                "sensitivity_label": "source_manifest",
+                "citation_required": False,
+            })
+        elif kind == "human_brief":
+            policy.update({
+                "source_reveal_tier": "source_summary",
+                "sensitivity_label": "source_summary",
+            })
+        elif kind == STRUCTURED_DATAPOINT_OUTPUT_KIND:
+            policy.update({
+                "source_reveal_tier": "structured_source_facts",
+                "sensitivity_label": "source_grounded_structured_data",
+            })
+        elif kind == PDF_FIGURE_OUTPUT_KIND:
+            policy.update({
+                "source_reveal_tier": "visual_source_derivative",
+                "sensitivity_label": "source_derived_visuals",
+                "visual_source_revealing": True,
+            })
+        elif kind == VISUAL_EVIDENCE_OUTPUT_KIND:
+            policy.update({
+                "source_reveal_tier": "visual_source_metadata",
+                "sensitivity_label": "source_derived_visual_evidence",
+                "visual_source_revealing": True,
+            })
+        elif kind == "agent_context":
+            policy.update({
+                "source_reveal_tier": "derived_context_only",
+                "sensitivity_label": "agent_operating_context",
+                "citation_required": True,
+            })
+        return policy
+
     def _output_row_to_dict(self, row: Any, *, include_content: bool = False) -> dict[str, Any]:
         try:
             metadata = json.loads(row["metadata_json"] or "{}")
         except Exception:
             metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        policy = metadata.get("access_policy")
+        if not isinstance(policy, dict):
+            policy = self._output_access_policy(str(row["output_kind"] or ""), metadata)
+            metadata["source_revealing"] = bool(policy.get("source_revealing"))
+            metadata["access_policy"] = policy
         content = str(row["content"] or "")
         data = {
             "id": str(row["id"] or ""),
@@ -5452,7 +5548,8 @@ Use this as a permissioned retrieval capability, not as raw file access.
             "output_kind": str(row["output_kind"] or ""),
             "title": str(row["title"] or ""),
             "content_type": str(row["content_type"] or "text/markdown"),
-            "metadata": metadata if isinstance(metadata, dict) else {},
+            "metadata": metadata,
+            "access_policy": policy,
             "created_at": str(row["created_at"] or ""),
             "updated_at": str(row["updated_at"] or ""),
             "size_chars": len(content),
