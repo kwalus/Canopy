@@ -584,12 +584,24 @@ class DigestionManager:
                     "input_file_id": original_info.id,
                     "file_id": source_info.id,
                     "file_name": source_info.original_name,
+                    "content_type": source_info.content_type,
                     "copied_to_owner_vault": copied_to_owner,
                     "submitted_by": actor_user_id,
+                    "source_owner_user_id": str(source_info.uploaded_by or ""),
+                    "digestion_owner_user_id": digestion_owner_id,
+                    "metadata": metadata,
                 })
             conn.execute("UPDATE digestions SET status = ?, updated_at = ? WHERE id = ?", ("draft", now, digestion.id))
             conn.commit()
-        return {"success": True, "added": added, "skipped": skipped, "digestion_id": digestion.id, "sources": source_results}
+        return {
+            "success": True,
+            "added": added,
+            "skipped": skipped,
+            "digestion_id": digestion.id,
+            "access": self._access_for(digestion, actor_user_id),
+            "sources": source_results,
+            "source_count_after": len(self._source_rows(digestion.id)),
+        }
 
     @staticmethod
     def _safe_vault_folder_segment(value: Any, *, fallback: str, limit: int = 80) -> str:
@@ -984,6 +996,7 @@ class DigestionManager:
             "digestion_id": digestion.id,
             "schema_version": AGENT_CONTRIBUTION_SCHEMA_VERSION,
             "ledger_schema_version": DIGESTION_CONTRIBUTION_LEDGER_SCHEMA_VERSION,
+            "access": self._access_for(digestion, actor_user_id),
             "materials_added": int(material_result.get("added") or 0),
             "source_files_added": int(source_result.get("added") or 0),
             "datapoints_added": int(datapoint_result.get("added") or 0),
@@ -1299,7 +1312,7 @@ class DigestionManager:
                 """,
                 (digestion.id,),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [self._source_row_to_dict(row) for row in rows]
 
     def list_figures(
         self,
@@ -1501,6 +1514,7 @@ class DigestionManager:
         now = self._now()
         source_rows = self._source_rows(digestion.id)
         remapped_sources: list[dict[str, Any]] = []
+        retained_sources: list[dict[str, Any]] = []
         skipped_sources: list[dict[str, Any]] = []
         source_map: dict[str, FileInfo] = {}
         target_folder_id: Optional[str] = None
@@ -1523,15 +1537,32 @@ class DigestionManager:
                 old_file_id = str(row["file_id"] or "").strip()
                 info = self.file_manager.get_file(old_file_id)
                 if not info:
-                    skipped_sources.append({"file_id": old_file_id, "reason": "source_file_not_found"})
+                    skipped_sources.append({
+                        "file_id": old_file_id,
+                        "file_name": str(self._row_get(row, "file_name", "") or old_file_id),
+                        "source_kind": str(self._row_get(row, "source_kind", "vault_file") or "vault_file"),
+                        "reason": "source_file_not_found",
+                    })
                     continue
                 source_owner = str(info.uploaded_by or "")
                 if source_owner == new_owner:
                     source_map[old_file_id] = info
+                    retained_sources.append({
+                        "from_file_id": old_file_id,
+                        "to_file_id": info.id,
+                        "file_name": info.original_name,
+                        "content_type": info.content_type,
+                        "source_kind": str(self._row_get(row, "source_kind", "vault_file") or "vault_file"),
+                        "source_label": str(self._row_get(row, "source_label", "") or info.original_name),
+                        "reason": "already_owned_by_new_owner",
+                    })
                     continue
                 if source_owner != actor:
                     skipped_sources.append({
                         "file_id": old_file_id,
+                        "file_name": info.original_name,
+                        "content_type": info.content_type,
+                        "source_kind": str(self._row_get(row, "source_kind", "vault_file") or "vault_file"),
                         "reason": "source_not_owned_by_current_owner",
                         "source_owner_user_id": source_owner,
                     })
@@ -1545,14 +1576,22 @@ class DigestionManager:
                 if not copied:
                     skipped_sources.append({
                         "file_id": old_file_id,
+                        "file_name": info.original_name,
+                        "content_type": info.content_type,
+                        "source_kind": str(self._row_get(row, "source_kind", "vault_file") or "vault_file"),
                         "reason": "copy_to_new_owner_failed",
                     })
                     continue
                 source_map[old_file_id] = copied
                 remapped_sources.append({
                     "from_file_id": old_file_id,
+                    "from_file_name": info.original_name,
                     "to_file_id": copied.id,
                     "file_name": copied.original_name,
+                    "content_type": copied.content_type,
+                    "source_kind": str(self._row_get(row, "source_kind", "vault_file") or "vault_file"),
+                    "source_label": str(self._row_get(row, "source_label", "") or info.original_name),
+                    "reason": "copied_to_new_owner_vault",
                 })
 
             if skipped_sources and strict_source_copy:
@@ -1647,7 +1686,22 @@ class DigestionManager:
 
         username = new_owner_row["username"] if "username" in row_keys else new_owner
         display_name = new_owner_row["display_name"] if "display_name" in row_keys else username
+        updated_digestion = self._get_digestion_obj(digestion.id)
+        caller_access = self._access_for(updated_digestion, actor) if updated_digestion else {
+            "role": "none",
+            "can_query": False,
+            "can_manage": False,
+            "can_read_sources": False,
+        }
+        new_owner_access = self._access_for(updated_digestion, new_owner) if updated_digestion else {
+            "role": "owner",
+            "can_query": True,
+            "can_manage": True,
+            "can_read_sources": True,
+        }
         transferred = self.get_digestion(digestion.id, user_id=new_owner) or {}
+        caller_view = self.get_digestion(digestion.id, user_id=actor) or {}
+        source_state_after_transfer = self._source_summary_rows(digestion.id)
         return {
             "success": True,
             "digestion_id": digestion.id,
@@ -1660,8 +1714,20 @@ class DigestionManager:
                 "account_type": (new_owner_row["account_type"] if "account_type" in row_keys else "") or "",
             },
             "keep_previous_owner_access": bool(keep_previous_owner_access),
+            "caller_access_after_transfer": caller_access,
+            "new_owner_access": new_owner_access,
             "sources_remapped": remapped_sources,
+            "sources_retained": retained_sources,
             "skipped_sources": skipped_sources,
+            "source_counts": {
+                "before": len(source_rows),
+                "after": len(source_state_after_transfer),
+                "remapped": len(remapped_sources),
+                "retained": len(retained_sources),
+                "skipped": len(skipped_sources),
+            },
+            "source_state_after_transfer": source_state_after_transfer,
+            "caller_digestion_after_transfer": caller_view,
             "digestion": transferred,
         }
 
@@ -4554,6 +4620,51 @@ class DigestionManager:
                 (digestion_id,),
             ).fetchall()
 
+    def _source_row_to_dict(self, row: Any) -> dict[str, Any]:
+        """Return a source row with parsed owner/copy/contribution metadata.
+
+        The raw JSON is kept for backwards compatibility, while the parsed fields
+        give agents and UI code a stable place to inspect provenance without
+        reimplementing the Digestion metadata schema.
+        """
+        metadata_raw = self._row_get(row, "source_metadata_json", "{}")
+        metadata = self._json_loads(metadata_raw, {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        source_kind = str(self._row_get(row, "source_kind", "vault_file") or "vault_file")
+        file_name = str(self._row_get(row, "file_name", "") or self._row_get(row, "file_id", "") or "")
+        source_label = str(self._row_get(row, "source_label", "") or file_name)
+        item = {
+            "file_id": str(self._row_get(row, "file_id", "") or ""),
+            "file_checksum": str(self._row_get(row, "file_checksum", "") or ""),
+            "file_name": file_name,
+            "content_type": str(self._row_get(row, "content_type", "") or ""),
+            "status": str(self._row_get(row, "status", "") or ""),
+            "extracted_chars": int(self._row_get(row, "extracted_chars", 0) or 0),
+            "chunk_count": int(self._row_get(row, "chunk_count", 0) or 0),
+            "error": str(self._row_get(row, "error", "") or ""),
+            "updated_at": str(self._row_get(row, "updated_at", "") or ""),
+            "source_kind": source_kind,
+            "source_label": source_label,
+            "source_uri": str(self._row_get(row, "source_uri", "") or ""),
+            "source_metadata_json": str(metadata_raw or "{}"),
+            "metadata": metadata,
+            "source_metadata": metadata,
+            "ingest_path": str(metadata.get("ingest_path") or source_kind or ""),
+            "submitted_by": str(metadata.get("submitted_by") or ""),
+            "source_owner_user_id": str(metadata.get("source_owner_user_id") or ""),
+            "original_file_id": str(metadata.get("original_file_id") or ""),
+            "original_file_name": str(metadata.get("original_file_name") or ""),
+            "original_uploaded_by": str(metadata.get("original_uploaded_by") or ""),
+            "original_checksum": str(metadata.get("original_checksum") or ""),
+            "copied_to_owner_vault": bool(metadata.get("copied_to_owner_vault")),
+            "owner_intake_folder_id": str(metadata.get("owner_intake_folder_id") or ""),
+            "owner_intake_folder": str(metadata.get("owner_intake_folder") or ""),
+            "ownership_transfer": metadata.get("ownership_transfer") if isinstance(metadata.get("ownership_transfer"), dict) else {},
+            "preview_file_id": str(self._row_get(row, "file_id", "") or ""),
+        }
+        return item
+
     def _queryable_chunk_rows(self, digestion_id: str) -> list[Any]:
         with self.db.get_connection() as conn:
             return conn.execute(
@@ -5412,24 +5523,24 @@ Required JSON shape:
         rows = self._source_rows(digestion_id)
         summaries: list[dict[str, Any]] = []
         for row in rows:
-            metadata_raw = self._row_get(row, "source_metadata_json", "{}")
-            try:
-                metadata = json.loads(metadata_raw or "{}")
-            except Exception:
-                metadata = {}
+            source = self._source_row_to_dict(row)
             summaries.append({
-                "file_id": str(row["file_id"] or ""),
-                "file_name": str(row["file_name"] or row["file_id"] or ""),
-                "content_type": str(row["content_type"] or ""),
-                "source_kind": str(self._row_get(row, "source_kind", "vault_file") or "vault_file"),
-                "source_label": str(self._row_get(row, "source_label", "") or row["file_name"] or ""),
-                "source_uri": str(self._row_get(row, "source_uri", "") or ""),
-                "status": str(row["status"] or ""),
-                "extracted_chars": int(row["extracted_chars"] or 0),
-                "chunk_count": int(row["chunk_count"] or 0),
-                "error": str(row["error"] or ""),
-                "updated_at": str(row["updated_at"] or ""),
-                "metadata": metadata if isinstance(metadata, dict) else {},
+                "file_id": source["file_id"],
+                "file_name": source["file_name"],
+                "content_type": source["content_type"],
+                "source_kind": source["source_kind"],
+                "source_label": source["source_label"],
+                "source_uri": source["source_uri"],
+                "status": source["status"],
+                "extracted_chars": source["extracted_chars"],
+                "chunk_count": source["chunk_count"],
+                "error": source["error"],
+                "updated_at": source["updated_at"],
+                "metadata": source["metadata"],
+                "submitted_by": source["submitted_by"],
+                "original_file_id": source["original_file_id"],
+                "copied_to_owner_vault": source["copied_to_owner_vault"],
+                "ownership_transfer": source["ownership_transfer"],
             })
         return summaries
 

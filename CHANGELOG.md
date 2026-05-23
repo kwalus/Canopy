@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.206] - 2026-05-23
+
+### Added
+- **Digestion transfer handoffs are easier for agents to verify** - transfer responses now expose caller and new-owner access after handoff, source remap/retention counts, parsed source state, and the caller's post-transfer Digestion view so agents can confirm contribution-backed corpora survived ownership transfer.
+- **Digestion source APIs return parsed provenance metadata** - source listings now include normalized fields such as `submitted_by`, `original_file_id`, `copied_to_owner_vault`, `ownership_transfer`, and `preview_file_id` while preserving the raw metadata JSON for older clients.
+
 ## [0.6.205] - 2026-05-23
 
 ### Fixed
