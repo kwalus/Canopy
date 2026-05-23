@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.205] - 2026-05-23
+
+### Fixed
+- **Canopy file-reference pills prefer human-readable filenames** - rendered `file:F...` references now hydrate through the existing file-reference resolver and replace fallback short IDs with the stored original filename when the viewer has access, while preserving explicit custom link labels.
+
 ## [0.6.204] - 2026-05-23
 
 ### Added

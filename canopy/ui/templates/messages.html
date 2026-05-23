@@ -4005,10 +4005,16 @@
                         ? window.CSS.escape(String(messageId))
                         : String(messageId).replace(/["\\]/g, '\\$&');
                     processRichEmbeds(`.message-item[data-message-id="${escapedId}"] .dm-bubble-copy`);
+                    if (typeof applyCanopyFileReferenceLabels === 'function') {
+                        applyCanopyFileReferenceLabels(root);
+                    }
                     return;
                 }
             }
             processRichEmbeds('.dm-bubble-copy');
+        }
+        if (typeof applyCanopyFileReferenceLabels === 'function') {
+            applyCanopyFileReferenceLabels(root);
         }
     }
 

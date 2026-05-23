@@ -5573,6 +5573,9 @@
                     renderMathInElementSafe(el);
                 }
             });
+            if (typeof applyCanopyFileReferenceLabels === 'function') {
+                applyCanopyFileReferenceLabels(document);
+            }
         }
 
         function updatePostTaskToggle() {
