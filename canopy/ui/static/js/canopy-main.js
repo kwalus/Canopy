@@ -61,25 +61,28 @@
             const now = new Date();
             const diff = now.getTime() - date.getTime();
 
-            if (diff < -60000) return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-            if (diff < 60000) return 'Now';
-            if (diff < 3600000) return Math.floor(diff / 60000) + 'm';
-            if (diff < 86400000) return Math.floor(diff / 3600000) + 'h';
-
             const sameYear = date.getFullYear() === now.getFullYear();
+            if (diff < -60000) {
+                return date.toLocaleDateString(undefined, sameYear
+                    ? { month: 'numeric', day: 'numeric' }
+                    : { month: 'numeric', day: 'numeric', year: '2-digit' });
+            }
+            if (diff < 60000) return 'now';
+            if (diff < 3600000) return Math.max(1, Math.floor(diff / 60000)) + 'm';
+            if (diff < 86400000) return Math.max(1, Math.floor(diff / 3600000)) + 'h';
+            if (diff < 7 * 86400000) return Math.max(1, Math.floor(diff / 86400000)) + 'd';
+
             return date.toLocaleDateString(undefined, sameYear
-                ? { month: 'short', day: 'numeric' }
-                : { month: 'short', day: 'numeric', year: '2-digit' });
+                ? { month: 'numeric', day: 'numeric' }
+                : { month: 'numeric', day: 'numeric', year: '2-digit' });
         }
 
         function formatTimestamps(scope) {
             const root = scope && typeof scope.querySelectorAll === 'function' ? scope : document;
             root.querySelectorAll('[data-timestamp]').forEach(el => {
                 const timestamp = el.getAttribute('data-timestamp');
-                const format = String(el.getAttribute('data-timestamp-format') || '').trim().toLowerCase();
-                el.textContent = format === 'compact'
-                    ? formatCompactTimestamp(timestamp)
-                    : formatTimestamp(timestamp);
+                const formatMode = String(el.getAttribute('data-timestamp-format') || '').trim().toLowerCase();
+                el.textContent = formatMode === 'compact' ? formatCompactTimestamp(timestamp) : formatTimestamp(timestamp);
                 const parsed = parseCanopyTimestamp(timestamp);
                 if (parsed) {
                     el.title = parsed.toLocaleString();
@@ -8122,17 +8125,6 @@
                 name.textContent = contact.display_name || contact.username || contact.user_id || 'User';
                 nameRow.appendChild(name);
 
-                const time = document.createElement('div');
-                time.className = 'sidebar-dm-time';
-                if (contact.latest_message_at) {
-                    time.textContent = typeof formatCompactTimestamp === 'function'
-                        ? formatCompactTimestamp(contact.latest_message_at)
-                        : formatTimestamp(contact.latest_message_at);
-                    time.setAttribute('data-timestamp', contact.latest_message_at);
-                    time.setAttribute('data-timestamp-format', 'compact');
-                }
-                nameRow.appendChild(time);
-
                 const preview = document.createElement('div');
                 preview.className = 'sidebar-dm-preview';
                 preview.textContent = contact.latest_preview || 'Message';
@@ -8142,6 +8134,15 @@
 
                 link.appendChild(avatarWrap);
                 link.appendChild(meta);
+
+                const time = document.createElement('div');
+                time.className = 'sidebar-dm-time';
+                if (contact.latest_message_at) {
+                    time.textContent = formatCompactTimestamp(contact.latest_message_at);
+                    time.setAttribute('data-timestamp', contact.latest_message_at);
+                    time.setAttribute('data-timestamp-format', 'compact');
+                }
+                link.appendChild(time);
 
                 dmFrag.appendChild(link);
             });

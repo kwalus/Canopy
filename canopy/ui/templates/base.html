@@ -2167,7 +2167,7 @@
 
         .sidebar-dm-contact {
             display: grid;
-            grid-template-columns: auto minmax(0, 1fr);
+            grid-template-columns: auto minmax(0, 1fr) minmax(2.4rem, max-content);
             align-items: center;
             gap: 8px;
             padding: 7px 8px;
@@ -2303,14 +2303,11 @@
         .sidebar-dm-name-row {
             display: flex;
             align-items: center;
-            justify-content: space-between;
             gap: 0.4rem;
             min-width: 0;
         }
 
         .sidebar-dm-name {
-            flex: 1 1 auto;
-            min-width: 0;
             font-size: 0.79rem;
             font-weight: 700;
             white-space: nowrap;
@@ -2328,15 +2325,14 @@
         }
 
         .sidebar-dm-time {
-            flex: 0 0 auto;
-            max-width: 4.2rem;
             font-size: 0.64rem;
             color: var(--canopy-text-muted);
             white-space: nowrap;
             text-align: right;
+            max-width: 3.4rem;
             overflow: hidden;
             text-overflow: ellipsis;
-            line-height: 1.2;
+            justify-self: end;
         }
 
         .sidebar-media-mini {
@@ -14145,10 +14141,10 @@
                                         <div class="sidebar-dm-meta">
                                             <div class="sidebar-dm-name-row">
                                                 <div class="sidebar-dm-name">{{ contact.display_name or contact.username or contact.user_id }}</div>
-                                                <div class="sidebar-dm-time" data-timestamp="{{ contact.latest_message_at }}" data-timestamp-format="compact">{{ contact.latest_message_at }}</div>
                                             </div>
                                             <div class="sidebar-dm-preview">{{ contact.latest_preview or 'Message' }}</div>
                                         </div>
+                                        <div class="sidebar-dm-time" data-timestamp="{{ contact.latest_message_at }}" data-timestamp-format="compact">{{ contact.latest_message_at }}</div>
                                     </a>
 	                                {% endfor %}
 	                            {% else %}

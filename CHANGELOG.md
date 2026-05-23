@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.198] - 2026-05-23
+
+### Fixed
+- **Recent DMs rail keeps sender names readable with older messages** - compact timestamps now use shorter day/date labels and sit in a constrained right-side rail cell, preventing long locale dates from competing with sender names and previews.
+
 ## [0.6.197] - 2026-05-23
 
 ### Fixed
