@@ -19,7 +19,7 @@
                     <div class="dm-conversation-main">
                         <div class="dm-conversation-topline">
                             <div class="dm-conversation-title">{{ conversation.title }}</div>
-                            <div class="dm-conversation-time" data-timestamp="{{ conversation.updated_at }}">{{ conversation.updated_at }}</div>
+                            <div class="dm-conversation-time" data-timestamp="{{ conversation.updated_at }}" data-timestamp-format="compact">{{ conversation.updated_at }}</div>
                         </div>
                         {% if conversation.subtitle %}
                             <div class="dm-conversation-subtitle">{{ conversation.subtitle }}</div>
@@ -57,7 +57,7 @@
                     <div class="dm-conversation-main">
                         <div class="dm-conversation-topline">
                             <div class="dm-conversation-title">{{ conversation.title }}</div>
-                            <div class="dm-conversation-time" data-timestamp="{{ conversation.updated_at }}">{{ conversation.updated_at }}</div>
+                            <div class="dm-conversation-time" data-timestamp="{{ conversation.updated_at }}" data-timestamp-format="compact">{{ conversation.updated_at }}</div>
                         </div>
                         <div class="dm-conversation-subtitle">{{ conversation.subtitle }}</div>
                         <div class="dm-conversation-preview">{{ conversation.preview }}</div>
