@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.206-blue" alt="Version 0.6.206">
+  <img src="https://img.shields.io/badge/version-0.6.207-blue" alt="Version 0.6.207">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -529,6 +529,7 @@ Vault links pasted into feed posts, comments, channel messages, or DMs are also 
 | GET/POST | `/api/v1/digestions/<id>/outputs` | List, generate, or refresh reusable human/agent/machine outputs |
 | GET | `/api/v1/digestions/<id>/package` | Return an attachable package snapshot with caller-visible outputs and access notes |
 | GET/POST/DELETE | `/api/v1/digestions/<id>/acl` | Audit, grant, update, or revoke live query/source/manage access |
+| DELETE | `/api/v1/digestions/<id>` | Owner-only safe delete of the Digestion index, ACLs, outputs, contribution ledger, and query history while preserving Vault source files |
 
 Digestions stay local by default. Sharing a package or output as an attachment does not automatically grant live query access; owners or managers use the ACL endpoints/UI to grant explicit query, source-metadata, or manage permissions.
 

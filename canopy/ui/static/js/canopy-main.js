@@ -3091,6 +3091,60 @@
                     };
                 }
 
+                function renderDigestionDeletePanel(digestion) {
+                    const id = vaultEscape(digestion && digestion.id || '');
+                    const name = vaultEscape(digestion && digestion.name || 'Untitled Digestion');
+                    const stats = digestionStats(digestion);
+                    const sourceCount = digestionSourceCount(digestion, stats);
+                    const chunks = Number(stats.chunks || 0);
+                    const outputs = Number(stats.outputs || 0);
+                    const figures = Number(stats.figures || 0) + Number(stats.visual_evidence || 0);
+                    const datapoints = Number(stats.datapoint_count || 0);
+                    const contributions = Number(stats.contribution_count || 0);
+                    return `
+                        <section class="vault-digestion-delete" data-vault-digestion-delete="${id}" hidden>
+                            <div class="vault-digestion-delete-head">
+                                <div>
+                                    <strong><i class="bi bi-trash3"></i> Delete this Digestion?</strong>
+                                    <span>This removes the live Digestion object, index, generated outputs, access grants, contribution ledger, visual evidence records, and query history.</span>
+                                </div>
+                                <span class="vault-digestion-delete-keep"><i class="bi bi-shield-check"></i> Vault source files are preserved</span>
+                            </div>
+                            <div class="vault-digestion-delete-grid" aria-label="Deletion impact summary">
+                                <span><strong>${sourceCount.toLocaleString()}</strong> source link${sourceCount === 1 ? '' : 's'}</span>
+                                <span><strong>${chunks.toLocaleString()}</strong> chunk${chunks === 1 ? '' : 's'}</span>
+                                <span><strong>${outputs.toLocaleString()}</strong> output${outputs === 1 ? '' : 's'}</span>
+                                <span><strong>${datapoints.toLocaleString()}</strong> datapoint${datapoints === 1 ? '' : 's'}</span>
+                                <span><strong>${figures.toLocaleString()}</strong> figure/evidence record${figures === 1 ? '' : 's'}</span>
+                                <span><strong>${contributions.toLocaleString()}</strong> contribution${contributions === 1 ? '' : 's'}</span>
+                            </div>
+                            <p class="vault-digestion-delete-copy">
+                                This does <strong>not</strong> delete raw source files, exported package files, attachments, or generated image files from the Vault. Delete those separately if you truly want to remove the underlying material.
+                            </p>
+                            <div class="vault-digestion-delete-confirm">
+                                <label>
+                                    Type <strong>${name}</strong> to confirm
+                                    <input class="form-control form-control-sm"
+                                           type="text"
+                                           autocomplete="off"
+                                           data-vault-digestion-delete-confirm="${id}"
+                                           data-vault-digestion-delete-expected="${name}"
+                                           placeholder="Exact Digestion name">
+                                </label>
+                                <div class="vault-digestion-delete-actions">
+                                    <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="cancel-delete" data-vault-digestion-id="${id}">
+                                        Cancel
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" type="button" data-vault-digestion-action="confirm-delete" data-vault-digestion-id="${id}" disabled>
+                                        <i class="bi bi-trash3"></i> Delete Digestion
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="vault-digestion-delete-status" data-vault-digestion-delete-status="${id}" aria-live="polite"></div>
+                        </section>
+                    `;
+                }
+
                 function renderDigestionContributionItem(source, digestion) {
                     const details = digestionContributionMeta(source);
                     const fileId = String(source && source.file_id || details.meta.vault_file_id || '').trim();
@@ -3316,6 +3370,7 @@
 		                    const access = digestion.access || {};
 	                    const canManage = !!access.can_manage;
                     const canDropSources = canManage && String(access.role || '') === 'owner';
+                    const canDelete = String(access.role || '') === 'owner';
                     const canReadSources = !!access.can_read_sources;
 		                    const chunks = Number(stats.chunks || 0);
 		                    const tokens = Number(stats.token_estimate || 0);
@@ -3410,7 +3465,13 @@
 	                                <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="copy-agent-ref" data-vault-digestion-id="${id}" aria-label="Copy agent reference for ${name}">
 	                                    <i class="bi bi-clipboard"></i> Agent ref
 	                                </button>
+                                    ${canDelete ? `
+                                    <button class="btn btn-sm btn-outline-danger vault-digestion-btn is-danger" type="button" data-vault-digestion-action="delete" data-vault-digestion-id="${id}" aria-label="Delete ${name}" aria-expanded="false" title="Delete this Digestion index and generated records. Source Vault files are preserved.">
+                                        <i class="bi bi-trash3"></i> Delete
+                                    </button>
+                                    ` : ''}
 	                            </div>
+                                ${canDelete ? renderDigestionDeletePanel(digestion) : ''}
                                 ${renderDigestionProgress('build', 'Build', buildProgress)}
                                 ${renderDigestionProgress('datapoints', 'Datapoint extraction', datapointProgress)}
                                 ${renderDigestionContributionsPanel(digestion)}
@@ -3682,6 +3743,85 @@
                     if (willOpen) {
                         loadDigestionContributions(digestionId);
                         panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }
+
+                function toggleDigestionDeletePanel(digestionId, forceOpen = null) {
+                    const panel = document.querySelector(`[data-vault-digestion-delete="${vaultCssEscape(digestionId)}"]`);
+                    if (!panel) return;
+                    const willOpen = forceOpen === null ? panel.hidden : !!forceOpen;
+                    panel.hidden = !willOpen;
+                    panel.classList.toggle('is-visible', willOpen);
+                    const button = digestionList && digestionList.querySelector(`[data-vault-digestion-action="delete"][data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
+                    if (button) button.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                    const status = panel.querySelector(`[data-vault-digestion-delete-status="${vaultCssEscape(digestionId)}"]`);
+                    if (status) status.textContent = '';
+                    const input = panel.querySelector(`[data-vault-digestion-delete-confirm="${vaultCssEscape(digestionId)}"]`);
+                    if (input) {
+                        input.value = '';
+                        updateDigestionDeleteConfirm(input);
+                        if (willOpen) {
+                            global.setTimeout(() => input.focus(), 0);
+                        }
+                    }
+                    if (willOpen) {
+                        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }
+
+                function updateDigestionDeleteConfirm(input) {
+                    if (!input) return;
+                    const digestionId = input.getAttribute('data-vault-digestion-delete-confirm') || '';
+                    const panel = input.closest('[data-vault-digestion-delete]');
+                    const confirmButton = panel && panel.querySelector(`[data-vault-digestion-action="confirm-delete"][data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
+                    const digestion = findDigestion(digestionId);
+                    const expectedName = String((digestion && digestion.name) || input.getAttribute('data-vault-digestion-delete-expected') || '').trim();
+                    const typed = String(input.value || '').trim();
+                    if (confirmButton) {
+                        confirmButton.disabled = !(typed && (typed === expectedName || typed === digestionId));
+                    }
+                }
+
+                async function deleteDigestion(digestionId, button) {
+                    const id = String(digestionId || '').trim();
+                    const digestion = findDigestion(id);
+                    const panel = document.querySelector(`[data-vault-digestion-delete="${vaultCssEscape(id)}"]`);
+                    const input = panel && panel.querySelector(`[data-vault-digestion-delete-confirm="${vaultCssEscape(id)}"]`);
+                    const status = panel && panel.querySelector(`[data-vault-digestion-delete-status="${vaultCssEscape(id)}"]`);
+                    const confirmation = String(input && input.value || '').trim();
+                    if (!id || !digestion || !confirmation) return;
+                    if (status) status.textContent = 'Deleting Digestion...';
+                    const original = button ? button.innerHTML : '';
+                    if (button) {
+                        button.disabled = true;
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Deleting';
+                    }
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(id)}`, {
+                            method: 'DELETE',
+                            body: JSON.stringify({
+                                confirm_name: confirmation,
+                                confirm_digestion_id: confirmation,
+                            }),
+                        });
+                        stopDigestionProgressWatch(id, 'build');
+                        stopDigestionProgressWatch(id, 'datapoints');
+                        state.digestions = state.digestions.filter(item => String(item && item.id || '') !== id);
+                        renderDigestions();
+                        updateSelectionUi();
+                        const preserved = data && data.preserved && Number(data.preserved.vault_source_files || 0);
+                        const message = preserved
+                            ? `Digestion deleted. ${preserved.toLocaleString()} source Vault file${preserved === 1 ? '' : 's'} preserved.`
+                            : 'Digestion deleted. Source Vault files were preserved.';
+                        if (typeof showAlert === 'function') showAlert(message, 'success');
+                    } catch (err) {
+                        const message = err && (err.error || err.message) ? (err.error || err.message) : 'Could not delete Digestion.';
+                        if (status) status.textContent = message;
+                        if (typeof showAlert === 'function') showAlert(message, 'danger');
+                        if (button) {
+                            button.disabled = false;
+                            button.innerHTML = original;
+                        }
                     }
                 }
 
@@ -6670,6 +6810,12 @@
 		                            revokeDigestionAclAccess(actionBtn);
 		                        } else if (action === 'copy-agent-ref') {
 		                            copyDigestionAgentReference(digestionId);
+                        } else if (action === 'delete') {
+                            toggleDigestionDeletePanel(digestionId);
+                        } else if (action === 'cancel-delete') {
+                            toggleDigestionDeletePanel(digestionId, false);
+                        } else if (action === 'confirm-delete') {
+                            deleteDigestion(digestionId, actionBtn);
                         } else if (action === 'open-result-source') {
                             openDigestionResultSource(actionBtn);
                         } else if (action === 'copy-result-text') {
@@ -6694,7 +6840,12 @@
 	                        const shareInput = event.target.closest('[data-vault-digestion-share-search]');
 		                        if (shareInput && digestionList.contains(shareInput)) {
 		                            queueDigestionShareSearch(shareInput);
+                                    return;
 		                        }
+                            const deleteInput = event.target.closest('[data-vault-digestion-delete-confirm]');
+                            if (deleteInput && digestionList.contains(deleteInput)) {
+                                updateDigestionDeleteConfirm(deleteInput);
+                            }
 		                    });
 		                    digestionList.addEventListener('change', (event) => {
 		                        const aclRow = event.target.closest('[data-vault-digestion-acl-row]');

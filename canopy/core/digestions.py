@@ -1808,6 +1808,113 @@ class DigestionManager:
             "revoked": bool(getattr(cursor, "rowcount", 0)),
         }
 
+    def delete_digestion(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        confirm_name: str = "",
+        confirm_digestion_id: str = "",
+    ) -> dict[str, Any]:
+        """Delete an owned Digestion index and derived records while preserving Vault files.
+
+        Deletion is intentionally owner-only. A manager can mutate a corpus, but
+        removing the whole Digestion is destructive enough that the owner must
+        explicitly confirm it. The Digestion rows, chunks, ACLs, outputs, visual
+        evidence, contribution ledger, and query log are removed; source Vault
+        files, exported package files, and generated image files remain in the
+        Vault so attachments and reused materials are not broken.
+        """
+        actor = self._clean_id(actor_user_id)
+        digestion = self._require_digestion(digestion_id, actor, manage=True)
+        if actor != str(digestion.owner_user_id):
+            raise DigestionError(
+                "Only the Digestion owner can delete this Digestion.",
+                status_code=403,
+                reason="owner_required",
+            )
+        expected_name = str(digestion.name or "").strip()
+        supplied_name = str(confirm_name or "").strip()
+        supplied_id = self._clean_id(confirm_digestion_id)
+        if supplied_id != digestion.id and supplied_name != expected_name:
+            raise DigestionError(
+                "Confirm the Digestion name or ID before deleting it.",
+                status_code=400,
+                reason="delete_confirmation_required",
+            )
+
+        counts: dict[str, int] = {}
+        preserved_source_file_ids: set[str] = set()
+        preserved_generated_file_ids: set[str] = set()
+        with self.db.get_connection() as conn:
+            for table, key in (
+                ("digestion_sources", "sources"),
+                ("digestion_chunks", "chunks"),
+                ("digestion_acl", "acl_entries"),
+                ("digestion_outputs", "outputs"),
+                ("digestion_pdf_figures", "pdf_figures"),
+                ("digestion_visual_evidence", "visual_evidence"),
+                ("digestion_contributions", "contributions"),
+                ("digestion_query_log", "query_log_entries"),
+            ):
+                row = conn.execute(
+                    f"SELECT COUNT(*) AS count FROM {table} WHERE digestion_id = ?",
+                    (digestion.id,),
+                ).fetchone()
+                counts[key] = int((row["count"] if row else 0) or 0)
+            for row in conn.execute(
+                "SELECT file_id FROM digestion_sources WHERE digestion_id = ?",
+                (digestion.id,),
+            ).fetchall():
+                file_id = self._clean_id(row["file_id"] if row else "")
+                if file_id:
+                    preserved_source_file_ids.add(file_id)
+            for table in ("digestion_pdf_figures", "digestion_visual_evidence"):
+                for row in conn.execute(
+                    f"SELECT image_file_id FROM {table} WHERE digestion_id = ? AND image_file_id IS NOT NULL",
+                    (digestion.id,),
+                ).fetchall():
+                    file_id = self._clean_id(row["image_file_id"] if row else "")
+                    if file_id:
+                        preserved_generated_file_ids.add(file_id)
+
+            # Explicit child-table deletes keep behavior stable even if SQLite
+            # foreign-key enforcement is disabled for a test or local database.
+            for table in (
+                "digestion_query_log",
+                "digestion_contributions",
+                "digestion_visual_evidence",
+                "digestion_pdf_figures",
+                "digestion_outputs",
+                "digestion_chunks",
+                "digestion_acl",
+                "digestion_sources",
+            ):
+                conn.execute(f"DELETE FROM {table} WHERE digestion_id = ?", (digestion.id,))
+            cursor = conn.execute(
+                "DELETE FROM digestions WHERE id = ? AND owner_user_id = ?",
+                (digestion.id, actor),
+            )
+            conn.commit()
+
+        with self._progress_lock:
+            self._operation_progress.pop(digestion.id, None)
+
+        deleted = bool(getattr(cursor, "rowcount", 0))
+        return {
+            "success": deleted,
+            "deleted": deleted,
+            "digestion_id": digestion.id,
+            "name": digestion.name,
+            "removed": counts,
+            "preserved": {
+                "vault_source_files": len(preserved_source_file_ids),
+                "generated_image_files": len(preserved_generated_file_ids),
+                "vault_files_are_preserved": True,
+                "note": "Source Vault files, exported packages, and generated image files were not deleted.",
+            },
+        }
+
     # ------------------------------------------------------------------
     # Build and query
     # ------------------------------------------------------------------
