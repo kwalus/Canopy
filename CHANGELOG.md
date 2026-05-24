@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.208] - 2026-05-24
+
+### Added
+- **File Vault file lists can collapse while managing Digestions** - the Vault file panel now has a persistent Collapse/Show control so users with large Vaults can quickly reach the Digestions panel without losing search, upload, selection, or drag/drop behavior.
+
+### Fixed
+- **Digestion-generated materials stay organized in owner-bound intake folders** - normalized inline materials and agent contribution notes are now saved directly into the owner's per-Digestion Intake subfolder instead of accumulating in Vault Home.
+- **Contribution Preview Source resolves owner-bound files more reliably** - contribution preview metadata now includes stable file-id aliases and the Vault UI accepts those aliases before showing the inline source preview.
+
 ## [0.6.207] - 2026-05-23
 
 ### Added

@@ -6474,13 +6474,19 @@ Use this as a permissioned retrieval capability, not as raw file access.
             source_name = str(row["source_file_name"] or row["original_name"] or file_id)
             content_type = str(row["source_content_type"] or row["file_content_type"] or "")
             info_by_id[file_id] = {
+                "id": file_id,
                 "file_id": file_id,
+                "vault_file_id": file_id,
+                "source_file_id": file_id,
+                "preview_file_id": file_id,
                 "file_name": source_name,
                 "name": source_name,
                 "filename": source_name,
                 "original_name": source_name,
                 "content_type": content_type,
                 "type": content_type,
+                "mime_type": content_type,
+                "url": f"/files/{file_id}",
                 "source_kind": str(row["source_kind"] or ""),
                 "source_label": str(row["source_label"] or source_name),
                 "source_uri": str(row["source_uri"] or ""),
@@ -7038,13 +7044,30 @@ Use this as a permissioned retrieval capability, not as raw file access.
         normalized_text = self._normalize_material_text(content, title=title, header=header, content_type=content_type)
         # Managed material ingestion becomes part of the Digestion owner's local
         # corpus so later builds do not depend on the manager/agent's Vault.
-        file_info = self.file_manager.save_file(normalized_text.encode("utf-8"), filename, content_type, digestion.owner_user_id)
+        # Keep these generated files out of Vault Home so large Digestions do not
+        # bury the user's ordinary files.
+        intake_folder_id = self._digestion_intake_folder_id(digestion)
+        if not intake_folder_id:
+            raise DigestionError(
+                "Could not create the owner's Digestion Intake folder.",
+                status_code=500,
+                reason="intake_folder_unavailable",
+            )
+        file_info = self.file_manager.save_file(
+            normalized_text.encode("utf-8"),
+            filename,
+            content_type,
+            digestion.owner_user_id,
+            vault_folder_id=intake_folder_id,
+        )
         if not file_info:
             raise DigestionError("Could not persist normalized material to Vault.", status_code=500, reason="material_vault_save_failed")
         material_meta = dict(header)
         material_meta.update({
             "vault_file_id": file_info.id,
             "vault_file_name": file_info.original_name,
+            "owner_intake_folder_id": intake_folder_id,
+            "owner_intake_folder": self._digestion_intake_folder_name(digestion),
             "content_type": file_info.content_type,
             "checksum": file_info.checksum,
             "submitted_by": actor_user_id,

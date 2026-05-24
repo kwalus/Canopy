@@ -1182,6 +1182,7 @@
                 other: 'Other'
             };
             const VAULT_VIEW_STORAGE_KEY = 'canopy:vault:viewMode';
+            const VAULT_FILE_PANEL_COLLAPSED_STORAGE_KEY = 'canopy:vault:filePanelCollapsed';
             const VAULT_VIEW_MODES = new Set(['list', 'icons', 'preview']);
             const VAULT_DIGESTION_SORT_STORAGE_KEY = 'canopy:vault:digestionSort';
             const VAULT_DIGESTION_DENSITY_STORAGE_KEY = 'canopy:vault:digestionDensity';
@@ -2166,6 +2167,13 @@
                         return 'comfortable';
                     }
                 }
+                function readVaultFilePanelCollapsed() {
+                    try {
+                        return String(global.localStorage && global.localStorage.getItem(VAULT_FILE_PANEL_COLLAPSED_STORAGE_KEY) || '') === 'true';
+                    } catch (_) {
+                        return false;
+                    }
+                }
                 const state = {
                     files: Array.isArray(global.CANOPY_VAULT_INITIAL?.files) ? global.CANOPY_VAULT_INITIAL.files.slice() : [],
                     folders: Array.isArray(global.CANOPY_VAULT_INITIAL?.folders) ? global.CANOPY_VAULT_INITIAL.folders.slice() : [],
@@ -2184,6 +2192,7 @@
 	                    loading: false,
 	                    timer: null,
 	                    viewMode: readVaultViewMode(),
+                        filePanelCollapsed: readVaultFilePanelCollapsed(),
 				                    selectedIds: new Set(),
 				                    shareTimers: new Map(),
 				                    shareUsers: new Map(),
@@ -2208,6 +2217,7 @@
 		                };
 	                const grid = document.getElementById('vault-grid');
 	                const filePanel = document.getElementById('vault-file-panel');
+                    const filePanelCollapse = document.getElementById('vault-file-panel-collapse');
 	                const empty = document.getElementById('vault-empty');
 	                const search = document.getElementById('vault-search');
 	                const loadMore = document.getElementById('vault-load-more');
@@ -2696,6 +2706,25 @@
                         if (global.localStorage) global.localStorage.setItem(VAULT_VIEW_STORAGE_KEY, nextMode);
                     } catch (_) {}
                     applyVaultViewMode();
+                }
+
+                function setVaultFilePanelCollapsed(collapsed) {
+                    const isCollapsed = !!collapsed;
+                    state.filePanelCollapsed = isCollapsed;
+                    if (filePanel) {
+                        filePanel.classList.toggle('is-collapsed', isCollapsed);
+                    }
+                    if (filePanelCollapse) {
+                        filePanelCollapse.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+                        filePanelCollapse.innerHTML = isCollapsed
+                            ? '<i class="bi bi-chevron-down"></i> Show files'
+                            : '<i class="bi bi-chevron-up"></i> Collapse files';
+                    }
+                    try {
+                        if (global.localStorage) {
+                            global.localStorage.setItem(VAULT_FILE_PANEL_COLLAPSED_STORAGE_KEY, isCollapsed ? 'true' : 'false');
+                        }
+                    } catch (_) {}
                 }
 
                 function updateStats(stats) {
@@ -5657,9 +5686,20 @@
                 function digestionResultSource(result) {
                     const item = result && typeof result === 'object' ? result : {};
                     const source = item.source && typeof item.source === 'object' ? item.source : {};
+                    const fileId = String(
+                        item.file_id
+                        || item.vault_file_id
+                        || item.source_file_id
+                        || item.preview_file_id
+                        || source.file_id
+                        || source.vault_file_id
+                        || source.source_file_id
+                        || source.preview_file_id
+                        || ''
+                    ).trim();
                     return {
-                        file_id: String(item.file_id || source.file_id || ''),
-                        file_name: String(item.file_name || source.file_name || item.filename || 'Source'),
+                        file_id: fileId,
+                        file_name: String(item.file_name || source.file_name || item.filename || source.filename || source.name || fileId || 'Source'),
                         content_type: String(item.content_type || source.content_type || ''),
                         page_label: String(item.page_label || source.page_label || ''),
                         chunk_index: item.chunk_index !== undefined ? item.chunk_index : source.chunk_index,
@@ -5673,19 +5713,35 @@
                 }
 
                 function digestionSourceFile(source) {
+                    const fileId = String(
+                        source && (
+                            source.file_id
+                            || source.id
+                            || source.vault_file_id
+                            || source.source_file_id
+                            || source.preview_file_id
+                        ) || ''
+                    ).trim();
                     return {
-                        id: source.file_id || '',
-                        file_id: source.file_id || '',
-                        name: source.file_name || source.file_id || 'Source',
-                        filename: source.file_name || source.file_id || 'Source',
-                        original_name: source.file_name || source.file_id || 'Source',
+                        id: fileId,
+                        file_id: fileId,
+                        vault_file_id: fileId,
+                        name: source.file_name || source.name || source.filename || source.original_name || fileId || 'Source',
+                        filename: source.file_name || source.name || source.filename || source.original_name || fileId || 'Source',
+                        original_name: source.file_name || source.name || source.filename || source.original_name || fileId || 'Source',
                         content_type: source.content_type || '',
                         type: source.content_type || '',
                     };
                 }
 
                 function canPreviewDigestionSource(source) {
-                    return !!(source && source.file_id);
+                    return !!(source && (
+                        source.file_id
+                        || source.id
+                        || source.vault_file_id
+                        || source.source_file_id
+                        || source.preview_file_id
+                    ));
                 }
 
                 function renderDigestionResultActions(source, text, detailId = '', options = {}) {
@@ -6360,7 +6416,8 @@
                             state.currentFolderId = String(data.current_folder_id || state.currentFolderId || '');
                         }
                         state.stats = data.stats || state.stats || {};
-                        render();
+		                render();
+                        setVaultFilePanelCollapsed(state.filePanelCollapsed);
                     } catch (error) {
                         console.error('Vault load failed:', error);
                         if (typeof showAlert === 'function') showAlert(error.error || 'Could not load vault files.', 'danger');
@@ -6544,6 +6601,9 @@
                 page.querySelectorAll('[data-vault-view-mode]').forEach((btn) => {
                     btn.addEventListener('click', () => setVaultViewMode(btn.getAttribute('data-vault-view-mode') || 'preview'));
                 });
+                if (filePanelCollapse) {
+                    filePanelCollapse.addEventListener('click', () => setVaultFilePanelCollapsed(!state.filePanelCollapsed));
+                }
 	                const refreshBtn = document.getElementById('vault-refresh-btn');
 	                if (refreshBtn) refreshBtn.addEventListener('click', () => loadFiles({ append: false }));
 	                if (loadMore) loadMore.addEventListener('click', () => loadFiles({ append: true }));

@@ -904,8 +904,15 @@ class FileManager:
             return None
 
     @log_performance('files')
-    def save_file(self, file_data: bytes, original_name: str, content_type: str, 
-                  uploaded_by: str) -> Optional[FileInfo]:
+    def save_file(
+        self,
+        file_data: bytes,
+        original_name: str,
+        content_type: str,
+        uploaded_by: str,
+        *,
+        vault_folder_id: Optional[str] = None,
+    ) -> Optional[FileInfo]:
         """Save an uploaded file to disk and database.
         
         Args:
@@ -948,6 +955,11 @@ class FileManager:
                 logger.error("Archive upload rejected for %s: %s", original_name, archive_error)
                 return None
             
+            folder_clean = str(vault_folder_id or '').strip() or None
+            if folder_clean and not self.get_user_folder(uploaded_by, folder_clean):
+                logger.error("File upload rejected for %s: Vault folder %s was not found for user %s", original_name, folder_clean, uploaded_by)
+                return None
+
             # Generate unique file ID and stored name
             file_id = f"F{secrets.token_hex(12)}"
             file_extension = Path(original_name).suffix.lower()
@@ -994,7 +1006,7 @@ class FileManager:
                 uploaded_at=datetime.now(timezone.utc),
                 url=f"/files/{file_id}",
                 checksum=checksum,
-                vault_folder_id=None,
+                vault_folder_id=folder_clean,
             )
             
             # Save to database
@@ -1002,12 +1014,12 @@ class FileManager:
                 with self.db.get_connection() as conn:
                     conn.execute("""
                         INSERT INTO files (id, original_name, stored_name, file_path, 
-                                         content_type, size, uploaded_by, checksum)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                         content_type, size, uploaded_by, checksum, vault_folder_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         file_info.id, file_info.original_name, file_info.stored_name,
                         file_info.file_path, file_info.content_type, file_info.size,
-                        file_info.uploaded_by, file_info.checksum
+                        file_info.uploaded_by, file_info.checksum, file_info.vault_folder_id
                     ))
                     conn.commit()
             

@@ -1587,10 +1587,25 @@ class TestDigestions(unittest.TestCase):
         self.assertGreaterEqual(len(preview_sources), 1)
         self.assertEqual(preview_sources[0]['relationship'], 'added_source')
         self.assertEqual(preview_sources[0]['file_name'], manager_file.original_name)
+        self.assertEqual(preview_sources[0]['id'], preview_sources[0]['file_id'])
+        self.assertEqual(preview_sources[0]['vault_file_id'], preview_sources[0]['file_id'])
+        self.assertEqual(preview_sources[0]['preview_file_id'], preview_sources[0]['file_id'])
         self.assertEqual(self.file_manager.get_file(preview_sources[0]['file_id']).uploaded_by, 'owner-user')
         sources = self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')
         source_kinds = {source['source_kind'] for source in sources}
         self.assertIn('agent_contribution', source_kinds)
+        material_sources = [
+            source for source in sources
+            if source['source_kind'] == 'agent_contribution'
+        ]
+        self.assertEqual(len(material_sources), 1)
+        material_file = self.file_manager.get_file(material_sources[0]['file_id'])
+        self.assertIsNotNone(material_file)
+        self.assertTrue(material_sources[0]['owner_intake_folder_id'])
+        self.assertEqual(material_file.vault_folder_id, material_sources[0]['owner_intake_folder_id'])
+        self.assertIn(digestion['id'], material_sources[0]['owner_intake_folder'])
+        root_files = self.file_manager.list_user_files('owner-user', folder_id='', limit=50)
+        self.assertNotIn(material_file.id, {file.id for file in root_files})
         copied_sources = [
             source for source in sources
             if source['file_name'] == manager_file.original_name

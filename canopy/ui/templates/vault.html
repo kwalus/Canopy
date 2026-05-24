@@ -276,6 +276,24 @@
         justify-content: flex-end;
         gap: 0.5rem;
     }
+    .vault-file-collapse-btn {
+        min-width: 8.25rem;
+    }
+    .vault-file-panel-body {
+        display: block;
+    }
+    .vault-file-panel.is-collapsed .vault-file-panel-body {
+        display: none;
+    }
+    .vault-file-panel.is-collapsed {
+        padding-bottom: 0.95rem !important;
+    }
+    .vault-file-panel.is-collapsed .vault-file-panel-subtitle {
+        display: none;
+    }
+    .vault-file-panel.is-collapsed .vault-list-tools {
+        align-items: center;
+    }
     .vault-select-all-btn[aria-pressed="true"] {
         border-color: color-mix(in srgb, var(--canopy-primary) 55%, var(--canopy-border));
         background: color-mix(in srgb, var(--canopy-primary) 14%, var(--canopy-bg-card));
@@ -2716,9 +2734,12 @@
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
             <div>
                 <h2 class="h5 mb-1" style="color: var(--canopy-text-primary);">Your files</h2>
-                <div class="small text-muted">Click a file to open it. Use the Vault button in a channel, feed, or DM composer to attach these files. Drag files onto this list to upload into the current folder.</div>
+                <div class="small text-muted vault-file-panel-subtitle">Click a file to open it. Use the Vault button in a channel, feed, or DM composer to attach these files. Drag files onto this list to upload into the current folder.</div>
             </div>
             <div class="vault-list-tools">
+                <button class="btn btn-outline-secondary btn-sm vault-file-collapse-btn" type="button" id="vault-file-panel-collapse" aria-expanded="true" aria-controls="vault-file-panel-body">
+                    <i class="bi bi-chevron-up"></i> Collapse files
+                </button>
                 <div class="vault-view-switch" role="group" aria-label="Vault view mode">
                     <button class="vault-view-btn" type="button" data-vault-view-mode="list" aria-pressed="false">
                         <i class="bi bi-list-check"></i><span>Details</span>
@@ -2738,6 +2759,7 @@
                 </button>
             </div>
         </div>
+        <div class="vault-file-panel-body" id="vault-file-panel-body">
         <section class="vault-explorer-bar" aria-label="Vault folder navigation">
             <nav class="vault-breadcrumb" id="vault-breadcrumb" aria-label="Current vault folder">
                 <button class="vault-crumb active" type="button" data-vault-folder-target="" data-vault-folder-drop="">
@@ -2852,6 +2874,7 @@
             <button class="btn btn-outline-secondary" type="button" id="vault-load-more" hidden>
                 <i class="bi bi-chevron-down"></i> Load more
             </button>
+        </div>
         </div>
     </section>
 
