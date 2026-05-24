@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.207] - 2026-05-23
+
+### Added
+- **Vault Digestions can be safely deleted by their owner** - the File Vault Digestions panel now includes an owner-only delete flow with typed confirmation, clear impact summary, preserved-source-file messaging, and REST/AJAX delete endpoints that remove the Digestion index, ACLs, generated outputs, contribution ledger, visual evidence records, and query history while leaving underlying Vault files intact.
+
 ## [0.6.206] - 2026-05-23
 
 ### Added

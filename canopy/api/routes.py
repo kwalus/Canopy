@@ -11141,6 +11141,31 @@ def create_api_blueprint() -> Blueprint:
             'owner_user_id': item.get('owner_user_id') or '',
         })
 
+    @api.route('/digestions/<digestion_id>', methods=['DELETE'])
+    @require_auth(Permission.WRITE_FILES)
+    def delete_digestion_api(digestion_id: str):
+        """Delete an owned Digestion index while preserving source Vault files."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.delete_digestion(
+                digestion_id,
+                g.api_key_info.user_id,
+                confirm_name=str(data.get('confirm_name') or data.get('name') or ''),
+                confirm_digestion_id=str(
+                    data.get('confirm_digestion_id')
+                    or data.get('confirm_id')
+                    or ''
+                ),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API delete failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/sources', methods=['GET'])
     @require_auth(Permission.READ_FILES)
     def list_digestion_sources_api(digestion_id: str):

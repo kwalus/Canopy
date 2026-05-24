@@ -495,6 +495,87 @@ class TestDigestions(unittest.TestCase):
             self.digestion_manager.query(digestion['id'], 'reader-user', 'access')
         self.assertTrue(self.digestion_manager.query(digestion['id'], 'other-user', 'access')['success'])
 
+    def test_delete_digestion_is_owner_only_and_preserves_vault_files(self) -> None:
+        source = self._save_text(
+            'delete-safe-corpus.txt',
+            'Deleting a Digestion should remove indexes and access grants without deleting source files.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Delete Safe Corpus',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        self.digestion_manager.query(digestion['id'], 'owner-user', 'delete indexes', top_k=1)
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=True,
+        )
+        self.conn.execute(
+            """
+            INSERT INTO digestion_outputs (
+                id, digestion_id, output_kind, title, content_type, content, metadata_json, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                'output-delete-safe',
+                digestion['id'],
+                'delete_test_output',
+                'Delete test output',
+                'text/markdown',
+                'brief',
+                '{}',
+                'owner-user',
+            ),
+        )
+        self.conn.commit()
+
+        with self.assertRaises(DigestionError) as manager_context:
+            self.digestion_manager.delete_digestion(
+                digestion['id'],
+                'reader-user',
+                confirm_digestion_id=digestion['id'],
+            )
+        self.assertEqual(manager_context.exception.reason, 'owner_required')
+
+        with self.assertRaises(DigestionError) as confirm_context:
+            self.digestion_manager.delete_digestion(digestion['id'], 'owner-user')
+        self.assertEqual(confirm_context.exception.reason, 'delete_confirmation_required')
+
+        result = self.digestion_manager.delete_digestion(
+            digestion['id'],
+            'owner-user',
+            confirm_name='Delete Safe Corpus',
+        )
+        self.assertTrue(result['success'])
+        self.assertTrue(result['deleted'])
+        self.assertEqual(result['removed']['sources'], 1)
+        self.assertGreaterEqual(result['removed']['chunks'], 1)
+        self.assertEqual(result['removed']['acl_entries'], 1)
+        self.assertGreaterEqual(result['removed']['outputs'], 1)
+        self.assertGreaterEqual(result['removed']['query_log_entries'], 1)
+        self.assertTrue(result['preserved']['vault_files_are_preserved'])
+        self.assertEqual(result['preserved']['vault_source_files'], 1)
+        self.assertIsNone(self.digestion_manager.get_digestion(digestion['id'], user_id='owner-user'))
+        self.assertIsNotNone(self.file_manager.get_file(source.id))
+        for table in (
+            'digestion_sources',
+            'digestion_chunks',
+            'digestion_acl',
+            'digestion_outputs',
+            'digestion_query_log',
+        ):
+            row = self.conn.execute(
+                f"SELECT COUNT(*) AS count FROM {table} WHERE digestion_id = ?",
+                (digestion['id'],),
+            ).fetchone()
+            self.assertEqual(int(row['count']), 0, table)
+
     def test_agent_owned_digestion_transfers_to_human_with_source_remap(self) -> None:
         source = self._save_text(
             'agent-corpus.txt',
@@ -1883,6 +1964,33 @@ class TestDigestions(unittest.TestCase):
                 headers={'X-API-Key': 'owner-key'},
             )
             self.assertEqual([entry['user_id'] for entry in final_acl_response.get_json()['entries']], ['other-user'])
+
+            delete_without_confirmation = client.delete(
+                f'/api/v1/digestions/{digestion_id}',
+                json={},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(delete_without_confirmation.status_code, 400)
+            self.assertEqual(
+                (delete_without_confirmation.get_json() or {}).get('reason'),
+                'delete_confirmation_required',
+            )
+
+            delete_response = client.delete(
+                f'/api/v1/digestions/{digestion_id}',
+                json={'confirm_digestion_id': digestion_id},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(delete_response.status_code, 200)
+            delete_payload = delete_response.get_json() or {}
+            self.assertTrue(delete_payload['success'])
+            self.assertTrue(delete_payload['preserved']['vault_files_are_preserved'])
+            self.assertIsNotNone(self.file_manager.get_file(source.id))
+            deleted_get = client.get(
+                f'/api/v1/digestions/{digestion_id}',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(deleted_get.status_code, 404)
 
     def test_digestion_rest_manager_can_add_vault_sources(self) -> None:
         manager_source = self._save_text(

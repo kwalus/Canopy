@@ -7052,6 +7052,31 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI create error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not create Digestion'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>', methods=['DELETE'])
+    @require_login
+    def ajax_delete_digestion(digestion_id: str):
+        """Delete an owned Digestion index while preserving source Vault files."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.delete_digestion(
+                digestion_id,
+                get_current_user(),
+                confirm_name=str(data.get('confirm_name') or data.get('name') or ''),
+                confirm_digestion_id=str(
+                    data.get('confirm_digestion_id')
+                    or data.get('confirm_id')
+                    or ''
+                ),
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI delete error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not delete Digestion'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/build', methods=['POST'])
     @require_login
     def ajax_build_digestion(digestion_id: str):

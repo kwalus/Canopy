@@ -656,6 +656,7 @@
     }
     .vault-digestion-card.is-compact .vault-digestion-progress,
     .vault-digestion-card.is-compact .vault-digestion-options,
+    .vault-digestion-card.is-compact .vault-digestion-delete,
     .vault-digestion-card.is-compact .vault-digestion-contributions,
     .vault-digestion-card.is-compact .vault-digestion-share,
     .vault-digestion-card.is-compact .vault-digestion-query-toolbar,
@@ -779,6 +780,131 @@
     }
     .vault-digestion-actions .vault-digestion-btn.is-primary {
         box-shadow: 0 10px 24px color-mix(in srgb, var(--canopy-primary) 24%, transparent);
+    }
+    .vault-digestion-actions .vault-digestion-btn.is-danger {
+        border-color: color-mix(in srgb, var(--canopy-danger, #ef4444) 58%, var(--canopy-border));
+        color: color-mix(in srgb, var(--canopy-danger, #ef4444) 88%, var(--canopy-text-primary));
+        background: color-mix(in srgb, var(--canopy-danger, #ef4444) 8%, transparent);
+    }
+    .vault-digestion-actions .vault-digestion-btn.is-danger:hover,
+    .vault-digestion-actions .vault-digestion-btn.is-danger:focus-visible {
+        color: #fff;
+        border-color: color-mix(in srgb, var(--canopy-danger, #ef4444) 72%, white);
+        background: linear-gradient(135deg, color-mix(in srgb, var(--canopy-danger, #ef4444) 92%, #7f1d1d), color-mix(in srgb, var(--canopy-danger, #ef4444) 76%, #111827));
+    }
+    .vault-digestion-delete {
+        display: none;
+        gap: 0.68rem;
+        margin-top: 0.72rem;
+        padding: 0.78rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-danger, #ef4444) 40%, var(--canopy-border));
+        border-radius: 17px;
+        background:
+            radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--canopy-danger, #ef4444) 13%, transparent), transparent 40%),
+            color-mix(in srgb, var(--canopy-bg-card) 90%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--canopy-danger, #ef4444) 8%, transparent);
+        min-width: 0;
+    }
+    .vault-digestion-delete.is-visible {
+        display: grid;
+    }
+    .vault-digestion-delete-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.7rem;
+        min-width: 0;
+    }
+    .vault-digestion-delete-head > div {
+        display: grid;
+        gap: 0.22rem;
+        flex: 1 1 18rem;
+        min-width: 0;
+    }
+    .vault-digestion-delete-head strong {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.42rem;
+        color: color-mix(in srgb, var(--canopy-danger, #ef4444) 90%, var(--canopy-text-primary));
+        font-weight: 900;
+        letter-spacing: 0.01em;
+    }
+    .vault-digestion-delete-head span,
+    .vault-digestion-delete-copy {
+        color: var(--canopy-text-muted);
+        font-size: 0.78rem;
+        line-height: 1.38;
+        margin: 0;
+    }
+    .vault-digestion-delete-keep {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        padding: 0.34rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--canopy-success, #22c55e) 35%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-success, #22c55e) 10%, transparent);
+        color: color-mix(in srgb, var(--canopy-success, #22c55e) 86%, var(--canopy-text-primary)) !important;
+        font-weight: 820;
+        white-space: nowrap;
+    }
+    .vault-digestion-delete-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(8.4rem, 1fr));
+        gap: 0.45rem;
+        min-width: 0;
+    }
+    .vault-digestion-delete-grid span {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+        min-width: 0;
+        padding: 0.45rem 0.55rem;
+        border-radius: 12px;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 78%, transparent);
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 58%, transparent);
+        color: var(--canopy-text-secondary);
+        font-size: 0.76rem;
+        font-weight: 760;
+    }
+    .vault-digestion-delete-grid strong {
+        color: var(--canopy-text-primary);
+        font-size: 0.92rem;
+        font-variant-numeric: tabular-nums;
+    }
+    .vault-digestion-delete-confirm {
+        display: grid;
+        grid-template-columns: minmax(14rem, 1fr) auto;
+        gap: 0.65rem;
+        align-items: end;
+        min-width: 0;
+    }
+    .vault-digestion-delete-confirm label {
+        display: grid;
+        gap: 0.26rem;
+        min-width: 0;
+        color: var(--canopy-text-secondary);
+        font-size: 0.76rem;
+        font-weight: 780;
+    }
+    .vault-digestion-delete-confirm input {
+        border-color: color-mix(in srgb, var(--canopy-danger, #ef4444) 28%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+        color: var(--canopy-text-primary);
+    }
+    .vault-digestion-delete-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.42rem;
+    }
+    .vault-digestion-delete-status {
+        min-height: 1rem;
+        color: color-mix(in srgb, var(--canopy-danger, #ef4444) 78%, var(--canopy-text-primary));
+        font-size: 0.78rem;
+        font-weight: 760;
     }
     .vault-digestion-progress {
         display: none;
@@ -2338,6 +2464,7 @@
             .vault-file-share-row,
             .vault-digestion-acl-row,
             .vault-file-acl-row,
+            .vault-digestion-delete-confirm,
             .vault-digestion-options-grid {
 		        grid-template-columns: 1fr;
 	        }
