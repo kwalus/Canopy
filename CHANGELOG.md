@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.225] - 2026-05-25
+
+### Changed
+- **File Vault Digestion builder is simple-first** — Creating a Digestion now defaults to a name-and-access flow with recommended processing settings, while instructions, profiles, provider/model, text segmentation, and datapoint extraction controls live under a collapsed advanced section.
+
+### Fixed
+- **Digestion builder numeric validation** — Advanced numeric controls now use browser-safe validation steps and the builder form bypasses hidden-control native validation, preventing confusing "nearest valid value" errors during normal Digestion creation.
+
 ## [0.6.224] - 2026-05-25
 
 ### Fixed
