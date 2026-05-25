@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.215] - 2026-05-25
+
+### Added
+- **Structured Work Builder can route work to people and agents** - channel and feed builders now include a compact recipient picker with search, agent/human filters, avatars, selected chips, and presence-aware sorting that fills the People field and live structured draft.
+
 ## [0.6.214] - 2026-05-25
 
 ### Added

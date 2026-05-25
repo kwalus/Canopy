@@ -1374,10 +1374,176 @@
         height: 1rem;
         accent-color: var(--canopy-primary);
     }
+    .structured-builder-recipient-panel {
+        display: grid;
+        gap: 0.5rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 22%, var(--canopy-border) 78%);
+        border-radius: 0.85rem;
+        padding: 0.62rem;
+        background:
+            radial-gradient(circle at top right, color-mix(in srgb, var(--canopy-primary) 12%, transparent), transparent 46%),
+            color-mix(in srgb, var(--canopy-bg-card) 78%, transparent);
+    }
+    .structured-builder-recipient-head,
+    .structured-builder-recipient-tools {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+    .structured-builder-recipient-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.38rem;
+        color: var(--canopy-text-primary);
+        font-size: 0.78rem;
+        font-weight: 850;
+        letter-spacing: 0.01em;
+    }
+    .structured-builder-recipient-count {
+        color: var(--canopy-text-muted);
+        font-size: 0.72rem;
+        font-weight: 700;
+    }
+    .structured-builder-recipient-search {
+        flex: 1 1 180px;
+        min-width: 0;
+    }
+    .structured-builder-recipient-filter {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.28rem;
+        flex-wrap: wrap;
+    }
+    .structured-builder-recipient-filter .btn {
+        --bs-btn-padding-y: 0.22rem;
+        --bs-btn-padding-x: 0.48rem;
+        --bs-btn-font-size: 0.72rem;
+        border-radius: 999px;
+    }
+    .structured-builder-recipient-filter .btn.active {
+        color: #fff;
+        border-color: color-mix(in srgb, var(--canopy-primary) 78%, var(--canopy-border) 22%);
+        background: color-mix(in srgb, var(--canopy-primary) 82%, #0f172a 18%);
+    }
+    .structured-builder-recipient-selected {
+        display: flex;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+        min-height: 1.45rem;
+    }
+    .structured-builder-recipient-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        max-width: 100%;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 38%, transparent);
+        border-radius: 999px;
+        padding: 0.18rem 0.42rem;
+        color: var(--canopy-text-primary);
+        background: color-mix(in srgb, var(--canopy-primary) 15%, transparent);
+        font-size: 0.72rem;
+        font-weight: 750;
+    }
+    .structured-builder-recipient-chip button {
+        border: 0;
+        padding: 0;
+        color: inherit;
+        background: transparent;
+        line-height: 1;
+        opacity: 0.72;
+    }
+    .structured-builder-recipient-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
+        gap: 0.38rem;
+        max-height: 12rem;
+        overflow: auto;
+        padding-right: 0.08rem;
+    }
+    .structured-builder-recipient-card {
+        display: grid;
+        grid-template-columns: 2rem minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.5rem;
+        min-width: 0;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        border-radius: 0.8rem;
+        padding: 0.44rem;
+        color: var(--canopy-text-primary);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
+        text-align: left;
+        transition: border-color 0.14s ease, background 0.14s ease, transform 0.14s ease;
+    }
+    .structured-builder-recipient-card:hover,
+    .structured-builder-recipient-card:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-primary) 54%, var(--canopy-border) 46%);
+        background: color-mix(in srgb, var(--canopy-primary) 14%, var(--canopy-bg-tertiary) 86%);
+        transform: translateY(-1px);
+    }
+    .structured-builder-recipient-card.is-selected {
+        border-color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-border) 28%);
+        background: color-mix(in srgb, var(--canopy-primary) 20%, var(--canopy-bg-card) 80%);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 28%, transparent);
+    }
+    .structured-builder-recipient-avatar {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        overflow: hidden;
+        border-radius: 0.7rem;
+        color: var(--canopy-text-primary);
+        background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-card) 82%);
+        font-size: 0.75rem;
+        font-weight: 900;
+    }
+    .structured-builder-recipient-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .structured-builder-recipient-meta {
+        display: grid;
+        gap: 0.05rem;
+        min-width: 0;
+    }
+    .structured-builder-recipient-name,
+    .structured-builder-recipient-handle {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .structured-builder-recipient-name {
+        font-size: 0.78rem;
+        font-weight: 850;
+    }
+    .structured-builder-recipient-handle {
+        color: var(--canopy-text-muted);
+        font-size: 0.68rem;
+    }
+    .structured-builder-recipient-badges {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.25rem;
+        flex-wrap: wrap;
+    }
+    .structured-builder-recipient-empty {
+        color: var(--canopy-text-muted);
+        font-size: 0.76rem;
+        padding: 0.45rem 0.2rem;
+    }
     @media (max-width: 720px) {
         .structured-builder-field-grid,
         .structured-builder-field-grid--compact {
             grid-template-columns: 1fr;
+        }
+        .structured-builder-recipient-list {
+            grid-template-columns: 1fr;
+            max-height: 14rem;
         }
     }
     .structured-builder-footer {
@@ -6058,6 +6224,32 @@
                                            id="channel-structured-builder-people"
                                            placeholder="@agent, @teammate"
                                            oninput="handleChannelStructuredBuilderFieldInput()">
+                                </div>
+                            </div>
+                            <div class="structured-builder-recipient-panel" id="channel-structured-builder-recipient-panel">
+                                <div class="structured-builder-recipient-head">
+                                    <span class="structured-builder-recipient-title">
+                                        <i class="bi bi-people"></i>
+                                        Pick channel members
+                                    </span>
+                                    <span class="structured-builder-recipient-count" id="channel-structured-builder-recipient-count">Loading recipients…</span>
+                                </div>
+                                <div class="structured-builder-recipient-tools">
+                                    <input type="search"
+                                           class="form-control form-control-sm structured-builder-recipient-search"
+                                           id="channel-structured-builder-recipient-search"
+                                           placeholder="Search agents and humans in this channel"
+                                           oninput="renderChannelStructuredBuilderRecipients()">
+                                    <div class="structured-builder-recipient-filter" role="group" aria-label="Recipient filter">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="channel-structured-builder-recipient-all" onclick="setChannelStructuredBuilderRecipientFilter('all')">All</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="channel-structured-builder-recipient-agents" onclick="setChannelStructuredBuilderRecipientFilter('agent')">Agents</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="channel-structured-builder-recipient-humans" onclick="setChannelStructuredBuilderRecipientFilter('human')">Humans</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearChannelStructuredBuilderRecipients()">Clear</button>
+                                    </div>
+                                </div>
+                                <div class="structured-builder-recipient-selected" id="channel-structured-builder-recipient-selected"></div>
+                                <div class="structured-builder-recipient-list" id="channel-structured-builder-recipient-list" aria-live="polite">
+                                    <div class="structured-builder-recipient-empty">Open the builder to load channel members.</div>
                                 </div>
                             </div>
                             <div class="structured-builder-field">
@@ -16437,10 +16629,19 @@ function insertChannelMentionBuilderSelection() {
 function refreshChannelMentionBuilderForChannel(channelId) {
     channelMentionBuilderSelection.clear();
     channelMentionBuilderFilter = 'all';
+    channelStructuredBuilderRecipientSelection.clear();
+    channelStructuredBuilderRecipientFilter = 'all';
     const search = document.getElementById('channel-mention-builder-search');
     if (search) search.value = '';
+    const structuredSearch = document.getElementById('channel-structured-builder-recipient-search');
+    if (structuredSearch) structuredSearch.value = '';
     const filterSearch = document.getElementById('channel-mention-filter-search');
     if (filterSearch) filterSearch.value = '';
+    const structuredPeople = document.getElementById('channel-structured-builder-people');
+    if (structuredPeople) structuredPeople.value = '';
+    channelStructuredBuilderManagedBlock = '';
+    channelStructuredBuilderFieldsTouched = false;
+    renderChannelStructuredBuilderRecipients();
     renderChannelMentionMacroButtons();
     updateChannelMentionThreadFilterUI(channelMentionCache[channelId] || []);
     renderChannelMentionFilterPicker();
@@ -16448,6 +16649,7 @@ function refreshChannelMentionBuilderForChannel(channelId) {
         if (isChannelMentionBuilderOpen()) {
             renderChannelMentionBuilder();
         }
+        renderChannelStructuredBuilderRecipients();
         updateChannelMentionThreadFilterUI(channelMentionCache[channelId] || []);
         renderChannelMentionFilterPicker();
     });
@@ -21611,6 +21813,8 @@ const CHANNEL_STRUCTURED_BUILDER_TOOLS = ['task', 'request', 'input-card', 'tele
 let channelStructuredBuilderSelection = 'task';
 let channelStructuredBuilderManagedBlock = '';
 let channelStructuredBuilderFieldsTouched = false;
+let channelStructuredBuilderRecipientFilter = 'all';
+const channelStructuredBuilderRecipientSelection = new Map();
 
 function getStructuredToolHelp(toolType) {
     const help = {
@@ -21636,6 +21840,192 @@ function getStructuredToolIcon(toolType) {
         signal: 'broadcast-pin',
     };
     return icons[toolType] || 'diagram-3';
+}
+
+function channelStructuredBuilderJsArg(value) {
+    return String(value || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\r?\n/g, ' ');
+}
+
+function getChannelStructuredBuilderRecipientCandidates() {
+    return Array.isArray(channelMentionCache[currentChannelId]) ? channelMentionCache[currentChannelId] : [];
+}
+
+function getChannelStructuredBuilderRecipientHandle(user) {
+    return getChannelMentionBuilderHandle(user || '').replace(/^@+/, '');
+}
+
+function restoreChannelStructuredBuilderFocus(activeElement, selectionStart, selectionEnd) {
+    if (!activeElement || !activeElement.isConnected || document.activeElement === activeElement) return;
+    requestAnimationFrame(() => {
+        if (!activeElement.isConnected || document.activeElement === activeElement) return;
+        try {
+            activeElement.focus({ preventScroll: true });
+            if (typeof activeElement.setSelectionRange === 'function'
+                && typeof selectionStart === 'number'
+                && typeof selectionEnd === 'number') {
+                activeElement.setSelectionRange(selectionStart, selectionEnd);
+            }
+        } catch (_) {
+            // Focus restoration is best-effort; the builder must never block draft sync.
+        }
+    });
+}
+
+function setChannelStructuredBuilderRecipientFilter(filter) {
+    channelStructuredBuilderRecipientFilter = (filter === 'agent' || filter === 'human') ? filter : 'all';
+    renderChannelStructuredBuilderRecipients();
+}
+
+function getFilteredChannelStructuredBuilderRecipients() {
+    const search = String(document.getElementById('channel-structured-builder-recipient-search')?.value || '').trim().toLowerCase();
+    const candidates = getChannelStructuredBuilderRecipientCandidates().filter(user => {
+        if (!user || !user.user_id || user.user_id === currentUserId) return false;
+        const accountType = normalizeMentionAccountType(user.account_type);
+        if (channelStructuredBuilderRecipientFilter !== 'all' && accountType !== channelStructuredBuilderRecipientFilter) return false;
+        if (!search) return true;
+        const label = String(getChannelMentionBuilderLabel(user) || '').toLowerCase();
+        const username = String(user.username || '').toLowerCase();
+        const handle = String(getChannelStructuredBuilderRecipientHandle(user) || '').toLowerCase();
+        const userId = String(user.user_id || '').toLowerCase();
+        return label.includes(search) || username.includes(search) || handle.includes(search) || userId.includes(search);
+    });
+    return candidates.sort((a, b) => {
+        const aSelected = channelStructuredBuilderRecipientSelection.has(a.user_id) ? 0 : 1;
+        const bSelected = channelStructuredBuilderRecipientSelection.has(b.user_id) ? 0 : 1;
+        if (aSelected !== bSelected) return aSelected - bSelected;
+        const aType = normalizeMentionAccountType(a.account_type) === 'agent' ? 0 : 1;
+        const bType = normalizeMentionAccountType(b.account_type) === 'agent' ? 0 : 1;
+        if (aType !== bType) return aType - bType;
+        if (aType === 0 && bType === 0) {
+            const aPresence = getAgentPresenceSortRank(a);
+            const bPresence = getAgentPresenceSortRank(b);
+            if (aPresence !== bPresence) return aPresence - bPresence;
+        }
+        return getChannelMentionBuilderLabel(a).localeCompare(getChannelMentionBuilderLabel(b));
+    });
+}
+
+function updateChannelStructuredBuilderPeopleFromRecipients() {
+    const input = document.getElementById('channel-structured-builder-people');
+    if (!input) return;
+    const handles = Array.from(channelStructuredBuilderRecipientSelection.values())
+        .map(user => getChannelStructuredBuilderRecipientHandle(user))
+        .filter(Boolean);
+    input.value = Array.from(new Set(handles)).map(handle => `@${handle}`).join(', ');
+    channelStructuredBuilderFieldsTouched = true;
+    syncChannelStructuredBuilderToComposer();
+}
+
+function clearChannelStructuredBuilderRecipients() {
+    channelStructuredBuilderRecipientSelection.clear();
+    updateChannelStructuredBuilderPeopleFromRecipients();
+    renderChannelStructuredBuilderRecipients();
+}
+
+function removeChannelStructuredBuilderRecipient(userId) {
+    channelStructuredBuilderRecipientSelection.delete(userId);
+    updateChannelStructuredBuilderPeopleFromRecipients();
+    renderChannelStructuredBuilderRecipients();
+}
+
+function toggleChannelStructuredBuilderRecipient(userId) {
+    const targetId = String(userId || '').trim();
+    if (!targetId) return;
+    if (channelStructuredBuilderRecipientSelection.has(targetId)) {
+        channelStructuredBuilderRecipientSelection.delete(targetId);
+    } else {
+        const user = getChannelStructuredBuilderRecipientCandidates().find(item => item && String(item.user_id || '') === targetId);
+        if (user) channelStructuredBuilderRecipientSelection.set(targetId, user);
+    }
+    updateChannelStructuredBuilderPeopleFromRecipients();
+    renderChannelStructuredBuilderRecipients();
+}
+
+function renderChannelStructuredBuilderRecipients() {
+    const listEl = document.getElementById('channel-structured-builder-recipient-list');
+    const selectedEl = document.getElementById('channel-structured-builder-recipient-selected');
+    const countEl = document.getElementById('channel-structured-builder-recipient-count');
+    if (!listEl || !selectedEl || !countEl) return;
+    const allBtn = document.getElementById('channel-structured-builder-recipient-all');
+    const agentBtn = document.getElementById('channel-structured-builder-recipient-agents');
+    const humanBtn = document.getElementById('channel-structured-builder-recipient-humans');
+    if (allBtn) {
+        allBtn.classList.toggle('active', channelStructuredBuilderRecipientFilter === 'all');
+        allBtn.setAttribute('aria-pressed', channelStructuredBuilderRecipientFilter === 'all' ? 'true' : 'false');
+    }
+    if (agentBtn) {
+        agentBtn.classList.toggle('active', channelStructuredBuilderRecipientFilter === 'agent');
+        agentBtn.setAttribute('aria-pressed', channelStructuredBuilderRecipientFilter === 'agent' ? 'true' : 'false');
+    }
+    if (humanBtn) {
+        humanBtn.classList.toggle('active', channelStructuredBuilderRecipientFilter === 'human');
+        humanBtn.setAttribute('aria-pressed', channelStructuredBuilderRecipientFilter === 'human' ? 'true' : 'false');
+    }
+
+    const selectedUsers = Array.from(channelStructuredBuilderRecipientSelection.values());
+    const selectedAgentCount = selectedUsers.filter(user => normalizeMentionAccountType(user.account_type) === 'agent').length;
+    const selectedHumanCount = Math.max(0, selectedUsers.length - selectedAgentCount);
+    const candidates = getChannelStructuredBuilderRecipientCandidates()
+        .filter(user => user && user.user_id && user.user_id !== currentUserId);
+    const filtered = getFilteredChannelStructuredBuilderRecipients();
+    countEl.textContent = selectedUsers.length
+        ? `${selectedUsers.length} selected • ${selectedAgentCount} agent${selectedAgentCount === 1 ? '' : 's'} / ${selectedHumanCount} human${selectedHumanCount === 1 ? '' : 's'}`
+        : `${candidates.length} available`;
+
+    selectedEl.innerHTML = selectedUsers.map(user => {
+        const userId = channelStructuredBuilderJsArg(user.user_id || '');
+        return `<span class="structured-builder-recipient-chip">
+            ${escapeHtml(getChannelMentionBuilderLabel(user))}
+            <button type="button" aria-label="Remove ${escapeHtml(getChannelMentionBuilderLabel(user))}" onclick="removeChannelStructuredBuilderRecipient('${userId}')">&times;</button>
+        </span>`;
+    }).join('');
+
+    if (!candidates.length) {
+        listEl.innerHTML = '<div class="structured-builder-recipient-empty">No channel members are available yet. You can still type @handles manually above.</div>';
+        return;
+    }
+    if (!filtered.length) {
+        listEl.innerHTML = '<div class="structured-builder-recipient-empty">No recipients match this filter.</div>';
+        return;
+    }
+    listEl.innerHTML = filtered.slice(0, 18).map(user => {
+        const userId = channelStructuredBuilderJsArg(user.user_id || '');
+        const label = getChannelMentionBuilderLabel(user);
+        const handle = getChannelStructuredBuilderRecipientHandle(user);
+        const accountType = normalizeMentionAccountType(user.account_type);
+        const selected = channelStructuredBuilderRecipientSelection.has(user.user_id);
+        const avatar = user.avatar_url
+            ? `<img src="${escapeHtml(user.avatar_url)}" alt="${escapeHtml(label)}">`
+            : `<span>${escapeHtml(String(label || '?').slice(0, 1).toUpperCase())}</span>`;
+        return `<button type="button"
+                    class="structured-builder-recipient-card ${selected ? 'is-selected' : ''}"
+                    onclick="toggleChannelStructuredBuilderRecipient('${userId}')"
+                    aria-pressed="${selected ? 'true' : 'false'}">
+            <span class="structured-builder-recipient-avatar">${avatar}</span>
+            <span class="structured-builder-recipient-meta">
+                <span class="structured-builder-recipient-name">${escapeHtml(label)}</span>
+                <span class="structured-builder-recipient-handle">@${escapeHtml(handle)}</span>
+            </span>
+            <span class="structured-builder-recipient-badges">
+                ${renderAgentPresenceBadge(user)}
+                <span class="mention-builder-type ${accountType === 'agent' ? 'agent' : ''}">${escapeHtml(accountType)}</span>
+            </span>
+        </button>`;
+    }).join('');
+}
+
+function loadChannelStructuredBuilderRecipients() {
+    renderChannelStructuredBuilderRecipients();
+    if (!currentChannelId) return;
+    fetchChannelMentionCandidates(currentChannelId).then(() => {
+        renderChannelStructuredBuilderRecipients();
+    });
 }
 
 function getChannelStructuredBuilderFieldValue(fieldName) {
@@ -21801,6 +22191,12 @@ function replaceLastChannelStructuredBuilderBlock(raw, toolType, block) {
 function syncChannelStructuredBuilderToComposer(options = {}) {
     const input = document.getElementById('message-input');
     if (!input) return false;
+    const activeElement = document.activeElement;
+    const preserveBuilderFocus = activeElement instanceof HTMLElement
+        && !!activeElement.closest('#channel-structured-builder')
+        && activeElement !== input;
+    const selectionStart = preserveBuilderFocus && typeof activeElement.selectionStart === 'number' ? activeElement.selectionStart : null;
+    const selectionEnd = preserveBuilderFocus && typeof activeElement.selectionEnd === 'number' ? activeElement.selectionEnd : null;
     const force = !!options.force;
     const liveToggle = document.getElementById('channel-structured-builder-live');
     if (!force && liveToggle && !liveToggle.checked) return false;
@@ -21818,8 +22214,10 @@ function syncChannelStructuredBuilderToComposer(options = {}) {
     }
     input.value = nextValue;
     channelStructuredBuilderManagedBlock = block;
-    input.focus();
     notifyComposerUpdate();
+    if (preserveBuilderFocus) {
+        restoreChannelStructuredBuilderFocus(activeElement, selectionStart, selectionEnd);
+    }
     return true;
 }
 
@@ -21865,6 +22263,7 @@ function toggleChannelStructuredBuilder(forceOpen) {
     const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : !panel.classList.contains('is-visible');
     if (shouldOpen) {
         renderChannelStructuredBuilder();
+        loadChannelStructuredBuilderRecipients();
     }
     panel.classList.toggle('is-visible', shouldOpen);
     if (button) {

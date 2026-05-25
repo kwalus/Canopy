@@ -2349,6 +2349,12 @@ console.log(JSON.stringify({{
         self.assertIn('id="channel-structured-builder-details"', channels_template)
         self.assertIn('id="channel-structured-builder-people"', channels_template)
         self.assertIn('id="channel-structured-builder-live"', channels_template)
+        self.assertIn('id="channel-structured-builder-recipient-panel"', channels_template)
+        self.assertIn('id="channel-structured-builder-recipient-search"', channels_template)
+        self.assertIn('id="channel-structured-builder-recipient-list"', channels_template)
+        self.assertIn("function renderChannelStructuredBuilderRecipients()", channels_template)
+        self.assertIn("function restoreChannelStructuredBuilderFocus", channels_template)
+        self.assertIn("fetchChannelMentionCandidates(currentChannelId)", channels_template)
         self.assertIn("function toggleChannelStructuredBuilder(forceOpen)", channels_template)
         self.assertIn("function insertChannelStructuredBuilderSelection()", channels_template)
         self.assertIn("function syncChannelStructuredBuilderToComposer(options = {})", channels_template)
@@ -2379,6 +2385,12 @@ console.log(JSON.stringify({{
         self.assertIn('id="feed-structured-builder-details"', feed_template)
         self.assertIn('id="feed-structured-builder-people"', feed_template)
         self.assertIn('id="feed-structured-builder-live"', feed_template)
+        self.assertIn('id="feed-structured-builder-recipient-panel"', feed_template)
+        self.assertIn('id="feed-structured-builder-recipient-search"', feed_template)
+        self.assertIn('id="feed-structured-builder-recipient-list"', feed_template)
+        self.assertIn("function renderFeedStructuredBuilderRecipients()", feed_template)
+        self.assertIn("function restoreFeedStructuredBuilderFocus", feed_template)
+        self.assertIn("fetchFeedMentionCandidates().then", feed_template)
         self.assertIn("function toggleFeedStructuredBuilder(forceOpen)", feed_template)
         self.assertIn("function insertFeedStructuredBuilderSelection()", feed_template)
         self.assertIn("function syncFeedStructuredBuilderToComposer(options = {})", feed_template)
@@ -2393,6 +2405,18 @@ console.log(JSON.stringify({{
         self.assertIn("const structuredValidation = updateFeedStructuredValidation();", feed_template)
         self.assertIn("error && error.structured_validation", feed_template)
         self.assertIn("error && error.structured_validation", channels_template)
+
+        channel_sync_start = channels_template.index("function syncChannelStructuredBuilderToComposer(options = {})")
+        channel_sync_end = channels_template.index("\nfunction handleChannelStructuredBuilderFieldInput()", channel_sync_start)
+        channel_sync_body = channels_template[channel_sync_start:channel_sync_end]
+        self.assertNotIn("input.focus()", channel_sync_body)
+        self.assertIn("restoreChannelStructuredBuilderFocus", channel_sync_body)
+
+        feed_sync_start = feed_template.index("function syncFeedStructuredBuilderToComposer(options = {})")
+        feed_sync_end = feed_template.index("\n        function handleFeedStructuredBuilderFieldInput()", feed_sync_start)
+        feed_sync_body = feed_template[feed_sync_start:feed_sync_end]
+        self.assertNotIn("textarea.focus()", feed_sync_body)
+        self.assertIn("restoreFeedStructuredBuilderFocus", feed_sync_body)
 
     def test_structured_composer_supports_live_builder_field_blocks(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
@@ -3771,7 +3795,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.214', api_ref)
+        self.assertIn('0.6.215', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
