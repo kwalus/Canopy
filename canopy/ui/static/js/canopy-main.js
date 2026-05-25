@@ -2202,6 +2202,11 @@
 				                    fileShareUsers: new Map(),
                     fileShareAcl: new Map(),
                     fileShareActiveIndex: new Map(),
+                    digestionBuilderUsers: [],
+                    digestionBuilderSelectedUsers: new Map(),
+                    digestionBuilderTimer: null,
+                    digestionBuilderActiveIndex: -1,
+                    digestionBuilderProfile: 'ask_cite',
 		                                digestionProgressTimers: new Map(),
 					                    previewFileId: '',
 		                                selectionDigestionMenuOpen: false,
@@ -2242,6 +2247,26 @@
 	                const digestionCreateForm = document.getElementById('vault-digestion-create-form');
                 const digestionCreateName = document.getElementById('vault-digestion-create-name');
 	                const digestionCreatePurpose = document.getElementById('vault-digestion-create-purpose');
+                const digestionCreateDescription = document.getElementById('vault-digestion-create-description');
+                const digestionCreateProvider = document.getElementById('vault-digestion-create-provider');
+                const digestionCreateModel = document.getElementById('vault-digestion-create-model');
+                const digestionCreateChunkSize = document.getElementById('vault-digestion-create-chunk-size');
+                const digestionCreateChunkOverlap = document.getElementById('vault-digestion-create-chunk-overlap');
+                const digestionCreateDatapointLens = document.getElementById('vault-digestion-create-datapoint-lens');
+                const digestionCreateMaxDatapoints = document.getElementById('vault-digestion-create-max-datapoints');
+                const digestionCreateAutoBuild = document.getElementById('vault-digestion-create-auto-build');
+                const digestionCreateExtractDatapoints = document.getElementById('vault-digestion-create-extract-datapoints');
+                const digestionCreateAccessSearch = document.getElementById('vault-digestion-create-access-search');
+                const digestionCreateAccessResults = document.getElementById('vault-digestion-create-access-results');
+                const digestionCreateAccessSelected = document.getElementById('vault-digestion-create-access-selected');
+                const digestionCreateAccessSources = document.getElementById('vault-digestion-create-access-sources');
+                const digestionCreateAccessManage = document.getElementById('vault-digestion-create-access-manage');
+                const digestionCreateAccessManageAck = document.getElementById('vault-digestion-create-access-manage-ack');
+                const digestionCreateAccessManageConfirm = document.getElementById('vault-digestion-create-access-manage-confirm');
+                const digestionCreateSubmit = document.getElementById('vault-digestion-create-submit');
+                const digestionBuilderSourceCount = document.getElementById('vault-digestion-builder-source-count');
+                const digestionBuilderSummary = document.getElementById('vault-digestion-builder-summary');
+                const digestionBuilderStatus = document.getElementById('vault-digestion-builder-status');
 	                const digestionCreateCancel = document.getElementById('vault-digestion-create-cancel');
 	                const digestionList = document.getElementById('vault-digestion-list');
 	                const digestionRefresh = document.getElementById('vault-digestion-refresh');
@@ -2550,15 +2575,358 @@
                     return `Vault Digestion (${selected.length} files)`;
                 }
 
+                const DIGESTION_BUILDER_PROFILES = {
+                    ask_cite: {
+                        chunkSize: 1800,
+                        chunkOverlap: 220,
+                        maxDatapoints: 400,
+                        lens: 'questions, claims, methods, evidence',
+                        purpose: (count) => `Reusable cited context for ${count} selected source${count === 1 ? '' : 's'}.`,
+                    },
+                    research_review: {
+                        chunkSize: 2200,
+                        chunkOverlap: 320,
+                        maxDatapoints: 520,
+                        lens: 'claims, methods, assumptions, limitations, comparisons',
+                        purpose: (count) => `Literature and source review workspace for ${count} selected source${count === 1 ? '' : 's'}.`,
+                    },
+                    datapoints: {
+                        chunkSize: 1600,
+                        chunkOverlap: 260,
+                        maxDatapoints: 650,
+                        lens: 'metrics, materials, parameters, results, constraints, evidence',
+                        purpose: (count) => `Structured datapoint extraction corpus for ${count} selected source${count === 1 ? '' : 's'}.`,
+                    },
+                    agent_handoff: {
+                        chunkSize: 1900,
+                        chunkOverlap: 260,
+                        maxDatapoints: 450,
+                        lens: 'facts, decisions, open questions, next actions, references',
+                        purpose: (count) => `Agent-ready context pack for ${count} selected source${count === 1 ? '' : 's'}.`,
+                    },
+                };
+
+                function selectedDigestionBuilderRecipients() {
+                    return Array.from(state.digestionBuilderSelectedUsers.values());
+                }
+
+                function setDigestionBuilderStatus(message, tone = 'muted') {
+                    if (!digestionBuilderStatus) return;
+                    digestionBuilderStatus.className = `vault-digestion-builder-status text-${tone}`;
+                    digestionBuilderStatus.textContent = String(message || '');
+                }
+
+                function refreshDigestionBuilderManageConfirm() {
+                    const canManage = !!(digestionCreateAccessManage && digestionCreateAccessManage.checked);
+                    if (digestionCreateAccessManageConfirm) {
+                        digestionCreateAccessManageConfirm.hidden = !canManage;
+                    }
+                    if (!canManage && digestionCreateAccessManageAck) {
+                        digestionCreateAccessManageAck.checked = false;
+                    }
+                    refreshDigestionBuilderSummary();
+                }
+
+                function refreshDigestionBuilderProcessingControls() {
+                    const autoBuild = !!(digestionCreateAutoBuild && digestionCreateAutoBuild.checked);
+                    if (digestionCreateExtractDatapoints) {
+                        digestionCreateExtractDatapoints.disabled = !autoBuild;
+                        if (!autoBuild) digestionCreateExtractDatapoints.checked = false;
+                    }
+                    refreshDigestionBuilderSummary();
+                }
+
+                function renderDigestionBuilderSelectedUsers() {
+                    if (!digestionCreateAccessSelected) return;
+                    const users = selectedDigestionBuilderRecipients();
+                    if (!users.length) {
+                        digestionCreateAccessSelected.hidden = true;
+                        digestionCreateAccessSelected.innerHTML = '';
+                        refreshDigestionBuilderSummary();
+                        return;
+                    }
+                    digestionCreateAccessSelected.hidden = false;
+                    digestionCreateAccessSelected.innerHTML = `
+                        ${users.map((user) => {
+                            const label = userLabel(user);
+                            const subLabel = digestionShareIdentitySubLabel(user);
+                            return `
+                                <span class="vault-digestion-share-chip" title="${vaultEscape(label)}${subLabel ? ` - ${vaultEscape(subLabel)}` : ''}">
+                                    <i class="bi bi-person-check"></i>
+                                    <span><strong>${vaultEscape(label)}</strong>${subLabel ? ` <small>${vaultEscape(subLabel)}</small>` : ''}</span>
+                                    <button type="button"
+                                            title="Remove ${vaultEscape(label)}"
+                                            aria-label="Remove ${vaultEscape(label)}"
+                                            data-vault-digestion-builder-remove="${vaultEscape(user.user_id)}">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </span>
+                            `;
+                        }).join('')}
+                        ${users.length > 1 ? `
+                            <button class="vault-digestion-share-clear-all" type="button" data-vault-digestion-builder-clear>
+                                <i class="bi bi-x-circle"></i> Clear all
+                            </button>
+                        ` : ''}
+                    `;
+                    refreshDigestionBuilderSummary();
+                }
+
+                function closeDigestionBuilderResults() {
+                    if (digestionCreateAccessResults) {
+                        digestionCreateAccessResults.hidden = true;
+                        digestionCreateAccessResults.innerHTML = '';
+                    }
+                    if (digestionCreateAccessSearch) digestionCreateAccessSearch.setAttribute('aria-expanded', 'false');
+                    state.digestionBuilderUsers = [];
+                    state.digestionBuilderActiveIndex = -1;
+                }
+
+                function renderDigestionBuilderUsers(users, { emptyMessage = 'No matching local users or agents.' } = {}) {
+                    if (!digestionCreateAccessResults) return;
+                    const safeUsers = Array.isArray(users)
+                        ? users.map(normalizeDigestionShareUser).filter(Boolean)
+                        : [];
+                    state.digestionBuilderUsers = safeUsers;
+                    state.digestionBuilderActiveIndex = safeUsers.length ? 0 : -1;
+                    digestionCreateAccessResults.hidden = false;
+                    if (digestionCreateAccessSearch) digestionCreateAccessSearch.setAttribute('aria-expanded', 'true');
+                    if (!safeUsers.length) {
+                        digestionCreateAccessResults.innerHTML = `<div class="vault-digestion-share-empty">${vaultEscape(emptyMessage)}</div>`;
+                        return;
+                    }
+                    digestionCreateAccessResults.innerHTML = safeUsers.map((user, index) => {
+                        const label = userLabel(user);
+                        const subLabel = digestionShareIdentitySubLabel(user) || user.user_id;
+                        const isSelected = state.digestionBuilderSelectedUsers.has(user.user_id);
+                        const avatar = user.avatar_url
+                            ? `<img src="${vaultEscape(user.avatar_url)}" alt="">`
+                            : `<span>${vaultEscape(label.slice(0, 2).toUpperCase())}</span>`;
+                        return `
+                            <button class="vault-digestion-share-user${index === 0 ? ' is-active' : ''}${isSelected ? ' is-selected' : ''}"
+                                    type="button"
+                                    role="option"
+                                    aria-selected="${index === 0 ? 'true' : 'false'}"
+                                    title="${vaultEscape(label)}${subLabel ? ` - ${vaultEscape(subLabel)}` : ''}"
+                                    data-vault-digestion-builder-user-id="${vaultEscape(user.user_id)}"
+                                    data-vault-digestion-builder-user-label="${vaultEscape(label)}"
+                                    data-vault-digestion-builder-user-username="${vaultEscape(user.username)}"
+                                    data-vault-digestion-builder-user-handle="${vaultEscape(user.handle)}"
+                                    data-vault-digestion-builder-user-account-type="${vaultEscape(user.account_type)}"
+                                    data-vault-digestion-builder-user-avatar-url="${vaultEscape(user.avatar_url)}">
+                                <span class="vault-digestion-share-avatar">${avatar}</span>
+                                <span class="vault-digestion-share-user-copy">
+                                    <strong>${vaultEscape(label)}</strong>
+                                    <small>${vaultEscape(subLabel)}</small>
+                                </span>
+                            </button>
+                        `;
+                    }).join('');
+                }
+
+                function setDigestionBuilderActiveResult(nextIndex) {
+                    if (!digestionCreateAccessResults) return null;
+                    const buttons = Array.from(digestionCreateAccessResults.querySelectorAll('[data-vault-digestion-builder-user-id]'));
+                    if (!buttons.length) return null;
+                    const count = buttons.length;
+                    const wrapped = ((Number(nextIndex) || 0) % count + count) % count;
+                    state.digestionBuilderActiveIndex = wrapped;
+                    buttons.forEach((button, index) => {
+                        const active = index === wrapped;
+                        button.classList.toggle('is-active', active);
+                        button.setAttribute('aria-selected', active ? 'true' : 'false');
+                    });
+                    buttons[wrapped].scrollIntoView({ block: 'nearest' });
+                    return buttons[wrapped];
+                }
+
+                function userFromDigestionBuilderButton(button) {
+                    if (!button) return null;
+                    return normalizeDigestionShareUser({
+                        user_id: button.getAttribute('data-vault-digestion-builder-user-id') || '',
+                        display_name: button.getAttribute('data-vault-digestion-builder-user-label') || '',
+                        username: button.getAttribute('data-vault-digestion-builder-user-username') || '',
+                        handle: button.getAttribute('data-vault-digestion-builder-user-handle') || '',
+                        account_type: button.getAttribute('data-vault-digestion-builder-user-account-type') || '',
+                        avatar_url: button.getAttribute('data-vault-digestion-builder-user-avatar-url') || '',
+                    });
+                }
+
+                function addDigestionBuilderUser(user) {
+                    const normalized = normalizeDigestionShareUser(user);
+                    if (!normalized) return false;
+                    state.digestionBuilderSelectedUsers.set(normalized.user_id, normalized);
+                    if (digestionCreateAccessSearch) digestionCreateAccessSearch.value = '';
+                    renderDigestionBuilderSelectedUsers();
+                    closeDigestionBuilderResults();
+                    setDigestionBuilderStatus(`${userLabel(normalized)} will be granted access when this Digestion is created.`, 'muted');
+                    return true;
+                }
+
+                function maybeSelectTypedDigestionBuilderUser() {
+                    const typed = digestionShareSearchKey(digestionCreateAccessSearch && digestionCreateAccessSearch.value);
+                    if (!typed) return false;
+                    const directUserId = digestionShareDirectUserIdCandidate(digestionCreateAccessSearch && digestionCreateAccessSearch.value);
+                    if (directUserId) {
+                        return addDigestionBuilderUser({
+                            user_id: directUserId,
+                            username: directUserId,
+                            display_name: directUserId,
+                            account_type: 'local user id',
+                        });
+                    }
+                    const matches = (state.digestionBuilderUsers || []).filter((user) => {
+                        const values = [
+                            userLabel(user),
+                            user.username,
+                            user.handle,
+                            user.user_id,
+                        ].map(digestionShareSearchKey).filter(Boolean);
+                        return values.includes(typed);
+                    });
+                    return matches.length === 1 ? addDigestionBuilderUser(matches[0]) : false;
+                }
+
+                async function searchDigestionBuilderUsers(query, { showAll = false } = {}) {
+                    if (!digestionCreateAccessResults) return;
+                    const q = digestionShareSearchValue(query);
+                    if (!q && !showAll) {
+                        closeDigestionBuilderResults();
+                        return;
+                    }
+                    digestionCreateAccessResults.hidden = false;
+                    if (digestionCreateAccessSearch) digestionCreateAccessSearch.setAttribute('aria-expanded', 'true');
+                    digestionCreateAccessResults.innerHTML = '<div class="vault-digestion-share-empty"><span class="spinner-border spinner-border-sm me-1"></span>Finding users...</div>';
+                    try {
+                        const limit = showAll && !q ? 30 : 12;
+                        const data = await apiCall(`/ajax/mention_suggestions?q=${encodeURIComponent(q)}&limit=${limit}`);
+                        if (digestionCreateAccessSearch && digestionShareSearchKey(digestionCreateAccessSearch.value) !== digestionShareSearchKey(q)) return;
+                        renderDigestionBuilderUsers(
+                            data && data.users,
+                            { emptyMessage: q ? 'No matching local users or agents.' : 'No local users or agents found.' }
+                        );
+                    } catch (error) {
+                        digestionCreateAccessResults.innerHTML = `<div class="vault-digestion-share-empty text-danger">${vaultEscape(error.error || 'Could not search users.')}</div>`;
+                    }
+                }
+
+                function queueDigestionBuilderUserSearch() {
+                    if (!digestionCreateAccessSearch) return;
+                    const directUserId = digestionShareDirectUserIdCandidate(digestionCreateAccessSearch.value);
+                    if (directUserId) {
+                        addDigestionBuilderUser({
+                            user_id: directUserId,
+                            username: directUserId,
+                            display_name: directUserId,
+                            account_type: 'local user id',
+                        });
+                        return;
+                    }
+                    clearTimeout(state.digestionBuilderTimer);
+                    state.digestionBuilderTimer = global.setTimeout(() => {
+                        searchDigestionBuilderUsers(digestionCreateAccessSearch.value, { showAll: !digestionShareSearchValue(digestionCreateAccessSearch.value) });
+                    }, 180);
+                }
+
+                function handleDigestionBuilderSearchKeydown(event) {
+                    const buttons = digestionCreateAccessResults
+                        ? Array.from(digestionCreateAccessResults.querySelectorAll('[data-vault-digestion-builder-user-id]'))
+                        : [];
+                    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && buttons.length) {
+                        event.preventDefault();
+                        setDigestionBuilderActiveResult(state.digestionBuilderActiveIndex + (event.key === 'ArrowDown' ? 1 : -1));
+                        return;
+                    }
+                    if (event.key === 'Enter') {
+                        if (buttons.length) {
+                            event.preventDefault();
+                            const button = setDigestionBuilderActiveResult(state.digestionBuilderActiveIndex);
+                            if (button) addDigestionBuilderUser(userFromDigestionBuilderButton(button));
+                            return;
+                        }
+                        if (maybeSelectTypedDigestionBuilderUser()) {
+                            event.preventDefault();
+                        }
+                        return;
+                    }
+                    if (event.key === 'Escape') {
+                        closeDigestionBuilderResults();
+                    }
+                }
+
+                function setDigestionBuilderProfile(profile, { applyDefaults = true } = {}) {
+                    const safeProfile = DIGESTION_BUILDER_PROFILES[profile] ? profile : 'ask_cite';
+                    state.digestionBuilderProfile = safeProfile;
+                    const preset = DIGESTION_BUILDER_PROFILES[safeProfile];
+                    document.querySelectorAll('[data-vault-digestion-builder-profile]').forEach((button) => {
+                        const active = button.getAttribute('data-vault-digestion-builder-profile') === safeProfile;
+                        button.classList.toggle('is-active', active);
+                        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+                    });
+                    if (applyDefaults && preset) {
+                        if (digestionCreateChunkSize) digestionCreateChunkSize.value = String(preset.chunkSize);
+                        if (digestionCreateChunkOverlap) digestionCreateChunkOverlap.value = String(preset.chunkOverlap);
+                        if (digestionCreateMaxDatapoints) digestionCreateMaxDatapoints.value = String(preset.maxDatapoints);
+                        if (digestionCreateDatapointLens && (!digestionCreateDatapointLens.value || digestionCreateDatapointLens.dataset.profileFilled === 'true')) {
+                            digestionCreateDatapointLens.value = preset.lens;
+                            digestionCreateDatapointLens.dataset.profileFilled = 'true';
+                        }
+                        if (digestionCreatePurpose && (!digestionCreatePurpose.value || digestionCreatePurpose.dataset.profileFilled === 'true')) {
+                            const selected = selectedVaultFiles();
+                            digestionCreatePurpose.value = preset.purpose(selected.length);
+                            digestionCreatePurpose.dataset.profileFilled = 'true';
+                        }
+                        if (digestionCreateExtractDatapoints) {
+                            digestionCreateExtractDatapoints.checked = safeProfile === 'datapoints';
+                        }
+                    }
+                    refreshDigestionBuilderProcessingControls();
+                    refreshDigestionBuilderSummary();
+                }
+
+                function refreshDigestionBuilderSummary() {
+                    const selected = selectedVaultFiles();
+                    const count = selected.length;
+                    const recipients = selectedDigestionBuilderRecipients();
+                    const autoBuild = !!(digestionCreateAutoBuild && digestionCreateAutoBuild.checked);
+                    const autoExtract = !!(digestionCreateExtractDatapoints && digestionCreateExtractDatapoints.checked);
+                    const canSources = !!(digestionCreateAccessSources && digestionCreateAccessSources.checked);
+                    const canManage = !!(digestionCreateAccessManage && digestionCreateAccessManage.checked);
+                    const profileLabel = {
+                        ask_cite: 'Ask and cite',
+                        research_review: 'Research review',
+                        datapoints: 'Datapoints',
+                        agent_handoff: 'Agent handoff',
+                    }[state.digestionBuilderProfile] || 'Ask and cite';
+                    if (digestionBuilderSourceCount) {
+                        digestionBuilderSourceCount.innerHTML = `<i class="bi bi-files"></i> ${count} selected source${count === 1 ? '' : 's'}`;
+                    }
+                    if (digestionBuilderSummary) {
+                        const access = recipients.length
+                            ? `${recipients.length} initial recipient${recipients.length === 1 ? '' : 's'} (${['query', canSources ? 'sources' : '', canManage ? 'manage' : ''].filter(Boolean).join(' + ')})`
+                            : 'owner-only access at creation';
+                        digestionBuilderSummary.textContent = `${profileLabel} profile · ${count} source${count === 1 ? '' : 's'} · ${autoBuild ? 'build now' : 'build later'}${autoExtract ? ' + datapoints' : ''} · ${access}.`;
+                    }
+                    if (digestionCreateSubmit) {
+                        const manageAck = !!(digestionCreateAccessManageAck && digestionCreateAccessManageAck.checked);
+                        digestionCreateSubmit.disabled = !count || (canManage && recipients.length > 0 && !manageAck);
+                    }
+                }
+
                 function showDigestionCreateForm() {
                     const selected = selectedVaultFiles();
                     if (!digestionCreateForm || !digestionCreateName || !selected.length) return;
+                    setSelectionDigestionMenu(false);
                     digestionCreateForm.hidden = false;
                     digestionCreateForm.classList.add('is-visible');
-                    digestionCreateName.value = defaultDigestionName(selected);
-                    if (digestionCreatePurpose) {
-                        digestionCreatePurpose.value = `Reusable context for ${selected.length} selected source${selected.length === 1 ? '' : 's'}`;
+                    if (!digestionCreateName.value || digestionCreateName.dataset.profileFilled === 'true') {
+                        digestionCreateName.value = defaultDigestionName(selected);
+                        digestionCreateName.dataset.profileFilled = 'true';
                     }
+                    setDigestionBuilderProfile(state.digestionBuilderProfile || 'ask_cite', { applyDefaults: true });
+                    refreshDigestionBuilderManageConfirm();
+                    refreshDigestionBuilderProcessingControls();
+                    refreshDigestionBuilderSummary();
                     global.setTimeout(() => {
                         digestionCreateName.focus();
                         digestionCreateName.select();
@@ -2569,6 +2937,8 @@
 	                    if (!digestionCreateForm) return;
 	                    digestionCreateForm.classList.remove('is-visible');
 	                    digestionCreateForm.hidden = true;
+                        closeDigestionBuilderResults();
+                        setDigestionBuilderStatus('');
 	                }
 
 	                function selectionManageableDigestions() {
@@ -2675,6 +3045,9 @@
 	                    } else if (state.selectionDigestionMenuOpen) {
 	                        renderSelectionDigestionMenu();
 	                    }
+                        if (digestionCreateForm && !digestionCreateForm.hidden) {
+                            refreshDigestionBuilderSummary();
+                        }
 		                    if (grid) {
 		                        grid.querySelectorAll('[data-vault-file-id]').forEach((card) => {
 		                            const id = card.getAttribute('data-vault-file-id') || '';
@@ -3924,39 +4297,184 @@
                     }
                 }
 
+                function clampDigestionBuilderInt(input, fallback, min, max) {
+                    const parsed = parseInt(input && input.value, 10);
+                    if (!Number.isFinite(parsed)) return fallback;
+                    return Math.max(min, Math.min(parsed, max));
+                }
+
+                function collectDigestionBuilderPayload(selected) {
+                    const profile = DIGESTION_BUILDER_PROFILES[state.digestionBuilderProfile] ? state.digestionBuilderProfile : 'ask_cite';
+                    const name = String(digestionCreateName && digestionCreateName.value || defaultDigestionName(selected)).trim();
+                    const purpose = String(digestionCreatePurpose && digestionCreatePurpose.value || '').trim();
+                    const description = String(digestionCreateDescription && digestionCreateDescription.value || '').trim();
+                    const provider = String(digestionCreateProvider && digestionCreateProvider.value || '').trim();
+                    const embeddingModel = String(digestionCreateModel && digestionCreateModel.value || '').trim();
+                    const chunkSize = clampDigestionBuilderInt(digestionCreateChunkSize, DIGESTION_BUILDER_PROFILES[profile].chunkSize, 240, 8000);
+                    const chunkOverlap = clampDigestionBuilderInt(digestionCreateChunkOverlap, DIGESTION_BUILDER_PROFILES[profile].chunkOverlap, 0, 2000);
+                    const datapointLens = String(digestionCreateDatapointLens && digestionCreateDatapointLens.value || '').trim();
+                    const maxDatapoints = clampDigestionBuilderInt(digestionCreateMaxDatapoints, DIGESTION_BUILDER_PROFILES[profile].maxDatapoints, 1, 1200);
+                    const autoBuild = !!(digestionCreateAutoBuild && digestionCreateAutoBuild.checked);
+                    const autoExtractDatapoints = !!(digestionCreateExtractDatapoints && digestionCreateExtractDatapoints.checked);
+                    const recipients = selectedDigestionBuilderRecipients();
+                    const canReadSources = !!(digestionCreateAccessSources && digestionCreateAccessSources.checked);
+                    const canManage = !!(digestionCreateAccessManage && digestionCreateAccessManage.checked);
+                    return {
+                        name,
+                        purpose,
+                        description,
+                        provider,
+                        embeddingModel,
+                        chunkSize,
+                        chunkOverlap,
+                        datapointLens,
+                        maxDatapoints,
+                        autoBuild,
+                        autoExtractDatapoints,
+                        recipients,
+                        permissions: {
+                            can_query: true,
+                            can_read_sources: canReadSources,
+                            can_manage: canManage,
+                        },
+                        request: {
+                            name,
+                            purpose,
+                            description,
+                            source_file_ids: selected.map(vaultFileId).filter(Boolean),
+                            chunk_size: chunkSize,
+                            chunk_overlap: chunkOverlap,
+                            settings: {
+                                builder_profile: profile,
+                                builder_created_at: new Date().toISOString(),
+                                default_search_surface: profile === 'datapoints' ? 'datapoints' : 'rag',
+                                datapoint_lens: datapointLens,
+                                initial_access_user_ids: recipients.map((user) => user.user_id),
+                                initial_access_permissions: {
+                                    can_query: true,
+                                    can_read_sources: canReadSources,
+                                    can_manage: canManage,
+                                },
+                                requested_first_pass: {
+                                    build_index: autoBuild,
+                                    extract_datapoints: autoExtractDatapoints,
+                                    max_datapoints: maxDatapoints,
+                                },
+                            },
+                        },
+                    };
+                }
+
+                async function applyInitialDigestionBuilderAccess(digestionId, builder) {
+                    const recipients = builder.recipients || [];
+                    if (!digestionId || !recipients.length) return { successes: 0, failures: [] };
+                    const failures = [];
+                    let successes = 0;
+                    for (const recipient of recipients) {
+                        try {
+                            await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/acl`, {
+                                method: 'POST',
+                                body: JSON.stringify({
+                                    grantee_user_id: recipient.user_id,
+                                    can_query: true,
+                                    can_read_sources: !!builder.permissions.can_read_sources,
+                                    can_manage: !!builder.permissions.can_manage,
+                                })
+                            });
+                            successes += 1;
+                        } catch (error) {
+                            failures.push(`${userLabel(recipient)}: ${error.error || 'could not grant access'}`);
+                        }
+                    }
+                    return { successes, failures };
+                }
+
+                async function runInitialDigestionBuilderProcessing(digestionId, builder) {
+                    if (!digestionId || !builder.autoBuild) return;
+                    setDigestionBuilderStatus('Building the first semantic index...', 'muted');
+                    watchDigestionProgress(digestionId, 'build');
+                    await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/build`, {
+                        method: 'POST',
+                        body: JSON.stringify({ rebuild: false })
+                    });
+                    if (builder.autoExtractDatapoints) {
+                        setDigestionBuilderStatus('Extracting structured datapoints from the newly built index...', 'muted');
+                        watchDigestionProgress(digestionId, 'datapoints');
+                        await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/extract`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                scope: 'new',
+                                lens: builder.datapointLens,
+                                max_datapoints: builder.maxDatapoints,
+                                max_chunks: Math.min(240, Math.max(24, Math.ceil(builder.maxDatapoints / 4))),
+                            })
+                        });
+                    }
+                }
+
                 async function createDigestionFromSelection() {
                     const selected = selectedVaultFiles();
                     if (!selected.length) return;
-                    const name = String(digestionCreateName && digestionCreateName.value || defaultDigestionName(selected)).trim();
-                    const purpose = String(digestionCreatePurpose && digestionCreatePurpose.value || '').trim();
-                    if (!name) {
+                    const builder = collectDigestionBuilderPayload(selected);
+                    if (!builder.name) {
                         if (digestionCreateName) digestionCreateName.focus();
                         return;
                     }
+                    if (builder.permissions.can_manage && builder.recipients.length && !(digestionCreateAccessManageAck && digestionCreateAccessManageAck.checked)) {
+                        refreshDigestionBuilderManageConfirm();
+                        setDigestionBuilderStatus('Confirm manage/build access before creating this shared Digestion.', 'warning');
+                        if (digestionCreateAccessManageAck) digestionCreateAccessManageAck.focus();
+                        return;
+                    }
                     if (selectionDigest) selectionDigest.disabled = true;
+                    if (digestionCreateSubmit) {
+                        digestionCreateSubmit.disabled = true;
+                        digestionCreateSubmit.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Creating';
+                    }
                     try {
+                        setDigestionBuilderStatus('Creating the Digestion object...', 'muted');
+                        const request = { ...builder.request };
+                        if (builder.provider) request.provider = builder.provider;
+                        if (builder.embeddingModel) request.embedding_model = builder.embeddingModel;
                         const data = await apiCall(vaultUrls().digestions, {
                             method: 'POST',
-                            body: JSON.stringify({
-                                name: name.trim(),
-                                purpose,
-                                source_file_ids: selected.map(vaultFileId).filter(Boolean)
-                            })
+                            body: JSON.stringify(request)
                         });
+                        const digestionId = String(data.digestion_id || (data.digestion && data.digestion.id) || '');
+                        let accessResult = { successes: 0, failures: [] };
+                        if (digestionId && builder.recipients.length) {
+                            setDigestionBuilderStatus(`Granting initial access to ${builder.recipients.length} recipient${builder.recipients.length === 1 ? '' : 's'}...`, 'muted');
+                            accessResult = await applyInitialDigestionBuilderAccess(digestionId, builder);
+                        }
+                        let processingError = '';
+                        if (digestionId) {
+                            try {
+                                await runInitialDigestionBuilderProcessing(digestionId, builder);
+                            } catch (error) {
+                                processingError = error.error || 'first processing pass could not complete';
+                            }
+                        }
                         if (typeof showAlert === 'function') {
-                            showAlert('Digestion created. Build it when you are ready to index the selected files.', 'success');
+                            const buildText = builder.autoBuild
+                                ? (processingError ? ` Created, but ${processingError}.` : ' First build requested.')
+                                : ' Build it when you are ready to index the selected files.';
+                            const accessText = accessResult.failures.length
+                                ? ` ${accessResult.failures.length} access grant${accessResult.failures.length === 1 ? '' : 's'} need review.`
+                                : (accessResult.successes ? ` ${accessResult.successes} recipient${accessResult.successes === 1 ? '' : 's'} added.` : '');
+                            showAlert(`Digestion created.${buildText}${accessText}`, (accessResult.failures.length || processingError) ? 'warning' : 'success');
                         }
                         hideDigestionCreateForm();
-                        if (data.digestion) {
-                            state.digestions.unshift(data.digestion);
-                            renderDigestions();
-                        } else {
-                            await loadDigestions();
-                        }
+                        await loadDigestions();
                     } catch (error) {
+                        setDigestionBuilderStatus(error.error || 'Could not create Digestion.', 'danger');
                         if (typeof showAlert === 'function') showAlert(error.error || 'Could not create Digestion.', 'danger');
                     } finally {
                         if (selectionDigest) selectionDigest.disabled = selectedVaultFiles().length === 0;
+                        if (digestionCreateSubmit) {
+                            digestionCreateSubmit.disabled = selectedVaultFiles().length === 0;
+                            digestionCreateSubmit.innerHTML = '<i class="bi bi-diagram-3"></i> Create Digestion';
+                            refreshDigestionBuilderSummary();
+                        }
                     }
                 }
 
@@ -6670,6 +7188,59 @@
                         event.preventDefault();
                         createDigestionFromSelection();
                     });
+                    digestionCreateForm.addEventListener('click', (event) => {
+                        const profileBtn = event.target.closest('[data-vault-digestion-builder-profile]');
+                        if (profileBtn && digestionCreateForm.contains(profileBtn)) {
+                            event.preventDefault();
+                            setDigestionBuilderProfile(profileBtn.getAttribute('data-vault-digestion-builder-profile') || 'ask_cite', { applyDefaults: true });
+                            return;
+                        }
+                        const userBtn = event.target.closest('[data-vault-digestion-builder-user-id]');
+                        if (userBtn && digestionCreateForm.contains(userBtn)) {
+                            event.preventDefault();
+                            addDigestionBuilderUser(userFromDigestionBuilderButton(userBtn));
+                            return;
+                        }
+                        const removeBtn = event.target.closest('[data-vault-digestion-builder-remove]');
+                        if (removeBtn && digestionCreateForm.contains(removeBtn)) {
+                            event.preventDefault();
+                            state.digestionBuilderSelectedUsers.delete(removeBtn.getAttribute('data-vault-digestion-builder-remove') || '');
+                            renderDigestionBuilderSelectedUsers();
+                            return;
+                        }
+                        const clearBtn = event.target.closest('[data-vault-digestion-builder-clear]');
+                        if (clearBtn && digestionCreateForm.contains(clearBtn)) {
+                            event.preventDefault();
+                            state.digestionBuilderSelectedUsers.clear();
+                            renderDigestionBuilderSelectedUsers();
+                        }
+                    });
+                    digestionCreateForm.addEventListener('input', (event) => {
+                        if (event.target === digestionCreateName) {
+                            digestionCreateName.dataset.profileFilled = 'false';
+                        } else if (event.target === digestionCreatePurpose) {
+                            digestionCreatePurpose.dataset.profileFilled = 'false';
+                        } else if (event.target === digestionCreateDatapointLens) {
+                            digestionCreateDatapointLens.dataset.profileFilled = 'false';
+                        }
+                        refreshDigestionBuilderSummary();
+                    });
+                    digestionCreateForm.addEventListener('change', (event) => {
+                        if (event.target === digestionCreateAccessManage) {
+                            refreshDigestionBuilderManageConfirm();
+                        } else if (event.target === digestionCreateAutoBuild) {
+                            refreshDigestionBuilderProcessingControls();
+                        } else if (event.target === digestionCreateAccessManageAck || event.target === digestionCreateAccessSources || event.target === digestionCreateExtractDatapoints) {
+                            refreshDigestionBuilderSummary();
+                        }
+                    });
+                }
+                if (digestionCreateAccessSearch) {
+                    digestionCreateAccessSearch.addEventListener('input', queueDigestionBuilderUserSearch);
+                    digestionCreateAccessSearch.addEventListener('focus', () => {
+                        searchDigestionBuilderUsers(digestionCreateAccessSearch.value, { showAll: !digestionShareSearchValue(digestionCreateAccessSearch.value) });
+                    });
+                    digestionCreateAccessSearch.addEventListener('keydown', handleDigestionBuilderSearchKeydown);
                 }
                 if (digestionRefresh) {
                     digestionRefresh.addEventListener('click', loadDigestions);

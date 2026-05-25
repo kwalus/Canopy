@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.220] - 2026-05-25
+
+### Added
+- **File Vault New Digestion now opens a full builder** - selected files can be turned into a configured Digestion with a clear name, instructions, scope note, starting profile, build/datapoint options, and initial user/agent access grants in one flow instead of a vague name/comment step followed by serial sharing.
+
 ## [0.6.219] - 2026-05-25
 
 ### Changed
