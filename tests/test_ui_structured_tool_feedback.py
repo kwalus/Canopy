@@ -408,6 +408,11 @@ class TestUiStructuredToolFeedback(unittest.TestCase):
         self.assertEqual(len(feed_cards), 1)
         self.assertEqual(feed_cards[0].get('card_type'), 'input')
         self.assertEqual(feed_cards[0].get('title'), 'Deployment decision')
+        feed_payload = feed_response.get_json() or {}
+        feed_structured = feed_payload.get('structured_objects') or []
+        self.assertEqual(len(feed_structured), 1)
+        self.assertEqual(feed_structured[0].get('type'), 'input-card')
+        self.assertEqual(feed_structured[0].get('title'), 'Deployment decision')
 
         channel_response = self.client.post(
             '/ajax/send_channel_message',
@@ -428,6 +433,45 @@ class TestUiStructuredToolFeedback(unittest.TestCase):
         self.assertEqual(len(channel_cards), 1)
         self.assertEqual(channel_cards[0].get('card_type'), 'telemetry')
         self.assertEqual(channel_cards[0].get('title'), 'Build run')
+        channel_payload = channel_response.get_json() or {}
+        channel_structured = channel_payload.get('structured_objects') or []
+        self.assertEqual(len(channel_structured), 1)
+        self.assertEqual(channel_structured[0].get('type'), 'telemetry-card')
+        self.assertEqual(channel_structured[0].get('title'), 'Build run')
+
+    def test_create_post_rejects_semantically_incomplete_input_card(self) -> None:
+        response = self.client.post(
+            '/ajax/create_post',
+            json={
+                'content': '[input-card]\nkind: choice\n[/input-card]',
+                'post_type': 'text',
+                'visibility': 'network',
+                'attachments': [],
+                'source_type': 'human',
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json() or {}
+        self.assertIn('structured_validation', payload)
+        self.assertIn('input-card', json.dumps(payload.get('structured_validation') or {}))
+        self.assertIsNone(self.feed_manager.last_post)
+
+    def test_send_channel_message_rejects_semantically_incomplete_telemetry_card(self) -> None:
+        response = self.client.post(
+            '/ajax/send_channel_message',
+            json={
+                'channel_id': 'CHAN-1',
+                'content': '[telemetry-card]\n[/telemetry-card]',
+                'attachments': [],
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.get_json() or {}
+        self.assertIn('structured_validation', payload)
+        self.assertIn('telemetry-card', json.dumps(payload.get('structured_validation') or {}))
+        self.assertIsNone(self.channel_manager.last_message)
 
 
 if __name__ == '__main__':

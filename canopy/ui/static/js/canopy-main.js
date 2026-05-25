@@ -7733,11 +7733,23 @@
                 'circle',
                 'contract',
                 'skill',
+                'input-card',
+                'telemetry-card',
             ]);
-            const CANONICAL_TEMPLATE_TYPES = ['task', 'request', 'objective', 'handoff', 'signal'];
+            const TAG_ALIASES = {
+                input: 'input-card',
+                input_card: 'input-card',
+                'input-card': 'input-card',
+                telemetry: 'telemetry-card',
+                telemetry_card: 'telemetry-card',
+                'telemetry-card': 'telemetry-card',
+            };
+            const CANONICAL_TEMPLATE_TYPES = ['task', 'request', 'input-card', 'telemetry-card', 'objective', 'handoff', 'signal'];
             const TOOL_LABELS = {
                 task: 'Task',
                 request: 'Request',
+                'input-card': 'Input Card',
+                'telemetry-card': 'Telemetry Card',
                 objective: 'Objective',
                 handoff: 'Handoff',
                 signal: 'Signal',
@@ -7755,6 +7767,11 @@
                 'request-accepted': 'handoff',
                 accepted_request: 'handoff',
             };
+
+            function normalizeStructuredTag(rawTag) {
+                const raw = String(rawTag || '').trim().toLowerCase();
+                return TAG_ALIASES[raw] || raw;
+            }
 
             function normalizeToolBody(text) {
                 if (!text) return '';
@@ -7832,6 +7849,8 @@
                 const defaults = {
                     task: 'Action item',
                     request: 'Coordination request',
+                    'input-card': 'Operator input',
+                    'telemetry-card': 'Process telemetry',
                     objective: 'Execution objective',
                     handoff: 'Ownership handoff',
                     signal: 'Operational finding',
@@ -7850,6 +7869,14 @@
                 }
                 if (toolType === 'request') {
                     return `[request]\ntitle: ${title}\nrequest: ${body || 'Please complete this request.'}${requestMemberLine}\nrequired_output: Reply with owner, status, and evidence.\npriority: normal\n[/request]`;
+                }
+                if (toolType === 'input-card') {
+                    const targetLine = assigneesCsv ? `\ntargets: ${assigneesCsv}` : '';
+                    return `[input-card]\ntitle: ${title}\nprompt: ${body || 'Choose the best next action or provide the requested input.'}\nkind: decision\noptions: approve, revise, hold${targetLine}\n[/input-card]`;
+                }
+                if (toolType === 'telemetry-card') {
+                    const editorLine = assigneesCsv ? `\neditors: ${assigneesCsv}` : '';
+                    return `[telemetry-card]\ntitle: ${title}\nsummary: ${body || 'Track this run or process for the team.'}\nstatus: running\nprogress: 0%\nstage: queued${editorLine}\nmetrics:\n- evidence: pending\n[/telemetry-card]`;
                 }
                 if (toolType === 'objective') {
                     return `[objective]\ntitle: ${title}\ndescription: ${body || 'Track this as a multi-step objective.'}${objectiveMemberLine}\ntasks:\n- [ ] Confirm owner\n- [ ] Execute\n- [ ] Report results\n[/objective]`;
@@ -7877,7 +7904,7 @@
 
             function hasStructuredToolBlock(text) {
                 const masked = maskCodeFences(text);
-                return /(\[(task|objective|request|signal|handoff|circle|contract|skill)\]|\[\/(task|objective|request|signal|handoff|circle|contract|skill)\]|::(task|objective|request|signal|handoff|circle|contract|skill)\b)/i.test(masked);
+                return /(\[(task|objective|request|signal|handoff|circle|contract|skill|input-card|input_card|input|telemetry-card|telemetry_card|telemetry)\]|\[\/(task|objective|request|signal|handoff|circle|contract|skill|input-card|input_card|input|telemetry-card|telemetry_card|telemetry)\]|::(task|objective|request|signal|handoff|circle|contract|skill|input-card|input_card|input|telemetry-card|telemetry_card|telemetry)\b)/i.test(masked);
             }
 
             function replaceStructuredTagAlias(text, fromTag, toTag) {
@@ -7893,9 +7920,35 @@
             function normalizeDecoratedStructuredTags(text) {
                 if (!text) return '';
                 return String(text).replace(
-                    /^(\s*)(?:\*\*|__|\*|_|>+)\s*(\[(?:\/)?(?:task|objective|request|signal|handoff|circle|contract|skill)\])/gim,
+                    /^(\s*)(?:\*\*|__|\*|_|>+)\s*(\[(?:\/)?(?:task|objective|request|signal|handoff|circle|contract|skill|input-card|input_card|input|telemetry-card|telemetry_card|telemetry)\])/gim,
                     '$1$2'
                 );
+            }
+
+            function bodyHasPrefixedField(body, prefixes) {
+                const pattern = new RegExp(`^\\s*(?:${prefixes.map((prefix) => prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\s*:`, 'i');
+                return String(body || '').split(/\r?\n/).some((line) => pattern.test(line || ''));
+            }
+
+            function canonicalBlocks(text, canonicalTag) {
+                const raw = String(text || '');
+                const masked = maskCodeFences(raw);
+                const aliases = canonicalTag === 'input-card'
+                    ? ['input-card', 'input_card', 'input']
+                    : canonicalTag === 'telemetry-card'
+                        ? ['telemetry-card', 'telemetry_card', 'telemetry']
+                        : [canonicalTag];
+                const pattern = new RegExp(`\\[(?:${aliases.map((tag) => tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\]([\\s\\S]*?)\\[\\/(?:${aliases.map((tag) => tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\]`, 'ig');
+                const blocks = [];
+                let match;
+                while ((match = pattern.exec(masked)) !== null) {
+                    blocks.push({
+                        tag: canonicalTag,
+                        line: raw.slice(0, match.index).split(/\r?\n/).length,
+                        body: raw.slice(match.index + match[0].indexOf(match[1]), match.index + match[0].indexOf(match[1]) + match[1].length),
+                    });
+                }
+                return blocks;
             }
 
             function validateStructuredComposerText(text) {
@@ -7911,12 +7964,12 @@
                     if (!trimmed) return;
 
                     const decorated = trimmed.match(/^(?:\*\*|__|\*|_|>+)\s*(\[(?:\/)?([A-Za-z][A-Za-z0-9_-]*)\])/);
-                    if (decorated && SUPPORTED_TAGS.has(String(decorated[2] || '').toLowerCase())) {
+                    if (decorated && SUPPORTED_TAGS.has(normalizeStructuredTag(decorated[2]))) {
                         issues.push({
                             kind: 'decorated_tag',
                             line: index + 1,
-                            tag: String(decorated[2] || '').toLowerCase(),
-                            message: `Line ${index + 1}: remove markdown decoration so the block starts directly with [${String(decorated[2] || '').toLowerCase()}].`,
+                            tag: normalizeStructuredTag(decorated[2]),
+                            message: `Line ${index + 1}: remove markdown decoration so the block starts directly with [${normalizeStructuredTag(decorated[2])}].`,
                         });
                     }
 
@@ -7927,7 +7980,7 @@
                     if (!tagMatch) return;
                     const isClose = tagMatch[1] === '/';
                     const rawTag = String(tagMatch[2] || '').trim();
-                    const tag = rawTag.toLowerCase();
+                    const tag = normalizeStructuredTag(rawTag);
                     if (!SUPPORTED_TAGS.has(tag)) {
                         const suggestedTag = TAG_SUGGESTIONS[tag] || null;
                         if (!suggestedTag) {
@@ -7962,6 +8015,68 @@
                             tag,
                             line: null,
                             message: `Remove the extra [/${tag}] or add the missing [${tag}] block opener.`,
+                        });
+                    }
+                });
+
+                canonicalBlocks(raw, 'request').forEach((block) => {
+                    const body = block.body || '';
+                    const hasTitle = bodyHasPrefixedField(body, ['title', 'subject', 'name']);
+                    const hasContent = bodyHasPrefixedField(body, ['request', 'ask', 'description', 'details', 'body', 'required_output', 'deliverable', 'deliverables', 'output', 'success']);
+                    if (!hasTitle && !hasContent) {
+                        issues.push({
+                            kind: 'semantic_incomplete',
+                            tag: 'request',
+                            line: block.line,
+                            message: 'This [request] block needs `title:` or request content such as `request:` or `required_output:` to become a durable request.',
+                        });
+                    }
+                });
+
+                canonicalBlocks(raw, 'signal').forEach((block) => {
+                    const body = block.body || '';
+                    if (!bodyHasPrefixedField(body, ['title', 'name', 'decision', 'outcome', 'finding', 'result', 'conclusion', 'topic', 'subject'])) {
+                        issues.push({
+                            kind: 'semantic_incomplete',
+                            tag: 'signal',
+                            line: block.line,
+                            message: 'This [signal] block needs `title:` or a derivable field such as `outcome:`, `finding:`, `result:`, `conclusion:`, `topic:`, or `subject:`.',
+                        });
+                    }
+                });
+
+                canonicalBlocks(raw, 'input-card').forEach((block) => {
+                    const body = block.body || '';
+                    const hasPrompt = bodyHasPrefixedField(body, ['title', 'name', 'subject', 'prompt', 'question', 'ask', 'request', 'body', 'details', 'summary', 'context', 'description']);
+                    const kindMatch = body.match(/^\s*(?:kind|type|response_type|input_type)\s*:\s*(.+)$/im);
+                    const kind = kindMatch ? String(kindMatch[1] || '').trim().toLowerCase().replace(/-/g, '_') : '';
+                    const needsOptions = kind === 'choice' || kind === 'multi_choice';
+                    const hasOptions = bodyHasPrefixedField(body, ['options', 'choices']);
+                    if (!hasPrompt) {
+                        issues.push({
+                            kind: 'semantic_incomplete',
+                            tag: 'input-card',
+                            line: block.line,
+                            message: 'This [input-card] needs `title:` plus a `prompt:`/`question:`/`request:` so responders know what input is being requested.',
+                        });
+                    } else if (needsOptions && !hasOptions) {
+                        issues.push({
+                            kind: 'semantic_incomplete',
+                            tag: 'input-card',
+                            line: block.line,
+                            message: 'Choice input cards need `options:` or `choices:` so Canopy can render useful response buttons.',
+                        });
+                    }
+                });
+
+                canonicalBlocks(raw, 'telemetry-card').forEach((block) => {
+                    const body = block.body || '';
+                    if (!bodyHasPrefixedField(body, ['title', 'name', 'subject', 'summary', 'context', 'description', 'details', 'status', 'progress', 'percent', 'completion', 'stage', 'phase', 'step', 'metrics', 'telemetry', 'data'])) {
+                        issues.push({
+                            kind: 'semantic_incomplete',
+                            tag: 'telemetry-card',
+                            line: block.line,
+                            message: 'This [telemetry-card] needs a `title:` or live state such as `stage:` or `metrics:` before it can become a useful telemetry card.',
                         });
                     }
                 });

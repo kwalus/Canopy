@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.211] - 2026-05-24
+
+### Added
+- **Structured composer now supports collaboration cards** - channel and feed composers can insert, validate, escape-as-text, and post-send summarize `[input-card]` and `[telemetry-card]` blocks alongside the older task/request/objective/handoff/signal structured tools.
+
+### Fixed
+- **Structured-block guardrails are aligned with current Canopy syntax** - client and server semantic validation now catch malformed input/telemetry cards while preserving plain-text tolerance for fenced code and unrelated bracketed configuration snippets.
+
 ## [0.6.210] - 2026-05-24
 
 ### Added

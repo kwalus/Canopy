@@ -17063,6 +17063,7 @@ def create_ui_blueprint() -> Blueprint:
                     contract_manager=current_app.config.get('CONTRACT_MANAGER'),
                     circle_manager=current_app.config.get('CIRCLE_MANAGER'),
                     handoff_manager=current_app.config.get('HANDOFF_MANAGER'),
+                    collab_card_manager=current_app.config.get('COLLAB_CARD_MANAGER'),
                 )
 
                 return jsonify({
@@ -21333,6 +21334,7 @@ def create_ui_blueprint() -> Blueprint:
                     contract_manager=current_app.config.get('CONTRACT_MANAGER'),
                     circle_manager=current_app.config.get('CIRCLE_MANAGER'),
                     handoff_manager=current_app.config.get('HANDOFF_MANAGER'),
+                    collab_card_manager=current_app.config.get('COLLAB_CARD_MANAGER'),
                 )
 
                 return jsonify({
@@ -25918,10 +25920,17 @@ def create_ui_blueprint() -> Blueprint:
             return ''
         return re.sub(r"```[\s\S]*?```", lambda m: '\0' * len(m.group(0)), text)
 
+    _STRUCTURED_BLOCK_ALIASES: dict[str, tuple[str, ...]] = {
+        'input-card': ('input-card', 'input_card', 'input'),
+        'telemetry-card': ('telemetry-card', 'telemetry_card', 'telemetry'),
+    }
+
     def _iter_canonical_structured_blocks(text: str, tag: str) -> list[dict[str, Any]]:
         source = text or ''
         masked = _mask_code_fences_preserve_length(source)
-        pattern = re.compile(rf"\[{re.escape(tag)}\]([\s\S]*?)\[/{re.escape(tag)}\]", re.IGNORECASE)
+        aliases = _STRUCTURED_BLOCK_ALIASES.get(tag, (tag,))
+        alias_pattern = '|'.join(re.escape(alias) for alias in aliases)
+        pattern = re.compile(rf"\[(?:{alias_pattern})\]([\s\S]*?)\[/(?:{alias_pattern})\]", re.IGNORECASE)
         blocks: list[dict[str, Any]] = []
         for match in pattern.finditer(masked):
             start = match.start()
@@ -25957,6 +25966,15 @@ def create_ui_blueprint() -> Blueprint:
             'request', 'ask', 'description', 'details', 'body',
             'required_output', 'deliverable', 'deliverables', 'output', 'success',
         )
+        input_card_content_prefixes = (
+            'title', 'name', 'subject', 'prompt', 'question', 'ask', 'request',
+            'body', 'details', 'summary', 'context', 'description',
+        )
+        telemetry_card_content_prefixes = (
+            'title', 'name', 'subject', 'summary', 'context', 'description',
+            'details', 'status', 'progress', 'percent', 'completion',
+            'stage', 'phase', 'step', 'metrics', 'telemetry', 'data',
+        )
 
         for block in _iter_canonical_structured_blocks(source, 'signal'):
             body = str(block.get('body') or '')
@@ -25980,6 +25998,39 @@ def create_ui_blueprint() -> Blueprint:
                 'tag': 'request',
                 'line': block.get('line'),
                 'message': 'This [request] block has valid syntax but will not materialize without `title:` or canonical request content such as `request:` or `required_output:`.',
+            })
+
+        for block in _iter_canonical_structured_blocks(source, 'input-card'):
+            body = str(block.get('body') or '')
+            has_prompt = _body_has_prefixed_field(body, input_card_content_prefixes)
+            kind_match = re.search(r"^\s*(?:kind|type|response_type|input_type)\s*:\s*(.+)$", body, re.IGNORECASE | re.MULTILINE)
+            kind = str(kind_match.group(1) if kind_match else '').strip().lower().replace('-', '_')
+            needs_options = kind in {'choice', 'multi_choice'}
+            has_options = _body_has_prefixed_field(body, ('options', 'choices'))
+            if not has_prompt:
+                issues.append({
+                    'kind': 'semantic_incomplete',
+                    'tag': 'input-card',
+                    'line': block.get('line'),
+                    'message': 'This [input-card] block has valid syntax but needs `title:` plus a `prompt:`, `question:`, or `request:` so responders know what input is being requested.',
+                })
+            elif needs_options and not has_options:
+                issues.append({
+                    'kind': 'semantic_incomplete',
+                    'tag': 'input-card',
+                    'line': block.get('line'),
+                    'message': 'This choice [input-card] block needs `options:` or `choices:` so Canopy can render useful response buttons.',
+                })
+
+        for block in _iter_canonical_structured_blocks(source, 'telemetry-card'):
+            body = str(block.get('body') or '')
+            if _body_has_prefixed_field(body, telemetry_card_content_prefixes):
+                continue
+            issues.append({
+                'kind': 'semantic_incomplete',
+                'tag': 'telemetry-card',
+                'line': block.get('line'),
+                'message': 'This [telemetry-card] block has valid syntax but needs `title:` or live state such as `stage:` or `metrics:` before it can become useful telemetry.',
             })
 
         return {
@@ -26067,6 +26118,7 @@ def create_ui_blueprint() -> Blueprint:
         contract_manager: Any = None,
         circle_manager: Any = None,
         handoff_manager: Any = None,
+        collab_card_manager: Any = None,
     ) -> list[dict[str, Any]]:
         summaries: list[dict[str, Any]] = []
         body = content or ''
@@ -26210,6 +26262,29 @@ def create_ui_blueprint() -> Blueprint:
                     )
         except Exception as handoff_summary_err:
             logger.debug(f"Structured handoff summary skipped: {handoff_summary_err}")
+
+        try:
+            if collab_card_manager:
+                source_type = 'feed_post' if scope == 'feed' else 'channel_message'
+                cards = collab_card_manager.list_cards_for_source(
+                    source_type,
+                    source_id,
+                    viewer_id=None,
+                    admin_user_id=None,
+                    include_responses=False,
+                )
+                for card in cards or []:
+                    card_type = str(card.get('card_type') or '').strip().lower()
+                    object_type = 'input-card' if card_type == 'input' else 'telemetry-card' if card_type == 'telemetry' else 'collab-card'
+                    _append_structured_object_summary(
+                        summaries,
+                        object_type=object_type,
+                        object_id=card.get('id'),
+                        title=card.get('title'),
+                        status=card.get('status'),
+                    )
+        except Exception as collab_summary_err:
+            logger.debug(f"Structured collaboration-card summary skipped: {collab_summary_err}")
 
         return summaries
 

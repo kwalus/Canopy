@@ -314,6 +314,9 @@
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('task')"><i class="bi bi-check2-square me-2"></i>Task block</button></li>
                         <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('request')"><i class="bi bi-question-circle me-2"></i>Request block</button></li>
+                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('input-card')"><i class="bi bi-ui-checks-grid me-2"></i>Input card</button></li>
+                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('telemetry-card')"><i class="bi bi-activity me-2"></i>Telemetry card</button></li>
+                        <li><hr class="dropdown-divider"></li>
                         <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('objective')"><i class="bi bi-bullseye me-2"></i>Objective block</button></li>
                         <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right me-2"></i>Handoff block</button></li>
                         <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('signal')"><i class="bi bi-broadcast-pin me-2"></i>Signal block</button></li>
@@ -5703,6 +5706,8 @@
             const fallback = {
                 task: 'Task',
                 request: 'Request',
+                'input-card': 'Input Card',
+                'telemetry-card': 'Telemetry Card',
                 objective: 'Objective',
                 handoff: 'Handoff',
                 signal: 'Signal',
@@ -5717,6 +5722,10 @@
             const icons = {
                 task: 'check2-square',
                 request: 'question-circle',
+                input: 'ui-checks-grid',
+                'input-card': 'ui-checks-grid',
+                telemetry: 'activity',
+                'telemetry-card': 'activity',
                 objective: 'bullseye',
                 signal: 'broadcast-pin',
                 handoff: 'arrow-left-right',
@@ -5784,6 +5793,31 @@
             notifyFeedComposerUpdate();
         }
 
+        function escapeFeedStructuredBlocksAsPlainText(text) {
+            return String(text || '').replace(
+                /^(\s*)\[((?:\/)?(?:task|objective|request|signal|handoff|circle|contract|skill|input-card|input_card|input|telemetry-card|telemetry_card|telemetry))\](?=\s*$|\s)/gim,
+                '$1[ $2 ]'
+            );
+        }
+
+        async function postFeedDraftAsPlainText(event) {
+            if (event && typeof event.preventDefault === 'function') {
+                event.preventDefault();
+            }
+            const textarea = document.getElementById('postContent');
+            if (!textarea) return;
+            const before = String(textarea.value || '');
+            const after = escapeFeedStructuredBlocksAsPlainText(before);
+            if (after !== before) {
+                textarea.value = after;
+            }
+            renderFeedStructuredValidation({ issues: [], blocking: false });
+            updateFeedStructuredTriggerState({ issues: [], blocking: false });
+            notifyFeedComposerUpdate();
+            showAlert('Structured tags escaped. Posting as plain text.', 'info');
+            createPost();
+        }
+
         function renderFeedStructuredValidation(result) {
             const panel = document.getElementById('feed-structured-validation');
             const summary = document.getElementById('feed-structured-validation-summary');
@@ -5805,9 +5839,12 @@
                 : `${issues.length} structured block issues need correction.`;
 
             const needsNormalize = issues.some((issue) => issue && issue.kind === 'decorated_tag');
-            globalActions.innerHTML = needsNormalize
-                ? '<button type="button" class="btn btn-sm btn-outline-warning" onclick="normalizeFeedStructuredBlocks()">Normalize block syntax</button>'
-                : '';
+            const actionButtons = [];
+            if (needsNormalize) {
+                actionButtons.push('<button type="button" class="btn btn-sm btn-outline-warning" onclick="normalizeFeedStructuredBlocks()">Normalize block syntax</button>');
+            }
+            actionButtons.push('<button type="button" class="btn btn-sm btn-outline-secondary" onclick="postFeedDraftAsPlainText(event)">Post anyway as plain text</button>');
+            globalActions.innerHTML = actionButtons.join('');
 
             list.innerHTML = issues.map((issue) => {
                 const heading = issue.line ? `Line ${issue.line}` : getFeedToolLabel(issue.tag || 'item');
