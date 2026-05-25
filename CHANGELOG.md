@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.223] - 2026-05-25
+
+### Fixed
+- **Request cards** — Channel-rendered request cards now load persisted receiver/member rows and hydrate structured-card participant display info, so selected agent or user receivers render with their avatar and identity on the card instead of disappearing from the rendered request.
+
 ## [0.6.222] - 2026-05-25
 
 ### Changed
