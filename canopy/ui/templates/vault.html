@@ -1852,7 +1852,14 @@
         min-width: 0;
     }
     .vault-digestion-builder-grid--simple {
-        grid-template-columns: minmax(240px, 0.95fr) minmax(260px, 1.15fr);
+        grid-template-columns: minmax(280px, 0.86fr) minmax(360px, 1.34fr);
+        align-items: stretch;
+    }
+    .vault-digestion-builder-column {
+        min-width: 0;
+        display: grid;
+        gap: 0.72rem;
+        align-content: start;
     }
     .vault-digestion-builder-section {
         min-width: 0;
@@ -1862,6 +1869,13 @@
         border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
         border-radius: 16px;
         background: color-mix(in srgb, var(--canopy-bg-card) 80%, transparent);
+    }
+    .vault-digestion-builder-section--access {
+        align-content: start;
+        border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+        background:
+            radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--canopy-primary) 12%, transparent), transparent 42%),
+            color-mix(in srgb, var(--canopy-bg-card) 84%, transparent);
     }
     .vault-digestion-builder-section.is-span {
         grid-column: 1 / -1;
@@ -1949,7 +1963,6 @@
         box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 22%, transparent) inset;
     }
     .vault-digestion-builder-advanced {
-        grid-column: 1 / -1;
         min-width: 0;
         border: 1px solid color-mix(in srgb, var(--canopy-border) 78%, transparent);
         border-radius: 16px;
@@ -1977,7 +1990,18 @@
         gap: 0.42rem;
         min-width: 0;
     }
-    .vault-digestion-builder-advanced > summary small {
+    .vault-digestion-builder-summary-title {
+        display: grid !important;
+        gap: 0.1rem;
+    }
+    .vault-digestion-builder-summary-title small {
+        color: var(--canopy-text-muted);
+        font-size: 0.68rem;
+        font-weight: 720;
+        letter-spacing: 0;
+        text-transform: none;
+    }
+    .vault-digestion-builder-advanced > summary > small {
         color: var(--canopy-text-muted);
         font-size: 0.72rem;
         font-weight: 750;
@@ -1994,7 +2018,7 @@
     }
     .vault-digestion-builder-advanced-grid {
         display: grid;
-        grid-template-columns: repeat(2, minmax(220px, 1fr));
+        grid-template-columns: minmax(0, 1fr);
         gap: 0.72rem;
         padding: 0 0.72rem 0.72rem;
     }
@@ -2016,6 +2040,52 @@
         gap: 0.65rem;
         align-items: start;
         min-width: 0;
+    }
+    .vault-digestion-builder-rights {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.5rem;
+        min-width: 0;
+    }
+    .vault-digestion-right-card {
+        min-width: 0;
+        min-height: 5.15rem;
+        display: grid !important;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: start;
+        gap: 0.48rem;
+        margin: 0 !important;
+        padding: 0.62rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 66%, transparent);
+    }
+    .vault-digestion-right-card .form-check-input {
+        float: none;
+        margin: 0.12rem 0 0;
+    }
+    .vault-digestion-right-card .form-check-label {
+        display: grid;
+        gap: 0.16rem;
+        min-width: 0;
+    }
+    .vault-digestion-right-card strong {
+        color: var(--canopy-text-primary);
+        font-size: 0.78rem;
+        font-weight: 900;
+        line-height: 1.1;
+    }
+    .vault-digestion-right-card small {
+        color: var(--canopy-text-muted);
+        font-size: 0.68rem;
+        line-height: 1.25;
+    }
+    .vault-digestion-right-card.is-required,
+    .vault-digestion-right-card:has(.form-check-input:checked) {
+        border-color: color-mix(in srgb, var(--canopy-success) 58%, var(--canopy-border));
+        background:
+            radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--canopy-success) 14%, transparent), transparent 44%),
+            color-mix(in srgb, var(--canopy-success) 10%, var(--canopy-bg-card));
     }
     .vault-digestion-builder-recipient-head,
     .vault-digestion-builder-recipient-tools {
@@ -2066,9 +2136,9 @@
     }
     .vault-digestion-builder-results {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
         gap: 0.45rem;
-        max-height: 310px;
+        max-height: clamp(22rem, 43vh, 34rem);
         overflow: auto;
         padding: 0.45rem;
         border: 1px solid color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
@@ -2078,13 +2148,13 @@
     }
     .vault-digestion-builder-recipient-card {
         display: grid;
-        grid-template-columns: 2.15rem minmax(0, 1fr);
+        grid-template-columns: 2.45rem minmax(0, 1fr);
         gap: 0.52rem;
         align-items: center;
         min-width: 0;
         width: 100%;
-        min-height: 4.35rem;
-        padding: 0.54rem 0.6rem;
+        min-height: 4.8rem;
+        padding: 0.62rem 0.68rem;
         border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
         border-radius: 14px;
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
@@ -2107,8 +2177,8 @@
         box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-success) 24%, transparent) inset;
     }
     .vault-digestion-builder-recipient-avatar {
-        width: 2.15rem;
-        height: 2.15rem;
+        width: 2.45rem;
+        height: 2.45rem;
         display: grid;
         place-items: center;
         overflow: hidden;
@@ -2913,6 +2983,7 @@
             .vault-digestion-builder-advanced-grid,
             .vault-digestion-builder-fields,
             .vault-digestion-profile-grid,
+            .vault-digestion-builder-rights,
             .vault-digestion-builder-access,
             .vault-digestion-contributions-head,
 	        .vault-digestion-share-row,
@@ -3281,26 +3352,191 @@
                         </div>
                     </div>
                     <div class="vault-digestion-builder-grid vault-digestion-builder-grid--simple">
-                        <section class="vault-digestion-builder-section">
-                            <h4><i class="bi bi-pencil-square"></i> Name</h4>
-                            <p>Use a clear label so the Digestion is easy to find later in Vault, Deck, posts, and agent handoffs.</p>
-                            <div class="vault-digestion-builder-fields">
-                                <label class="is-wide">
-                                    Digestion name
-                                    <input class="form-control form-control-sm"
-                                           type="text"
-                                           id="vault-digestion-create-name"
-                                           maxlength="180"
-                                           placeholder="e.g. Fleet teleoperation literature review"
-                                           aria-label="Digestion name"
-                                           required>
-                                </label>
-                            </div>
-                        </section>
-                        <section class="vault-digestion-builder-section">
+                        <div class="vault-digestion-builder-column">
+                            <section class="vault-digestion-builder-section">
+                                <h4><i class="bi bi-pencil-square"></i> Name</h4>
+                                <p>Use a clear label so the Digestion is easy to find later in Vault, Deck, posts, and agent handoffs.</p>
+                                <div class="vault-digestion-builder-fields">
+                                    <label class="is-wide">
+                                        Digestion name
+                                        <input class="form-control form-control-sm"
+                                               type="text"
+                                               id="vault-digestion-create-name"
+                                               maxlength="180"
+                                               placeholder="e.g. Fleet teleoperation literature review"
+                                               aria-label="Digestion name"
+                                               required>
+                                    </label>
+                                </div>
+                            </section>
+                            <details class="vault-digestion-builder-advanced" id="vault-digestion-create-advanced">
+                                <summary>
+                                    <span>
+                                        <i class="bi bi-sliders"></i>
+                                        <span class="vault-digestion-builder-summary-title">
+                                            Advanced processing options
+                                            <small>Recommended defaults are already selected.</small>
+                                        </span>
+                                    </span>
+                                    <small>Profiles, provider, text segmentation, datapoints</small>
+                                </summary>
+                                <div class="vault-digestion-builder-advanced-grid">
+                                    <section class="vault-digestion-builder-section">
+                                        <h4><i class="bi bi-card-text"></i> Instructions</h4>
+                                        <p>Optional guidance for how humans and agents should reuse this corpus.</p>
+                                        <div class="vault-digestion-builder-fields">
+                                            <label class="is-wide">
+                                                Instructions / reuse goal
+                                                <textarea class="form-control form-control-sm"
+                                                          id="vault-digestion-create-purpose"
+                                                          maxlength="900"
+                                                          placeholder="What should this corpus answer, extract, compare, monitor, or help agents produce?"
+                                                          aria-label="Digestion instructions and reuse goal"></textarea>
+                                            </label>
+                                            <label class="is-wide">
+                                                Scope note
+                                                <input class="form-control form-control-sm"
+                                                       type="text"
+                                                       id="vault-digestion-create-description"
+                                                       maxlength="500"
+                                                       placeholder="Optional: audience, project, assumptions, or excluded material"
+                                                       aria-label="Digestion scope note">
+                                            </label>
+                                        </div>
+                                    </section>
+                                    <section class="vault-digestion-builder-section">
+                                        <h4><i class="bi bi-stars"></i> Starting profile</h4>
+                                        <p>Choose a profile only when the default ask-and-cite behavior is not the right fit.</p>
+                                        <div class="vault-digestion-profile-grid" role="radiogroup" aria-label="Digestion starting profile">
+                                            <button class="vault-digestion-profile-card is-active" type="button" data-vault-digestion-builder-profile="ask_cite" aria-pressed="true">
+                                                <strong><i class="bi bi-chat-square-quote"></i> Ask and cite</strong>
+                                                <small>Balanced semantic search for grounded answers and agent context.</small>
+                                            </button>
+                                            <button class="vault-digestion-profile-card" type="button" data-vault-digestion-builder-profile="research_review" aria-pressed="false">
+                                                <strong><i class="bi bi-journal-text"></i> Research review</strong>
+                                                <small>Deeper source notes for literature, reports, and due diligence.</small>
+                                            </button>
+                                            <button class="vault-digestion-profile-card" type="button" data-vault-digestion-builder-profile="datapoints" aria-pressed="false">
+                                                <strong><i class="bi bi-grid-3x3-gap"></i> Datapoints</strong>
+                                                <small>Prepare extraction of metrics, methods, claims, and evidence.</small>
+                                            </button>
+                                            <button class="vault-digestion-profile-card" type="button" data-vault-digestion-builder-profile="agent_handoff" aria-pressed="false">
+                                                <strong><i class="bi bi-robot"></i> Agent handoff</strong>
+                                                <small>Make a corpus easy for trusted agents to query, extend, and report from.</small>
+                                            </button>
+                                        </div>
+                                    </section>
+                                    <section class="vault-digestion-builder-section is-span">
+                                        <h4><i class="bi bi-cpu"></i> Processing</h4>
+                                        <p>Canopy's recommended defaults work for most files. Change these only for unusual corpora or testing.</p>
+                                        <div class="vault-digestion-builder-fields">
+                                            <label>
+                                                Provider
+                                                <select class="form-select form-select-sm" id="vault-digestion-create-provider" aria-label="Embedding provider">
+                                                    <option value="">Configured default</option>
+                                                    <option value="openai">OpenAI / compatible</option>
+                                                    <option value="local_hash">Local hash test mode</option>
+                                                </select>
+                                            </label>
+                                            <label>
+                                                Embedding model
+                                                <input class="form-control form-control-sm"
+                                                       type="text"
+                                                       id="vault-digestion-create-model"
+                                                       maxlength="160"
+                                                       placeholder="default from settings"
+                                                       aria-label="Embedding model">
+                                            </label>
+                                            <label>
+                                                Text segment size
+                                                <input class="form-control form-control-sm"
+                                                       type="number"
+                                                       id="vault-digestion-create-chunk-size"
+                                                       min="240"
+                                                       max="8000"
+                                                       step="1"
+                                                       value="1800"
+                                                       aria-label="Text segment size">
+                                            </label>
+                                            <label>
+                                                Segment overlap
+                                                <input class="form-control form-control-sm"
+                                                       type="number"
+                                                       id="vault-digestion-create-chunk-overlap"
+                                                       min="0"
+                                                       max="2000"
+                                                       step="1"
+                                                       value="220"
+                                                       aria-label="Text segment overlap">
+                                            </label>
+                                            <label>
+                                                Datapoint lens
+                                                <input class="form-control form-control-sm"
+                                                       type="text"
+                                                       id="vault-digestion-create-datapoint-lens"
+                                                       maxlength="240"
+                                                       placeholder="metrics, methods, materials, risks..."
+                                                       aria-label="Structured datapoint extraction lens">
+                                            </label>
+                                            <label>
+                                                Max datapoints
+                                                <input class="form-control form-control-sm"
+                                                       type="number"
+                                                       id="vault-digestion-create-max-datapoints"
+                                                       min="1"
+                                                       max="1200"
+                                                       step="1"
+                                                       value="400"
+                                                       aria-label="Maximum datapoints">
+                                            </label>
+                                        </div>
+                                        <div class="vault-digestion-builder-checks">
+                                            <label class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="vault-digestion-create-auto-build" checked>
+                                                <span class="form-check-label">Make searchable after creation</span>
+                                            </label>
+                                            <label class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="vault-digestion-create-extract-datapoints">
+                                                <span class="form-check-label">Then extract structured datapoints</span>
+                                            </label>
+                                        </div>
+                                    </section>
+                                </div>
+                            </details>
+                        </div>
+                        <section class="vault-digestion-builder-section vault-digestion-builder-section--access">
                             <h4><i class="bi bi-person-check"></i> Initial access</h4>
-                            <p>Optional. Leave blank for owner-only access, or add humans/agents who should be able to query it immediately.</p>
+                            <p>Choose who can use this Digestion at creation. Leave blank for owner-only access.</p>
                             <div class="vault-digestion-builder-access">
+                                <div class="vault-digestion-builder-rights" aria-label="Initial access permissions">
+                                    <label class="form-check vault-digestion-right-card is-required">
+                                        <input class="form-check-input" type="checkbox" id="vault-digestion-create-access-query" checked disabled>
+                                        <span class="form-check-label">
+                                            <strong>Query live index</strong>
+                                            <small>Selected people and agents can search and ask grounded questions.</small>
+                                        </span>
+                                    </label>
+                                    <label class="form-check vault-digestion-right-card">
+                                        <input class="form-check-input" type="checkbox" id="vault-digestion-create-access-sources">
+                                        <span class="form-check-label">
+                                            <strong>Read source metadata</strong>
+                                            <small>Expose filenames, source rows, and package metadata without raw-source grants.</small>
+                                        </span>
+                                    </label>
+                                    <label class="form-check vault-digestion-right-card">
+                                        <input class="form-check-input" type="checkbox" id="vault-digestion-create-access-manage">
+                                        <span class="form-check-label">
+                                            <strong>Manage and contribute</strong>
+                                            <small>Allow selected recipients to add sources, rebuild, and append contributions.</small>
+                                        </span>
+                                    </label>
+                                </div>
+                                <div class="vault-digestion-builder-manage-confirm" id="vault-digestion-create-access-manage-confirm" hidden>
+                                    <label class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="vault-digestion-create-access-manage-ack">
+                                        <span class="form-check-label">Confirm manage/build access for selected recipients. They can add sources, rebuild outputs, and append contributions to this live Digestion.</span>
+                                    </label>
+                                </div>
                                 <div class="vault-digestion-builder-recipient-head">
                                     <span class="vault-digestion-builder-recipient-title">
                                         <i class="bi bi-people"></i> Pick users and agents
@@ -3330,156 +3566,8 @@
                                 <div class="vault-digestion-builder-results" id="vault-digestion-create-access-results" role="listbox" aria-live="polite" hidden>
                                     <div class="vault-digestion-share-empty">Open the builder to load users and agents.</div>
                                 </div>
-                                <div class="vault-digestion-builder-checks">
-                                    <label class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="vault-digestion-create-access-query" checked disabled>
-                                        <span class="form-check-label">Query live index</span>
-                                    </label>
-                                    <label class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="vault-digestion-create-access-sources">
-                                        <span class="form-check-label">Read source metadata</span>
-                                    </label>
-                                    <label class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="vault-digestion-create-access-manage">
-                                        <span class="form-check-label">Manage/build and append contributions</span>
-                                    </label>
-                                </div>
-                                <div class="vault-digestion-builder-manage-confirm" id="vault-digestion-create-access-manage-confirm" hidden>
-                                    <label class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="vault-digestion-create-access-manage-ack">
-                                        <span class="form-check-label">Confirm manage/build access for selected recipients. They can add sources, rebuild outputs, and append contributions to this live Digestion.</span>
-                                    </label>
-                                </div>
                             </div>
                         </section>
-                        <details class="vault-digestion-builder-advanced" id="vault-digestion-create-advanced">
-                            <summary>
-                                <span><i class="bi bi-sliders"></i> Advanced processing options</span>
-                                <small>Optional: instructions, profiles, provider, text segmentation, datapoints</small>
-                            </summary>
-                            <div class="vault-digestion-builder-advanced-grid">
-                                <section class="vault-digestion-builder-section">
-                                    <h4><i class="bi bi-card-text"></i> Instructions</h4>
-                                    <p>Optional guidance for how humans and agents should reuse this corpus.</p>
-                                    <div class="vault-digestion-builder-fields">
-                                        <label class="is-wide">
-                                            Instructions / reuse goal
-                                            <textarea class="form-control form-control-sm"
-                                                      id="vault-digestion-create-purpose"
-                                                      maxlength="900"
-                                                      placeholder="What should this corpus answer, extract, compare, monitor, or help agents produce?"
-                                                      aria-label="Digestion instructions and reuse goal"></textarea>
-                                        </label>
-                                        <label class="is-wide">
-                                            Scope note
-                                            <input class="form-control form-control-sm"
-                                                   type="text"
-                                                   id="vault-digestion-create-description"
-                                                   maxlength="500"
-                                                   placeholder="Optional: audience, project, assumptions, or excluded material"
-                                                   aria-label="Digestion scope note">
-                                        </label>
-                                    </div>
-                                </section>
-                                <section class="vault-digestion-builder-section">
-                                    <h4><i class="bi bi-stars"></i> Starting profile</h4>
-                                    <p>Profiles set sensible defaults; tune only when the default behavior is not enough.</p>
-                                    <div class="vault-digestion-profile-grid" role="radiogroup" aria-label="Digestion starting profile">
-                                        <button class="vault-digestion-profile-card is-active" type="button" data-vault-digestion-builder-profile="ask_cite" aria-pressed="true">
-                                            <strong><i class="bi bi-chat-square-quote"></i> Ask and cite</strong>
-                                            <small>Balanced semantic search for grounded answers and agent context.</small>
-                                        </button>
-                                        <button class="vault-digestion-profile-card" type="button" data-vault-digestion-builder-profile="research_review" aria-pressed="false">
-                                            <strong><i class="bi bi-journal-text"></i> Research review</strong>
-                                            <small>Deeper source notes for literature, reports, and due diligence.</small>
-                                        </button>
-                                        <button class="vault-digestion-profile-card" type="button" data-vault-digestion-builder-profile="datapoints" aria-pressed="false">
-                                            <strong><i class="bi bi-grid-3x3-gap"></i> Datapoints</strong>
-                                            <small>Prepare for structured extraction of metrics, methods, claims, and evidence.</small>
-                                        </button>
-                                        <button class="vault-digestion-profile-card" type="button" data-vault-digestion-builder-profile="agent_handoff" aria-pressed="false">
-                                            <strong><i class="bi bi-robot"></i> Agent handoff</strong>
-                                            <small>Make a corpus easy for trusted agents to query, extend, and report from.</small>
-                                        </button>
-                                    </div>
-                                </section>
-                                <section class="vault-digestion-builder-section is-span">
-                                    <h4><i class="bi bi-cpu"></i> Processing</h4>
-                                    <p>Canopy's recommended defaults work for most files. Change these only for unusual corpora or testing.</p>
-                                    <div class="vault-digestion-builder-fields">
-                                        <label>
-                                            Provider
-                                            <select class="form-select form-select-sm" id="vault-digestion-create-provider" aria-label="Embedding provider">
-                                                <option value="">Configured default</option>
-                                                <option value="openai">OpenAI / compatible</option>
-                                                <option value="local_hash">Local hash test mode</option>
-                                            </select>
-                                        </label>
-                                        <label>
-                                            Embedding model
-                                            <input class="form-control form-control-sm"
-                                                   type="text"
-                                                   id="vault-digestion-create-model"
-                                                   maxlength="160"
-                                                   placeholder="default from settings"
-                                                   aria-label="Embedding model">
-                                        </label>
-                                        <label>
-                                            Text segment size
-                                            <input class="form-control form-control-sm"
-                                                   type="number"
-                                                   id="vault-digestion-create-chunk-size"
-                                                   min="240"
-                                                   max="8000"
-                                                   step="1"
-                                                   value="1800"
-                                                   aria-label="Text segment size">
-                                        </label>
-                                        <label>
-                                            Segment overlap
-                                            <input class="form-control form-control-sm"
-                                                   type="number"
-                                                   id="vault-digestion-create-chunk-overlap"
-                                                   min="0"
-                                                   max="2000"
-                                                   step="1"
-                                                   value="220"
-                                                   aria-label="Text segment overlap">
-                                        </label>
-                                        <label>
-                                            Datapoint lens
-                                            <input class="form-control form-control-sm"
-                                                   type="text"
-                                                   id="vault-digestion-create-datapoint-lens"
-                                                   maxlength="240"
-                                                   placeholder="metrics, methods, materials, risks..."
-                                                   aria-label="Structured datapoint extraction lens">
-                                        </label>
-                                        <label>
-                                            Max datapoints
-                                            <input class="form-control form-control-sm"
-                                                   type="number"
-                                                   id="vault-digestion-create-max-datapoints"
-                                                   min="1"
-                                                   max="1200"
-                                                   step="1"
-                                                   value="400"
-                                                   aria-label="Maximum datapoints">
-                                        </label>
-                                    </div>
-                                    <div class="vault-digestion-builder-checks">
-                                        <label class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="vault-digestion-create-auto-build" checked>
-                                            <span class="form-check-label">Make searchable after creation</span>
-                                        </label>
-                                        <label class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="vault-digestion-create-extract-datapoints">
-                                            <span class="form-check-label">Then extract structured datapoints</span>
-                                        </label>
-                                    </div>
-                                </section>
-                            </div>
-                        </details>
                     </div>
                     <div class="vault-digestion-builder-footer">
                         <div class="vault-digestion-builder-summary" id="vault-digestion-builder-summary">

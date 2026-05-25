@@ -380,6 +380,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('vault-digestion-create-advanced', vault_template)
         self.assertIn('Advanced processing options', vault_template)
         self.assertIn('Give it a name, optionally add people, and let Canopy use recommended processing defaults.', vault_template)
+        self.assertIn('vault-digestion-builder-column', vault_template)
+        self.assertIn('vault-digestion-builder-summary-title', vault_template)
+        self.assertIn('vault-digestion-builder-section--access', vault_template)
+        self.assertIn('vault-digestion-builder-rights', vault_template)
+        self.assertIn('vault-digestion-right-card', vault_template)
+        self.assertIn('Manage and contribute', vault_template)
         self.assertIn('data-vault-digestion-builder-profile="datapoints"', vault_template)
         self.assertIn('vault-digestion-create-access-search', vault_template)
         self.assertIn('vault-digestion-create-access-count', vault_template)
@@ -3946,7 +3952,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.228', api_ref)
+        self.assertIn('0.6.229', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

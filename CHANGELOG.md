@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.229] - 2026-05-25
+
+### Changed
+- **Digestion builder layout is more decision-oriented** — Advanced processing now lives in the left setup column below the Digestion name, while initial access is a larger primary panel with permission cards above the user/agent picker so users can clearly decide who gets query, source-metadata, or manage/contribution rights at creation time.
+
 ## [0.6.228] - 2026-05-25
 
 ### Fixed
