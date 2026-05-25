@@ -528,10 +528,106 @@
     border-bottom-color: rgba(124, 166, 234, 0.3);
 }
 
+.workspace-admin-grid {
+    display: grid;
+    grid-template-columns: minmax(300px, 0.92fr) minmax(0, 2.08fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.workspace-roster-panel {
+    position: sticky;
+    top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    min-height: min(720px, 78vh);
+    max-height: min(980px, 82vh);
+    border: 1px solid rgba(126, 157, 222, 0.24);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(13, 27, 47, 0.62), rgba(9, 20, 37, 0.52));
+    padding: 0.8rem;
+}
+
+.workspace-detail-panel {
+    min-width: 0;
+}
+
+.workspace-roster-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+    margin-bottom: 0.65rem;
+}
+
+.workspace-roster-title {
+    color: var(--canopy-text-primary, #eef6ff);
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+}
+
+.workspace-roster-summary {
+    color: var(--canopy-text-muted, #9db1cf);
+    font-size: 0.76rem;
+    line-height: 1.2;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.workspace-roster-tools {
+    display: grid;
+    gap: 0.55rem;
+    margin-bottom: 0.65rem;
+}
+
+.workspace-roster-filters {
+    display: flex;
+    gap: 0.35rem;
+    overflow-x: auto;
+    padding-bottom: 0.08rem;
+    scrollbar-width: thin;
+}
+
+.workspace-roster-filter {
+    flex: 0 0 auto;
+    border: 1px solid rgba(126, 157, 222, 0.24);
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.44);
+    color: var(--canopy-text-secondary, #c8d7ee);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.015em;
+    padding: 0.22rem 0.55rem;
+}
+
+.workspace-roster-filter:hover,
+.workspace-roster-filter.active {
+    border-color: color-mix(in srgb, var(--canopy-primary, #4adebf) 46%, var(--canopy-border, #3a5578));
+    background: var(--canopy-deck-chip-bg, rgba(31, 72, 97, 0.68));
+    color: var(--canopy-text-primary, #eef6ff);
+}
+
 .workspace-user-list {
-    max-height: 470px;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     padding-right: 4px;
+    scrollbar-width: thin;
+}
+
+.workspace-user-empty {
+    display: none;
+    border: 1px dashed rgba(126, 157, 222, 0.28);
+    border-radius: 14px;
+    padding: 1rem;
+    color: var(--canopy-text-muted, #9db1cf);
+    text-align: center;
+}
+
+.workspace-user-empty.show {
+    display: block;
 }
 
 .admin-avatar {
@@ -653,7 +749,7 @@
 
 .workspace-metric-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 0.55rem;
 }
 
@@ -669,9 +765,7 @@
     font-size: 0.95rem;
     font-weight: 800;
     line-height: 1.15;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
 .admin-table-shell {
@@ -690,6 +784,10 @@
     padding: 0.68rem 0.78rem;
     margin-bottom: 0.55rem;
     transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.workspace-user-btn[style*="display: none"] {
+    margin-bottom: 0;
 }
 
 .workspace-user-btn:hover {
@@ -1411,6 +1509,15 @@
         grid-template-columns: 1fr;
     }
 
+    .workspace-admin-grid {
+        grid-template-columns: minmax(280px, 0.86fr) minmax(0, 1.5fr);
+    }
+
+    .workspace-roster-panel {
+        min-height: min(640px, 72vh);
+        max-height: min(860px, 78vh);
+    }
+
     .workspace-metric-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -1441,6 +1548,21 @@
 }
 
 @media (max-width: 992px) {
+    .workspace-admin-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .workspace-roster-panel {
+        position: relative;
+        top: auto;
+        min-height: 0;
+        max-height: none;
+    }
+
+    .workspace-user-list {
+        max-height: min(580px, 56vh);
+    }
+
     .id-port-panel .ops-grid {
         grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
     }
@@ -1529,6 +1651,19 @@
 
     .workspace-metric-grid {
         grid-template-columns: 1fr;
+    }
+
+    .workspace-roster-head {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .workspace-roster-summary {
+        text-align: left;
+    }
+
+    .workspace-user-list {
+        max-height: min(500px, 52vh);
     }
 
     .admin-page-header {
@@ -1724,6 +1859,9 @@
 .update-commit-item,
 .update-security-note,
 .backup-security-note,
+.workspace-roster-panel,
+.workspace-roster-filter,
+.workspace-user-empty,
 .workspace-event-chip,
 .workspace-event-item,
 .queue-item,
@@ -1761,6 +1899,7 @@
 
 .directive-agent-btn:hover,
 .workspace-user-btn:hover,
+.workspace-roster-filter:hover,
 .governance-channel-card:hover {
     background: var(--canopy-interactive-hover-bg) !important;
     border-color: color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border)) !important;
@@ -1769,6 +1908,7 @@
 
 .directive-agent-btn.active,
 .workspace-user-btn.active,
+.workspace-roster-filter.active,
 .governance-channel-card.selected {
     background: var(--canopy-deck-chip-bg) !important;
     border-color: var(--canopy-deck-chip-border) !important;
@@ -2118,7 +2258,6 @@
                 <div class="small text-muted">Manage profiles, governance, inbox, mentions, and directives for agents and users.</div>
             </div>
             <div class="d-flex align-items-center gap-2">
-                <input type="text" class="form-control form-control-sm" id="workspace-search" placeholder="Filter users..." style="max-width: 200px;">
                 <button type="button" class="btn btn-outline-info btn-sm" id="workspace-refresh-btn">
                     <i class="bi bi-arrow-clockwise me-1"></i>Refresh
                 </button>
@@ -2266,9 +2405,29 @@
 		                <div class="small mt-2" id="agent-create-result-note"></div>
 		            </div>
 		        </div>
-		        <div class="row g-3">
-		            <div class="col-lg-4">
-		                <div class="workspace-user-list" id="workspace-user-list">
+		        <div class="workspace-admin-grid">
+		            <aside class="workspace-roster-panel" aria-label="Admin user roster">
+		                <div class="workspace-roster-head">
+		                    <div>
+		                        <div class="workspace-roster-title">Users and agents</div>
+		                        <div class="small text-muted">Select a profile to inspect or manage.</div>
+		                    </div>
+		                    <div class="workspace-roster-summary" id="workspace-roster-summary">{{ workspace_users|length }} total</div>
+		                </div>
+		                <div class="workspace-roster-tools">
+		                    <div class="input-group input-group-sm">
+		                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+		                        <input type="search" class="form-control" id="workspace-search" placeholder="Search name, handle, user ID">
+		                    </div>
+		                    <div class="workspace-roster-filters" role="group" aria-label="Filter admin users">
+		                        <button type="button" class="workspace-roster-filter active" data-workspace-filter="all" aria-pressed="true">All</button>
+		                        <button type="button" class="workspace-roster-filter" data-workspace-filter="agent" aria-pressed="false">Agents</button>
+		                        <button type="button" class="workspace-roster-filter" data-workspace-filter="human" aria-pressed="false">Humans</button>
+		                        <button type="button" class="workspace-roster-filter" data-workspace-filter="local" aria-pressed="false">Local</button>
+		                        <button type="button" class="workspace-roster-filter" data-workspace-filter="remote" aria-pressed="false">Remote</button>
+		                    </div>
+		                </div>
+		                <div class="workspace-user-list" id="workspace-user-list" role="listbox" aria-label="Users and agents">
 	                    {% if workspace_users %}
 	                        {% for u in workspace_users %}
 	                        {% set workspace_label = u.display_name or u.username or u.id %}
@@ -2276,13 +2435,17 @@
 	                        {% set workspace_avatar = u.get('avatar_url') or '' %}
 	                        {% set workspace_type = u.get('account_type') or 'human' %}
 	                        {% set workspace_status = u.get('status') or 'active' %}
+	                        {% set workspace_origin_peer = u.get('origin_peer') or '' %}
 	                        <button type="button"
 	                                class="workspace-user-btn"
 	                                data-user-id="{{ u.id }}"
 	                                data-display-name="{{ workspace_label }}"
 	                                data-username="{{ u.username }}"
 	                                data-account-type="{{ workspace_type }}"
-	                                data-status="{{ workspace_status }}">
+	                                data-status="{{ workspace_status }}"
+	                                data-origin-peer="{{ workspace_origin_peer }}"
+	                                role="option"
+	                                aria-selected="false">
 	                            <div class="workspace-user-row">
 	                                <span class="admin-avatar admin-avatar-sm" aria-hidden="true">
 	                                    {% if workspace_avatar %}
@@ -2317,8 +2480,9 @@
                     <p class="text-muted small mb-0">No users available.</p>
                     {% endif %}
                 </div>
-            </div>
-            <div class="col-lg-8">
+                <div class="workspace-user-empty" id="workspace-user-empty">No users match this filter.</div>
+            </aside>
+            <section class="workspace-detail-panel">
                 <div class="workspace-panel">
                     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
                         <div class="d-flex align-items-center gap-2">
@@ -2579,7 +2743,7 @@
                         </div>
                     </div>
                 </div>
-	            </div>
+	            </section>
 	        </div>
 	        </div><!-- /workspace tab pane -->
 
@@ -6535,6 +6699,9 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     // Agent workspace panel
     const workspaceUserButtons = Array.from(document.querySelectorAll('.workspace-user-btn'));
     const workspaceSearch = document.getElementById('workspace-search');
+    const workspaceRosterSummary = document.getElementById('workspace-roster-summary');
+    const workspaceUserEmpty = document.getElementById('workspace-user-empty');
+    const workspaceRosterFilters = Array.from(document.querySelectorAll('.workspace-roster-filter'));
     const workspaceRefreshBtn = document.getElementById('workspace-refresh-btn');
     const workspaceSelectedName = document.getElementById('workspace-selected-name');
     const workspaceSelectedMeta = document.getElementById('workspace-selected-meta');
@@ -6609,6 +6776,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     let workspaceGovernancePolicy = {};
     let workspaceGovernanceSavedSignature = '';
     let workspaceGovernanceDirty = false;
+    let activeWorkspaceRosterFilter = 'all';
 
     function escapeHtml(value) {
         return String(value || '')
@@ -6654,6 +6822,46 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
                 fallbackEl.textContent = userInitials(label);
                 fallbackEl.style.display = 'inline';
             }
+        }
+    }
+
+    function workspaceButtonMatchesFilter(btn, term, filter) {
+        const accountType = String(btn.getAttribute('data-account-type') || '').trim().toLowerCase();
+        const originPeer = String(btn.getAttribute('data-origin-peer') || '').trim();
+        const normalizedFilter = String(filter || 'all').trim().toLowerCase();
+        if (normalizedFilter === 'agent' && accountType !== 'agent') return false;
+        if (normalizedFilter === 'human' && accountType === 'agent') return false;
+        if (normalizedFilter === 'local' && originPeer) return false;
+        if (normalizedFilter === 'remote' && !originPeer) return false;
+        const query = String(term || '').trim().toLowerCase();
+        if (!query) return true;
+        const haystack = (
+            (btn.getAttribute('data-display-name') || '') + ' ' +
+            (btn.getAttribute('data-username') || '') + ' ' +
+            (btn.getAttribute('data-account-type') || '') + ' ' +
+            (btn.getAttribute('data-status') || '') + ' ' +
+            (btn.getAttribute('data-user-id') || '') + ' ' +
+            (btn.getAttribute('data-origin-peer') || '')
+        ).toLowerCase();
+        return haystack.includes(query);
+    }
+
+    function updateWorkspaceRosterVisibility() {
+        const term = workspaceSearch ? workspaceSearch.value : '';
+        let visible = 0;
+        workspaceUserButtons.forEach(btn => {
+            const show = workspaceButtonMatchesFilter(btn, term, activeWorkspaceRosterFilter);
+            btn.style.display = show ? '' : 'none';
+            if (show) visible += 1;
+        });
+        if (workspaceRosterSummary) {
+            const filterLabel = activeWorkspaceRosterFilter === 'all'
+                ? 'users'
+                : activeWorkspaceRosterFilter;
+            workspaceRosterSummary.textContent = `${visible} of ${workspaceUserButtons.length} ${filterLabel}`;
+        }
+        if (workspaceUserEmpty) {
+            workspaceUserEmpty.classList.toggle('show', visible === 0 && workspaceUserButtons.length > 0);
         }
     }
 
@@ -7187,7 +7395,9 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         );
 
         workspaceUserButtons.forEach(btn => {
-            btn.classList.toggle('active', btn.getAttribute('data-user-id') === user.id);
+            const isActive = btn.getAttribute('data-user-id') === user.id;
+            btn.classList.toggle('active', isActive);
+            btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
         });
     }
 
@@ -7227,20 +7437,20 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     });
 
     if (workspaceSearch) {
-        workspaceSearch.addEventListener('input', () => {
-            const term = (workspaceSearch.value || '').trim().toLowerCase();
-            workspaceUserButtons.forEach(btn => {
-                const hay = (
-	                    (btn.getAttribute('data-display-name') || '') + ' ' +
-	                    (btn.getAttribute('data-username') || '') + ' ' +
-	                    (btn.getAttribute('data-account-type') || '') + ' ' +
-	                    (btn.getAttribute('data-status') || '') + ' ' +
-	                    (btn.getAttribute('data-user-id') || '')
-	                ).toLowerCase();
-                btn.style.display = (!term || hay.includes(term)) ? '' : 'none';
-            });
-        });
+        workspaceSearch.addEventListener('input', updateWorkspaceRosterVisibility);
     }
+
+    workspaceRosterFilters.forEach(button => {
+        button.addEventListener('click', () => {
+            activeWorkspaceRosterFilter = button.getAttribute('data-workspace-filter') || 'all';
+            workspaceRosterFilters.forEach(candidate => {
+                const isActive = candidate === button;
+                candidate.classList.toggle('active', isActive);
+                candidate.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+            updateWorkspaceRosterVisibility();
+        });
+    });
 
     if (workspaceRefreshBtn) {
         workspaceRefreshBtn.addEventListener('click', async () => {
@@ -7539,6 +7749,8 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
             await submitGovernancePolicy(true);
         });
     });
+
+    updateWorkspaceRosterVisibility();
 
     if (workspaceUserButtons.length > 0) {
         const first = workspaceUserButtons[0];

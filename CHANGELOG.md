@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.222] - 2026-05-25
+
+### Changed
+- **Admin Agent Operations roster now scales for large teams** - the user/agent selector is a full-height roster rail with local search, quick filters, visible counts, sticky desktop behavior, mobile-safe stacking, and selected-user metric cards that wrap instead of truncating important operational timestamps.
+
 ## [0.6.221] - 2026-05-25
 
 ### Fixed

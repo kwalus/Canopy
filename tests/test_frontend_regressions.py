@@ -1191,6 +1191,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('id="agent-ops-directives-tab"', admin_template)
         self.assertIn('id="agent-ops-workspace-pane"', admin_template)
         self.assertIn('id="agent-ops-directives-pane"', admin_template)
+        self.assertIn('class="workspace-admin-grid"', admin_template)
+        self.assertIn('class="workspace-roster-panel"', admin_template)
+        self.assertIn('id="workspace-roster-summary"', admin_template)
+        self.assertIn('data-workspace-filter="agent"', admin_template)
+        self.assertIn('function updateWorkspaceRosterVisibility()', admin_template)
+        self.assertNotIn('max-height: 470px', admin_template)
         self.assertNotIn('admin-section-workspace', admin_template)
         self.assertNotIn('admin-section-directives', admin_template)
 
@@ -3842,7 +3848,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.221', api_ref)
+        self.assertIn('0.6.222', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
