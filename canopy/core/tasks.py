@@ -93,6 +93,7 @@ class TaskSpec:
     status: Optional[str] = None
     priority: Optional[str] = None
     assignee: Optional[str] = None
+    assignees: Optional[List[str]] = None
     editors: Optional[List[str]] = None
     task_id: Optional[str] = None
     due_at: Optional[datetime] = None
@@ -111,6 +112,7 @@ class TaskSpec:
             'status': self.status,
             'priority': self.priority,
             'assignee': self.assignee,
+            'assignees': self.assignees or [],
             'editors': self.editors or [],
             'task_id': self.task_id,
             'due_at': self.due_at.isoformat() if self.due_at else None,
@@ -144,6 +146,27 @@ def _parse_relative_due(raw: str) -> Optional[datetime]:
 
 
 _CODE_FENCE_RE = re.compile(r"```[\s\S]*?```")
+
+
+def _parse_people_list(raw: Any) -> List[str]:
+    """Parse compact people fields while preserving @handles as atomic units."""
+    text = str(raw or '').strip()
+    if not text:
+        return []
+    mention_matches = [match.group(1).strip() for match in re.finditer(r"@([A-Za-z0-9_.-]{1,96})", text)]
+    if mention_matches:
+        return list(dict.fromkeys([token for token in mention_matches if token]))
+    parts = re.split(r"[,;]+", text)
+    if len(parts) <= 1:
+        parts = [text]
+    cleaned: List[str] = []
+    for part in parts:
+        token = part.strip()
+        if token.startswith('@'):
+            token = token[1:].strip()
+        if token:
+            cleaned.append(token)
+    return list(dict.fromkeys(cleaned))
 
 
 def _mask_code_fences(text: str) -> tuple[str, str]:
@@ -181,6 +204,7 @@ def parse_task_blocks(text: str) -> List[TaskSpec]:
             status = None
             priority = None
             assignee = None
+            assignees: List[str] = []
             editors: List[str] = []
             task_id = None
             due_at = None
@@ -216,9 +240,28 @@ def parse_task_blocks(text: str) -> List[TaskSpec]:
                     raw_val = stripped.split(':', 1)[1].strip()
                     if not raw_val or raw_val.lower() in _CLEAR_TOKENS:
                         assignee = ''
+                        assignees = []
                         assignee_clear = True
                     else:
-                        assignee = raw_val
+                        parsed_assignees = _parse_people_list(raw_val)
+                        if parsed_assignees:
+                            assignees = parsed_assignees
+                            assignee = parsed_assignees[0]
+                        else:
+                            assignee = raw_val
+                    continue
+                if lower.startswith(('assignees:', 'assigned_to:',)):
+                    raw_val = stripped.split(':', 1)[1].strip()
+                    if not raw_val or raw_val.lower() in _CLEAR_TOKENS:
+                        assignee = ''
+                        assignees = []
+                        assignee_clear = True
+                    else:
+                        parsed_assignees = _parse_people_list(raw_val)
+                        if parsed_assignees:
+                            assignees = parsed_assignees
+                            if not assignee:
+                                assignee = parsed_assignees[0]
                     continue
                 if lower.startswith(('editors:', 'collaborators:')):
                     raw_editors = stripped.split(':', 1)[1].strip()
@@ -226,15 +269,7 @@ def parse_task_blocks(text: str) -> List[TaskSpec]:
                         editors_clear = True
                         editors = []
                     else:
-                        parts = re.split(r"[,\s]+", raw_editors)
-                        for part in parts:
-                            token = part.strip()
-                            if not token:
-                                continue
-                            if token.startswith('@'):
-                                token = token[1:]
-                            if token:
-                                editors.append(token)
+                        editors.extend(_parse_people_list(raw_editors))
                     continue
                 if lower.startswith(('due:', 'due_at:', 'deadline:')):
                     due_raw = stripped.split(':', 1)[1].strip()
@@ -266,6 +301,7 @@ def parse_task_blocks(text: str) -> List[TaskSpec]:
                 status=status,
                 priority=priority,
                 assignee=assignee,
+                assignees=assignees or ([assignee] if assignee else None),
                 editors=editors or None,
                 task_id=task_id or None,
                 due_at=due_at,
@@ -419,6 +455,11 @@ class TaskManager:
         raw = meta.get('editors')
         if isinstance(raw, list):
             for item in raw:
+                if item:
+                    editors.add(str(item))
+        raw_assignees = meta.get('assignees')
+        if isinstance(raw_assignees, list):
+            for item in raw_assignees:
                 if item:
                     editors.add(str(item))
         return editors

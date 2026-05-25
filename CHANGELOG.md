@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.221] - 2026-05-25
+
+### Fixed
+- **Structured Work Builder task assignments now survive posting** - selected agents/humans are emitted as a primary `assignee` plus a full `assignees` list, parsed without handle-collapsing, persisted on task metadata, and reflected in inline task cards plus the Tasks detail view.
+
 ## [0.6.220] - 2026-05-25
 
 ### Added

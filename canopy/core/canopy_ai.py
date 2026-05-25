@@ -107,7 +107,7 @@ Canopy structured block rules:
 - Structured tags must appear alone on their own lines with no Markdown decoration: [task] ... [/task], [request] ... [/request], [objective] ... [/objective], [signal] ... [/signal], [handoff] ... [/handoff].
 - Never invent bracket tags such as [status], [update], [artifact], [finding], [decision], or [request_accepted]. Use plain text, or use [signal] only when the content is truly a durable finding/report.
 - Every structured block must have both an opening and closing tag.
-- [task] requires title: and description:. Prefer priority: normal unless the user specifies urgency.
+- [task] requires title: and description:. Use assignee: @handle for one owner; when there are multiple selected people, include assignee: for the primary owner and assignees: @handle, @handle2 for the full assigned set. Prefer priority: normal unless the user specifies urgency.
 - [request] requires title: plus request: or required_output:.
 - [objective] requires title:, description:, and a tasks: list using - [ ] items.
 - [signal] requires type:, title:, summary:, and tags:.

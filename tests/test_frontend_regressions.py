@@ -113,6 +113,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function formatTaskTimestamp(timestamp)', tasks_template)
         self.assertIn('function openTaskDetail(taskId', tasks_template)
         self.assertIn('function saveTaskDetail(event)', tasks_template)
+        self.assertIn('function taskAssigneeIds(task)', tasks_template)
+        self.assertIn('function taskAssigneeSummary(task)', tasks_template)
+        self.assertIn('Assignees: ${escapeHtml(taskAssigneeIds(task).map(taskUserLabel).join(\', \') || \'Unassigned\')}', tasks_template)
         self.assertIn("event.target.closest('button, a, input, textarea, select, [role=\"button\"]') !== taskCard", tasks_template)
         self.assertIn("url.searchParams.set('task', taskId)", tasks_template)
         self.assertIn("actions = [{ action: 'details', label: 'Details' }]", tasks_template)
@@ -121,6 +124,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("href=\"{{ url_for('ui.tasks_page') }}?task={{ task.id|urlencode }}\"", feed_surface)
         self.assertIn('Status: ${statusLabel}', channels_template)
         self.assertIn('/tasks?task=${encodeURIComponent(task.id || \'\')}', channels_template)
+        self.assertIn('t.metadata && Array.isArray(t.metadata.assignees)', channels_template)
+        self.assertIn('Assigned to ${assigneeName} + ${normalizedAssigneeIds.length - 1}', channels_template)
 
     def test_digestion_extraction_copy_and_states_cover_external_provider_and_source_access(self) -> None:
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
@@ -2457,6 +2462,8 @@ console.log(JSON.stringify({{
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         self.assertIn("function buildToolBlockFromFields(toolType, fields)", main_js)
         self.assertIn("normalizeStructuredBuilderOptions", main_js)
+        self.assertIn("function buildStructuredTaskPeopleLines(people)", main_js)
+        self.assertIn("assignees: ${entries.join(', ')}", main_js)
         self.assertIn("options: ${options}", main_js)
         self.assertIn("stage: ${stage}", main_js)
         self.assertIn("buildToolBlockFromFields,", main_js)
@@ -3835,7 +3842,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.220', api_ref)
+        self.assertIn('0.6.221', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

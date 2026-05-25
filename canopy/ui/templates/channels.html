@@ -14274,6 +14274,10 @@ function displayMessages(messages, options = {}) {
     messages.forEach(m => {
         (m.inline_tasks || []).forEach(t => {
             if (t.assigned_to) userIdSet.add(t.assigned_to);
+            const metaAssignees = t && t.metadata && Array.isArray(t.metadata.assignees) ? t.metadata.assignees : [];
+            metaAssignees.forEach(uid => {
+                if (uid) userIdSet.add(String(uid));
+            });
         });
     });
     const userIds = [...userIdSet];
@@ -16154,9 +16158,18 @@ function renderInlineTaskCards(tasks, userInfo) {
         const statusLabel = escapeHtml(task.status_label || status.replace('_', ' '));
         const priorityLabel = escapeHtml(task.priority_label || priority);
         const safeTaskId = escapeHtml(task.id || '');
-        const assigneeId = task.assigned_to || '';
+        const assigneeIds = Array.isArray(task.assignee_ids) ? task.assignee_ids
+            : (task.metadata && Array.isArray(task.metadata.assignees) ? task.metadata.assignees : []);
+        const normalizedAssigneeIds = Array.from(new Set((assigneeIds || []).filter(Boolean).map(String)));
+        if (task.assigned_to && normalizedAssigneeIds.indexOf(String(task.assigned_to)) === -1) {
+            normalizedAssigneeIds.unshift(String(task.assigned_to));
+        }
+        const assigneeId = normalizedAssigneeIds[0] || task.assigned_to || '';
         const assignee = assigneeId && userInfo ? userInfo[assigneeId] : null;
         const assigneeName = assignee ? (assignee.display_name || assignee.username || assigneeId) : (assigneeId || 'Unassigned');
+        const assigneeLabel = normalizedAssigneeIds.length > 1
+            ? `Assigned to ${assigneeName} + ${normalizedAssigneeIds.length - 1}`
+            : (task.assignee_label || (assigneeId ? `Assigned to ${assigneeName}` : 'Unassigned'));
         const safeAssigneeId = escapeHtml(assigneeId);
         const safeAssigneeName = escapeHtml(assigneeName);
         const rawAvatar = assignee ? assignee.avatar_url : '';
@@ -16182,7 +16195,7 @@ function renderInlineTaskCards(tasks, userInfo) {
                          data-user-name="${safeAssigneeName}"
                          data-user-avatar="${safeAssigneeAvatar}"
                          data-peer-id="${safeAssigneePeer}"></div>
-                    <div class="inline-task-assignee-label">${safeAssigneeId ? `Assigned to ${safeAssigneeName}` : 'Unassigned'}</div>
+                    <div class="inline-task-assignee-label">${escapeHtml(assigneeLabel)}</div>
                 </div>
                 <div class="inline-task-actions">
                     <a class="inline-task-open" href="/tasks?task=${encodeURIComponent(task.id || '')}">View details</a>
@@ -21080,7 +21093,9 @@ function buildToolBlock(toolType, sourceText) {
     };
     const fallback = defaults[toolType] || 'Structured item';
     const title = deriveToolTitle(sourceText, fallback);
-    const assigneeLine = leadMention ? `\nassignee: ${leadMention}` : '';
+    const assigneeLine = leadMention
+        ? `\nassignee: ${leadMention}${mentions.length > 1 ? `\nassignees: ${assigneesCsv}` : ''}`
+        : '';
     const requestMemberLine = assigneesCsv ? `\nassignees: ${assigneesCsv}` : '';
     const objectiveMemberLine = objectiveMembersCsv ? `\nmembers: ${objectiveMembersCsv}` : '';
     const handoffOwnerLine = leadMention ? `\nowner: ${leadMention}` : '';

@@ -1862,6 +1862,32 @@ def create_api_blueprint() -> Blueprint:
                 resolved.append(uid)
         return resolved
 
+    def _task_spec_assignee_tokens(spec: Any) -> list[str]:
+        raw_tokens = list(getattr(spec, 'assignees', None) or [])
+        if not raw_tokens and getattr(spec, 'assignee', None):
+            raw_tokens = [getattr(spec, 'assignee')]
+        return list(dict.fromkeys([str(token).strip() for token in raw_tokens if str(token or '').strip()]))
+
+    def _resolve_task_spec_assignees(db_manager: Any,
+                                     spec: Any,
+                                     visibility: Optional[str] = None,
+                                     permissions: Optional[list[str]] = None,
+                                     channel_id: Optional[str] = None,
+                                     author_id: Optional[str] = None) -> tuple[Optional[str], list[str], list[str]]:
+        if getattr(spec, 'assignee_clear', False):
+            return None, [], []
+        raw_tokens = _task_spec_assignee_tokens(spec)
+        resolved = _resolve_handle_list(
+            db_manager,
+            raw_tokens,
+            visibility=visibility,
+            permissions=permissions,
+            channel_id=channel_id,
+            author_id=author_id,
+        )
+        deduped = list(dict.fromkeys(resolved))
+        return (deduped[0] if deduped else None), deduped, raw_tokens
+
     def _resolve_collab_card_handles(db_manager: Any,
                                      handles: list[Any],
                                      visibility: Optional[str] = None,
@@ -1899,11 +1925,17 @@ def create_api_blueprint() -> Blueprint:
         return val if val in _TASK_PRIORITY_SET else 'normal'
 
     def _merge_task_metadata(existing: Optional[dict[str, Any]], base_meta: dict[str, Any],
-                             editor_ids: Optional[list[str]] = None) -> dict[str, Any]:
+                             editor_ids: Optional[list[str]] = None,
+                             assignee_ids: Optional[list[str]] = None,
+                             assignee_handles: Optional[list[str]] = None) -> dict[str, Any]:
         merged = dict(existing or {})
         merged.update(base_meta or {})
         if editor_ids is not None:
             merged['editors'] = editor_ids
+        if assignee_ids is not None:
+            merged['assignees'] = list(dict.fromkeys([str(uid) for uid in assignee_ids if uid]))
+        if assignee_handles is not None:
+            merged['assignee_handles'] = list(dict.fromkeys([str(handle) for handle in assignee_handles if handle]))
         return merged
 
     def _as_bool(value: Any) -> bool:
@@ -2848,22 +2880,23 @@ def create_api_blueprint() -> Blueprint:
 
             assignee_specified = spec.assignee is not None or spec.assignee_clear
             resolved_assignee = None
+            resolved_assignees: list[str] = []
+            assignee_handles = _task_spec_assignee_tokens(spec)
             if assignee_specified:
                 if spec.assignee_clear:
                     resolved_assignee = None
                 else:
-                    raw_assignee = (spec.assignee or '').strip()
-                    if raw_assignee:
-                        resolved_assignee = _resolve_handle_to_user_id(
+                    if assignee_handles:
+                        resolved_assignee, resolved_assignees, assignee_handles = _resolve_task_spec_assignees(
                             db_manager,
-                            raw_assignee,
+                            spec,
                             visibility=visibility,
                             permissions=permissions,
                             channel_id=channel_id,
                             author_id=actor_id,
                         )
                         if not resolved_assignee:
-                            logger.warning(f"Inline task assignee '{raw_assignee}' could not be resolved for {scope}:{source_id}")
+                            logger.warning(f"Inline task assignees {assignee_handles!r} could not be resolved for {scope}:{source_id}")
                             assignee_specified = False
                     else:
                         resolved_assignee = None
@@ -2912,7 +2945,13 @@ def create_api_blueprint() -> Blueprint:
                 if task_visibility and existing.visibility != task_visibility:
                     updates['visibility'] = task_visibility
 
-                merged_meta = _merge_task_metadata(existing.metadata, base_metadata, editor_ids)
+                merged_meta = _merge_task_metadata(
+                    existing.metadata,
+                    base_metadata,
+                    editor_ids,
+                    resolved_assignees if (assignee_specified or spec.assignee_clear) else None,
+                    assignee_handles if (assignee_specified or spec.assignee_clear) else None,
+                )
                 if merged_meta != (existing.metadata or {}):
                     updates['metadata'] = merged_meta
 
@@ -2937,7 +2976,13 @@ def create_api_blueprint() -> Blueprint:
                     except Exception as task_err:
                         logger.warning(f"Failed to broadcast inline task update: {task_err}")
             else:
-                meta_payload = _merge_task_metadata({}, base_metadata, editor_ids)
+                meta_payload = _merge_task_metadata(
+                    {},
+                    base_metadata,
+                    editor_ids,
+                    resolved_assignees if (assignee_specified or spec.assignee_clear) else None,
+                    assignee_handles if (assignee_specified or spec.assignee_clear) else None,
+                )
                 task = task_manager.create_task(
                     task_id=task_id,
                     title=spec.title,
@@ -6516,9 +6561,8 @@ def create_api_blueprint() -> Blueprint:
                                 if not spec.confirmed:
                                     continue
                                 task_id = derive_task_id('feed', post.id, idx, len(task_specs), override=spec.task_id)
-                                assignee_id = _resolve_handle_to_user_id(
+                                assignee_id, assignee_ids, assignee_handles = _resolve_task_spec_assignees(
                                     db_manager,
-                                    spec.assignee,
                                     visibility=visibility,
                                     permissions=permissions,
                                     author_id=g.api_key_info.user_id,
@@ -6538,6 +6582,10 @@ def create_api_blueprint() -> Blueprint:
                                 }
                                 if editor_ids:
                                     meta_payload['editors'] = editor_ids
+                                if assignee_ids:
+                                    meta_payload['assignees'] = assignee_ids
+                                if assignee_handles:
+                                    meta_payload['assignee_handles'] = assignee_handles
 
                                 task = task_manager.create_task(
                                     task_id=task_id,
@@ -13541,9 +13589,8 @@ def create_api_blueprint() -> Blueprint:
                                 if not spec.confirmed:
                                     continue
                                 task_id = derive_task_id('channel', message.id, idx, len(task_specs), override=spec.task_id)
-                                assignee_id = _resolve_handle_to_user_id(
+                                assignee_id, assignee_ids, assignee_handles = _resolve_task_spec_assignees(
                                     db_manager,
-                                    spec.assignee,
                                     channel_id=channel_id,
                                     author_id=g.api_key_info.user_id,
                                 )
@@ -13561,6 +13608,10 @@ def create_api_blueprint() -> Blueprint:
                                 }
                                 if editor_ids:
                                     meta_payload['editors'] = editor_ids
+                                if assignee_ids:
+                                    meta_payload['assignees'] = assignee_ids
+                                if assignee_handles:
+                                    meta_payload['assignee_handles'] = assignee_handles
 
                                 task = task_manager.create_task(
                                     task_id=task_id,
@@ -15560,6 +15611,8 @@ def create_api_blueprint() -> Blueprint:
             due_at = data.get('due_at') or None
             visibility = data.get('visibility') or 'network'
             metadata = data.get('metadata') if isinstance(data.get('metadata'), dict) else None
+            if metadata is None and assigned_to:
+                metadata = {'assignees': [assigned_to]}
 
             from ..core.tasks import TASK_STATUSES, TASK_PRIORITIES, TASK_VISIBILITY
             if status is not None and str(status).strip() != "":
@@ -15656,6 +15709,15 @@ def create_api_blueprint() -> Blueprint:
                     updates[key] = data.get(key)
             if not updates:
                 return jsonify({'error': 'No updates provided', 'code': 'no_updates'}), 400
+            if 'assigned_to' in updates and 'metadata' not in updates:
+                existing_task = task_manager.get_task(task_id)
+                metadata = dict(existing_task.metadata or {}) if existing_task else {}
+                assigned_to = updates.get('assigned_to')
+                if assigned_to:
+                    metadata['assignees'] = [assigned_to]
+                else:
+                    metadata.pop('assignees', None)
+                updates['metadata'] = metadata
 
             from ..core.tasks import TASK_STATUSES, TASK_PRIORITIES, TASK_VISIBILITY
             if 'status' in updates and updates.get('status') is not None:

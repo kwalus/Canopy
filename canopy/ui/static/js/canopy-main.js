@@ -8428,7 +8428,9 @@
                 };
                 const fallback = defaults[toolType] || 'Structured item';
                 const title = deriveToolTitle(sourceText, fallback);
-                const assigneeLine = leadMention ? `\nassignee: ${leadMention}` : '';
+                const assigneeLine = leadMention
+                    ? `\nassignee: ${leadMention}${mentions.length > 1 ? `\nassignees: ${assigneesCsv}` : ''}`
+                    : '';
                 const requestMemberLine = assigneesCsv ? `\nassignees: ${assigneesCsv}` : '';
                 const objectiveMemberLine = objectiveMembersCsv ? `\nmembers: ${objectiveMembersCsv}` : '';
                 const handoffOwnerLine = leadMention ? `\nowner: ${leadMention}` : '';
@@ -8476,6 +8478,21 @@
                     .join(', ');
             }
 
+            function splitStructuredBuilderPeople(value) {
+                return normalizeStructuredBuilderPeople(value)
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean);
+            }
+
+            function buildStructuredTaskPeopleLines(people) {
+                const entries = splitStructuredBuilderPeople(people);
+                if (!entries.length) return '';
+                const first = entries[0];
+                const allLine = entries.length > 1 ? `\nassignees: ${entries.join(', ')}` : '';
+                return `\nassignee: ${first}${allLine}`;
+            }
+
             function normalizeStructuredBuilderOptions(value) {
                 return normalizeStructuredBuilderField(value)
                     .split(',')
@@ -8507,7 +8524,7 @@
                 const peopleLine = (label) => people ? `\n${label}: ${people}` : '';
 
                 if (toolType === 'task') {
-                    return `[task]\ntitle: ${title}\ndescription: ${details || 'Define the work to execute.'}${peopleLine('assignee')}\npriority: ${priority}\nstatus: ${status}\n[/task]`;
+                    return `[task]\ntitle: ${title}\ndescription: ${details || 'Define the work to execute.'}${buildStructuredTaskPeopleLines(people)}\npriority: ${priority}\nstatus: ${status}\n[/task]`;
                 }
                 if (toolType === 'request') {
                     return `[request]\ntitle: ${title}\nrequest: ${details || 'Please complete this request.'}${peopleLine('assignees')}\nrequired_output: Reply with owner, status, and evidence.\npriority: ${priority}\n[/request]`;

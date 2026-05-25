@@ -677,6 +677,23 @@
         container.appendChild(textWrap);
     }
 
+    function taskAssigneeIds(task) {
+        const meta = task && task.metadata && typeof task.metadata === 'object' ? task.metadata : {};
+        const ids = Array.isArray(meta.assignees) ? meta.assignees.filter(Boolean).map(String) : [];
+        if (task && task.assigned_to && !ids.includes(String(task.assigned_to))) {
+            ids.unshift(String(task.assigned_to));
+        }
+        return Array.from(new Set(ids));
+    }
+
+    function taskAssigneeSummary(task) {
+        const ids = taskAssigneeIds(task);
+        if (!ids.length) return 'Unassigned';
+        const labels = ids.map(taskUserLabel).filter(Boolean);
+        if (labels.length <= 1) return `Assigned to ${labels[0] || ids[0]}`;
+        return `Assigned to ${labels[0]} + ${labels.length - 1}`;
+    }
+
     function buildTaskActions(task) {
         const actions = [];
         if (!task.assigned_to) {
@@ -735,6 +752,10 @@
 
         const assigneeWrap = card.querySelector('.task-assignee');
         renderAssignee(assigneeWrap, task.assigned_to);
+        const assigneeText = assigneeWrap ? assigneeWrap.querySelector('.task-assignee-text') : null;
+        if (assigneeText) {
+            assigneeText.textContent = taskAssigneeSummary(task);
+        }
 
         const actionsWrap = card.querySelector('.task-actions');
         const actions = [{ action: 'details', label: 'Details' }].concat(buildTaskActions(task));
@@ -911,7 +932,7 @@
             meta.innerHTML = `
                 <span class="task-detail-chip">Status: ${escapeHtml(STATUS_LABELS[task.status] || task.status || 'Open')}</span>
                 <span class="task-detail-chip">Priority: ${escapeHtml(PRIORITY_LABELS[task.priority] || task.priority || 'Normal')}</span>
-                <span class="task-detail-chip">Assignee: ${escapeHtml(taskUserLabel(task.assigned_to))}</span>
+                <span class="task-detail-chip">Assignees: ${escapeHtml(taskAssigneeIds(task).map(taskUserLabel).join(', ') || 'Unassigned')}</span>
                 <span class="task-detail-chip">Updated: ${escapeHtml(formatTaskTimestamp(task.updated_at) || '')}</span>
             `;
         }
