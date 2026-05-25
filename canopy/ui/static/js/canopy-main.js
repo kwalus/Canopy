@@ -22808,13 +22808,37 @@
                 updateDeckModeChrome();
             }
 
+            function showDeckInboxRecipients(actionEl) {
+                if (!actionEl) return;
+                const rawRecipients = actionEl.getAttribute('data-dm-recipients') || '[]';
+                const recipientApi = window.CanopyDmRecipients || {};
+                let recipients = [];
+                if (typeof recipientApi.parse === 'function') {
+                    recipients = recipientApi.parse(rawRecipients);
+                } else {
+                    try {
+                        const parsed = JSON.parse(rawRecipients);
+                        recipients = Array.isArray(parsed) ? parsed : [];
+                    } catch (_) {
+                        recipients = [];
+                    }
+                }
+                if (typeof recipientApi.show === 'function') {
+                    recipientApi.show(recipients, { title: 'Group recipients' });
+                    return;
+                }
+                showAlert('Recipient details are not available in this view yet.', 'info');
+            }
+
             function handleDeckInboxAction(event) {
                 const actionEl = event.target && event.target.closest ? event.target.closest('[data-dm-action]') : null;
                 if (!actionEl || !deckInboxSurface || !deckInboxSurface.contains(actionEl)) return;
                 const action = String(actionEl.getAttribute('data-dm-action') || '').trim();
                 if (!action) return;
                 event.preventDefault();
-                if (action === 'send-message') {
+                if (action === 'show-recipients') {
+                    showDeckInboxRecipients(actionEl);
+                } else if (action === 'send-message') {
                     sendDeckInboxMessage();
                 } else if (action === 'clear-composer') {
                     const textarea = deckInboxTextArea();
