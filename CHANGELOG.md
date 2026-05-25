@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.214] - 2026-05-25
+
+### Added
+- **Structured Work Builder now has live drafting fields** - channel and feed composers expose title, details, people, priority, status, progress/options, and live-update controls that write a canonical structured block into the textarea for human review without bypassing validation.
+
 ## [0.6.213] - 2026-05-25
 
 ### Added
