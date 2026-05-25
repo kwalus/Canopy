@@ -14229,6 +14229,49 @@ function applyChannelThreadViewPresentation(container, rootMessages, repliesByRo
     });
 }
 
+function addChannelStructuredDisplayUserId(userIdSet, value) {
+    const id = String(value || '').trim();
+    if (id) userIdSet.add(id);
+}
+
+function addChannelStructuredDisplayUserIds(message, userIdSet) {
+    if (!message || !userIdSet) return;
+    addChannelStructuredDisplayUserId(userIdSet, message.user_id);
+    (message.inline_tasks || []).forEach(t => {
+        addChannelStructuredDisplayUserId(userIdSet, t.assigned_to);
+        const metaAssignees = t && t.metadata && Array.isArray(t.metadata.assignees) ? t.metadata.assignees : [];
+        metaAssignees.forEach(uid => addChannelStructuredDisplayUserId(userIdSet, uid));
+    });
+    (message.objectives || []).forEach(objective => {
+        (objective.members || []).forEach(member => addChannelStructuredDisplayUserId(userIdSet, member && member.user_id));
+        (objective.tasks || []).forEach(task => {
+            addChannelStructuredDisplayUserId(userIdSet, task && (task.assignee_id || task.assigned_to));
+        });
+    });
+    (message.requests || []).forEach(request => {
+        (request.members || []).forEach(member => addChannelStructuredDisplayUserId(userIdSet, member && member.user_id));
+    });
+    (message.signals || []).forEach(signal => {
+        addChannelStructuredDisplayUserId(userIdSet, signal && signal.owner_id);
+    });
+    (message.contracts || []).forEach(contract => {
+        addChannelStructuredDisplayUserId(userIdSet, contract && contract.owner_id);
+        (contract.counterparties || []).forEach(counterparty => {
+            addChannelStructuredDisplayUserId(userIdSet, counterparty && (counterparty.user_id || counterparty.counterparty_id));
+        });
+    });
+    (message.handoffs || []).forEach(handoff => {
+        addChannelStructuredDisplayUserId(userIdSet, handoff && handoff.owner_id);
+        addChannelStructuredDisplayUserId(userIdSet, handoff && handoff.return_to_id);
+    });
+}
+
+function collectChannelDisplayUserIds(messages) {
+    const userIdSet = new Set();
+    (messages || []).forEach(message => addChannelStructuredDisplayUserIds(message, userIdSet));
+    return [...userIdSet];
+}
+
 function displayMessages(messages, options = {}) {
     hideChannelSelectionDock();
     const messagesContainer = document.getElementById('messages-list');
@@ -14269,18 +14312,8 @@ function displayMessages(messages, options = {}) {
     const replyMetaById = threadLayout.replyMetaById;
     const orphanRootIds = threadLayout.orphanRootIds;
 
-    // Get unique user IDs for avatar fetching (authors + task assignees)
-    const userIdSet = new Set(messages.map(m => m.user_id));
-    messages.forEach(m => {
-        (m.inline_tasks || []).forEach(t => {
-            if (t.assigned_to) userIdSet.add(t.assigned_to);
-            const metaAssignees = t && t.metadata && Array.isArray(t.metadata.assignees) ? t.metadata.assignees : [];
-            metaAssignees.forEach(uid => {
-                if (uid) userIdSet.add(String(uid));
-            });
-        });
-    });
-    const userIds = [...userIdSet];
+    // Get unique user IDs for avatar fetching (authors + structured-card participants).
+    const userIds = collectChannelDisplayUserIds(messages);
     
     // Fetch user display info and mention candidates in parallel; build handle->display_name map
     return Promise.all([
@@ -17736,8 +17769,8 @@ function loadOlderMessages() {
             const replyMetaById = olderThreadLayout.replyMetaById;
             const orphanRootIds = olderThreadLayout.orphanRootIds;
 
-            // Get user info
-            const userIds = [...new Set(newMsgs.map(m => m.user_id))];
+            // Get user info for new authors and any structured-card participants.
+            const userIds = collectChannelDisplayUserIds(newMsgs);
             Promise.all([
                 fetchUserDisplayInfo(userIds),
                 fetchChannelMentionCandidates(requestedChannelId)

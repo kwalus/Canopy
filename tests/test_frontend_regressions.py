@@ -127,6 +127,19 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('t.metadata && Array.isArray(t.metadata.assignees)', channels_template)
         self.assertIn('Assigned to ${assigneeName} + ${normalizedAssigneeIds.length - 1}', channels_template)
 
+    def test_channel_request_cards_hydrate_receiver_avatars(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
+
+        self.assertIn('request_manager.get_request(request_id, include_members=True)', ui_routes)
+        self.assertIn('function collectChannelDisplayUserIds(messages)', channels_template)
+        self.assertIn('(message.requests || []).forEach(request => {', channels_template)
+        self.assertIn('(request.members || []).forEach(member => addChannelStructuredDisplayUserId(userIdSet, member && member.user_id));', channels_template)
+        self.assertIn('const userIds = collectChannelDisplayUserIds(messages);', channels_template)
+        self.assertIn('const userIds = collectChannelDisplayUserIds(newMsgs);', channels_template)
+        self.assertIn('class="inline-task-avatar request-member-avatar"', channels_template)
+        self.assertIn('data-user-avatar="${safeAvatar}"', channels_template)
+
     def test_digestion_extraction_copy_and_states_cover_external_provider_and_source_access(self) -> None:
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
@@ -3848,7 +3861,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.222', api_ref)
+        self.assertIn('0.6.223', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

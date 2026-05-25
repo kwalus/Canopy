@@ -19373,7 +19373,7 @@ def create_ui_blueprint() -> Blueprint:
                             if not spec.confirmed:
                                 continue
                             request_id = derive_request_id('channel', message.id, idx, len(request_specs), override=spec.request_id)
-                            req_obj = request_manager.get_request(request_id)
+                            req_obj = request_manager.get_request(request_id, include_members=True)
                             if req_obj:
                                 payload = req_obj
                                 payload['status_label'] = (payload.get('status') or 'open').replace('_', ' ').title()
