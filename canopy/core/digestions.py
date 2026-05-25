@@ -644,6 +644,58 @@ class DigestionManager:
             return None
         return self._find_or_create_vault_folder(owner_id, self._digestion_intake_folder_name(digestion), root_id)
 
+    def _digestion_generated_figures_folder_id(self, digestion: Digestion) -> Optional[str]:
+        intake_folder_id = self._digestion_intake_folder_id(digestion)
+        if not intake_folder_id:
+            return None
+        return self._find_or_create_vault_folder(
+            str(digestion.owner_user_id or "").strip(),
+            "Generated figures",
+            intake_folder_id,
+        )
+
+    def _organize_generated_figure_assets(self, digestion: Digestion) -> Optional[str]:
+        """Move legacy generated PDF figure images out of Vault Home without changing file IDs."""
+        owner_id = str(digestion.owner_user_id or "").strip()
+        if not owner_id:
+            return None
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT image_file_id
+                FROM (
+                    SELECT image_file_id FROM digestion_pdf_figures
+                    WHERE digestion_id = ? AND image_file_id IS NOT NULL AND image_file_id != ''
+                    UNION
+                    SELECT image_file_id FROM digestion_visual_evidence
+                    WHERE digestion_id = ? AND image_file_id IS NOT NULL AND image_file_id != ''
+                )
+                """,
+                (digestion.id, digestion.id),
+            ).fetchall()
+        to_move: list[str] = []
+        for row in rows:
+            file_id = self._clean_id(row["image_file_id"] if row else "")
+            if not file_id:
+                continue
+            info = self.file_manager.get_file(file_id)
+            if not info or str(info.uploaded_by or "") != owner_id:
+                continue
+            if str(info.vault_folder_id or "").strip():
+                continue
+            to_move.append(file_id)
+        if not to_move:
+            return None
+        folder_id = self._digestion_generated_figures_folder_id(digestion)
+        if not folder_id:
+            return None
+        for file_id in to_move:
+            try:
+                self.file_manager.move_user_file_to_folder(owner_id, file_id, folder_id)
+            except Exception:
+                logger.debug("Could not organize generated Digestion figure asset %s", file_id, exc_info=True)
+        return folder_id
+
     def merge_sources_from_digestion(
         self,
         target_digestion_id: str,
@@ -1330,6 +1382,7 @@ class DigestionManager:
                 status_code=403,
                 reason="source_metadata_denied",
             )
+        self._organize_generated_figure_assets(digestion)
         figure_limit = max(1, min(int(limit or 120), 240))
         with self.db.get_connection() as conn:
             rows = conn.execute(
@@ -1379,6 +1432,7 @@ class DigestionManager:
                 status_code=403,
                 reason="source_metadata_denied",
             )
+        self._organize_generated_figure_assets(digestion)
         evidence_limit = max(1, min(int(limit or 160), 320))
         kind = str(evidence_kind or "").strip().lower()
         params: list[Any] = [digestion.id]
@@ -3674,6 +3728,8 @@ class DigestionManager:
     ) -> dict[str, Any]:
         cached = self._cached_pdf_figure_rows(digestion.id, info.id, info.checksum)
         if cached:
+            self._organize_generated_figure_assets(digestion)
+            cached = self._cached_pdf_figure_rows(digestion.id, info.id, info.checksum)
             return {
                 "figure_count": len(cached),
                 "figures": [self._figure_row_to_dict(row) for row in cached],
@@ -3849,7 +3905,20 @@ class DigestionManager:
         caption = self._caption_for_figure(captions_by_page, page_label, page_figure_order)
         context_text = self._figure_context_text(caption, page_label=page_label, source_name=info.original_name)
         filename = f"{self._slugify(Path(info.original_name or 'pdf').stem)}-figure-{figure_index:03d}{ext}"
-        saved = self.file_manager.save_file(image_bytes, filename, content_type, digestion.owner_user_id)
+        folder_id = self._digestion_generated_figures_folder_id(digestion)
+        if not folder_id:
+            logger.warning(
+                "Skipping generated PDF figure image for %s because the Digestion generated-figures folder is unavailable.",
+                digestion.id,
+            )
+            return None
+        saved = self.file_manager.save_file(
+            image_bytes,
+            filename,
+            content_type,
+            digestion.owner_user_id,
+            vault_folder_id=folder_id,
+        )
         if not saved:
             return None
         row_payload = {
@@ -3873,6 +3942,9 @@ class DigestionManager:
             "metadata": {
                 "source_file_name": info.original_name,
                 "image_hash": image_hash,
+                "vault_folder_id": saved.vault_folder_id,
+                "vault_folder": "Generated figures",
+                "owner_intake_folder": self._digestion_intake_folder_name(digestion),
                 "vision_status": "not_run",
                 **(metadata or {}),
             },

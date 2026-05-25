@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.226] - 2026-05-25
+
+### Fixed
+- **Digestion generated figure assets stay organized** — PDF figure images generated during Digestion builds now save under `Digestion Intake/<Digestion>/Generated figures` instead of cluttering the owner's Vault Home.
+- **Legacy Digestion figure cleanup** — Existing generated figure images that were previously left in Vault Home are moved into the Digestion's generated-figures folder when figures or visual evidence are listed, while preserving their stable Vault file IDs.
+
 ## [0.6.225] - 2026-05-25
 
 ### Changed
