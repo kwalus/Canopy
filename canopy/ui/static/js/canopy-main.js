@@ -2245,6 +2245,7 @@
 		                const selectionClear = document.getElementById('vault-selection-clear');
 	                const selectAllBtn = document.getElementById('vault-select-all-btn');
 	                const digestionCreateForm = document.getElementById('vault-digestion-create-form');
+                const digestionCreateAdvanced = document.getElementById('vault-digestion-create-advanced');
                 const digestionCreateName = document.getElementById('vault-digestion-create-name');
 	                const digestionCreatePurpose = document.getElementById('vault-digestion-create-purpose');
                 const digestionCreateDescription = document.getElementById('vault-digestion-create-description');
@@ -2892,6 +2893,7 @@
                     const autoExtract = !!(digestionCreateExtractDatapoints && digestionCreateExtractDatapoints.checked);
                     const canSources = !!(digestionCreateAccessSources && digestionCreateAccessSources.checked);
                     const canManage = !!(digestionCreateAccessManage && digestionCreateAccessManage.checked);
+                    const advancedOpen = !!(digestionCreateAdvanced && digestionCreateAdvanced.open);
                     const profileLabel = {
                         ask_cite: 'Ask and cite',
                         research_review: 'Research review',
@@ -2903,9 +2905,13 @@
                     }
                     if (digestionBuilderSummary) {
                         const access = recipients.length
-                            ? `${recipients.length} initial recipient${recipients.length === 1 ? '' : 's'} (${['query', canSources ? 'sources' : '', canManage ? 'manage' : ''].filter(Boolean).join(' + ')})`
+                            ? `${recipients.length} recipient${recipients.length === 1 ? '' : 's'} added (${['query', canSources ? 'sources' : '', canManage ? 'manage' : ''].filter(Boolean).join(' + ')})`
                             : 'owner-only access at creation';
-                        digestionBuilderSummary.textContent = `${profileLabel} profile · ${count} source${count === 1 ? '' : 's'} · ${autoBuild ? 'build now' : 'build later'}${autoExtract ? ' + datapoints' : ''} · ${access}.`;
+                        if (advancedOpen) {
+                            digestionBuilderSummary.textContent = `${profileLabel} profile · ${count} source${count === 1 ? '' : 's'} · ${autoBuild ? 'make searchable now' : 'build later'}${autoExtract ? ' + datapoints' : ''} · ${access}.`;
+                        } else {
+                            digestionBuilderSummary.textContent = `${count} source${count === 1 ? '' : 's'} · recommended search defaults · ${access}.`;
+                        }
                     }
                     if (digestionCreateSubmit) {
                         const manageAck = !!(digestionCreateAccessManageAck && digestionCreateAccessManageAck.checked);
@@ -2919,6 +2925,7 @@
                     setSelectionDigestionMenu(false);
                     digestionCreateForm.hidden = false;
                     digestionCreateForm.classList.add('is-visible');
+                    if (digestionCreateAdvanced) digestionCreateAdvanced.open = false;
                     if (!digestionCreateName.value || digestionCreateName.dataset.profileFilled === 'true') {
                         digestionCreateName.value = defaultDigestionName(selected);
                         digestionCreateName.dataset.profileFilled = 'true';
@@ -7184,6 +7191,9 @@
 	                    digestionCreateCancel.addEventListener('click', hideDigestionCreateForm);
 	                }
                 if (digestionCreateForm) {
+                    if (digestionCreateAdvanced) {
+                        digestionCreateAdvanced.addEventListener('toggle', refreshDigestionBuilderSummary);
+                    }
                     digestionCreateForm.addEventListener('submit', (event) => {
                         event.preventDefault();
                         createDigestionFromSelection();

@@ -2,7 +2,7 @@
 
 Use this guide to connect an MCP-capable client (for example Cursor, Claude Desktop, or OpenClaw-style tooling) to your local Canopy instance.
 
-Version scope: this guide is aligned to the Canopy `0.6.224` release line.
+Version scope: this guide is aligned to the Canopy `0.6.225` release line.
 
 The following notes summarize advanced content features available to MCP agents in this release. First-time setup starts at [Prerequisites](#prerequisites) below.
 
