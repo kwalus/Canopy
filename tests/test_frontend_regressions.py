@@ -984,6 +984,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('id="sidebar-media-deck-open-messages"', base_template)
         self.assertIn('data-dm-open-deck="1"', base_template)
         self.assertIn('data-dm-target-message-id="{{ contact.target_message_id or \'\' }}"', base_template)
+        self.assertIn('.sidebar-media-deck:not(.is-desktop-large):not(.is-desktop-window).is-dm-mode .deck-inbox-surface:not(.is-list-open) .deck-inbox-sidebar', base_template)
+        self.assertIn('.sidebar-media-deck.is-desktop-large .deck-inbox-body', base_template)
+        self.assertIn('.deck-inbox-surface .structured-builder-field-grid', base_template)
 
         self.assertIn("{% set dm_surface = 'page' %}", messages_template)
         self.assertIn("{% include '_messages_composer.html' %}", messages_template)
@@ -1011,6 +1014,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('closeDeckInbox({ restoreSource: true });', main_js)
         self.assertIn("event.target.closest('.sidebar-dm-contact[data-dm-open-deck]')", main_js)
         self.assertIn("if (window.location.pathname === '/messages') return;", main_js)
+        self.assertIn('function showDeckInboxRecipients(actionEl)', main_js)
+        self.assertIn("recipientApi.show(recipients, { title: 'Group recipients' });", main_js)
 
     def test_group_dm_avatar_overflow_opens_full_recipient_list(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
@@ -1023,10 +1028,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('data-dm-recipients="{{ users|tojson|forceescape }}"', macros_template)
         self.assertIn('aria-haspopup="dialog"', macros_template)
         self.assertIn('canopy-dm-recipient-modal', base_template)
+        self.assertIn('.deck-inbox-surface .dm-avatar-stack-more', base_template)
         self.assertIn('.dm-recipient-list-item:hover', base_template)
         self.assertIn('.dm-recipient-list-item:hover', messages_template)
         self.assertIn('function initCanopyDmRecipientDisclosure(global)', main_js)
         self.assertIn('event.target.closest(\'[data-dm-action="show-recipients"]\')', main_js)
+        self.assertIn("if (action === 'show-recipients')", main_js)
         self.assertIn('document.addEventListener(\'click\', handleRecipientDisclosureClick, true);', main_js)
         self.assertIn('data-dm-recipient-list', main_js)
         self.assertIn('global.CanopyDmRecipients = {', main_js)
@@ -3814,7 +3821,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.218', api_ref)
+        self.assertIn('0.6.219', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

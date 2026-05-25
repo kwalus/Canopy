@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.219] - 2026-05-25
+
+### Changed
+- **Deck Inbox fits constrained deck widths** - standard Deck Inbox now prioritizes the active DM thread with an explicit Chats toggle, while large/window modes keep the conversation rail without squeezing the message surface; embedded rich cards and Work Builder content are contained to the deck width.
+- **Deck Inbox group recipient disclosure is wired directly** - the +N avatar control in Deck group DMs now opens the shared recipient dialog from inside the deck action router, with deck-local styling for a clear clickable overflow avatar.
+
 ## [0.6.218] - 2026-05-25
 
 ### Changed

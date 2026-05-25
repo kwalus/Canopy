@@ -4505,7 +4505,9 @@
         .deck-inbox-surface {
             display: none;
             flex: 1 1 auto;
+            min-width: 0;
             min-height: 0;
+            overflow: hidden;
             padding: 0 14px 14px;
         }
 
@@ -4528,10 +4530,34 @@
 
         .deck-inbox-body {
             display: grid;
-            grid-template-columns: minmax(152px, 0.42fr) minmax(0, 1fr);
+            grid-template-columns: minmax(0, 1fr);
             gap: 12px;
             width: 100%;
+            min-width: 0;
             min-height: 0;
+            overflow: hidden;
+        }
+
+        .sidebar-media-deck.is-desktop-large .deck-inbox-body,
+        .sidebar-media-deck.is-desktop-window .deck-inbox-body {
+            grid-template-columns: minmax(178px, 0.32fr) minmax(0, 1fr);
+        }
+
+        .sidebar-media-deck:not(.is-desktop-large):not(.is-desktop-window).is-dm-mode .deck-inbox-surface:not(.is-list-open) .deck-inbox-sidebar {
+            display: none;
+        }
+
+        .sidebar-media-deck:not(.is-desktop-large):not(.is-desktop-window).is-dm-mode .deck-inbox-sidebar {
+            order: 1;
+            max-height: 220px;
+        }
+
+        .sidebar-media-deck:not(.is-desktop-large):not(.is-desktop-window).is-dm-mode .deck-inbox-thread {
+            order: 2;
+        }
+
+        .sidebar-media-deck:not(.is-desktop-large):not(.is-desktop-window).is-dm-mode .deck-inbox-surface .dm-mobile-sidebar-toggle {
+            display: inline-flex;
         }
 
         .deck-inbox-sidebar,
@@ -4587,6 +4613,7 @@
             align-items: center;
             justify-content: space-between;
             gap: 10px;
+            min-width: 0;
             padding: 12px 13px;
             border-bottom: 1px solid var(--deck-inbox-panel-border);
             background: linear-gradient(180deg, var(--deck-inbox-panel-bg-strong), var(--deck-inbox-panel-bg-soft));
@@ -4671,9 +4698,11 @@
         .deck-inbox-surface .dm-conversation-card {
             position: relative;
             display: grid;
-            grid-template-columns: auto minmax(0, 1fr);
+            grid-template-columns: minmax(34px, auto) minmax(0, 1fr);
             gap: 8px;
             align-items: center;
+            min-width: 0;
+            overflow: hidden;
             border: 1px solid var(--deck-inbox-panel-border);
             border-radius: 15px;
             padding: 8px;
@@ -4737,9 +4766,30 @@
             margin-left: 0;
         }
 
+        .deck-inbox-surface .dm-avatar-stack-more {
+            min-width: 32px;
+            height: 32px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 0.45rem;
+            position: relative;
+            z-index: 15;
+            pointer-events: auto;
+            color: var(--canopy-text-secondary);
+            background: var(--deck-inbox-panel-bg-strong);
+            border: 1px solid var(--deck-inbox-panel-border);
+            font-size: 0.7rem;
+            font-weight: 850;
+        }
+
         .deck-inbox-surface .dm-conversation-main,
         .deck-inbox-surface .dm-thread-title-wrap,
-        .deck-inbox-surface .dm-composer-target {
+        .deck-inbox-surface .dm-composer-target,
+        .deck-inbox-surface .dm-composer-input-wrap,
+        .deck-inbox-surface .dm-composer-actions-left,
+        .deck-inbox-surface .dm-composer-actions-right {
             min-width: 0;
         }
 
@@ -4767,6 +4817,12 @@
             white-space: nowrap;
         }
 
+        .deck-inbox-surface .dm-conversation-time {
+            flex: 0 0 auto;
+            max-width: 4.2rem;
+            text-align: right;
+        }
+
         .deck-inbox-surface .dm-unread-pill {
             position: absolute;
             right: 8px;
@@ -4788,6 +4844,7 @@
         .deck-inbox-surface .dm-thread-header-main {
             display: flex;
             align-items: center;
+            flex: 1 1 auto;
             min-width: 0;
             gap: 9px;
         }
@@ -4796,6 +4853,8 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
+            min-width: 0;
+            flex: 0 1 auto;
             flex-wrap: wrap;
             justify-content: flex-end;
         }
@@ -4891,6 +4950,8 @@
             background: var(--deck-inbox-bubble-bg);
             color: var(--canopy-text-primary);
             padding: 10px 12px 7px;
+            max-width: 100%;
+            overflow: hidden;
             box-shadow: 0 10px 20px color-mix(in srgb, var(--canopy-shadow) 42%, transparent);
         }
 
@@ -4942,6 +5003,7 @@
 
         .deck-inbox-surface .dm-composer {
             flex-shrink: 0;
+            min-width: 0;
             padding: 11px;
             border-top: 1px solid var(--deck-inbox-panel-border);
             background: linear-gradient(180deg, var(--deck-inbox-panel-bg-soft), var(--deck-inbox-panel-bg));
@@ -4949,6 +5011,8 @@
 
         .deck-inbox-surface .dm-composer-topline {
             margin-bottom: 8px;
+            min-width: 0;
+            flex-wrap: wrap;
         }
 
         .deck-inbox-surface .dm-thread-actions .btn,
@@ -4966,6 +5030,9 @@
             display: block;
             color: var(--canopy-text-primary);
             font-size: 0.82rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .deck-inbox-surface .dm-composer-target small,
@@ -5014,6 +5081,15 @@
         .deck-inbox-surface .dm-composer-actions {
             margin-top: 8px;
             flex-wrap: wrap;
+        }
+
+        .deck-inbox-surface .dm-composer-actions-left {
+            flex: 1 1 13rem;
+            overflow: hidden;
+        }
+
+        .deck-inbox-surface .dm-composer-actions-right {
+            flex: 0 0 auto;
         }
 
         .deck-inbox-surface .dm-security-pill,
@@ -5164,6 +5240,54 @@
         .deck-inbox-surface .dm-reaction-pill .dm-reaction-custom-img {
             width: 0.98rem;
             height: 0.98rem;
+        }
+
+        .deck-inbox-surface .structured-builder-panel,
+        .deck-inbox-surface .structured-builder-scrollbody,
+        .deck-inbox-surface .structured-builder-fields,
+        .deck-inbox-surface .structured-builder-recipient-panel,
+        .deck-inbox-surface .structured-builder-recipient-meta {
+            min-width: 0;
+            max-width: 100%;
+        }
+
+        .deck-inbox-surface .structured-builder-panel {
+            overflow: hidden;
+        }
+
+        .deck-inbox-surface .structured-builder-grid {
+            grid-template-columns: repeat(auto-fit, minmax(min(138px, 100%), 1fr));
+        }
+
+        .deck-inbox-surface .structured-builder-field-grid,
+        .deck-inbox-surface .structured-builder-field-grid--compact {
+            grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
+        }
+
+        .deck-inbox-surface .structured-builder-recipient-list {
+            grid-template-columns: repeat(auto-fit, minmax(min(168px, 100%), 1fr));
+        }
+
+        .deck-inbox-surface .structured-builder-recipient-tools,
+        .deck-inbox-surface .structured-builder-live-row,
+        .deck-inbox-surface .structured-builder-footer {
+            min-width: 0;
+            flex-wrap: wrap;
+        }
+
+        @media (max-width: 900px) {
+            .sidebar-media-deck.is-desktop-large.is-dm-mode .deck-inbox-body {
+                grid-template-columns: minmax(164px, 0.3fr) minmax(0, 1fr);
+                gap: 10px;
+            }
+
+            .sidebar-media-deck.is-desktop-large.is-dm-mode .deck-inbox-sidebar {
+                padding: 8px;
+            }
+
+            .deck-inbox-surface .dm-thread-actions .dm-btn-label {
+                display: none;
+            }
         }
 
         @media (max-width: 680px) {
