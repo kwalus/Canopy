@@ -124,6 +124,8 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('id="channel-composer-more-toggle"', channels)
         self.assertIn("More compose tools", channels)
         self.assertIn(".channel-composer-advanced-tool", channels)
+        self.assertIn("Open work builder", channels)
+        self.assertIn('aria-controls="channel-structured-builder"', channels)
 
     def test_primary_composers_offer_expandable_draft_area(self) -> None:
         channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")

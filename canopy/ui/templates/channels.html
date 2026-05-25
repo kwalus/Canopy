@@ -1225,6 +1225,104 @@
         font-size: 0.72rem;
         line-height: 1.25;
     }
+    .structured-builder-panel {
+        display: none;
+        flex-direction: column;
+        gap: 0.75rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border) 66%);
+        border-radius: 1rem;
+        padding: 0.85rem;
+        background:
+            radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 18%, transparent), transparent 42%),
+            color-mix(in srgb, var(--canopy-bg-card) 94%, var(--canopy-primary) 6%);
+        box-shadow: 0 18px 44px color-mix(in srgb, var(--canopy-shadow) 74%, transparent);
+    }
+    .structured-builder-panel.is-visible {
+        display: flex;
+    }
+    .structured-builder-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+    .structured-builder-title {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        min-width: 0;
+    }
+    .structured-builder-title strong {
+        color: var(--canopy-text-primary);
+        font-size: 0.94rem;
+        letter-spacing: -0.01em;
+    }
+    .structured-builder-title small,
+    .structured-builder-hint {
+        color: var(--canopy-text-secondary);
+        font-size: 0.76rem;
+        line-height: 1.35;
+    }
+    .structured-builder-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+        gap: 0.45rem;
+    }
+    .structured-builder-option {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.52rem;
+        min-height: 4.25rem;
+        border: 1px solid var(--canopy-border);
+        border-radius: 0.85rem;
+        padding: 0.62rem;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 88%, transparent);
+        color: var(--canopy-text-primary);
+        text-align: left;
+        transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+    }
+    .structured-builder-option:hover,
+    .structured-builder-option:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border) 42%);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, var(--canopy-primary) 22%);
+        transform: translateY(-1px);
+    }
+    .structured-builder-option.is-selected {
+        border-color: color-mix(in srgb, var(--canopy-primary) 76%, var(--canopy-border) 24%);
+        background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-tertiary) 82%);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 36%, transparent);
+    }
+    .structured-builder-option .bi {
+        flex: 0 0 auto;
+        margin-top: 0.12rem;
+        color: var(--canopy-primary);
+        font-size: 1rem;
+    }
+    .structured-builder-option-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 0.12rem;
+        min-width: 0;
+    }
+    .structured-builder-option-label {
+        font-size: 0.82rem;
+        font-weight: 800;
+        line-height: 1.12;
+    }
+    .structured-builder-option-help {
+        color: var(--canopy-text-muted);
+        font-size: 0.7rem;
+        line-height: 1.25;
+    }
+    .structured-builder-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+        border-top: 1px solid color-mix(in srgb, var(--canopy-border) 70%, transparent);
+        padding-top: 0.7rem;
+    }
     .structured-tool-trigger {
         position: relative;
         width: 2.35rem;
@@ -5862,6 +5960,31 @@
                         </div>
                         <div id="channel-structured-nudge-actions" class="structured-nudge-actions"></div>
                     </div>
+                    <div id="channel-structured-builder" class="structured-builder-panel mb-2" aria-live="polite">
+                        <div class="structured-builder-header">
+                            <div class="structured-builder-title">
+                                <span class="badge bg-info-subtle text-info-emphasis">Work builder</span>
+                                <strong>Make this message actionable</strong>
+                                <small>Choose a Canopy work card; the draft block will be written into the composer for review.</small>
+                            </div>
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-secondary"
+                                    onclick="toggleChannelStructuredBuilder(false)"
+                                    aria-label="Close work builder">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                        <div id="channel-structured-builder-options" class="structured-builder-grid"></div>
+                        <div class="structured-builder-footer">
+                            <span id="channel-structured-builder-hint" class="structured-builder-hint">Pick the work shape that best matches this message.</span>
+                            <button type="button"
+                                    class="btn btn-sm btn-primary"
+                                    id="channel-structured-builder-insert"
+                                    onclick="insertChannelStructuredBuilderSelection()">
+                                <i class="bi bi-plus-circle me-1"></i>Add selected draft
+                            </button>
+                        </div>
+                    </div>
                     <div id="channel-structured-validation" class="task-inline-toggle mb-2 structured-panel" style="display: none;">
                         <div class="structured-panel-header">
                             <div class="task-inline-info">
@@ -5966,6 +6089,11 @@
                                         </button>
                                     </li>
                                     <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" onclick="toggleChannelStructuredBuilder(true)">
+                                            <i class="bi bi-diagram-3 me-2"></i>Open work builder
+                                        </button>
+                                    </li>
                                     <li class="structured-tool-menu-kicker">Make this message actionable</li>
                                     <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('task')"><i class="bi bi-check2-square"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Create task</span><span class="structured-tool-item-help">Assign work with owner, priority, and status.</span></span></button></li>
                                     <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('request')"><i class="bi bi-question-circle"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Ask for work</span><span class="structured-tool-item-help">Make the requested output explicit for humans or agents.</span></span></button></li>
@@ -5999,26 +6127,16 @@
                             </button>
                             <div class="btn-group structured-tool-trigger-group channel-composer-advanced-tool">
                                 <button type="button"
-                                        class="btn btn-outline-secondary dropdown-toggle structured-tool-trigger"
+                                        class="btn btn-outline-secondary structured-tool-trigger"
                                         id="channel-structured-tools-toggle"
-                                        data-bs-toggle="dropdown"
+                                        onclick="toggleChannelStructuredBuilder()"
                                         aria-expanded="false"
+                                        aria-controls="channel-structured-builder"
                                         aria-label="Add a Canopy work card or tool"
                                         title="Add a Canopy work card or tool">
                                     <i class="bi bi-diagram-3"></i>
                                     <span class="structured-tool-trigger-dot"></span>
                                 </button>
-                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-structured-tools-toggle">
-                                    <li class="structured-tool-menu-kicker">Make this message actionable</li>
-                                    <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('task')"><i class="bi bi-check2-square"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Create task</span><span class="structured-tool-item-help">Assign work with owner, priority, and status.</span></span></button></li>
-                                    <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('request')"><i class="bi bi-question-circle"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Ask for work</span><span class="structured-tool-item-help">Make the requested output explicit for humans or agents.</span></span></button></li>
-                                    <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('input-card')"><i class="bi bi-ui-checks-grid"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Collect input</span><span class="structured-tool-item-help">Render an approval, choice, or decision card.</span></span></button></li>
-                                    <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('telemetry-card')"><i class="bi bi-activity"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Track progress</span><span class="structured-tool-item-help">Show live run state, stage, progress, and metrics.</span></span></button></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('objective')"><i class="bi bi-bullseye"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Set objective</span><span class="structured-tool-item-help">Track a larger goal with members and steps.</span></span></button></li>
-                                    <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Hand off ownership</span><span class="structured-tool-item-help">Transfer context and next steps cleanly.</span></span></button></li>
-                                    <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('signal')"><i class="bi bi-broadcast-pin"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Record finding</span><span class="structured-tool-item-help">Save evidence, decisions, or metrics as durable context.</span></span></button></li>
-                                </ul>
                             </div>
                             <div id="channel-mention-macro-buttons" class="mention-macro-buttons" style="display: none;"></div>
                             <div class="btn-group channel-composer-advanced-tool">
@@ -21350,6 +21468,83 @@ function getToolOutcomeLabel(toolType) {
         contract: 'Contract',
     };
     return labels[toolType] || getToolLabel(toolType);
+}
+
+const CHANNEL_STRUCTURED_BUILDER_TOOLS = ['task', 'request', 'input-card', 'telemetry-card', 'objective', 'handoff', 'signal'];
+let channelStructuredBuilderSelection = 'task';
+
+function getStructuredToolHelp(toolType) {
+    const help = {
+        task: 'Assign work with owner, priority, and status.',
+        request: 'Make the requested output explicit for humans or agents.',
+        'input-card': 'Render an approval, choice, or decision card.',
+        'telemetry-card': 'Show live run state, stage, progress, and metrics.',
+        objective: 'Track a larger goal with members and steps.',
+        handoff: 'Transfer context and next steps cleanly.',
+        signal: 'Save evidence, decisions, or metrics as durable context.',
+    };
+    return help[toolType] || 'Create a structured Canopy work item.';
+}
+
+function getStructuredToolIcon(toolType) {
+    const icons = {
+        task: 'check2-square',
+        request: 'question-circle',
+        'input-card': 'ui-checks-grid',
+        'telemetry-card': 'activity',
+        objective: 'bullseye',
+        handoff: 'arrow-left-right',
+        signal: 'broadcast-pin',
+    };
+    return icons[toolType] || 'diagram-3';
+}
+
+function renderChannelStructuredBuilder() {
+    const options = document.getElementById('channel-structured-builder-options');
+    if (!options) return;
+    options.innerHTML = CHANNEL_STRUCTURED_BUILDER_TOOLS.map((toolType) => `
+        <button type="button"
+                class="structured-builder-option${toolType === channelStructuredBuilderSelection ? ' is-selected' : ''}"
+                data-structured-builder-tool="${escapeHtml(toolType)}"
+                onclick="selectChannelStructuredBuilderTool('${escapeHtml(toolType)}')">
+            <i class="bi bi-${getStructuredToolIcon(toolType)}"></i>
+            <span class="structured-builder-option-copy">
+                <span class="structured-builder-option-label">${escapeHtml(getToolActionLabel(toolType))}</span>
+                <span class="structured-builder-option-help">${escapeHtml(getStructuredToolHelp(toolType))}</span>
+            </span>
+        </button>
+    `).join('');
+    const hint = document.getElementById('channel-structured-builder-hint');
+    if (hint) {
+        hint.textContent = `${getToolActionLabel(channelStructuredBuilderSelection)}: ${getStructuredToolHelp(channelStructuredBuilderSelection)}`;
+    }
+}
+
+function selectChannelStructuredBuilderTool(toolType) {
+    channelStructuredBuilderSelection = CHANNEL_STRUCTURED_BUILDER_TOOLS.includes(toolType) ? toolType : 'task';
+    renderChannelStructuredBuilder();
+}
+
+function toggleChannelStructuredBuilder(forceOpen) {
+    const panel = document.getElementById('channel-structured-builder');
+    const button = document.getElementById('channel-structured-tools-toggle');
+    if (!panel) return;
+    const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : !panel.classList.contains('is-visible');
+    if (shouldOpen) {
+        renderChannelStructuredBuilder();
+    }
+    panel.classList.toggle('is-visible', shouldOpen);
+    if (button) {
+        button.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    }
+    if (shouldOpen) {
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+
+function insertChannelStructuredBuilderSelection() {
+    insertChannelStructuredTemplate(channelStructuredBuilderSelection || 'task');
+    toggleChannelStructuredBuilder(false);
 }
 
 function inferStructuredToolSuggestions(text) {
