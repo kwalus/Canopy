@@ -5916,6 +5916,9 @@
                                     <li><hr class="dropdown-divider"></li>
                                     <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('task')"><i class="bi bi-check2-square me-2"></i>Task block</button></li>
                                     <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('request')"><i class="bi bi-question-circle me-2"></i>Request block</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('input-card')"><i class="bi bi-ui-checks-grid me-2"></i>Input card</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('telemetry-card')"><i class="bi bi-activity me-2"></i>Telemetry card</button></li>
+                                    <li><hr class="dropdown-divider"></li>
                                     <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('objective')"><i class="bi bi-bullseye me-2"></i>Objective block</button></li>
                                     <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right me-2"></i>Handoff block</button></li>
                                     <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('signal')"><i class="bi bi-broadcast-pin me-2"></i>Signal block</button></li>
@@ -5955,6 +5958,9 @@
                                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-structured-tools-toggle">
                                     <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('task')"><i class="bi bi-check2-square me-2"></i>Task block</button></li>
                                     <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('request')"><i class="bi bi-question-circle me-2"></i>Request block</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('input-card')"><i class="bi bi-ui-checks-grid me-2"></i>Input card</button></li>
+                                    <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('telemetry-card')"><i class="bi bi-activity me-2"></i>Telemetry card</button></li>
+                                    <li><hr class="dropdown-divider"></li>
                                     <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('objective')"><i class="bi bi-bullseye me-2"></i>Objective block</button></li>
                                     <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right me-2"></i>Handoff block</button></li>
                                     <li><button type="button" class="dropdown-item" onclick="insertChannelStructuredTemplate('signal')"><i class="bi bi-broadcast-pin me-2"></i>Signal block</button></li>
@@ -20317,7 +20323,7 @@ function hasStructuredToolBlock(text) {
         return window.canopyStructuredComposer.hasStructuredToolBlock(text);
     }
     if (!text) return false;
-    return /(\[task\]|\[objective\]|\[request\]|\[signal\]|\[handoff\]|\[circle\]|\[contract\]|::task|::objective|::request|::signal|::handoff|::circle|::contract)/i.test(String(text));
+    return /(\[task\]|\[objective\]|\[request\]|\[signal\]|\[handoff\]|\[circle\]|\[contract\]|\[input-card\]|\[input_card\]|\[input\]|\[telemetry-card\]|\[telemetry_card\]|\[telemetry\]|::task|::objective|::request|::signal|::handoff|::circle|::contract|::input-card|::input_card|::input|::telemetry-card|::telemetry_card|::telemetry)/i.test(String(text));
 }
 
 function normalizeToolBody(text) {
@@ -20395,6 +20401,8 @@ function buildToolBlock(toolType, sourceText) {
     const defaults = {
         task: 'Action item',
         request: 'Coordination request',
+        'input-card': 'Operator input',
+        'telemetry-card': 'Process telemetry',
         objective: 'Execution objective',
         handoff: 'Ownership handoff',
         signal: 'Operational finding',
@@ -20413,6 +20421,14 @@ function buildToolBlock(toolType, sourceText) {
     }
     if (toolType === 'request') {
         return `[request]\ntitle: ${title}\nrequest: ${body || 'Please complete this request.'}${requestMemberLine}\nrequired_output: Reply with owner, status, and evidence.\npriority: normal\n[/request]`;
+    }
+    if (toolType === 'input-card') {
+        const targetLine = assigneesCsv ? `\ntargets: ${assigneesCsv}` : '';
+        return `[input-card]\ntitle: ${title}\nprompt: ${body || 'Choose the best next action or provide the requested input.'}\nkind: decision\noptions: approve, revise, hold${targetLine}\n[/input-card]`;
+    }
+    if (toolType === 'telemetry-card') {
+        const editorLine = assigneesCsv ? `\neditors: ${assigneesCsv}` : '';
+        return `[telemetry-card]\ntitle: ${title}\nsummary: ${body || 'Track this run or process for the team.'}\nstatus: running\nprogress: 0%\nstage: queued${editorLine}\nmetrics:\n- evidence: pending\n[/telemetry-card]`;
     }
     if (toolType === 'objective') {
         return `[objective]\ntitle: ${title}\ndescription: ${body || 'Track this as a multi-step objective.'}${objectiveMemberLine}\ntasks:\n- [ ] Confirm owner\n- [ ] Execute\n- [ ] Report results\n[/objective]`;
@@ -21245,6 +21261,8 @@ function getToolLabel(toolType) {
     const labels = {
         task: 'Task',
         request: 'Request',
+        'input-card': 'Input Card',
+        'telemetry-card': 'Telemetry Card',
         objective: 'Objective',
         handoff: 'Handoff',
         signal: 'Signal',
@@ -21285,6 +21303,12 @@ function inferStructuredToolSuggestions(text) {
 
     if (/\b(can you|could you|would you|please|need you to|i need|let'?s|kindly)\b/.test(lc)) {
         add('request', 5, 'direct ask');
+    }
+    if (/\b(approve|approval|decision|choose|select|vote|input needed|need input|pick one|which option)\b/.test(lc)) {
+        add('input-card', 5, 'bounded input needed');
+    }
+    if (/\b(progress|status update|telemetry|stage|phase|running|complete|blocked|percent|%|eta|pipeline|build|run)\b/.test(lc) && (numericCount > 0 || fieldLineCount > 0 || tableLineCount > 0)) {
+        add('telemetry-card', 6, 'live process state');
     }
     if (questionCount > 0 && mentionCount > 0) add('request', 2, 'question to specific peer');
     if (mentionCount > 0 && imperativeCount > 0) {
@@ -21331,7 +21355,7 @@ function inferStructuredToolSuggestions(text) {
     const maxScore = Math.max(...Object.values(score));
     if (maxScore < 4) return [];
     const cutoff = Math.max(4, maxScore - 2);
-    const priority = ['signal', 'request', 'objective', 'task', 'handoff'];
+    const priority = ['telemetry-card', 'input-card', 'signal', 'request', 'objective', 'task', 'handoff'];
 
     return Object.entries(score)
         .filter(([, value]) => value >= cutoff)
@@ -21379,6 +21403,10 @@ function channelStructuredResultIcon(itemType) {
     const icons = {
         task: 'check2-square',
         request: 'question-circle',
+        input: 'ui-checks-grid',
+        'input-card': 'ui-checks-grid',
+        telemetry: 'activity',
+        'telemetry-card': 'activity',
         objective: 'bullseye',
         handoff: 'arrow-left-right',
         signal: 'broadcast-pin',
@@ -21449,7 +21477,7 @@ function normalizeChannelStructuredBlocks() {
 
 function escapeChannelStructuredBlocksAsPlainText(text) {
     return String(text || '').replace(
-        /^(\s*)\[((?:\/)?(?:task|objective|request|signal|handoff|circle|contract|skill))\](?=\s*$|\s)/gim,
+        /^(\s*)\[((?:\/)?(?:task|objective|request|signal|handoff|circle|contract|skill|input-card|input_card|input|telemetry-card|telemetry_card|telemetry))\](?=\s*$|\s)/gim,
         '$1[ $2 ]'
     );
 }
