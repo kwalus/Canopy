@@ -1229,6 +1229,10 @@
         display: none;
         flex-direction: column;
         gap: 0.75rem;
+        box-sizing: border-box;
+        max-height: min(72vh, 42rem);
+        max-height: min(72dvh, 42rem);
+        overflow: hidden;
         border: 1px solid color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border) 66%);
         border-radius: 1rem;
         padding: 0.85rem;
@@ -1240,8 +1244,19 @@
     .structured-builder-panel.is-visible {
         display: flex;
     }
+    .structured-builder-scrollbody {
+        display: grid;
+        flex: 1 1 auto;
+        gap: 0.75rem;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding-right: 0.08rem;
+        scrollbar-gutter: stable;
+    }
     .structured-builder-header {
         display: flex;
+        flex: 0 0 auto;
         align-items: flex-start;
         justify-content: space-between;
         gap: 0.75rem;
@@ -1267,6 +1282,7 @@
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
         gap: 0.45rem;
+        min-height: 0;
     }
     .structured-builder-option {
         display: flex;
@@ -1317,6 +1333,7 @@
     .structured-builder-fields {
         display: grid;
         gap: 0.62rem;
+        min-height: 0;
         border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, transparent);
         border-radius: 0.95rem;
         padding: 0.7rem;
@@ -1585,6 +1602,22 @@
         padding: 0.45rem 0.2rem;
     }
     @media (max-width: 720px) {
+        .structured-builder-panel {
+            gap: 0.55rem;
+            max-height: min(62vh, 34rem);
+            max-height: min(62dvh, 34rem);
+            padding: 0.68rem;
+        }
+        .structured-builder-scrollbody {
+            gap: 0.55rem;
+        }
+        .structured-builder-option {
+            min-height: 3.55rem;
+            padding: 0.52rem;
+        }
+        .structured-builder-option-help {
+            font-size: 0.68rem;
+        }
         .structured-builder-field-grid,
         .structured-builder-field-grid--compact {
             grid-template-columns: 1fr;
@@ -1594,8 +1627,24 @@
             max-height: 14rem;
         }
     }
+    @media (max-height: 620px) {
+        .structured-builder-panel {
+            max-height: min(58vh, 30rem);
+            max-height: min(58dvh, 30rem);
+        }
+        .structured-builder-option {
+            min-height: auto;
+        }
+        .structured-builder-option-help {
+            display: none;
+        }
+        .structured-builder-recipient-list {
+            max-height: 8rem;
+        }
+    }
     .structured-builder-footer {
         display: flex;
+        flex: 0 0 auto;
         align-items: center;
         justify-content: space-between;
         gap: 0.75rem;
@@ -6274,102 +6323,104 @@
                                 <i class="bi bi-x-lg"></i>
                             </button>
                         </div>
-                        <div id="channel-structured-builder-options" class="structured-builder-grid"></div>
-                        <div class="structured-builder-fields" id="channel-structured-builder-fields">
-                            <div class="structured-builder-field-grid">
-                                <div class="structured-builder-field">
-                                    <label for="channel-structured-builder-title">Title</label>
-                                    <input type="text"
-                                           class="form-control form-control-sm"
-                                           id="channel-structured-builder-title"
-                                           placeholder="Short title users and agents can recognize"
-                                           oninput="handleChannelStructuredBuilderFieldInput()">
-                                </div>
-                                <div class="structured-builder-field">
-                                    <label id="channel-structured-builder-people-label" for="channel-structured-builder-people">People</label>
-                                    <input type="text"
-                                           class="form-control form-control-sm"
-                                           id="channel-structured-builder-people"
-                                           placeholder="@agent, @teammate"
-                                           oninput="handleChannelStructuredBuilderFieldInput()">
-                                </div>
-                            </div>
-                            <div class="structured-builder-recipient-panel" id="channel-structured-builder-recipient-panel">
-                                <div class="structured-builder-recipient-head">
-                                    <span class="structured-builder-recipient-title">
-                                        <i class="bi bi-people"></i>
-                                        Pick channel members
-                                    </span>
-                                    <span class="structured-builder-recipient-count" id="channel-structured-builder-recipient-count">Loading recipients…</span>
-                                </div>
-                                <div class="structured-builder-recipient-tools">
-                                    <input type="search"
-                                           class="form-control form-control-sm structured-builder-recipient-search"
-                                           id="channel-structured-builder-recipient-search"
-                                           placeholder="Search agents and humans in this channel"
-                                           oninput="renderChannelStructuredBuilderRecipients()">
-                                    <div class="structured-builder-recipient-filter" role="group" aria-label="Recipient filter">
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="channel-structured-builder-recipient-all" onclick="setChannelStructuredBuilderRecipientFilter('all')">All</button>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="channel-structured-builder-recipient-agents" onclick="setChannelStructuredBuilderRecipientFilter('agent')">Agents</button>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="channel-structured-builder-recipient-humans" onclick="setChannelStructuredBuilderRecipientFilter('human')">Humans</button>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearChannelStructuredBuilderRecipients()">Clear</button>
+                        <div class="structured-builder-scrollbody">
+                            <div id="channel-structured-builder-options" class="structured-builder-grid"></div>
+                            <div class="structured-builder-fields" id="channel-structured-builder-fields">
+                                <div class="structured-builder-field-grid">
+                                    <div class="structured-builder-field">
+                                        <label for="channel-structured-builder-title">Title</label>
+                                        <input type="text"
+                                               class="form-control form-control-sm"
+                                               id="channel-structured-builder-title"
+                                               placeholder="Short title users and agents can recognize"
+                                               oninput="handleChannelStructuredBuilderFieldInput()">
+                                    </div>
+                                    <div class="structured-builder-field">
+                                        <label id="channel-structured-builder-people-label" for="channel-structured-builder-people">People</label>
+                                        <input type="text"
+                                               class="form-control form-control-sm"
+                                               id="channel-structured-builder-people"
+                                               placeholder="@agent, @teammate"
+                                               oninput="handleChannelStructuredBuilderFieldInput()">
                                     </div>
                                 </div>
-                                <div class="structured-builder-recipient-selected" id="channel-structured-builder-recipient-selected"></div>
-                                <div class="structured-builder-recipient-list" id="channel-structured-builder-recipient-list" aria-live="polite">
-                                    <div class="structured-builder-recipient-empty">Open the builder to load channel members.</div>
-                                </div>
-                            </div>
-                            <div class="structured-builder-field">
-                                <label id="channel-structured-builder-details-label" for="channel-structured-builder-details">Details</label>
-                                <textarea class="form-control form-control-sm"
-                                          id="channel-structured-builder-details"
-                                          rows="2"
-                                          placeholder="Add context, desired output, evidence, or next steps"
-                                          oninput="handleChannelStructuredBuilderFieldInput()"></textarea>
-                            </div>
-                            <div class="structured-builder-field-grid structured-builder-field-grid--compact">
-                                <div class="structured-builder-field">
-                                    <label for="channel-structured-builder-priority">Priority</label>
-                                    <select class="form-select form-select-sm"
-                                            id="channel-structured-builder-priority"
-                                            onchange="handleChannelStructuredBuilderFieldInput()">
-                                        <option value="normal">Normal</option>
-                                        <option value="high">High</option>
-                                        <option value="urgent">Urgent</option>
-                                        <option value="low">Low</option>
-                                    </select>
-                                </div>
-                                <div class="structured-builder-field">
-                                    <label id="channel-structured-builder-status-label" for="channel-structured-builder-status">Status / type</label>
-                                    <input type="text"
-                                           class="form-control form-control-sm"
-                                           id="channel-structured-builder-status"
-                                           placeholder="open, running, finding"
-                                           oninput="handleChannelStructuredBuilderFieldInput()">
+                                <div class="structured-builder-recipient-panel" id="channel-structured-builder-recipient-panel">
+                                    <div class="structured-builder-recipient-head">
+                                        <span class="structured-builder-recipient-title">
+                                            <i class="bi bi-people"></i>
+                                            Pick channel members
+                                        </span>
+                                        <span class="structured-builder-recipient-count" id="channel-structured-builder-recipient-count">Loading recipients…</span>
+                                    </div>
+                                    <div class="structured-builder-recipient-tools">
+                                        <input type="search"
+                                               class="form-control form-control-sm structured-builder-recipient-search"
+                                               id="channel-structured-builder-recipient-search"
+                                               placeholder="Search agents and humans in this channel"
+                                               oninput="renderChannelStructuredBuilderRecipients()">
+                                        <div class="structured-builder-recipient-filter" role="group" aria-label="Recipient filter">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="channel-structured-builder-recipient-all" onclick="setChannelStructuredBuilderRecipientFilter('all')">All</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="channel-structured-builder-recipient-agents" onclick="setChannelStructuredBuilderRecipientFilter('agent')">Agents</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="channel-structured-builder-recipient-humans" onclick="setChannelStructuredBuilderRecipientFilter('human')">Humans</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearChannelStructuredBuilderRecipients()">Clear</button>
+                                        </div>
+                                    </div>
+                                    <div class="structured-builder-recipient-selected" id="channel-structured-builder-recipient-selected"></div>
+                                    <div class="structured-builder-recipient-list" id="channel-structured-builder-recipient-list" aria-live="polite">
+                                        <div class="structured-builder-recipient-empty">Open the builder to load channel members.</div>
+                                    </div>
                                 </div>
                                 <div class="structured-builder-field">
-                                    <label id="channel-structured-builder-progress-label" for="channel-structured-builder-progress">Progress / options</label>
-                                    <input type="text"
-                                           class="form-control form-control-sm"
-                                           id="channel-structured-builder-progress"
-                                           placeholder="0% or approve, revise, hold"
-                                           oninput="handleChannelStructuredBuilderFieldInput()">
+                                    <label id="channel-structured-builder-details-label" for="channel-structured-builder-details">Details</label>
+                                    <textarea class="form-control form-control-sm"
+                                              id="channel-structured-builder-details"
+                                              rows="2"
+                                              placeholder="Add context, desired output, evidence, or next steps"
+                                              oninput="handleChannelStructuredBuilderFieldInput()"></textarea>
                                 </div>
-                            </div>
-                            <div class="structured-builder-live-row">
-                                <label class="structured-builder-live-toggle" for="channel-structured-builder-live">
-                                    <input type="checkbox"
-                                           id="channel-structured-builder-live"
-                                           checked
-                                           onchange="handleChannelStructuredBuilderFieldInput()">
-                                    <span>Update draft live</span>
-                                </label>
-                                <button type="button"
-                                        class="btn btn-sm btn-outline-secondary"
-                                        onclick="syncChannelStructuredBuilderToComposer({ force: true })">
-                                    <i class="bi bi-arrow-clockwise me-1"></i>Update draft
-                                </button>
+                                <div class="structured-builder-field-grid structured-builder-field-grid--compact">
+                                    <div class="structured-builder-field">
+                                        <label for="channel-structured-builder-priority">Priority</label>
+                                        <select class="form-select form-select-sm"
+                                                id="channel-structured-builder-priority"
+                                                onchange="handleChannelStructuredBuilderFieldInput()">
+                                            <option value="normal">Normal</option>
+                                            <option value="high">High</option>
+                                            <option value="urgent">Urgent</option>
+                                            <option value="low">Low</option>
+                                        </select>
+                                    </div>
+                                    <div class="structured-builder-field">
+                                        <label id="channel-structured-builder-status-label" for="channel-structured-builder-status">Status / type</label>
+                                        <input type="text"
+                                               class="form-control form-control-sm"
+                                               id="channel-structured-builder-status"
+                                               placeholder="open, running, finding"
+                                               oninput="handleChannelStructuredBuilderFieldInput()">
+                                    </div>
+                                    <div class="structured-builder-field">
+                                        <label id="channel-structured-builder-progress-label" for="channel-structured-builder-progress">Progress / options</label>
+                                        <input type="text"
+                                               class="form-control form-control-sm"
+                                               id="channel-structured-builder-progress"
+                                               placeholder="0% or approve, revise, hold"
+                                               oninput="handleChannelStructuredBuilderFieldInput()">
+                                    </div>
+                                </div>
+                                <div class="structured-builder-live-row">
+                                    <label class="structured-builder-live-toggle" for="channel-structured-builder-live">
+                                        <input type="checkbox"
+                                               id="channel-structured-builder-live"
+                                               checked
+                                               onchange="handleChannelStructuredBuilderFieldInput()">
+                                        <span>Update draft live</span>
+                                    </label>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary"
+                                            onclick="syncChannelStructuredBuilderToComposer({ force: true })">
+                                        <i class="bi bi-arrow-clockwise me-1"></i>Update draft
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div class="structured-builder-footer">
@@ -22395,6 +22446,24 @@ function selectChannelStructuredBuilderTool(toolType) {
     }
 }
 
+function scrollChannelStructuredBuilderComposerIntoView() {
+    const panel = document.getElementById('channel-structured-builder');
+    const input = document.getElementById('message-input');
+    const target = input?.closest('#message-form .input-group') || input || panel;
+    const scrollBody = panel?.querySelector('.structured-builder-scrollbody');
+    if (scrollBody) {
+        scrollBody.scrollTop = 0;
+    }
+    if (!target) return;
+    requestAnimationFrame(() => {
+        try {
+            target.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        } catch (error) {
+            target.scrollIntoView(false);
+        }
+    });
+}
+
 function toggleChannelStructuredBuilder(forceOpen) {
     const panel = document.getElementById('channel-structured-builder');
     const button = document.getElementById('channel-structured-tools-toggle');
@@ -22409,7 +22478,7 @@ function toggleChannelStructuredBuilder(forceOpen) {
         button.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
     }
     if (shouldOpen) {
-        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        scrollChannelStructuredBuilderComposerIntoView();
     }
 }
 
