@@ -6563,6 +6563,7 @@ def create_api_blueprint() -> Blueprint:
                                 task_id = derive_task_id('feed', post.id, idx, len(task_specs), override=spec.task_id)
                                 assignee_id, assignee_ids, assignee_handles = _resolve_task_spec_assignees(
                                     db_manager,
+                                    spec,
                                     visibility=visibility,
                                     permissions=permissions,
                                     author_id=g.api_key_info.user_id,
@@ -13591,6 +13592,7 @@ def create_api_blueprint() -> Blueprint:
                                 task_id = derive_task_id('channel', message.id, idx, len(task_specs), override=spec.task_id)
                                 assignee_id, assignee_ids, assignee_handles = _resolve_task_spec_assignees(
                                     db_manager,
+                                    spec,
                                     channel_id=channel_id,
                                     author_id=g.api_key_info.user_id,
                                 )

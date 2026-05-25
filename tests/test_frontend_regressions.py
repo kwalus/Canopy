@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import unittest
@@ -2486,6 +2487,64 @@ console.log(JSON.stringify({{
         self.assertIn("options: ${options}", main_js)
         self.assertIn("stage: ${stage}", main_js)
         self.assertIn("buildToolBlockFromFields,", main_js)
+
+    def test_structured_work_builder_people_fields_match_server_parsers(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        tasks_py = (ROOT / 'canopy' / 'core' / 'tasks.py').read_text(encoding='utf-8')
+        requests_py = (ROOT / 'canopy' / 'core' / 'requests.py').read_text(encoding='utf-8')
+        collab_cards_py = (ROOT / 'canopy' / 'core' / 'collab_cards.py').read_text(encoding='utf-8')
+        objectives_py = (ROOT / 'canopy' / 'core' / 'objectives.py').read_text(encoding='utf-8')
+        signals_py = (ROOT / 'canopy' / 'core' / 'signals.py').read_text(encoding='utf-8')
+
+        self.assertIn("return `\\nassignee: ${first}${allLine}`;", main_js)
+        self.assertIn("if lower.startswith(('assignee:', 'assigned:', 'owner:')):", tasks_py)
+        self.assertIn("if lower.startswith(('assignees:', 'assigned_to:',)):", tasks_py)
+
+        self.assertIn("return `[request]\\ntitle: ${title}\\nrequest: ${details || 'Please complete this request.'}${peopleLine('assignees')}", main_js)
+        self.assertIn("if key in ('assignees', 'assignee', 'members'):", requests_py)
+
+        self.assertIn("return `[input-card]\\ntitle: ${title}\\nprompt: ${details || 'Choose the best next action or provide the requested input.'}", main_js)
+        self.assertIn("${peopleLine('targets')}", main_js)
+        self.assertIn('if key in ("target", "targets", "allowed", "permissions", "responders", "recipients", "audience"):', collab_cards_py)
+
+        self.assertIn("return `[telemetry-card]\\ntitle: ${title}\\nsummary: ${details || 'Track this run or process for the team.'}", main_js)
+        self.assertIn("${peopleLine('editors')}", main_js)
+        self.assertIn('if key in ("editors", "owners", "maintainers", "updaters"):', collab_cards_py)
+
+        self.assertIn("members: ${people}", main_js)
+        self.assertIn("if lower.startswith(('members:', 'people:', 'team:')):", objectives_py)
+
+        self.assertIn("${peopleLine('owner')}", main_js)
+        self.assertIn('if lower.startswith(("owner:", "facilitator:")):', signals_py)
+
+    def test_inline_task_creation_paths_pass_parsed_spec_to_assignee_resolver(self) -> None:
+        for rel_path in ('canopy/ui/routes.py', 'canopy/api/routes.py'):
+            source = (ROOT / rel_path).read_text(encoding='utf-8')
+            calls = list(re.finditer(
+                r"_resolve_task_spec_assignees\(\s*\n\s*db_manager,\s*\n\s*(?P<arg>[A-Za-z_][A-Za-z0-9_]*)\s*,",
+                source,
+            ))
+            self.assertGreaterEqual(len(calls), 3, rel_path)
+            for call in calls:
+                self.assertEqual(call.group('arg'), 'spec', f"{rel_path}:{source[:call.start()].count(chr(10)) + 1}")
+
+    def test_task_parser_preserves_selected_multiple_assignees(self) -> None:
+        from canopy.core.tasks import parse_task_blocks
+
+        specs = parse_task_blocks(
+            "[task]\n"
+            "title: Follow up with agents\n"
+            "description: Confirm the rendered task card keeps selected assignees.\n"
+            "assignee: @Forge_McClaw\n"
+            "assignees: @Forge_McClaw, @Gene_McClaw\n"
+            "priority: high\n"
+            "[/task]"
+        )
+
+        self.assertEqual(len(specs), 1)
+        self.assertEqual(specs[0].assignee, 'Forge_McClaw')
+        self.assertEqual(specs[0].assignees, ['Forge_McClaw', 'Gene_McClaw'])
+
     def test_show_alert_null_checks_flash_messages_container(self) -> None:
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
         # showAlert must guard against a missing .flash-messages container
@@ -3861,7 +3920,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.223', api_ref)
+        self.assertIn('0.6.224', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
