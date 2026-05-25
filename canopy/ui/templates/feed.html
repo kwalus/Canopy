@@ -86,13 +86,84 @@
                         </button>
                     </div>
                     <div id="feed-structured-builder-options" class="structured-builder-grid"></div>
+                    <div class="structured-builder-fields" id="feed-structured-builder-fields">
+                        <div class="structured-builder-field-grid">
+                            <div class="structured-builder-field">
+                                <label for="feed-structured-builder-title">Title</label>
+                                <input type="text"
+                                       class="form-control form-control-sm"
+                                       id="feed-structured-builder-title"
+                                       placeholder="Short title users and agents can recognize"
+                                       oninput="handleFeedStructuredBuilderFieldInput()">
+                            </div>
+                            <div class="structured-builder-field">
+                                <label id="feed-structured-builder-people-label" for="feed-structured-builder-people">People</label>
+                                <input type="text"
+                                       class="form-control form-control-sm"
+                                       id="feed-structured-builder-people"
+                                       placeholder="@agent, @teammate"
+                                       oninput="handleFeedStructuredBuilderFieldInput()">
+                            </div>
+                        </div>
+                        <div class="structured-builder-field">
+                            <label id="feed-structured-builder-details-label" for="feed-structured-builder-details">Details</label>
+                            <textarea class="form-control form-control-sm"
+                                      id="feed-structured-builder-details"
+                                      rows="2"
+                                      placeholder="Add context, desired output, evidence, or next steps"
+                                      oninput="handleFeedStructuredBuilderFieldInput()"></textarea>
+                        </div>
+                        <div class="structured-builder-field-grid structured-builder-field-grid--compact">
+                            <div class="structured-builder-field">
+                                <label for="feed-structured-builder-priority">Priority</label>
+                                <select class="form-select form-select-sm"
+                                        id="feed-structured-builder-priority"
+                                        onchange="handleFeedStructuredBuilderFieldInput()">
+                                    <option value="normal">Normal</option>
+                                    <option value="high">High</option>
+                                    <option value="urgent">Urgent</option>
+                                    <option value="low">Low</option>
+                                </select>
+                            </div>
+                            <div class="structured-builder-field">
+                                <label id="feed-structured-builder-status-label" for="feed-structured-builder-status">Status / type</label>
+                                <input type="text"
+                                       class="form-control form-control-sm"
+                                       id="feed-structured-builder-status"
+                                       placeholder="open, running, finding"
+                                       oninput="handleFeedStructuredBuilderFieldInput()">
+                            </div>
+                            <div class="structured-builder-field">
+                                <label id="feed-structured-builder-progress-label" for="feed-structured-builder-progress">Progress / options</label>
+                                <input type="text"
+                                       class="form-control form-control-sm"
+                                       id="feed-structured-builder-progress"
+                                       placeholder="0% or approve, revise, hold"
+                                       oninput="handleFeedStructuredBuilderFieldInput()">
+                            </div>
+                        </div>
+                        <div class="structured-builder-live-row">
+                            <label class="structured-builder-live-toggle" for="feed-structured-builder-live">
+                                <input type="checkbox"
+                                       id="feed-structured-builder-live"
+                                       checked
+                                       onchange="handleFeedStructuredBuilderFieldInput()">
+                                <span>Update draft live</span>
+                            </label>
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-secondary"
+                                    onclick="syncFeedStructuredBuilderToComposer({ force: true })">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Update draft
+                            </button>
+                        </div>
+                    </div>
                     <div class="structured-builder-footer">
                         <span id="feed-structured-builder-hint" class="structured-builder-hint">Pick the work shape that best matches this post.</span>
                         <button type="button"
                                 class="btn btn-sm btn-primary"
                                 id="feed-structured-builder-insert"
                                 onclick="insertFeedStructuredBuilderSelection()">
-                            <i class="bi bi-plus-circle me-1"></i>Add selected draft
+                            <i class="bi bi-plus-circle me-1"></i>Apply draft
                         </button>
                     </div>
                 </div>
@@ -1316,6 +1387,72 @@
     color: var(--canopy-text-muted);
     font-size: 0.7rem;
     line-height: 1.25;
+}
+.structured-builder-fields {
+    display: grid;
+    gap: 0.62rem;
+    border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, transparent);
+    border-radius: 0.95rem;
+    padding: 0.7rem;
+    background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+}
+.structured-builder-field-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 0.55rem;
+}
+.structured-builder-field-grid--compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.structured-builder-field {
+    min-width: 0;
+}
+.structured-builder-field label,
+.structured-builder-live-toggle {
+    color: var(--canopy-text-secondary);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+.structured-builder-field .form-control,
+.structured-builder-field .form-select {
+    min-height: 2.35rem;
+    border-color: color-mix(in srgb, var(--canopy-border) 82%, transparent);
+    background: color-mix(in srgb, var(--canopy-bg-card) 86%, transparent);
+    color: var(--canopy-text-primary);
+}
+.structured-builder-field textarea.form-control {
+    min-height: 4.4rem;
+    resize: vertical;
+}
+.structured-builder-live-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+    padding-top: 0.1rem;
+}
+.structured-builder-live-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0;
+    color: var(--canopy-text-primary);
+    text-transform: none;
+    letter-spacing: 0;
+}
+.structured-builder-live-toggle input {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--canopy-primary);
+}
+@media (max-width: 720px) {
+    .structured-builder-field-grid,
+    .structured-builder-field-grid--compact {
+        grid-template-columns: 1fr;
+    }
 }
 .structured-builder-footer {
     display: flex;
@@ -5916,6 +6053,8 @@
 
         const FEED_STRUCTURED_BUILDER_TOOLS = ['task', 'request', 'input-card', 'telemetry-card', 'objective', 'handoff', 'signal'];
         let feedStructuredBuilderSelection = 'task';
+        let feedStructuredBuilderManagedBlock = '';
+        let feedStructuredBuilderFieldsTouched = false;
 
         function getFeedStructuredToolHelp(toolType) {
             const help = {
@@ -5943,6 +6082,199 @@
             return icons[toolType] || 'diagram-3';
         }
 
+        function getFeedStructuredBuilderFieldValue(fieldName) {
+            const input = document.getElementById(`feed-structured-builder-${fieldName}`);
+            return input ? String(input.value || '').trim() : '';
+        }
+
+        function setFeedStructuredBuilderFieldMeta(fieldName, meta = {}) {
+            const input = document.getElementById(`feed-structured-builder-${fieldName}`);
+            const label = document.getElementById(`feed-structured-builder-${fieldName}-label`);
+            const wrapper = input ? input.closest('.structured-builder-field') : null;
+            if (label && meta.label) label.textContent = meta.label;
+            if (input && meta.placeholder !== undefined) input.setAttribute('placeholder', meta.placeholder);
+            if (wrapper && meta.visible !== undefined) wrapper.style.display = meta.visible ? '' : 'none';
+        }
+
+        function updateFeedStructuredBuilderFieldMeta() {
+            const toolType = feedStructuredBuilderSelection || 'task';
+            const meta = {
+                task: {
+                    details: 'Description',
+                    detailsPlaceholder: 'What should be done, and what result should be posted back?',
+                    people: 'Assignee',
+                    peoplePlaceholder: '@agent or @teammate',
+                    status: 'Status',
+                    statusPlaceholder: 'open',
+                    statusVisible: true,
+                    progress: 'Progress',
+                    progressVisible: false,
+                },
+                request: {
+                    details: 'Request',
+                    detailsPlaceholder: 'Ask, required output, constraints, and evidence needed',
+                    people: 'Assignees',
+                    peoplePlaceholder: '@agent, @teammate',
+                    status: 'Status',
+                    statusPlaceholder: 'open',
+                    statusVisible: false,
+                    progress: 'Options',
+                    progressVisible: false,
+                },
+                'input-card': {
+                    details: 'Prompt',
+                    detailsPlaceholder: 'Decision or input you need from the recipient',
+                    people: 'Targets',
+                    peoplePlaceholder: '@human, @agent',
+                    status: 'Status',
+                    statusPlaceholder: 'decision',
+                    statusVisible: false,
+                    progress: 'Options',
+                    progressPlaceholder: 'approve, revise, hold',
+                    progressVisible: true,
+                    priorityVisible: false,
+                },
+                'telemetry-card': {
+                    details: 'Summary',
+                    detailsPlaceholder: 'What process, run, or workflow should this card monitor?',
+                    people: 'Editors',
+                    peoplePlaceholder: '@owner, @agent',
+                    status: 'Status',
+                    statusPlaceholder: 'running',
+                    statusVisible: true,
+                    progress: 'Progress',
+                    progressPlaceholder: '0%',
+                    progressVisible: true,
+                    priorityVisible: false,
+                },
+                objective: {
+                    details: 'Objective',
+                    detailsPlaceholder: 'Goal, success condition, and first work breakdown',
+                    people: 'Members',
+                    peoplePlaceholder: '@lead, @contributors',
+                    status: 'Status',
+                    statusPlaceholder: 'open',
+                    statusVisible: false,
+                    progress: 'Progress',
+                    progressVisible: false,
+                    priorityVisible: false,
+                },
+                handoff: {
+                    details: 'Handoff',
+                    detailsPlaceholder: 'Context being transferred and next steps for the owner',
+                    people: 'Owner',
+                    peoplePlaceholder: '@next-owner',
+                    status: 'Status',
+                    statusPlaceholder: 'pending',
+                    statusVisible: false,
+                    progress: 'Progress',
+                    progressVisible: false,
+                    priorityVisible: false,
+                },
+                signal: {
+                    details: 'Finding / evidence',
+                    detailsPlaceholder: 'Decision, metric, issue, or evidence to preserve',
+                    people: 'Owner',
+                    peoplePlaceholder: '@owner',
+                    status: 'Signal type',
+                    statusPlaceholder: 'finding',
+                    statusVisible: true,
+                    progress: 'Progress',
+                    progressVisible: false,
+                    priorityVisible: false,
+                },
+            }[toolType] || {};
+            setFeedStructuredBuilderFieldMeta('details', { label: meta.details || 'Details', placeholder: meta.detailsPlaceholder || '' });
+            setFeedStructuredBuilderFieldMeta('people', { label: meta.people || 'People', placeholder: meta.peoplePlaceholder || '' });
+            setFeedStructuredBuilderFieldMeta('priority', { visible: meta.priorityVisible !== false });
+            setFeedStructuredBuilderFieldMeta('status', {
+                label: meta.status || 'Status / type',
+                placeholder: meta.statusPlaceholder || '',
+                visible: meta.statusVisible !== false,
+            });
+            setFeedStructuredBuilderFieldMeta('progress', {
+                label: meta.progress || 'Progress / options',
+                placeholder: meta.progressPlaceholder || '',
+                visible: meta.progressVisible !== false,
+            });
+        }
+
+        function getFeedStructuredBuilderFields() {
+            const progressOrOptions = getFeedStructuredBuilderFieldValue('progress');
+            return {
+                title: getFeedStructuredBuilderFieldValue('title'),
+                details: getFeedStructuredBuilderFieldValue('details'),
+                people: getFeedStructuredBuilderFieldValue('people'),
+                priority: getFeedStructuredBuilderFieldValue('priority') || 'normal',
+                status: getFeedStructuredBuilderFieldValue('status'),
+                progress: feedStructuredBuilderSelection === 'telemetry-card' ? progressOrOptions : '',
+                options: feedStructuredBuilderSelection === 'input-card' ? progressOrOptions : '',
+                signalType: feedStructuredBuilderSelection === 'signal' ? getFeedStructuredBuilderFieldValue('status') : '',
+            };
+        }
+
+        function buildFeedStructuredBuilderBlock() {
+            const support = window.canopyStructuredComposer;
+            if (support && typeof support.buildToolBlockFromFields === 'function') {
+                return support.buildToolBlockFromFields(feedStructuredBuilderSelection || 'task', getFeedStructuredBuilderFields());
+            }
+            if (support && typeof support.buildToolBlock === 'function') {
+                return support.buildToolBlock(feedStructuredBuilderSelection || 'task', getFeedStructuredBuilderFieldValue('details'));
+            }
+            return getFeedStructuredBuilderFieldValue('details');
+        }
+
+        function escapeFeedStructuredBuilderRegex(value) {
+            return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        function replaceLastFeedStructuredBuilderBlock(raw, toolType, block) {
+            const aliases = toolType === 'input-card'
+                ? ['input-card', 'input_card', 'input']
+                : toolType === 'telemetry-card'
+                    ? ['telemetry-card', 'telemetry_card', 'telemetry']
+                    : [toolType || 'task'];
+            const aliasPattern = aliases.map(escapeFeedStructuredBuilderRegex).join('|');
+            const pattern = new RegExp(`\\[(?:${aliasPattern})\\][\\s\\S]*?\\[\\/(?:${aliasPattern})\\]`, 'gi');
+            let match;
+            let last = null;
+            while ((match = pattern.exec(raw)) !== null) {
+                last = { start: match.index, end: match.index + match[0].length };
+            }
+            if (!last) return null;
+            return `${raw.slice(0, last.start)}${block}${raw.slice(last.end)}`;
+        }
+
+        function syncFeedStructuredBuilderToComposer(options = {}) {
+            const textarea = document.getElementById('postContent');
+            if (!textarea) return false;
+            const force = !!options.force;
+            const liveToggle = document.getElementById('feed-structured-builder-live');
+            if (!force && liveToggle && !liveToggle.checked) return false;
+            if (!force && !feedStructuredBuilderFieldsTouched) return false;
+            const block = buildFeedStructuredBuilderBlock();
+            const raw = String(textarea.value || '');
+            let nextValue = raw;
+            if (feedStructuredBuilderManagedBlock && raw.includes(feedStructuredBuilderManagedBlock)) {
+                nextValue = raw.replace(feedStructuredBuilderManagedBlock, block);
+            } else if (feedStructuredBuilderManagedBlock) {
+                const replaced = replaceLastFeedStructuredBuilderBlock(raw, feedStructuredBuilderSelection || 'task', block);
+                nextValue = replaced !== null ? replaced : (raw.trim() ? `${raw.trimEnd()}\n\n${block}` : block);
+            } else {
+                nextValue = raw.trim() ? `${raw.trimEnd()}\n\n${block}` : block;
+            }
+            textarea.value = nextValue;
+            feedStructuredBuilderManagedBlock = block;
+            textarea.focus();
+            notifyFeedComposerUpdate();
+            return true;
+        }
+
+        function handleFeedStructuredBuilderFieldInput() {
+            feedStructuredBuilderFieldsTouched = true;
+            syncFeedStructuredBuilderToComposer();
+        }
+
         function renderFeedStructuredBuilder() {
             const options = document.getElementById('feed-structured-builder-options');
             if (!options) return;
@@ -5962,11 +6294,15 @@
             if (hint) {
                 hint.textContent = `${getFeedToolActionLabel(feedStructuredBuilderSelection)}: ${getFeedStructuredToolHelp(feedStructuredBuilderSelection)}`;
             }
+            updateFeedStructuredBuilderFieldMeta();
         }
 
         function selectFeedStructuredBuilderTool(toolType) {
             feedStructuredBuilderSelection = FEED_STRUCTURED_BUILDER_TOOLS.includes(toolType) ? toolType : 'task';
             renderFeedStructuredBuilder();
+            if (feedStructuredBuilderFieldsTouched) {
+                syncFeedStructuredBuilderToComposer();
+            }
         }
 
         function toggleFeedStructuredBuilder(forceOpen) {
@@ -5987,8 +6323,9 @@
         }
 
         function insertFeedStructuredBuilderSelection() {
-            insertFeedStructuredTemplate(feedStructuredBuilderSelection || 'task');
-            toggleFeedStructuredBuilder(false);
+            feedStructuredBuilderFieldsTouched = true;
+            syncFeedStructuredBuilderToComposer({ force: true });
+            showAlert(`${getFeedToolActionLabel(feedStructuredBuilderSelection || 'task')} draft updated. Review, edit, then share.`, 'success');
         }
 
         function feedStructuredResultIcon(itemType) {

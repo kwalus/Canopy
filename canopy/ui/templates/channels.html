@@ -1314,6 +1314,72 @@
         font-size: 0.7rem;
         line-height: 1.25;
     }
+    .structured-builder-fields {
+        display: grid;
+        gap: 0.62rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, transparent);
+        border-radius: 0.95rem;
+        padding: 0.7rem;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+    }
+    .structured-builder-field-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+        gap: 0.55rem;
+    }
+    .structured-builder-field-grid--compact {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .structured-builder-field {
+        min-width: 0;
+    }
+    .structured-builder-field label,
+    .structured-builder-live-toggle {
+        color: var(--canopy-text-secondary);
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+    }
+    .structured-builder-field .form-control,
+    .structured-builder-field .form-select {
+        min-height: 2.35rem;
+        border-color: color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        background: color-mix(in srgb, var(--canopy-bg-card) 86%, transparent);
+        color: var(--canopy-text-primary);
+    }
+    .structured-builder-field textarea.form-control {
+        min-height: 4.4rem;
+        resize: vertical;
+    }
+    .structured-builder-live-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.7rem;
+        flex-wrap: wrap;
+        padding-top: 0.1rem;
+    }
+    .structured-builder-live-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin: 0;
+        color: var(--canopy-text-primary);
+        text-transform: none;
+        letter-spacing: 0;
+    }
+    .structured-builder-live-toggle input {
+        width: 1rem;
+        height: 1rem;
+        accent-color: var(--canopy-primary);
+    }
+    @media (max-width: 720px) {
+        .structured-builder-field-grid,
+        .structured-builder-field-grid--compact {
+            grid-template-columns: 1fr;
+        }
+    }
     .structured-builder-footer {
         display: flex;
         align-items: center;
@@ -5975,13 +6041,84 @@
                             </button>
                         </div>
                         <div id="channel-structured-builder-options" class="structured-builder-grid"></div>
+                        <div class="structured-builder-fields" id="channel-structured-builder-fields">
+                            <div class="structured-builder-field-grid">
+                                <div class="structured-builder-field">
+                                    <label for="channel-structured-builder-title">Title</label>
+                                    <input type="text"
+                                           class="form-control form-control-sm"
+                                           id="channel-structured-builder-title"
+                                           placeholder="Short title users and agents can recognize"
+                                           oninput="handleChannelStructuredBuilderFieldInput()">
+                                </div>
+                                <div class="structured-builder-field">
+                                    <label id="channel-structured-builder-people-label" for="channel-structured-builder-people">People</label>
+                                    <input type="text"
+                                           class="form-control form-control-sm"
+                                           id="channel-structured-builder-people"
+                                           placeholder="@agent, @teammate"
+                                           oninput="handleChannelStructuredBuilderFieldInput()">
+                                </div>
+                            </div>
+                            <div class="structured-builder-field">
+                                <label id="channel-structured-builder-details-label" for="channel-structured-builder-details">Details</label>
+                                <textarea class="form-control form-control-sm"
+                                          id="channel-structured-builder-details"
+                                          rows="2"
+                                          placeholder="Add context, desired output, evidence, or next steps"
+                                          oninput="handleChannelStructuredBuilderFieldInput()"></textarea>
+                            </div>
+                            <div class="structured-builder-field-grid structured-builder-field-grid--compact">
+                                <div class="structured-builder-field">
+                                    <label for="channel-structured-builder-priority">Priority</label>
+                                    <select class="form-select form-select-sm"
+                                            id="channel-structured-builder-priority"
+                                            onchange="handleChannelStructuredBuilderFieldInput()">
+                                        <option value="normal">Normal</option>
+                                        <option value="high">High</option>
+                                        <option value="urgent">Urgent</option>
+                                        <option value="low">Low</option>
+                                    </select>
+                                </div>
+                                <div class="structured-builder-field">
+                                    <label id="channel-structured-builder-status-label" for="channel-structured-builder-status">Status / type</label>
+                                    <input type="text"
+                                           class="form-control form-control-sm"
+                                           id="channel-structured-builder-status"
+                                           placeholder="open, running, finding"
+                                           oninput="handleChannelStructuredBuilderFieldInput()">
+                                </div>
+                                <div class="structured-builder-field">
+                                    <label id="channel-structured-builder-progress-label" for="channel-structured-builder-progress">Progress / options</label>
+                                    <input type="text"
+                                           class="form-control form-control-sm"
+                                           id="channel-structured-builder-progress"
+                                           placeholder="0% or approve, revise, hold"
+                                           oninput="handleChannelStructuredBuilderFieldInput()">
+                                </div>
+                            </div>
+                            <div class="structured-builder-live-row">
+                                <label class="structured-builder-live-toggle" for="channel-structured-builder-live">
+                                    <input type="checkbox"
+                                           id="channel-structured-builder-live"
+                                           checked
+                                           onchange="handleChannelStructuredBuilderFieldInput()">
+                                    <span>Update draft live</span>
+                                </label>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary"
+                                        onclick="syncChannelStructuredBuilderToComposer({ force: true })">
+                                    <i class="bi bi-arrow-clockwise me-1"></i>Update draft
+                                </button>
+                            </div>
+                        </div>
                         <div class="structured-builder-footer">
                             <span id="channel-structured-builder-hint" class="structured-builder-hint">Pick the work shape that best matches this message.</span>
                             <button type="button"
                                     class="btn btn-sm btn-primary"
                                     id="channel-structured-builder-insert"
                                     onclick="insertChannelStructuredBuilderSelection()">
-                                <i class="bi bi-plus-circle me-1"></i>Add selected draft
+                                <i class="bi bi-plus-circle me-1"></i>Apply draft
                             </button>
                         </div>
                     </div>
@@ -21472,6 +21609,8 @@ function getToolOutcomeLabel(toolType) {
 
 const CHANNEL_STRUCTURED_BUILDER_TOOLS = ['task', 'request', 'input-card', 'telemetry-card', 'objective', 'handoff', 'signal'];
 let channelStructuredBuilderSelection = 'task';
+let channelStructuredBuilderManagedBlock = '';
+let channelStructuredBuilderFieldsTouched = false;
 
 function getStructuredToolHelp(toolType) {
     const help = {
@@ -21499,6 +21638,196 @@ function getStructuredToolIcon(toolType) {
     return icons[toolType] || 'diagram-3';
 }
 
+function getChannelStructuredBuilderFieldValue(fieldName) {
+    const input = document.getElementById(`channel-structured-builder-${fieldName}`);
+    return input ? String(input.value || '').trim() : '';
+}
+
+function setChannelStructuredBuilderFieldMeta(fieldName, meta = {}) {
+    const input = document.getElementById(`channel-structured-builder-${fieldName}`);
+    const label = document.getElementById(`channel-structured-builder-${fieldName}-label`);
+    const wrapper = input ? input.closest('.structured-builder-field') : null;
+    if (label && meta.label) label.textContent = meta.label;
+    if (input && meta.placeholder !== undefined) input.setAttribute('placeholder', meta.placeholder);
+    if (wrapper && meta.visible !== undefined) wrapper.style.display = meta.visible ? '' : 'none';
+}
+
+function updateChannelStructuredBuilderFieldMeta() {
+    const toolType = channelStructuredBuilderSelection || 'task';
+    const meta = {
+        task: {
+            details: 'Description',
+            detailsPlaceholder: 'What should be done, and what result should be posted back?',
+            people: 'Assignee',
+            peoplePlaceholder: '@agent or @teammate',
+            status: 'Status',
+            statusPlaceholder: 'open',
+            statusVisible: true,
+            progress: 'Progress',
+            progressVisible: false,
+        },
+        request: {
+            details: 'Request',
+            detailsPlaceholder: 'Ask, required output, constraints, and evidence needed',
+            people: 'Assignees',
+            peoplePlaceholder: '@agent, @teammate',
+            status: 'Status',
+            statusPlaceholder: 'open',
+            statusVisible: false,
+            progress: 'Options',
+            progressVisible: false,
+        },
+        'input-card': {
+            details: 'Prompt',
+            detailsPlaceholder: 'Decision or input you need from the recipient',
+            people: 'Targets',
+            peoplePlaceholder: '@human, @agent',
+            status: 'Status',
+            statusPlaceholder: 'decision',
+            statusVisible: false,
+            progress: 'Options',
+            progressPlaceholder: 'approve, revise, hold',
+            progressVisible: true,
+            priorityVisible: false,
+        },
+        'telemetry-card': {
+            details: 'Summary',
+            detailsPlaceholder: 'What process, run, or workflow should this card monitor?',
+            people: 'Editors',
+            peoplePlaceholder: '@owner, @agent',
+            status: 'Status',
+            statusPlaceholder: 'running',
+            statusVisible: true,
+            progress: 'Progress',
+            progressPlaceholder: '0%',
+            progressVisible: true,
+            priorityVisible: false,
+        },
+        objective: {
+            details: 'Objective',
+            detailsPlaceholder: 'Goal, success condition, and first work breakdown',
+            people: 'Members',
+            peoplePlaceholder: '@lead, @contributors',
+            status: 'Status',
+            statusPlaceholder: 'open',
+            statusVisible: false,
+            progress: 'Progress',
+            progressVisible: false,
+            priorityVisible: false,
+        },
+        handoff: {
+            details: 'Handoff',
+            detailsPlaceholder: 'Context being transferred and next steps for the owner',
+            people: 'Owner',
+            peoplePlaceholder: '@next-owner',
+            status: 'Status',
+            statusPlaceholder: 'pending',
+            statusVisible: false,
+            progress: 'Progress',
+            progressVisible: false,
+            priorityVisible: false,
+        },
+        signal: {
+            details: 'Finding / evidence',
+            detailsPlaceholder: 'Decision, metric, issue, or evidence to preserve',
+            people: 'Owner',
+            peoplePlaceholder: '@owner',
+            status: 'Signal type',
+            statusPlaceholder: 'finding',
+            statusVisible: true,
+            progress: 'Progress',
+            progressVisible: false,
+            priorityVisible: false,
+        },
+    }[toolType] || {};
+    setChannelStructuredBuilderFieldMeta('details', { label: meta.details || 'Details', placeholder: meta.detailsPlaceholder || '' });
+    setChannelStructuredBuilderFieldMeta('people', { label: meta.people || 'People', placeholder: meta.peoplePlaceholder || '' });
+    setChannelStructuredBuilderFieldMeta('priority', { visible: meta.priorityVisible !== false });
+    setChannelStructuredBuilderFieldMeta('status', {
+        label: meta.status || 'Status / type',
+        placeholder: meta.statusPlaceholder || '',
+        visible: meta.statusVisible !== false,
+    });
+    setChannelStructuredBuilderFieldMeta('progress', {
+        label: meta.progress || 'Progress / options',
+        placeholder: meta.progressPlaceholder || '',
+        visible: meta.progressVisible !== false,
+    });
+}
+
+function getChannelStructuredBuilderFields() {
+    const progressOrOptions = getChannelStructuredBuilderFieldValue('progress');
+    return {
+        title: getChannelStructuredBuilderFieldValue('title'),
+        details: getChannelStructuredBuilderFieldValue('details'),
+        people: getChannelStructuredBuilderFieldValue('people'),
+        priority: getChannelStructuredBuilderFieldValue('priority') || 'normal',
+        status: getChannelStructuredBuilderFieldValue('status'),
+        progress: channelStructuredBuilderSelection === 'telemetry-card' ? progressOrOptions : '',
+        options: channelStructuredBuilderSelection === 'input-card' ? progressOrOptions : '',
+        signalType: channelStructuredBuilderSelection === 'signal' ? getChannelStructuredBuilderFieldValue('status') : '',
+    };
+}
+
+function buildChannelStructuredBuilderBlock() {
+    const support = window.canopyStructuredComposer;
+    if (support && typeof support.buildToolBlockFromFields === 'function') {
+        return support.buildToolBlockFromFields(channelStructuredBuilderSelection || 'task', getChannelStructuredBuilderFields());
+    }
+    return buildToolBlock(channelStructuredBuilderSelection || 'task', getChannelStructuredBuilderFieldValue('details'));
+}
+
+function escapeChannelStructuredBuilderRegex(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function replaceLastChannelStructuredBuilderBlock(raw, toolType, block) {
+    const aliases = toolType === 'input-card'
+        ? ['input-card', 'input_card', 'input']
+        : toolType === 'telemetry-card'
+            ? ['telemetry-card', 'telemetry_card', 'telemetry']
+            : [toolType || 'task'];
+    const aliasPattern = aliases.map(escapeChannelStructuredBuilderRegex).join('|');
+    const pattern = new RegExp(`\\[(?:${aliasPattern})\\][\\s\\S]*?\\[\\/(?:${aliasPattern})\\]`, 'gi');
+    let match;
+    let last = null;
+    while ((match = pattern.exec(raw)) !== null) {
+        last = { start: match.index, end: match.index + match[0].length };
+    }
+    if (!last) return null;
+    return `${raw.slice(0, last.start)}${block}${raw.slice(last.end)}`;
+}
+
+function syncChannelStructuredBuilderToComposer(options = {}) {
+    const input = document.getElementById('message-input');
+    if (!input) return false;
+    const force = !!options.force;
+    const liveToggle = document.getElementById('channel-structured-builder-live');
+    if (!force && liveToggle && !liveToggle.checked) return false;
+    if (!force && !channelStructuredBuilderFieldsTouched) return false;
+    const block = buildChannelStructuredBuilderBlock();
+    const raw = String(input.value || '');
+    let nextValue = raw;
+    if (channelStructuredBuilderManagedBlock && raw.includes(channelStructuredBuilderManagedBlock)) {
+        nextValue = raw.replace(channelStructuredBuilderManagedBlock, block);
+    } else if (channelStructuredBuilderManagedBlock) {
+        const replaced = replaceLastChannelStructuredBuilderBlock(raw, channelStructuredBuilderSelection || 'task', block);
+        nextValue = replaced !== null ? replaced : (raw.trim() ? `${raw.trimEnd()}\n\n${block}` : block);
+    } else {
+        nextValue = raw.trim() ? `${raw.trimEnd()}\n\n${block}` : block;
+    }
+    input.value = nextValue;
+    channelStructuredBuilderManagedBlock = block;
+    input.focus();
+    notifyComposerUpdate();
+    return true;
+}
+
+function handleChannelStructuredBuilderFieldInput() {
+    channelStructuredBuilderFieldsTouched = true;
+    syncChannelStructuredBuilderToComposer();
+}
+
 function renderChannelStructuredBuilder() {
     const options = document.getElementById('channel-structured-builder-options');
     if (!options) return;
@@ -21518,11 +21847,15 @@ function renderChannelStructuredBuilder() {
     if (hint) {
         hint.textContent = `${getToolActionLabel(channelStructuredBuilderSelection)}: ${getStructuredToolHelp(channelStructuredBuilderSelection)}`;
     }
+    updateChannelStructuredBuilderFieldMeta();
 }
 
 function selectChannelStructuredBuilderTool(toolType) {
     channelStructuredBuilderSelection = CHANNEL_STRUCTURED_BUILDER_TOOLS.includes(toolType) ? toolType : 'task';
     renderChannelStructuredBuilder();
+    if (channelStructuredBuilderFieldsTouched) {
+        syncChannelStructuredBuilderToComposer();
+    }
 }
 
 function toggleChannelStructuredBuilder(forceOpen) {
@@ -21543,8 +21876,11 @@ function toggleChannelStructuredBuilder(forceOpen) {
 }
 
 function insertChannelStructuredBuilderSelection() {
-    insertChannelStructuredTemplate(channelStructuredBuilderSelection || 'task');
-    toggleChannelStructuredBuilder(false);
+    channelStructuredBuilderFieldsTouched = true;
+    syncChannelStructuredBuilderToComposer({ force: true });
+    if (typeof showAlert === 'function') {
+        showAlert(`${getToolActionLabel(channelStructuredBuilderSelection || 'task')} draft updated. Review, edit, then send.`, 'success');
+    }
 }
 
 function inferStructuredToolSuggestions(text) {

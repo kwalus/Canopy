@@ -7890,6 +7890,76 @@
                 return sourceText || '';
             }
 
+            function normalizeStructuredBuilderField(value) {
+                return String(value || '')
+                    .replace(/\r?\n+/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            }
+
+            function normalizeStructuredBuilderPeople(value) {
+                return normalizeStructuredBuilderField(value)
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean)
+                    .join(', ');
+            }
+
+            function normalizeStructuredBuilderOptions(value) {
+                return normalizeStructuredBuilderField(value)
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean)
+                    .join(', ');
+            }
+
+            function buildToolBlockFromFields(toolType, fields) {
+                const data = fields && typeof fields === 'object' ? fields : {};
+                const titleFallback = {
+                    task: 'Action item',
+                    request: 'Coordination request',
+                    'input-card': 'Operator input',
+                    'telemetry-card': 'Process telemetry',
+                    objective: 'Execution objective',
+                    handoff: 'Ownership handoff',
+                    signal: 'Operational finding',
+                };
+                const title = normalizeStructuredBuilderField(data.title) || titleFallback[toolType] || 'Structured item';
+                const details = normalizeStructuredBuilderField(data.details);
+                const people = normalizeStructuredBuilderPeople(data.people);
+                const priority = normalizeStructuredBuilderField(data.priority) || 'normal';
+                const status = normalizeStructuredBuilderField(data.status) || (toolType === 'telemetry-card' ? 'running' : 'open');
+                const progress = normalizeStructuredBuilderField(data.progress) || '0%';
+                const stage = normalizeStructuredBuilderField(data.stage) || (toolType === 'telemetry-card' ? 'queued' : 'next');
+                const options = normalizeStructuredBuilderOptions(data.options) || 'approve, revise, hold';
+                const signalType = normalizeStructuredBuilderField(data.signalType || data.kind) || 'finding';
+                const peopleLine = (label) => people ? `\n${label}: ${people}` : '';
+
+                if (toolType === 'task') {
+                    return `[task]\ntitle: ${title}\ndescription: ${details || 'Define the work to execute.'}${peopleLine('assignee')}\npriority: ${priority}\nstatus: ${status}\n[/task]`;
+                }
+                if (toolType === 'request') {
+                    return `[request]\ntitle: ${title}\nrequest: ${details || 'Please complete this request.'}${peopleLine('assignees')}\nrequired_output: Reply with owner, status, and evidence.\npriority: ${priority}\n[/request]`;
+                }
+                if (toolType === 'input-card') {
+                    return `[input-card]\ntitle: ${title}\nprompt: ${details || 'Choose the best next action or provide the requested input.'}\nkind: decision\noptions: ${options}${peopleLine('targets')}\n[/input-card]`;
+                }
+                if (toolType === 'telemetry-card') {
+                    return `[telemetry-card]\ntitle: ${title}\nsummary: ${details || 'Track this run or process for the team.'}\nstatus: ${status}\nprogress: ${progress}\nstage: ${stage}${peopleLine('editors')}\nmetrics:\n- evidence: pending\n[/telemetry-card]`;
+                }
+                if (toolType === 'objective') {
+                    const memberLine = people ? `\nmembers: ${people}` : '';
+                    return `[objective]\ntitle: ${title}\ndescription: ${details || 'Track this as a multi-step objective.'}${memberLine}\ntasks:\n- [ ] Confirm owner\n- [ ] Execute\n- [ ] Report results\n[/objective]`;
+                }
+                if (toolType === 'handoff') {
+                    return `[handoff]\ntitle: ${title}\nsummary: ${details || 'Transfer ownership with clear next steps.'}${peopleLine('owner')}\nnext:\n- Confirm owner\n- Execute and report back\n[/handoff]`;
+                }
+                if (toolType === 'signal') {
+                    return `[signal]\ntype: ${signalType}\ntitle: ${title}\nsummary: ${details || 'Record this as durable structured context.'}${peopleLine('owner')}\ntags: update\n[/signal]`;
+                }
+                return buildToolBlock(toolType, details || title);
+            }
+
             function applyTemplateToDraft(toolType, currentText) {
                 const raw = String(currentText || '');
                 const trimmed = raw.trim();
@@ -8092,6 +8162,7 @@
                 templateTypes: CANONICAL_TEMPLATE_TYPES.slice(),
                 labels: Object.assign({}, TOOL_LABELS),
                 buildToolBlock,
+                buildToolBlockFromFields,
                 applyTemplateToDraft,
                 hasStructuredToolBlock,
                 validate: validateStructuredComposerText,
