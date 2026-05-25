@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.224] - 2026-05-25
+
+### Fixed
+- **Structured Work Builder assignee persistence** — Inline task creation now passes the parsed task spec into assignee resolution across channel/feed UI and API posting paths, so selected users and agents are persisted as task assignees instead of being dropped.
+- **Structured block recipient guardrails** — Added regression coverage that checks Work Builder recipient fields against the server parsers and verifies all inline task assignee resolver call sites receive the parsed task spec.
+
 ## [0.6.223] - 2026-05-25
 
 ### Fixed
