@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.212] - 2026-05-25
+
+### Changed
+- **Structured composer language is now human-first** - channel and feed work-card menus describe the intended action, such as Create task, Collect input, and Track progress, instead of exposing internal block names.
+- **Structured composer feedback is clearer and more mobile-friendly** - validation badges, escape-as-text actions, success summaries, and dropdown help text now explain what will happen before a user sends or shares a post.
+
 ## [0.6.211] - 2026-05-24
 
 ### Added
