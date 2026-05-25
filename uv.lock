@@ -177,7 +177,7 @@ wheels = [
 
 [[package]]
 name = "canopy"
-version = "0.6.212"
+version = "0.6.213"
 source = { editable = "." }
 dependencies = [
     { name = "base58" },

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.213] - 2026-05-25
+
+### Added
+- **Structured Work Builder starts the guided composer flow** - channel and feed composers now expose an inline builder panel above the text field so humans can choose an existing Canopy work-card shape before inserting the draft block into the canonical textarea.
+
 ## [0.6.212] - 2026-05-25
 
 ### Changed
