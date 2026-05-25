@@ -9042,6 +9042,7 @@ const CHANNEL_MENTION_THREAD_FILTER_STORAGE_KEY = `canopy.channel_mention_thread
 const CHANNEL_THREAD_ACTIVITY_SORT_STORAGE_KEY = `canopy.channel_thread_activity_sort.v1.${currentUserId || 'anon'}`;
 const CHANNEL_FOLDED_THREAD_VIEW_STORAGE_KEY = `canopy.channel_folded_thread_view.v1.${currentUserId || 'anon'}`;
 const CHANNEL_AGENT_RUN_CAPSULE_STORAGE_KEY = `canopy.channel_agent_run_capsules.v1.${currentUserId || 'anon'}`;
+const CHANNEL_AGENT_RUN_CAPSULE_PREFERRED_LEVEL_STORAGE_KEY = `canopy.channel_agent_run_capsule_preferred_level.v1.${currentUserId || 'anon'}`;
 const CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL = 2;
 const CHANNEL_AGENT_RUN_CAPSULE_LEVELS = [
     {
@@ -9129,6 +9130,7 @@ let channelMentionThreadFilterById = {};
 let channelThreadActivitySortById = {};
 let channelFoldedThreadViewById = {};
 let channelAgentRunCapsuleById = {};
+let channelAgentRunCapsulePreferredLevel = CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL;
 let channelReadBaselineById = {};
 let currentChannelMessagesSnapshot = [];
 let currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
@@ -9691,6 +9693,25 @@ function saveChannelAgentRunCapsuleState() {
     } catch (_) {}
 }
 
+function loadChannelAgentRunCapsulePreferredLevel() {
+    try {
+        const raw = localStorage.getItem(CHANNEL_AGENT_RUN_CAPSULE_PREFERRED_LEVEL_STORAGE_KEY);
+        const preferredLevel = normalizeChannelAgentRunCapsuleLevel(raw);
+        channelAgentRunCapsulePreferredLevel = preferredLevel || CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL;
+    } catch (_) {
+        channelAgentRunCapsulePreferredLevel = CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL;
+    }
+}
+
+function saveChannelAgentRunCapsulePreferredLevel() {
+    try {
+        localStorage.setItem(
+            CHANNEL_AGENT_RUN_CAPSULE_PREFERRED_LEVEL_STORAGE_KEY,
+            String(getChannelAgentRunCapsulePreferredLevel())
+        );
+    } catch (_) {}
+}
+
 function isChannelHumanThreadFilterEnabled(channelId = currentChannelId) {
     const normalized = String(channelId || '').trim();
     return !!(normalized && channelHumanThreadFilterById[normalized]);
@@ -9755,6 +9776,15 @@ function getChannelAgentRunCapsuleLevelConfig(level = getChannelAgentRunCapsuleL
 
 function isChannelAgentRunCapsuleEnabled(channelId = currentChannelId) {
     return getChannelAgentRunCapsuleLevel(channelId) > 0;
+}
+
+function getChannelAgentRunCapsulePreferredLevel() {
+    return normalizeChannelAgentRunCapsuleLevel(channelAgentRunCapsulePreferredLevel) || CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL;
+}
+
+function setChannelAgentRunCapsulePreferredLevel(level) {
+    channelAgentRunCapsulePreferredLevel = normalizeChannelAgentRunCapsuleLevel(level) || CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL;
+    saveChannelAgentRunCapsulePreferredLevel();
 }
 
 function setChannelHumanThreadFilter(channelId, enabled) {
@@ -9858,7 +9888,7 @@ function setChannelAgentRunCapsule(channelId, enabled) {
     const existingLevel = getChannelAgentRunCapsuleLevel(normalized);
     setChannelAgentRunCapsuleLevel(
         normalized,
-        enabled ? (existingLevel || CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL) : 0
+        enabled ? (existingLevel || getChannelAgentRunCapsulePreferredLevel()) : 0
     );
 }
 
@@ -10407,7 +10437,9 @@ function updateChannelFoldedThreadViewUI() {
 function updateChannelAgentRunCapsuleUI() {
     const level = getChannelAgentRunCapsuleLevel();
     const enabled = level > 0;
-    const levelConfig = getChannelAgentRunCapsuleLevelConfig(level);
+    const preferredLevel = getChannelAgentRunCapsulePreferredLevel();
+    const displayLevel = enabled ? level : preferredLevel;
+    const levelConfig = getChannelAgentRunCapsuleLevelConfig(displayLevel);
     const toggle = document.getElementById('channel-agent-capsule-toggle');
     const icon = document.getElementById('channel-agent-capsule-icon');
     const label = document.getElementById('channel-agent-capsule-label');
@@ -10420,7 +10452,7 @@ function updateChannelAgentRunCapsuleUI() {
         toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
         toggle.title = enabled
             ? `Agent capsules: ${levelConfig ? levelConfig.label : 'on'} compression. Click for full trace.`
-            : 'Compress dense agent runs into source-linked capsules';
+            : `Compress dense agent runs into source-linked capsules${levelConfig ? ` using your ${levelConfig.label} preference` : ''}`;
         toggle.setAttribute('aria-label', toggle.title);
     }
     if (icon) {
@@ -10433,15 +10465,19 @@ function updateChannelAgentRunCapsuleUI() {
         menuLabel.textContent = enabled ? 'Show full agent chatter' : 'Compress agent runs';
     }
     if (levelInput) {
-        levelInput.value = String(level || CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL);
-        levelInput.setAttribute('aria-valuetext', levelConfig ? `${levelConfig.label}: ${levelConfig.description}` : 'Off');
+        levelInput.value = String(displayLevel);
+        levelInput.setAttribute('aria-valuetext', levelConfig
+            ? `${enabled ? 'Active' : 'Preferred'} ${levelConfig.label}: ${levelConfig.description}`
+            : 'Off');
     }
     if (levelName) {
-        levelName.textContent = enabled && levelConfig ? levelConfig.label : 'Off';
+        levelName.textContent = levelConfig ? (enabled ? levelConfig.label : `Preferred: ${levelConfig.label}`) : 'Off';
     }
     if (levelDescription) {
-        levelDescription.textContent = enabled && levelConfig
-            ? levelConfig.description
+        levelDescription.textContent = levelConfig
+            ? (enabled
+                ? levelConfig.description
+                : `${levelConfig.description} This preference is kept when Capsules are off and reused across channels.`)
             : 'Use the capsule toggle to compress dense agent work into expandable source-linked cards.';
     }
 }
@@ -10915,6 +10951,11 @@ function setChannelAgentRunCapsuleLevelAndRefresh(level) {
         return;
     }
     const cleanLevel = normalizeChannelAgentRunCapsuleLevel(level) || CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL;
+    setChannelAgentRunCapsulePreferredLevel(cleanLevel);
+    if (!isChannelAgentRunCapsuleEnabled()) {
+        updateChannelAgentRunCapsuleUI();
+        return;
+    }
     setChannelAgentRunCapsuleLevel(currentChannelId, cleanLevel);
     updateChannelAgentRunCapsuleUI();
     if (Array.isArray(currentChannelMessagesSnapshot) && currentChannelMessagesSnapshot.length) {
@@ -25861,6 +25902,7 @@ document.addEventListener('DOMContentLoaded', function() {
         loadChannelMentionThreadFilterState();
         loadChannelThreadActivitySortState();
         loadChannelFoldedThreadViewState();
+        loadChannelAgentRunCapsulePreferredLevel();
         loadChannelAgentRunCapsuleState();
         updateChannelHumanThreadFilterUI();
         updateChannelUnreadThreadFilterUI();

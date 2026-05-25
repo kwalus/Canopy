@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.216] - 2026-05-25
+
+### Changed
+- **Agent Run Capsule compression level now persists as a user preference** - changing the capsule slider stores the preferred compression level separately from the per-channel on/off toggle, so disabling and re-enabling Capsules reuses the user's last level instead of falling back to the default.
+
 ## [0.6.215] - 2026-05-25
 
 ### Added
