@@ -232,7 +232,7 @@
             <div id="feed-structured-validation" class="task-inline-toggle mb-3 structured-panel" style="display: none;">
                 <div class="structured-panel-header">
                     <div class="task-inline-info">
-                        <span class="badge bg-warning-subtle text-warning-emphasis">Needs cleanup</span>
+                        <span class="badge bg-warning-subtle text-warning-emphasis">Needs detail</span>
                         <small id="feed-structured-validation-summary" class="structured-panel-summary ms-2"></small>
                     </div>
                     <div class="structured-validation-actions" id="feed-structured-validation-global-actions"></div>
@@ -242,7 +242,7 @@
             <div id="feed-structured-result" class="task-inline-toggle mb-3 structured-panel" style="display: none;">
                 <div class="structured-panel-header">
                     <div class="task-inline-info">
-                        <span class="badge bg-success-subtle text-success">Materialized</span>
+                        <span class="badge bg-success-subtle text-success">Created</span>
                         <small id="feed-structured-result-summary" class="structured-panel-summary ms-2"></small>
                     </div>
                 </div>
@@ -306,20 +306,21 @@
                             id="feed-structured-tools-toggle"
                             data-bs-toggle="dropdown"
                             aria-expanded="false"
-                            aria-label="Insert structured coordination block"
-                            title="Insert structured coordination block">
+                            aria-label="Add a Canopy work card or tool"
+                            title="Add a Canopy work card or tool">
                         <i class="bi bi-diagram-3"></i>
                         <span class="structured-tool-trigger-dot"></span>
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
-                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('task')"><i class="bi bi-check2-square me-2"></i>Task block</button></li>
-                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('request')"><i class="bi bi-question-circle me-2"></i>Request block</button></li>
-                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('input-card')"><i class="bi bi-ui-checks-grid me-2"></i>Input card</button></li>
-                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('telemetry-card')"><i class="bi bi-activity me-2"></i>Telemetry card</button></li>
+                        <li class="structured-tool-menu-kicker">Make this post actionable</li>
+                        <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertFeedStructuredTemplate('task')"><i class="bi bi-check2-square"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Create task</span><span class="structured-tool-item-help">Assign work with owner, priority, and status.</span></span></button></li>
+                        <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertFeedStructuredTemplate('request')"><i class="bi bi-question-circle"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Ask for work</span><span class="structured-tool-item-help">Make the requested output explicit for humans or agents.</span></span></button></li>
+                        <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertFeedStructuredTemplate('input-card')"><i class="bi bi-ui-checks-grid"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Collect input</span><span class="structured-tool-item-help">Render an approval, choice, or decision card in the post.</span></span></button></li>
+                        <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertFeedStructuredTemplate('telemetry-card')"><i class="bi bi-activity"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Track progress</span><span class="structured-tool-item-help">Show live run state, stage, progress, and metrics.</span></span></button></li>
                         <li><hr class="dropdown-divider"></li>
-                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('objective')"><i class="bi bi-bullseye me-2"></i>Objective block</button></li>
-                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right me-2"></i>Handoff block</button></li>
-                        <li><button type="button" class="dropdown-item" onclick="insertFeedStructuredTemplate('signal')"><i class="bi bi-broadcast-pin me-2"></i>Signal block</button></li>
+                        <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertFeedStructuredTemplate('objective')"><i class="bi bi-bullseye"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Set objective</span><span class="structured-tool-item-help">Track a larger goal with members and steps.</span></span></button></li>
+                        <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertFeedStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Hand off ownership</span><span class="structured-tool-item-help">Transfer context and next steps cleanly.</span></span></button></li>
+                        <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertFeedStructuredTemplate('signal')"><i class="bi bi-broadcast-pin"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Record finding</span><span class="structured-tool-item-help">Save evidence, decisions, or metrics as durable context.</span></span></button></li>
                     </ul>
                 </div>
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearComposer()">
@@ -1171,7 +1172,46 @@
     letter-spacing: 0.08em;
 }
 .structured-tool-trigger-group .dropdown-menu {
-    min-width: 14rem;
+    min-width: min(22rem, 88vw);
+    padding: 0.45rem;
+}
+.structured-tool-menu-kicker {
+    padding: 0.35rem 0.65rem 0.45rem;
+    color: var(--canopy-text-secondary);
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.structured-tool-item.dropdown-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    white-space: normal;
+    border-radius: 0.7rem;
+    padding: 0.5rem 0.6rem;
+}
+.structured-tool-item .bi {
+    flex: 0 0 auto;
+    margin-top: 0.12rem;
+    color: var(--canopy-primary);
+}
+.structured-tool-item-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.08rem;
+}
+.structured-tool-item-label {
+    color: var(--canopy-text-primary);
+    font-size: 0.86rem;
+    font-weight: 800;
+    line-height: 1.15;
+}
+.structured-tool-item-help {
+    color: var(--canopy-text-muted);
+    font-size: 0.72rem;
+    line-height: 1.25;
 }
 .structured-tool-trigger {
     position: relative;
@@ -1296,6 +1336,20 @@
     flex-wrap: wrap;
     gap: 0.35rem;
     justify-content: flex-end;
+}
+@media (max-width: 640px) {
+    .structured-panel-header {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+    .structured-validation-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+    .structured-validation-item {
+        flex-direction: column;
+        gap: 0.45rem;
+    }
 }
 
 .mention-builder-panel {
@@ -5718,6 +5772,35 @@
             return fallback[toolType] || 'Structured item';
         }
 
+        function getFeedToolActionLabel(toolType) {
+            const labels = {
+                task: 'Create task',
+                request: 'Ask for work',
+                'input-card': 'Collect input',
+                'telemetry-card': 'Track progress',
+                objective: 'Set objective',
+                handoff: 'Hand off',
+                signal: 'Record finding',
+            };
+            return labels[toolType] || getFeedToolLabel(toolType);
+        }
+
+        function getFeedToolOutcomeLabel(toolType) {
+            const labels = {
+                task: 'Task',
+                request: 'Request',
+                'input-card': 'Input card',
+                'telemetry-card': 'Telemetry card',
+                objective: 'Objective',
+                signal: 'Finding',
+                handoff: 'Handoff',
+                contract: 'Contract',
+                circle: 'Circle',
+                skill: 'Skill',
+            };
+            return labels[toolType] || getFeedToolLabel(toolType);
+        }
+
         function feedStructuredResultIcon(itemType) {
             const icons = {
                 task: 'check2-square',
@@ -5751,10 +5834,10 @@
             }
 
             summary.textContent = normalized.length === 1
-                ? `${getFeedToolLabel(normalized[0].type || 'item')} materialized from this post.`
-                : `${normalized.length} structured objects materialized from this post.`;
+                ? `${getFeedToolOutcomeLabel(normalized[0].type || 'item')} created from this post.`
+                : `${normalized.length} Canopy work items created from this post.`;
             list.innerHTML = normalized.map((item) => {
-                const title = item.title ? escapeHtml(String(item.title)) : getFeedToolLabel(item.type || 'item');
+                const title = item.title ? escapeHtml(String(item.title)) : getFeedToolOutcomeLabel(item.type || 'item');
                 const status = item.status ? `<small>${escapeHtml(String(item.status))}</small>` : '';
                 return `<span class="structured-panel-chip"><i class="bi bi-${feedStructuredResultIcon(item.type)}"></i>${title}${status}</span>`;
             }).join('');
@@ -5772,7 +5855,7 @@
             textarea.value = nextValue;
             textarea.focus();
             notifyFeedComposerUpdate();
-            showAlert(`${getFeedToolLabel(toolType)} template inserted.`, 'success');
+            showAlert(`${getFeedToolActionLabel(toolType)} draft added. Review the details, then share.`, 'success');
         }
 
         function applyFeedStructuredAliasFix(fromTag, toTag) {
@@ -5814,7 +5897,7 @@
             renderFeedStructuredValidation({ issues: [], blocking: false });
             updateFeedStructuredTriggerState({ issues: [], blocking: false });
             notifyFeedComposerUpdate();
-            showAlert('Structured tags escaped. Posting as plain text.', 'info');
+            showAlert('Sharing this as normal text. Canopy will not create cards from it.', 'info');
             createPost();
         }
 
@@ -5835,15 +5918,15 @@
             }
 
             summary.textContent = issues.length === 1
-                ? 'One structured block issue needs correction.'
-                : `${issues.length} structured block issues need correction.`;
+                ? 'Canopy needs one detail before it can create this card or work item.'
+                : `Canopy needs ${issues.length} details before it can create these cards or work items.`;
 
             const needsNormalize = issues.some((issue) => issue && issue.kind === 'decorated_tag');
             const actionButtons = [];
             if (needsNormalize) {
                 actionButtons.push('<button type="button" class="btn btn-sm btn-outline-warning" onclick="normalizeFeedStructuredBlocks()">Normalize block syntax</button>');
             }
-            actionButtons.push('<button type="button" class="btn btn-sm btn-outline-secondary" onclick="postFeedDraftAsPlainText(event)">Post anyway as plain text</button>');
+            actionButtons.push('<button type="button" class="btn btn-sm btn-outline-secondary" onclick="postFeedDraftAsPlainText(event)">Share as normal text</button>');
             globalActions.innerHTML = actionButtons.join('');
 
             list.innerHTML = issues.map((issue) => {
@@ -5875,14 +5958,14 @@
             button.classList.toggle('is-active', hasBlocks && !hasWarning);
             button.classList.toggle('has-warning', hasWarning);
             if (hasWarning) {
-                button.title = 'Structured block issue needs correction';
-                button.setAttribute('aria-label', 'Structured block issue needs correction');
+                button.title = 'Canopy work item needs one more detail';
+                button.setAttribute('aria-label', 'Canopy work item needs one more detail');
             } else if (hasBlocks) {
-                button.title = 'Structured block detected';
-                button.setAttribute('aria-label', 'Structured block detected');
+                button.title = 'Canopy work card or tool detected';
+                button.setAttribute('aria-label', 'Canopy work card or tool detected');
             } else {
-                button.title = 'Insert structured coordination block';
-                button.setAttribute('aria-label', 'Insert structured coordination block');
+                button.title = 'Add a Canopy work card or tool';
+                button.setAttribute('aria-label', 'Add a Canopy work card or tool');
             }
         }
 

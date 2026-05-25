@@ -7,6 +7,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestUiPolishRegressions(unittest.TestCase):
+    def _feed_surface(self) -> str:
+        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        fragment = (ROOT / "canopy" / "ui" / "templates" / "_feed_posts_fragment.html").read_text(encoding="utf-8")
+        return feed + "\n" + fragment
+
     def test_feed_share_post_button_has_id_for_loading_state(self) -> None:
         feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
         self.assertIn('id="share-post-btn"', feed)
@@ -24,17 +29,17 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('aria-label="Close Team Mention Builder"', feed)
 
     def test_feed_empty_state_has_clear_search_link(self) -> None:
-        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        feed = self._feed_surface()
         self.assertIn("Clear search", feed)
         self.assertIn("url_for('ui.feed')", feed)
 
     def test_feed_empty_state_icons_have_aria_hidden(self) -> None:
-        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        feed = self._feed_surface()
         self.assertIn('bi bi-search fs-1 mb-3 d-block" aria-hidden="true"', feed)
         self.assertIn('bi bi-newspaper fs-1 mb-3 d-block" aria-hidden="true"', feed)
 
     def test_feed_primary_actions_keep_reply_bookmark_repost_visible(self) -> None:
-        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        feed = self._feed_surface()
         self.assertIn("Reply</span>", feed)
         self.assertIn("React{% endif %}</span>", feed)
         self.assertIn("reaction-palette", feed)
@@ -76,7 +81,7 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('aria-label="Cancel reply"', channels)
 
     def test_repost_media_preserves_single_image_aspect_ratio(self) -> None:
-        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        feed = self._feed_surface()
         channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
         self.assertIn('post-repost-thumb-grid{% if em.attachment_images|length == 1 %} is-single{% endif %}', feed)
         self.assertIn('.post-repost-thumb-grid.is-single .post-repost-thumb-link img', feed)
@@ -242,7 +247,7 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn('id="channel-canopy-llm-dismiss"', channels)
         self.assertIn("onclick=\"dismissCanopyLLMComposePanel()\"", channels)
         self.assertIn('Send as written', channels)
-        self.assertIn('Post anyway as plain text', channels)
+        self.assertIn('Send as normal text', channels)
 
     def test_mobile_shell_uses_drawer_navigation_and_large_touch_targets(self) -> None:
         base = (ROOT / "canopy" / "ui" / "templates" / "base.html").read_text(encoding="utf-8")
