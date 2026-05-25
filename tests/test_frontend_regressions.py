@@ -2677,6 +2677,7 @@ console.log(JSON.stringify({{
         self.assertIn('CHANNEL_MENTION_THREAD_FILTER_STORAGE_KEY', channels_template)
         self.assertIn('CHANNEL_RECENT_THREAD_FILTER_STORAGE_KEY', channels_template)
         self.assertIn('CHANNEL_AGENT_RUN_CAPSULE_STORAGE_KEY', channels_template)
+        self.assertIn('CHANNEL_AGENT_RUN_CAPSULE_PREFERRED_LEVEL_STORAGE_KEY', channels_template)
         self.assertIn('CHANNEL_AGENT_RUN_CAPSULE_LEVELS', channels_template)
         self.assertIn('CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL', channels_template)
         self.assertIn('CHANNEL_RECENT_FILTER_PRESETS', channels_template)
@@ -2701,6 +2702,10 @@ console.log(JSON.stringify({{
         self.assertIn('function setChannelAgentRunCapsuleLevelAndRefresh(level)', channels_template)
         self.assertIn('function adjustChannelAgentRunCapsuleLevel(delta)', channels_template)
         self.assertIn('function getChannelAgentRunCapsuleLevel(channelId = currentChannelId)', channels_template)
+        self.assertIn('function getChannelAgentRunCapsulePreferredLevel()', channels_template)
+        self.assertIn('function setChannelAgentRunCapsulePreferredLevel(level)', channels_template)
+        self.assertIn('enabled ? (existingLevel || getChannelAgentRunCapsulePreferredLevel()) : 0', channels_template)
+        self.assertIn('This preference is kept when Capsules are off and reused across channels.', channels_template)
         self.assertIn('function toggleChannelUnreadThreadFilter(forceEnabled)', channels_template)
         self.assertIn('function applyChannelRecentWindow(minutes)', channels_template)
         self.assertIn('function filterChannelThreadsForRecentPosts(rootMessages, repliesByRoot)', channels_template)
@@ -3795,7 +3800,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.215', api_ref)
+        self.assertIn('0.6.216', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
