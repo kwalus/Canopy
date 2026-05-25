@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.218] - 2026-05-25
+
+### Changed
+- **Structured Work Builder stays usable on short screens** - channel and feed builder panels now constrain their height, keep their header/footer controls reachable, scroll the builder body internally, and open by keeping the composer input/action area in view instead of pushing it below the viewport.
+
 ## [0.6.217] - 2026-05-25
 
 ### Changed

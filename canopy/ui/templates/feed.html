@@ -85,8 +85,9 @@
                             <i class="bi bi-x-lg"></i>
                         </button>
                     </div>
-                    <div id="feed-structured-builder-options" class="structured-builder-grid"></div>
-                    <div class="structured-builder-fields" id="feed-structured-builder-fields">
+                    <div class="structured-builder-scrollbody">
+                        <div id="feed-structured-builder-options" class="structured-builder-grid"></div>
+                        <div class="structured-builder-fields" id="feed-structured-builder-fields">
                         <div class="structured-builder-field-grid">
                             <div class="structured-builder-field">
                                 <label for="feed-structured-builder-title">Title</label>
@@ -181,6 +182,7 @@
                                     onclick="syncFeedStructuredBuilderToComposer({ force: true })">
                                 <i class="bi bi-arrow-clockwise me-1"></i>Update draft
                             </button>
+                        </div>
                         </div>
                     </div>
                     <div class="structured-builder-footer">
@@ -1329,6 +1331,10 @@
     display: none;
     flex-direction: column;
     gap: 0.75rem;
+    box-sizing: border-box;
+    max-height: min(72vh, 42rem);
+    max-height: min(72dvh, 42rem);
+    overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border) 66%);
     border-radius: 1rem;
     padding: 0.85rem;
@@ -1340,8 +1346,19 @@
 .structured-builder-panel.is-visible {
     display: flex;
 }
+.structured-builder-scrollbody {
+    display: grid;
+    flex: 1 1 auto;
+    gap: 0.75rem;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 0.08rem;
+    scrollbar-gutter: stable;
+}
 .structured-builder-header {
     display: flex;
+    flex: 0 0 auto;
     align-items: flex-start;
     justify-content: space-between;
     gap: 0.75rem;
@@ -1367,6 +1384,7 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
     gap: 0.45rem;
+    min-height: 0;
 }
 .structured-builder-option {
     display: flex;
@@ -1417,6 +1435,7 @@
 .structured-builder-fields {
     display: grid;
     gap: 0.62rem;
+    min-height: 0;
     border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, transparent);
     border-radius: 0.95rem;
     padding: 0.7rem;
@@ -1685,6 +1704,22 @@
     padding: 0.45rem 0.2rem;
 }
 @media (max-width: 720px) {
+    .structured-builder-panel {
+        gap: 0.55rem;
+        max-height: min(62vh, 34rem);
+        max-height: min(62dvh, 34rem);
+        padding: 0.68rem;
+    }
+    .structured-builder-scrollbody {
+        gap: 0.55rem;
+    }
+    .structured-builder-option {
+        min-height: 3.55rem;
+        padding: 0.52rem;
+    }
+    .structured-builder-option-help {
+        font-size: 0.68rem;
+    }
     .structured-builder-field-grid,
     .structured-builder-field-grid--compact {
         grid-template-columns: 1fr;
@@ -1694,8 +1729,24 @@
         max-height: 14rem;
     }
 }
+@media (max-height: 620px) {
+    .structured-builder-panel {
+        max-height: min(58vh, 30rem);
+        max-height: min(58dvh, 30rem);
+    }
+    .structured-builder-option {
+        min-height: auto;
+    }
+    .structured-builder-option-help {
+        display: none;
+    }
+    .structured-builder-recipient-list {
+        max-height: 8rem;
+    }
+}
 .structured-builder-footer {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
@@ -6790,6 +6841,25 @@
             }
         }
 
+        function scrollFeedStructuredBuilderComposerIntoView() {
+            const panel = document.getElementById('feed-structured-builder');
+            const target = document.querySelector('#post-composer .composer-action-row')
+                || document.getElementById('postContent')
+                || panel;
+            const scrollBody = panel?.querySelector('.structured-builder-scrollbody');
+            if (scrollBody) {
+                scrollBody.scrollTop = 0;
+            }
+            if (!target) return;
+            requestAnimationFrame(() => {
+                try {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                } catch (error) {
+                    target.scrollIntoView(false);
+                }
+            });
+        }
+
         function toggleFeedStructuredBuilder(forceOpen) {
             const panel = document.getElementById('feed-structured-builder');
             const button = document.getElementById('feed-structured-tools-toggle');
@@ -6804,7 +6874,7 @@
                 button.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
             }
             if (shouldOpen) {
-                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                scrollFeedStructuredBuilderComposerIntoView();
             }
         }
 

@@ -168,6 +168,26 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("pastedText.length >= 480 || lineCount >= 6 || projectedLength >= 1200", feed)
         self.assertIn("__canopyFeedPasteHandled", feed)
 
+    def test_structured_work_builder_keeps_composer_controls_reachable(self) -> None:
+        channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
+        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+
+        for template in (channels, feed):
+            self.assertIn('class="structured-builder-scrollbody"', template)
+            self.assertIn("max-height: min(72dvh, 42rem);", template)
+            self.assertIn("max-height: min(62dvh, 34rem);", template)
+            self.assertIn("max-height: min(58dvh, 30rem);", template)
+            self.assertIn("overscroll-behavior: contain;", template)
+            self.assertIn("scrollbar-gutter: stable;", template)
+            self.assertIn("target.scrollIntoView({ behavior: 'smooth', block: 'end' });", template)
+
+        self.assertIn("function scrollChannelStructuredBuilderComposerIntoView()", channels)
+        self.assertIn("input?.closest('#message-form .input-group')", channels)
+        self.assertIn("scrollChannelStructuredBuilderComposerIntoView();", channels)
+        self.assertIn("function scrollFeedStructuredBuilderComposerIntoView()", feed)
+        self.assertIn("document.querySelector('#post-composer .composer-action-row')", feed)
+        self.assertIn("scrollFeedStructuredBuilderComposerIntoView();", feed)
+
     def test_create_channel_form_has_compact_narrow_sidebar_styles(self) -> None:
         channels = (ROOT / "canopy" / "ui" / "templates" / "channels.html").read_text(encoding="utf-8")
         self.assertIn("--channel-sidebar-width: clamp(236px, 24vw, 260px);", channels)
