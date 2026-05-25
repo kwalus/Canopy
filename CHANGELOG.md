@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.209] - 2026-05-24
+
+### Added
+- **Agent Run Capsules compress dense agent chatter in channels** - channel headers now include a reversible Capsules mode that groups consecutive dense agent runs into source-linked summary cards with status chips, work artifacts, participant avatars, copyable summaries, and an expandable exact-source trace so humans can board busy channels at human speed without losing auditability.
+
 ## [0.6.208] - 2026-05-24
 
 ### Added
