@@ -991,6 +991,90 @@ class TestDigestions(unittest.TestCase):
         reader_output = self.digestion_manager.get_output(digestion['id'], 'reader-user', 'pdf_figures')
         self.assertIn(image.id, reader_output['content'])
 
+    def test_generated_pdf_figure_images_are_placed_in_digestion_subfolder(self) -> None:
+        source = self._save_text(
+            'source-paper.txt',
+            'Figure 1. Device geometry for a silicon single-electron transistor experiment.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Generated figure folder digest',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        digestion_obj = self.digestion_manager._get_digestion_obj(digestion['id'])
+        self.assertIsNotNone(digestion_obj)
+        self.digestion_manager._image_dimensions = lambda _data: (120, 120)
+
+        row = self.digestion_manager._persist_pdf_figure_image(
+            digestion_obj,
+            source,
+            _TINY_PNG,
+            figure_index=1,
+            page_number=1,
+            page_label='p. 1',
+            page_figure_order=1,
+            captions_by_page={'p. 1': ['Figure 1. Device geometry.']},
+            image_name='embedded.png',
+            extraction_method='test.fixture',
+            image_hash='test-hash',
+        )
+
+        self.assertIsNotNone(row)
+        image_info = self.file_manager.get_file(row['image_file_id'])
+        self.assertIsNotNone(image_info)
+        self.assertTrue(image_info.vault_folder_id)
+        folder_path = self.file_manager.get_user_folder_path('owner-user', image_info.vault_folder_id)
+        self.assertEqual([folder.name for folder in folder_path][-1], 'Generated figures')
+        self.assertIn('Digestion Intake', [folder.name for folder in folder_path])
+        self.assertTrue(any(digestion['id'] in folder.name for folder in folder_path))
+        root_files = self.file_manager.list_user_files('owner-user', folder_id='', limit=50)
+        self.assertNotIn(image_info.id, {file.id for file in root_files})
+
+    def test_legacy_home_pdf_figure_images_are_rehomed_without_changing_file_id(self) -> None:
+        source = self._save_text(
+            'legacy-figure-source.txt',
+            'Figure 1. Legacy extracted figure.',
+        )
+        image = self._save_image()
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Legacy figure folder digest',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.assertFalse(image.vault_folder_id)
+        self.digestion_manager._insert_pdf_figure({
+            'digestion_id': digestion['id'],
+            'source_file_id': source.id,
+            'source_checksum': source.checksum,
+            'figure_index': 1,
+            'page_number': 1,
+            'page_label': 'p. 1',
+            'image_file_id': image.id,
+            'image_name': image.original_name,
+            'content_type': image.content_type,
+            'width': 120,
+            'height': 120,
+            'byte_size': image.size,
+            'caption': 'Figure 1. Legacy extracted figure.',
+            'context_text': 'Figure 1 on p. 1 shows a legacy extracted figure.',
+            'vision_description': '',
+            'extraction_method': 'test.fixture',
+            'metadata': {},
+        })
+
+        figures = self.digestion_manager.list_figures(digestion['id'], 'owner-user')
+
+        self.assertEqual(figures['figures'][0]['image_file_id'], image.id)
+        moved_image = self.file_manager.get_file(image.id)
+        self.assertEqual(moved_image.id, image.id)
+        self.assertTrue(moved_image.vault_folder_id)
+        folder_path = self.file_manager.get_user_folder_path('owner-user', moved_image.vault_folder_id)
+        self.assertEqual([folder.name for folder in folder_path][-1], 'Generated figures')
+        root_files = self.file_manager.list_user_files('owner-user', folder_id='', limit=50)
+        self.assertNotIn(image.id, {file.id for file in root_files})
+
     def test_structured_datapoints_output_is_source_grounded_and_source_gated(self) -> None:
         source = self._save_text(
             'datapoint-corpus.txt',
