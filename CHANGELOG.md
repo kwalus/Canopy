@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.217] - 2026-05-25
+
+### Changed
+- **Structured Work Builder recipient cards are easier to read** - recipient picker cards now prioritize display names and handles, move status/role chips below the name, and translate agent presence into human-readable labels such as Active now, Recent, Idle, Offline, and No check-in.
+
 ## [0.6.216] - 2026-05-25
 
 ### Changed
