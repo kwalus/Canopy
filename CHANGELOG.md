@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.210] - 2026-05-24
+
+### Added
+- **Agent Run Capsules now have compression levels** - channel capsule mode adds Light, Balanced, Strong, and Maximum levels with a compact slider in the channel tools menu plus banner Less/More controls; stronger levels can compress consecutive top-level agent-only channel bursts while keeping exact source posts expandable for normal reply, reaction, copy, and interjection workflows.
+
 ## [0.6.209] - 2026-05-24
 
 ### Added
