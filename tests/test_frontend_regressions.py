@@ -1035,6 +1035,11 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('.sidebar-media-deck:not(.is-desktop-large):not(.is-desktop-window).is-dm-mode .deck-inbox-surface:not(.is-list-open) .deck-inbox-sidebar', base_template)
         self.assertIn('.sidebar-media-deck.is-desktop-large .deck-inbox-body', base_template)
         self.assertIn('.deck-inbox-surface .structured-builder-field-grid', base_template)
+        self.assertIn('.sidebar-media-deck.is-dm-mode.is-visible', base_template)
+        self.assertIn('height: min(82vh, 860px);', base_template)
+        self.assertIn('.sidebar-media-deck.is-dm-mode .sidebar-media-deck-shell', base_template)
+        self.assertIn('scrollbar-gutter: stable;', base_template)
+        self.assertIn('overflow-anchor: none;', base_template)
 
         self.assertIn("{% set dm_surface = 'page' %}", messages_template)
         self.assertIn("{% include '_messages_composer.html' %}", messages_template)
@@ -1064,6 +1069,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("if (window.location.pathname === '/messages') return;", main_js)
         self.assertIn('function showDeckInboxRecipients(actionEl)', main_js)
         self.assertIn("recipientApi.show(recipients, { title: 'Group recipients' });", main_js)
+        self.assertIn('function setDeckInboxRefreshing(isRefreshing)', main_js)
+        self.assertIn('const preserveLayout = !!options.preserveLayout', main_js)
+        self.assertIn('nextOptions.preserveLayout = true;', main_js)
+        self.assertIn('nextOptions.preserveComposerExpanded = preserveComposerExpanded;', main_js)
+        self.assertIn("root.classList.contains('composer-expanded')", main_js)
+        self.assertIn('setDeckInboxRefreshing(false);', main_js)
 
     def test_group_dm_avatar_overflow_opens_full_recipient_list(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
@@ -3935,7 +3946,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.227', api_ref)
+        self.assertIn('0.6.228', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

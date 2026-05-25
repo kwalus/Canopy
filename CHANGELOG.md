@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.228] - 2026-05-25
+
+### Fixed
+- **Deck Inbox send layout stability** — Sending or deleting a DM from Deck Inbox now preserves the current thread while the snapshot refreshes, keeps composer expansion state across the refresh, and pins the DM-mode Deck shell to a stable viewport height so the Deck no longer visibly resizes as messages are posted.
+
 ## [0.6.227] - 2026-05-25
 
 ### Changed
