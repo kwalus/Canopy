@@ -2012,31 +2012,176 @@
     }
     .vault-digestion-builder-access {
         display: grid;
-        grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr);
+        grid-template-columns: 1fr;
         gap: 0.65rem;
         align-items: start;
         min-width: 0;
     }
-    .vault-digestion-builder-search {
-        position: relative;
+    .vault-digestion-builder-recipient-head,
+    .vault-digestion-builder-recipient-tools {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
         min-width: 0;
     }
+    .vault-digestion-builder-recipient-title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        min-width: 0;
+        color: var(--canopy-text-primary);
+        font-size: 0.78rem;
+        font-weight: 900;
+        letter-spacing: 0.02em;
+    }
+    .vault-digestion-builder-recipient-count {
+        color: var(--canopy-text-muted);
+        font-size: 0.72rem;
+        font-weight: 820;
+    }
+    .vault-digestion-builder-search {
+        flex: 1 1 14rem;
+        min-width: 0;
+    }
+    .vault-digestion-builder-filter {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 0.32rem;
+        justify-content: flex-end;
+    }
+    .vault-digestion-builder-filter .btn {
+        min-height: 1.75rem;
+        padding: 0.18rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.68rem;
+        letter-spacing: 0.02em;
+    }
+    .vault-digestion-builder-filter .btn.is-active {
+        border-color: color-mix(in srgb, var(--canopy-primary) 70%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 20%, var(--canopy-bg-card));
+        color: var(--canopy-primary);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-primary) 24%, transparent) inset;
+    }
     .vault-digestion-builder-results {
-        position: absolute;
-        z-index: 62;
-        top: calc(100% + 0.35rem);
-        left: 0;
-        width: min(32rem, calc(100vw - 2rem));
-        max-height: 280px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        gap: 0.45rem;
+        max-height: 310px;
         overflow: auto;
-        border: 1px solid var(--canopy-border);
+        padding: 0.45rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 24%, var(--canopy-border));
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 72%, transparent);
+        scrollbar-width: thin;
+    }
+    .vault-digestion-builder-recipient-card {
+        display: grid;
+        grid-template-columns: 2.15rem minmax(0, 1fr);
+        gap: 0.52rem;
+        align-items: center;
+        min-width: 0;
+        width: 100%;
+        min-height: 4.35rem;
+        padding: 0.54rem 0.6rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
         border-radius: 14px;
-        padding: 0.35rem;
-        background: color-mix(in srgb, var(--canopy-bg-secondary) 97%, black);
-        box-shadow: 0 18px 40px var(--canopy-shadow);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+        color: var(--canopy-text-primary);
+        text-align: left;
+        transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+    }
+    .vault-digestion-builder-recipient-card:hover,
+    .vault-digestion-builder-recipient-card:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 12%, var(--canopy-bg-card));
+        transform: translateY(-1px);
+        outline: none;
+    }
+    .vault-digestion-builder-recipient-card.is-selected {
+        border-color: color-mix(in srgb, var(--canopy-success) 72%, var(--canopy-border));
+        background:
+            radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--canopy-success) 18%, transparent), transparent 45%),
+            color-mix(in srgb, var(--canopy-success) 12%, var(--canopy-bg-card));
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-success) 24%, transparent) inset;
+    }
+    .vault-digestion-builder-recipient-avatar {
+        width: 2.15rem;
+        height: 2.15rem;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        border-radius: 12px;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 24%, transparent);
+        background: color-mix(in srgb, var(--canopy-primary) 16%, var(--canopy-bg-card));
+        color: var(--canopy-primary);
+        font-weight: 900;
+        font-size: 0.74rem;
+    }
+    .vault-digestion-builder-recipient-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .vault-digestion-builder-recipient-meta {
+        display: grid;
+        gap: 0.22rem;
+        min-width: 0;
+    }
+    .vault-digestion-builder-recipient-name,
+    .vault-digestion-builder-recipient-handle {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .vault-digestion-builder-recipient-name {
+        color: var(--canopy-text-primary);
+        font-size: 0.82rem;
+        font-weight: 900;
+        line-height: 1.1;
+    }
+    .vault-digestion-builder-recipient-handle {
+        color: var(--canopy-text-muted);
+        font-size: 0.7rem;
+        font-weight: 760;
+    }
+    .vault-digestion-builder-recipient-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+        min-width: 0;
+    }
+    .vault-digestion-builder-role,
+    .vault-digestion-builder-picked {
+        display: inline-flex;
+        align-items: center;
+        min-width: 0;
+        padding: 0.08rem 0.38rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 84%, transparent);
+        border-radius: 999px;
+        color: var(--canopy-text-muted);
+        font-size: 0.62rem;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    .vault-digestion-builder-role.agent {
+        border-color: color-mix(in srgb, var(--canopy-info) 55%, var(--canopy-border));
+        color: var(--canopy-info);
+    }
+    .vault-digestion-builder-role.human {
+        border-color: color-mix(in srgb, var(--canopy-success) 50%, var(--canopy-border));
+        color: var(--canopy-success);
+    }
+    .vault-digestion-builder-picked {
+        border-color: color-mix(in srgb, var(--canopy-success) 70%, var(--canopy-border));
+        color: var(--canopy-success);
+        background: color-mix(in srgb, var(--canopy-success) 12%, transparent);
     }
     .vault-digestion-builder-selected {
-        min-height: 2.5rem;
+        min-height: 0;
     }
     .vault-digestion-builder-selected .vault-digestion-share-selected {
         padding: 0.32rem;
@@ -3156,23 +3301,34 @@
                             <h4><i class="bi bi-person-check"></i> Initial access</h4>
                             <p>Optional. Leave blank for owner-only access, or add humans/agents who should be able to query it immediately.</p>
                             <div class="vault-digestion-builder-access">
-                                <div class="vault-digestion-builder-search">
-                                    <label>
-                                        Add local user or agent
+                                <div class="vault-digestion-builder-recipient-head">
+                                    <span class="vault-digestion-builder-recipient-title">
+                                        <i class="bi bi-people"></i> Pick users and agents
+                                    </span>
+                                    <span class="vault-digestion-builder-recipient-count" id="vault-digestion-create-access-count">Loading recipients...</span>
+                                </div>
+                                <div class="vault-digestion-builder-recipient-tools">
+                                    <label class="vault-digestion-builder-search">
+                                        <span class="visually-hidden">Search local users and agents</span>
                                         <input class="form-control form-control-sm"
                                                type="search"
-                                               role="combobox"
                                                autocomplete="off"
                                                id="vault-digestion-create-access-search"
-                                               aria-autocomplete="list"
                                                aria-controls="vault-digestion-create-access-results"
-                                               aria-expanded="false"
-                                               placeholder="Search @agent or teammate">
+                                               placeholder="Search agents and teammates">
                                     </label>
-                                    <div class="vault-digestion-builder-results" id="vault-digestion-create-access-results" role="listbox" hidden></div>
+                                    <div class="vault-digestion-builder-filter" role="group" aria-label="Digestion initial access filter">
+                                        <button class="btn btn-sm btn-outline-secondary is-active" type="button" data-vault-digestion-builder-filter="all">All</button>
+                                        <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-builder-filter="agent">Agents</button>
+                                        <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-builder-filter="human">Humans</button>
+                                        <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-builder-clear>Clear</button>
+                                    </div>
                                 </div>
                                 <div class="vault-digestion-builder-selected">
                                     <div class="vault-digestion-share-selected" id="vault-digestion-create-access-selected" hidden></div>
+                                </div>
+                                <div class="vault-digestion-builder-results" id="vault-digestion-create-access-results" role="listbox" aria-live="polite" hidden>
+                                    <div class="vault-digestion-share-empty">Open the builder to load users and agents.</div>
                                 </div>
                                 <div class="vault-digestion-builder-checks">
                                     <label class="form-check">

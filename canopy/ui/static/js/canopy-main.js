@@ -2207,6 +2207,7 @@
                     digestionBuilderTimer: null,
                     digestionBuilderActiveIndex: -1,
                     digestionBuilderProfile: 'ask_cite',
+                    digestionBuilderUserFilter: 'all',
 		                                digestionProgressTimers: new Map(),
 					                    previewFileId: '',
 		                                selectionDigestionMenuOpen: false,
@@ -2260,6 +2261,7 @@
                 const digestionCreateAccessSearch = document.getElementById('vault-digestion-create-access-search');
                 const digestionCreateAccessResults = document.getElementById('vault-digestion-create-access-results');
                 const digestionCreateAccessSelected = document.getElementById('vault-digestion-create-access-selected');
+                const digestionCreateAccessCount = document.getElementById('vault-digestion-create-access-count');
                 const digestionCreateAccessSources = document.getElementById('vault-digestion-create-access-sources');
                 const digestionCreateAccessManage = document.getElementById('vault-digestion-create-access-manage');
                 const digestionCreateAccessManageAck = document.getElementById('vault-digestion-create-access-manage-ack');
@@ -2676,11 +2678,59 @@
                 function closeDigestionBuilderResults() {
                     if (digestionCreateAccessResults) {
                         digestionCreateAccessResults.hidden = true;
-                        digestionCreateAccessResults.innerHTML = '';
                     }
-                    if (digestionCreateAccessSearch) digestionCreateAccessSearch.setAttribute('aria-expanded', 'false');
                     state.digestionBuilderUsers = [];
                     state.digestionBuilderActiveIndex = -1;
+                    if (digestionCreateAccessCount) digestionCreateAccessCount.textContent = 'Recipients not loaded';
+                }
+
+                function digestionBuilderAccountType(user) {
+                    const raw = String(user && user.account_type || '').trim().toLowerCase();
+                    if (raw.includes('agent')) return 'agent';
+                    if (raw.includes('human')) return 'human';
+                    return raw || 'user';
+                }
+
+                function digestionBuilderUserMatchesFilter(user) {
+                    const filter = String(state.digestionBuilderUserFilter || 'all');
+                    if (filter === 'all') return true;
+                    return digestionBuilderAccountType(user) === filter;
+                }
+
+                function setDigestionBuilderUserFilter(filter) {
+                    const safeFilter = ['all', 'agent', 'human'].includes(String(filter || '')) ? String(filter) : 'all';
+                    state.digestionBuilderUserFilter = safeFilter;
+                    if (digestionCreateForm) {
+                        digestionCreateForm.querySelectorAll('[data-vault-digestion-builder-filter]').forEach((button) => {
+                            const active = button.getAttribute('data-vault-digestion-builder-filter') === safeFilter;
+                            button.classList.toggle('is-active', active);
+                            button.setAttribute('aria-pressed', active ? 'true' : 'false');
+                        });
+                    }
+                    renderDigestionBuilderUsers(state.digestionBuilderUsers || []);
+                }
+
+                function renderDigestionBuilderUserBadges(user, selected) {
+                    const type = digestionBuilderAccountType(user);
+                    const roleLabel = type === 'agent' ? 'Agent' : (type === 'human' ? 'Human' : 'User');
+                    return `
+                        <span class="vault-digestion-builder-role ${vaultEscape(type)}">${vaultEscape(roleLabel)}</span>
+                        ${selected ? '<span class="vault-digestion-builder-picked"><i class="bi bi-check2 me-1"></i>Selected</span>' : ''}
+                    `;
+                }
+
+                function syncDigestionBuilderRecipientCards() {
+                    if (!digestionCreateAccessResults) return;
+                    digestionCreateAccessResults.querySelectorAll('[data-vault-digestion-builder-user-id]').forEach((button) => {
+                        const userId = button.getAttribute('data-vault-digestion-builder-user-id') || '';
+                        const selected = state.digestionBuilderSelectedUsers.has(userId);
+                        button.classList.toggle('is-selected', selected);
+                        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+                        const badges = button.querySelector('[data-vault-digestion-builder-badges]');
+                        if (badges) {
+                            badges.innerHTML = renderDigestionBuilderUserBadges(userFromDigestionBuilderButton(button), selected);
+                        }
+                    });
                 }
 
                 function renderDigestionBuilderUsers(users, { emptyMessage = 'No matching local users or agents.' } = {}) {
@@ -2689,25 +2739,36 @@
                         ? users.map(normalizeDigestionShareUser).filter(Boolean)
                         : [];
                     state.digestionBuilderUsers = safeUsers;
-                    state.digestionBuilderActiveIndex = safeUsers.length ? 0 : -1;
+                    const visibleUsers = safeUsers.filter(digestionBuilderUserMatchesFilter);
+                    state.digestionBuilderActiveIndex = visibleUsers.length ? 0 : -1;
                     digestionCreateAccessResults.hidden = false;
-                    if (digestionCreateAccessSearch) digestionCreateAccessSearch.setAttribute('aria-expanded', 'true');
                     if (!safeUsers.length) {
                         digestionCreateAccessResults.innerHTML = `<div class="vault-digestion-share-empty">${vaultEscape(emptyMessage)}</div>`;
+                        if (digestionCreateAccessCount) digestionCreateAccessCount.textContent = '0 available';
                         return;
                     }
-                    digestionCreateAccessResults.innerHTML = safeUsers.map((user, index) => {
+                    if (!visibleUsers.length) {
+                        digestionCreateAccessResults.innerHTML = '<div class="vault-digestion-share-empty">No recipients match this filter.</div>';
+                        if (digestionCreateAccessCount) digestionCreateAccessCount.textContent = `0 shown · ${safeUsers.length} available`;
+                        return;
+                    }
+                    if (digestionCreateAccessCount) {
+                        digestionCreateAccessCount.textContent = `${visibleUsers.length} shown · ${safeUsers.length} available`;
+                    }
+                    digestionCreateAccessResults.innerHTML = visibleUsers.map((user, index) => {
                         const label = userLabel(user);
-                        const subLabel = digestionShareIdentitySubLabel(user) || user.user_id;
+                        const handle = user.handle || user.username || user.user_id;
+                        const subLabel = user.handle ? `@${user.handle}` : (user.username || user.user_id);
                         const isSelected = state.digestionBuilderSelectedUsers.has(user.user_id);
                         const avatar = user.avatar_url
                             ? `<img src="${vaultEscape(user.avatar_url)}" alt="">`
                             : `<span>${vaultEscape(label.slice(0, 2).toUpperCase())}</span>`;
                         return `
-                            <button class="vault-digestion-share-user${index === 0 ? ' is-active' : ''}${isSelected ? ' is-selected' : ''}"
+                            <button class="vault-digestion-builder-recipient-card${index === 0 ? ' is-active' : ''}${isSelected ? ' is-selected' : ''}"
                                     type="button"
                                     role="option"
                                     aria-selected="${index === 0 ? 'true' : 'false'}"
+                                    aria-pressed="${isSelected ? 'true' : 'false'}"
                                     title="${vaultEscape(label)}${subLabel ? ` - ${vaultEscape(subLabel)}` : ''}"
                                     data-vault-digestion-builder-user-id="${vaultEscape(user.user_id)}"
                                     data-vault-digestion-builder-user-label="${vaultEscape(label)}"
@@ -2715,10 +2776,13 @@
                                     data-vault-digestion-builder-user-handle="${vaultEscape(user.handle)}"
                                     data-vault-digestion-builder-user-account-type="${vaultEscape(user.account_type)}"
                                     data-vault-digestion-builder-user-avatar-url="${vaultEscape(user.avatar_url)}">
-                                <span class="vault-digestion-share-avatar">${avatar}</span>
-                                <span class="vault-digestion-share-user-copy">
-                                    <strong>${vaultEscape(label)}</strong>
-                                    <small>${vaultEscape(subLabel)}</small>
+                                <span class="vault-digestion-builder-recipient-avatar">${avatar}</span>
+                                <span class="vault-digestion-builder-recipient-meta">
+                                    <span class="vault-digestion-builder-recipient-name">${vaultEscape(label)}</span>
+                                    <span class="vault-digestion-builder-recipient-handle">${vaultEscape(handle ? `@${handle.replace(/^@+/, '')}` : user.user_id)}</span>
+                                    <span class="vault-digestion-builder-recipient-badges" data-vault-digestion-builder-badges>
+                                        ${renderDigestionBuilderUserBadges(user, isSelected)}
+                                    </span>
                                 </span>
                             </button>
                         `;
@@ -2759,9 +2823,22 @@
                     state.digestionBuilderSelectedUsers.set(normalized.user_id, normalized);
                     if (digestionCreateAccessSearch) digestionCreateAccessSearch.value = '';
                     renderDigestionBuilderSelectedUsers();
-                    closeDigestionBuilderResults();
+                    syncDigestionBuilderRecipientCards();
                     setDigestionBuilderStatus(`${userLabel(normalized)} will be granted access when this Digestion is created.`, 'muted');
                     return true;
+                }
+
+                function toggleDigestionBuilderUser(user) {
+                    const normalized = normalizeDigestionShareUser(user);
+                    if (!normalized) return false;
+                    if (state.digestionBuilderSelectedUsers.has(normalized.user_id)) {
+                        state.digestionBuilderSelectedUsers.delete(normalized.user_id);
+                        renderDigestionBuilderSelectedUsers();
+                        syncDigestionBuilderRecipientCards();
+                        setDigestionBuilderStatus(`${userLabel(normalized)} removed from initial access.`, 'muted');
+                        return true;
+                    }
+                    return addDigestionBuilderUser(normalized);
                 }
 
                 function maybeSelectTypedDigestionBuilderUser() {
@@ -2842,7 +2919,7 @@
                         if (buttons.length) {
                             event.preventDefault();
                             const button = setDigestionBuilderActiveResult(state.digestionBuilderActiveIndex);
-                            if (button) addDigestionBuilderUser(userFromDigestionBuilderButton(button));
+                            if (button) toggleDigestionBuilderUser(userFromDigestionBuilderButton(button));
                             return;
                         }
                         if (maybeSelectTypedDigestionBuilderUser()) {
@@ -2934,6 +3011,7 @@
                     refreshDigestionBuilderManageConfirm();
                     refreshDigestionBuilderProcessingControls();
                     refreshDigestionBuilderSummary();
+                    searchDigestionBuilderUsers('', { showAll: true });
                     global.setTimeout(() => {
                         digestionCreateName.focus();
                         digestionCreateName.select();
@@ -7205,10 +7283,16 @@
                             setDigestionBuilderProfile(profileBtn.getAttribute('data-vault-digestion-builder-profile') || 'ask_cite', { applyDefaults: true });
                             return;
                         }
+                        const filterBtn = event.target.closest('[data-vault-digestion-builder-filter]');
+                        if (filterBtn && digestionCreateForm.contains(filterBtn)) {
+                            event.preventDefault();
+                            setDigestionBuilderUserFilter(filterBtn.getAttribute('data-vault-digestion-builder-filter') || 'all');
+                            return;
+                        }
                         const userBtn = event.target.closest('[data-vault-digestion-builder-user-id]');
                         if (userBtn && digestionCreateForm.contains(userBtn)) {
                             event.preventDefault();
-                            addDigestionBuilderUser(userFromDigestionBuilderButton(userBtn));
+                            toggleDigestionBuilderUser(userFromDigestionBuilderButton(userBtn));
                             return;
                         }
                         const removeBtn = event.target.closest('[data-vault-digestion-builder-remove]');
@@ -7216,6 +7300,7 @@
                             event.preventDefault();
                             state.digestionBuilderSelectedUsers.delete(removeBtn.getAttribute('data-vault-digestion-builder-remove') || '');
                             renderDigestionBuilderSelectedUsers();
+                            syncDigestionBuilderRecipientCards();
                             return;
                         }
                         const clearBtn = event.target.closest('[data-vault-digestion-builder-clear]');
@@ -7223,6 +7308,7 @@
                             event.preventDefault();
                             state.digestionBuilderSelectedUsers.clear();
                             renderDigestionBuilderSelectedUsers();
+                            syncDigestionBuilderRecipientCards();
                         }
                     });
                     digestionCreateForm.addEventListener('input', (event) => {
