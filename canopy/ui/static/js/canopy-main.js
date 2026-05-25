@@ -22749,6 +22749,12 @@
                 }
             }
 
+            function setDeckInboxRefreshing(isRefreshing) {
+                if (!deckInboxSurface) return;
+                deckInboxSurface.classList.toggle('is-refreshing', !!isRefreshing);
+                deckInboxSurface.setAttribute('aria-busy', isRefreshing ? 'true' : 'false');
+            }
+
             function deckInboxTargetFromHref(href) {
                 const target = {};
                 if (!href) return target;
@@ -22793,6 +22799,7 @@
                 if (!data || data.success === false) {
                     throw new Error((data && data.error) || 'Failed to load Deck Inbox');
                 }
+                const preserveComposerExpanded = options && options.preserveComposerExpanded === true;
                 if (deckInboxSidebar && typeof data.sidebar_html === 'string') {
                     deckInboxSidebar.innerHTML = data.sidebar_html;
                 }
@@ -22806,6 +22813,12 @@
                     deckInboxComposerSlot.innerHTML = data.composer_html;
                     state.deckInboxCanopyLLMDraftReady = false;
                     state.deckInboxCanopyLLMIgnoredDraft = '';
+                    if (preserveComposerExpanded) {
+                        const composerRoot = deckInboxComposerRoot();
+                        const expandBtn = composerRoot ? composerRoot.querySelector('[data-dm-action="toggle-composer-expanded"]') : null;
+                        if (composerRoot) composerRoot.classList.add('composer-expanded');
+                        if (expandBtn) expandBtn.setAttribute('aria-pressed', 'true');
+                    }
                 }
                 state.deckInboxActiveThread = data.active_thread || null;
                 state.deckInboxComposerRecipients = Array.isArray(data.composer_recipients) ? data.composer_recipients : [];
@@ -22854,7 +22867,14 @@
                 if (!deckInboxSurface) return Promise.resolve(null);
                 const requestSeq = ++state.deckInboxSnapshotSeq;
                 state.deckInboxSnapshotInFlight = true;
-                deckInboxSetLoading('Loading Deck Inbox...');
+                const preserveLayout = !!options.preserveLayout
+                    && deckInboxThreadBody
+                    && deckInboxThreadBody.childElementCount > 0;
+                if (preserveLayout) {
+                    setDeckInboxRefreshing(true);
+                } else {
+                    deckInboxSetLoading('Loading Deck Inbox...');
+                }
                 const snapshotUrl = buildDeckInboxSnapshotUrl(options);
                 return fetch(snapshotUrl, {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' },
@@ -22879,6 +22899,7 @@
                     .finally(() => {
                         if (requestSeq === state.deckInboxSnapshotSeq) {
                             state.deckInboxSnapshotInFlight = false;
+                            setDeckInboxRefreshing(false);
                         }
                     });
             }
@@ -23166,6 +23187,7 @@
                     sendBtn.disabled = true;
                     sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Sending...';
                 }
+                const preserveComposerExpanded = !!(root && root.classList.contains('composer-expanded'));
                 apiCall('/ajax/send_message', {
                     method: 'POST',
                     body: JSON.stringify(payload),
@@ -23187,6 +23209,8 @@
                         } else if (state.deckInboxConversationWith) {
                             nextOptions.userId = state.deckInboxConversationWith;
                         }
+                        nextOptions.preserveLayout = true;
+                        nextOptions.preserveComposerExpanded = preserveComposerExpanded;
                         return loadDeckInboxSnapshot(nextOptions);
                     })
                     .catch((err) => {
@@ -23208,7 +23232,7 @@
                     method: 'POST',
                     body: JSON.stringify({ message_id: cleanId }),
                 })
-                    .then(() => loadDeckInboxSnapshot({}))
+                    .then(() => loadDeckInboxSnapshot({ preserveLayout: true }))
                     .then(() => showAlert('Message deleted', 'success'))
                     .catch((err) => showAlert((err && (err.error || err.message)) || 'Delete failed', 'danger'));
             }

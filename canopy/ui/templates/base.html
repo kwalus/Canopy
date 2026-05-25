@@ -2537,11 +2537,21 @@
             max-height: min(82vh, 860px);
         }
 
+        .sidebar-media-deck.is-dm-mode.is-visible {
+            height: min(82vh, 860px);
+            max-height: min(82vh, 860px);
+        }
+
         .sidebar-media-deck.is-desktop-large {
             width: min(820px, calc(100vw - 52px));
         }
 
         .sidebar-media-deck.is-desktop-large.is-visible {
+            max-height: min(96vh, 1080px);
+        }
+
+        .sidebar-media-deck.is-desktop-large.is-dm-mode.is-visible {
+            height: min(96vh, 1080px);
             max-height: min(96vh, 1080px);
         }
 
@@ -2555,6 +2565,11 @@
         }
 
         .sidebar-media-deck.is-desktop-window.is-visible {
+            max-height: none;
+        }
+
+        .sidebar-media-deck.is-desktop-window.is-dm-mode.is-visible {
+            height: auto;
             max-height: none;
         }
 
@@ -4507,6 +4522,7 @@
             flex: 1 1 auto;
             min-width: 0;
             min-height: 0;
+            height: 100%;
             overflow: hidden;
             padding: 0 14px 14px;
         }
@@ -4525,7 +4541,9 @@
         }
 
         .sidebar-media-deck.is-dm-mode .sidebar-media-deck-shell {
-            min-height: min(78vh, 760px);
+            height: 100%;
+            min-height: 0;
+            max-height: none;
         }
 
         .deck-inbox-body {
@@ -4533,6 +4551,7 @@
             grid-template-columns: minmax(0, 1fr);
             gap: 12px;
             width: 100%;
+            height: 100%;
             min-width: 0;
             min-height: 0;
             overflow: hidden;
@@ -4622,10 +4641,12 @@
         .deck-inbox-thread-scroll {
             position: relative;
             flex: 1 1 auto;
-            min-height: 220px;
+            min-height: 0;
             overflow-y: auto;
             padding: 12px;
             overscroll-behavior: contain;
+            scrollbar-gutter: stable;
+            overflow-anchor: none;
         }
 
         .deck-inbox-loading,
