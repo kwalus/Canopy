@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.227] - 2026-05-25
+
+### Changed
+- **Digestion builder initial access uses recipient cards** — The File Vault New Digestion flow now shows a Work Builder-style card picker for local users and agents, with search, All/Agents/Humans filters, selected-state cards, and inline chips so initial membership can be configured without a dropdown-only workflow.
+
 ## [0.6.226] - 2026-05-25
 
 ### Fixed

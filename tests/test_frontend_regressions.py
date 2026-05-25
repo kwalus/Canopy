@@ -382,6 +382,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Give it a name, optionally add people, and let Canopy use recommended processing defaults.', vault_template)
         self.assertIn('data-vault-digestion-builder-profile="datapoints"', vault_template)
         self.assertIn('vault-digestion-create-access-search', vault_template)
+        self.assertIn('vault-digestion-create-access-count', vault_template)
+        self.assertIn('data-vault-digestion-builder-filter="agent"', vault_template)
+        self.assertIn('vault-digestion-builder-recipient-card', vault_template)
         self.assertIn('vault-digestion-create-access-manage-confirm', vault_template)
         self.assertIn('Text segment size', vault_template)
         self.assertIn('id="vault-digestion-create-max-datapoints"', vault_template)
@@ -596,6 +599,9 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function applyInitialDigestionBuilderAccess(digestionId, builder)', main_js)
         self.assertIn('function runInitialDigestionBuilderProcessing(digestionId, builder)', main_js)
         self.assertIn('function searchDigestionBuilderUsers(query', main_js)
+        self.assertIn('function setDigestionBuilderUserFilter(filter)', main_js)
+        self.assertIn('function toggleDigestionBuilderUser(user)', main_js)
+        self.assertIn('data-vault-digestion-builder-badges', main_js)
         self.assertIn("initial_access_permissions", main_js)
         self.assertIn("builder_profile", main_js)
         self.assertIn("data-vault-digestion-builder-remove", main_js)
@@ -3929,7 +3935,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.226', api_ref)
+        self.assertIn('0.6.227', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
