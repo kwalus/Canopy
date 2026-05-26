@@ -8069,6 +8069,12 @@
     overflow: hidden;
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
     backdrop-filter: blur(10px);
+    transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.request-card.request-card--just-updated {
+    border-color: rgba(52, 211, 153, 0.72);
+    box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.28), 0 18px 40px rgba(16, 185, 129, 0.22);
 }
 
 .request-card::before {
@@ -8235,8 +8241,9 @@
 
 .request-members {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.45rem;
     margin-top: 0.7rem;
     position: relative;
     z-index: 1;
@@ -8245,12 +8252,18 @@
 .request-member {
     display: flex;
     align-items: center;
-    gap: 0.55rem;
+    gap: 0.45rem;
+    min-width: 0;
+    max-width: min(100%, 13rem);
+    padding: 0.3rem 0.55rem 0.3rem 0.35rem;
+    border: 1px solid rgba(52, 211, 153, 0.18);
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.42);
 }
 
 .request-member-avatar {
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
     flex-shrink: 0;
 }
@@ -8258,17 +8271,23 @@
 .request-member-text {
     display: flex;
     flex-direction: column;
+    min-width: 0;
 }
 
 .request-member-name {
     font-size: 0.82rem;
     font-weight: 600;
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .request-member-role {
     font-size: 0.7rem;
     color: var(--canopy-text-muted);
     text-transform: capitalize;
+    line-height: 1.05;
 }
 
 .request-actions {
@@ -8278,6 +8297,35 @@
     margin-top: 0.8rem;
     position: relative;
     z-index: 1;
+}
+
+.request-action-button.active,
+.request-action-button[aria-pressed="true"] {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(52, 211, 153, 0.78);
+    color: #bbf7d0;
+    box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.22);
+}
+
+.request-action-button:disabled {
+    cursor: default;
+    opacity: 1;
+}
+
+.request-status-feedback {
+    align-self: center;
+    min-height: 1rem;
+    color: #86efac;
+    font-size: 0.72rem;
+    font-weight: 700;
+    opacity: 0;
+    transform: translateY(2px);
+    transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.request-status-feedback.visible {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 /* Signal Cards */
@@ -8537,6 +8585,12 @@
         linear-gradient(145deg, rgba(15, 23, 42, 0.94), rgba(12, 74, 110, 0.36));
     box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26);
     backdrop-filter: blur(10px);
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.collab-card.collab-card--just-updated {
+    border-color: rgba(96, 165, 250, 0.72);
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.22), 0 18px 42px rgba(37, 99, 235, 0.2);
 }
 
 .collab-card--input {
@@ -8630,6 +8684,19 @@
     border-color: rgba(248, 113, 113, 0.4);
     background: rgba(248, 113, 113, 0.16);
     color: #fca5a5;
+}
+
+.collab-status-action.active,
+.collab-status-action[aria-pressed="true"] {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(52, 211, 153, 0.72);
+    color: #bbf7d0;
+    box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.2);
+}
+
+.collab-status-action:disabled {
+    cursor: default;
+    opacity: 1;
 }
 
 .collab-card-title {
@@ -8860,6 +8927,12 @@
     position: relative;
     overflow: hidden;
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.contract-card.contract-card--just-updated {
+    border-color: rgba(96, 165, 250, 0.72);
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.22), 0 18px 40px rgba(37, 99, 235, 0.2);
 }
 
 .contract-header {
@@ -15680,12 +15753,24 @@ function renderRequestCards(message, userInfo) {
                     `;
                 }).join('');
 
+                const requestStatusActions = [
+                    ['acknowledged', 'Ack', 'btn-outline-secondary'],
+                    ['in_progress', 'In Progress', 'btn-outline-primary'],
+                    ['completed', 'Complete', 'btn-outline-success'],
+                    ['closed', 'Close', 'btn-outline-light']
+                ];
                 const actionsHtml = request.can_manage ? `
                     <div class="request-actions">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="updateRequestStatus('${request.id}', 'acknowledged')">Ack</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="updateRequestStatus('${request.id}', 'in_progress')">In Progress</button>
-                        <button type="button" class="btn btn-sm btn-outline-success" onclick="updateRequestStatus('${request.id}', 'completed')">Complete</button>
-                        <button type="button" class="btn btn-sm btn-outline-light" onclick="updateRequestStatus('${request.id}', 'closed')">Close</button>
+                        ${requestStatusActions.map(([targetStatus, label, buttonClass]) => {
+                            const active = targetStatus === status;
+                            return `<button type="button"
+                                            class="btn btn-sm ${buttonClass} request-action-button${active ? ' active' : ''}"
+                                            data-request-status-action="${targetStatus}"
+                                            aria-pressed="${active ? 'true' : 'false'}"
+                                            ${active ? 'disabled' : ''}
+                                            onclick="updateRequestStatus('${escapeAttr(request.id || '')}', '${targetStatus}')">${label}</button>`;
+                        }).join('')}
+                        <span class="request-status-feedback" data-request-status-feedback></span>
                     </div>
                 ` : '';
 
@@ -16075,8 +16160,14 @@ function renderCollabCards(message) {
 
                 const promptHtml = card.prompt ? `<div class="collab-card-prompt">${escapeHtml(card.prompt).replace(/\n/g, '<br>')}</div>` : '';
                 const responseHtml = `<div class="collab-card-input-state" data-collab-input-state="${cardId}">${renderCollabInputState(card, cardId)}</div>`;
+                const resolveActive = status === 'resolved';
                 const resolveHtml = card.can_update ? `
-                    <button type="button" class="btn btn-sm btn-outline-light" onclick="updateCollabInputStatus('${cardId}', 'resolved')">Resolve</button>` : '';
+                    <button type="button"
+                            class="btn btn-sm btn-outline-light collab-status-action${resolveActive ? ' active' : ''}"
+                            data-collab-status-action="resolved"
+                            aria-pressed="${resolveActive ? 'true' : 'false'}"
+                            ${resolveActive ? 'disabled' : ''}
+                            onclick="updateCollabInputStatus('${cardId}', 'resolved')">Resolve</button>` : '';
                 return `
                     <div class="collab-card collab-card--input" data-collab-card-id="${cardId}" data-card-type="input" data-status="${escapeHtml(status)}">
                         <div class="collab-card-head">

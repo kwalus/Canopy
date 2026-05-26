@@ -16401,10 +16401,56 @@
                 if (actionsEl) {
                     actionsEl.innerHTML = _contractActionsMarkup(contract);
                 }
+                _flashCardUpdate(card, 'contract-card--just-updated');
             });
         }
 
         // --- Request (structured asks) helpers ---
+        function _requestCardSelector(requestId) {
+            const raw = String(requestId || '');
+            if (window.CSS && typeof window.CSS.escape === 'function') {
+                return `.request-card[data-request-id="${window.CSS.escape(raw)}"]`;
+            }
+            return `.request-card[data-request-id="${raw.replace(/"/g, '\\"')}"]`;
+        }
+
+        function _flashCardUpdate(el, className) {
+            if (!el || !className) return;
+            el.classList.remove(className);
+            void el.offsetWidth;
+            el.classList.add(className);
+            window.setTimeout(() => {
+                try {
+                    el.classList.remove(className);
+                } catch (_) {}
+            }, 1200);
+        }
+
+        function _syncRequestActionState(card, status, statusLabel) {
+            if (!card) return;
+            const normalizedStatus = String(status || 'open');
+            const buttons = card.querySelectorAll('[data-request-status-action]');
+            buttons.forEach(button => {
+                const targetStatus = String(button.getAttribute('data-request-status-action') || '');
+                const active = targetStatus === normalizedStatus;
+                button.classList.toggle('active', active);
+                button.setAttribute('aria-pressed', active ? 'true' : 'false');
+                button.disabled = active;
+            });
+            const feedbackEl = card.querySelector('[data-request-status-feedback]');
+            if (feedbackEl) {
+                const label = statusLabel || normalizedStatus.replace(/_/g, ' ');
+                feedbackEl.textContent = `Now ${label}`;
+                feedbackEl.classList.add('visible');
+                if (feedbackEl._requestStatusTimer) {
+                    window.clearTimeout(feedbackEl._requestStatusTimer);
+                }
+                feedbackEl._requestStatusTimer = window.setTimeout(() => {
+                    feedbackEl.classList.remove('visible');
+                }, 2200);
+            }
+        }
+
         function updateRequestStatus(requestId, status) {
             if (!requestId || !status) return;
             updateRequest(requestId, { status });
@@ -16433,15 +16479,16 @@
 
         function applyRequestUpdate(request) {
             if (!request || !request.id) return;
-            const cards = document.querySelectorAll(`.request-card[data-request-id="${request.id}"]`);
+            const cards = document.querySelectorAll(_requestCardSelector(request.id));
             if (!cards.length) return;
             const status = (request.status || 'open');
             const priority = (request.priority || 'normal');
+            const statusLabel = request.status_label || status.replace('_', ' ');
             cards.forEach(card => {
                 card.dataset.status = status;
                 const statusEl = card.querySelector('.request-status');
                 if (statusEl) {
-                    statusEl.textContent = request.status_label || status.replace('_', ' ');
+                    statusEl.textContent = statusLabel;
                     statusEl.className = `request-status ${status}`;
                 }
                 const priorityEl = card.querySelector('.request-priority');
@@ -16457,6 +16504,8 @@
                         dueEl.innerHTML = '';
                     }
                 }
+                _syncRequestActionState(card, status, statusLabel);
+                _flashCardUpdate(card, 'request-card--just-updated');
             });
         }
 
@@ -16690,6 +16739,14 @@
                         statusEl.textContent = card.status_label || status.replace(/_/g, ' ');
                         statusEl.className = `collab-card-status ${status}`;
                     }
+                    const statusButtons = el.querySelectorAll('[data-collab-status-action]');
+                    statusButtons.forEach(button => {
+                        const targetStatus = String(button.getAttribute('data-collab-status-action') || '');
+                        const active = targetStatus === status;
+                        button.classList.toggle('active', active);
+                        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+                        button.disabled = active;
+                    });
                 }
                 const countEl = el.querySelector('.collab-card-meta > span');
                 if (countEl && card.response_count !== undefined) {
@@ -16725,6 +16782,7 @@
                 if (metricsEl) {
                     metricsEl.outerHTML = _renderCollabTelemetryMetrics(telemetry.metrics, card.id);
                 }
+                _flashCardUpdate(el, 'collab-card--just-updated');
             });
         }
 

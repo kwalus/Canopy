@@ -705,10 +705,31 @@
                                                 {% endif %}
                                                 {% if request.can_manage %}
                                                     <div class="request-actions">
-                                                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="updateRequestStatus('{{ request.id }}', 'acknowledged')">Ack</button>
-                                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="updateRequestStatus('{{ request.id }}', 'in_progress')">In Progress</button>
-                                                        <button type="button" class="btn btn-sm btn-outline-success" onclick="updateRequestStatus('{{ request.id }}', 'completed')">Complete</button>
-                                                        <button type="button" class="btn btn-sm btn-outline-light" onclick="updateRequestStatus('{{ request.id }}', 'closed')">Close</button>
+                                                        <button type="button"
+                                                                class="btn btn-sm btn-outline-secondary request-action-button{% if request.status == 'acknowledged' %} active{% endif %}"
+                                                                data-request-status-action="acknowledged"
+                                                                aria-pressed="{{ 'true' if request.status == 'acknowledged' else 'false' }}"
+                                                                {% if request.status == 'acknowledged' %}disabled{% endif %}
+                                                                onclick="updateRequestStatus('{{ request.id }}', 'acknowledged')">Ack</button>
+                                                        <button type="button"
+                                                                class="btn btn-sm btn-outline-primary request-action-button{% if request.status == 'in_progress' %} active{% endif %}"
+                                                                data-request-status-action="in_progress"
+                                                                aria-pressed="{{ 'true' if request.status == 'in_progress' else 'false' }}"
+                                                                {% if request.status == 'in_progress' %}disabled{% endif %}
+                                                                onclick="updateRequestStatus('{{ request.id }}', 'in_progress')">In Progress</button>
+                                                        <button type="button"
+                                                                class="btn btn-sm btn-outline-success request-action-button{% if request.status == 'completed' %} active{% endif %}"
+                                                                data-request-status-action="completed"
+                                                                aria-pressed="{{ 'true' if request.status == 'completed' else 'false' }}"
+                                                                {% if request.status == 'completed' %}disabled{% endif %}
+                                                                onclick="updateRequestStatus('{{ request.id }}', 'completed')">Complete</button>
+                                                        <button type="button"
+                                                                class="btn btn-sm btn-outline-light request-action-button{% if request.status == 'closed' %} active{% endif %}"
+                                                                data-request-status-action="closed"
+                                                                aria-pressed="{{ 'true' if request.status == 'closed' else 'false' }}"
+                                                                {% if request.status == 'closed' %}disabled{% endif %}
+                                                                onclick="updateRequestStatus('{{ request.id }}', 'closed')">Close</button>
+                                                        <span class="request-status-feedback" data-request-status-feedback></span>
                                                     </div>
                                                 {% endif %}
                                             </div>
@@ -962,7 +983,12 @@
                                                     <div class="collab-card-meta">
                                                         <span>{{ card.response_count }} response{{ '' if card.response_count == 1 else 's' }}</span>
                                                         {% if card.can_update %}
-                                                            <button type="button" class="btn btn-sm btn-outline-light" onclick='updateCollabInputStatus("{{ card.id }}", "resolved")'>Resolve</button>
+                                                            <button type="button"
+                                                                    class="btn btn-sm btn-outline-light collab-status-action{% if card.status == 'resolved' %} active{% endif %}"
+                                                                    data-collab-status-action="resolved"
+                                                                    aria-pressed="{{ 'true' if card.status == 'resolved' else 'false' }}"
+                                                                    {% if card.status == 'resolved' %}disabled{% endif %}
+                                                                    onclick='updateCollabInputStatus("{{ card.id }}", "resolved")'>Resolve</button>
                                                         {% endif %}
                                                     </div>
                                                 {% else %}

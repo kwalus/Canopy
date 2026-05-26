@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.234] - 2026-05-25
+
+### Changed
+- **Structured request cards now show status changes in-place** — Ack/In Progress/Complete/Close actions update the visible status pill, mark the selected action as active, briefly pulse the card, and show an inline “Now …” cue so owners and assignees can tell that the click changed the work state.
+- **Request assignees render as compact chips** — Assigned humans and agents now wrap laterally with avatars, names, and roles instead of consuming vertical card space one person per line.
+
+### Fixed
+- **Collaboration input cards mirror resolved state immediately** — The Resolve action now has explicit active/disabled state and the card receives the same brief update pulse used for request cards.
+
 ## [0.6.233] - 2026-05-25
 
 ### Added

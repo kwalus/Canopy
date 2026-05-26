@@ -141,6 +141,26 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('class="inline-task-avatar request-member-avatar"', channels_template)
         self.assertIn('data-user-avatar="${safeAvatar}"', channels_template)
 
+    def test_request_cards_show_action_state_and_compact_assignees(self) -> None:
+        channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        feed_template = read_feed_surface()
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+
+        self.assertIn('data-request-status-action="${targetStatus}"', channels_template)
+        self.assertIn('data-request-status-action="in_progress"', feed_template)
+        for template in (channels_template, feed_template):
+            self.assertIn('request-action-button', template)
+            self.assertIn('request-status-feedback', template)
+            self.assertIn('flex-direction: row;', template)
+            self.assertIn('max-width: min(100%, 13rem);', template)
+
+        self.assertIn('function _syncRequestActionState(card, status, statusLabel)', main_js)
+        self.assertIn('button.disabled = active;', main_js)
+        self.assertIn('_flashCardUpdate(card, \'request-card--just-updated\')', main_js)
+        self.assertIn('data-collab-status-action', channels_template)
+        self.assertIn('data-collab-status-action', feed_template)
+        self.assertIn('_flashCardUpdate(el, \'collab-card--just-updated\')', main_js)
+
     def test_digestion_extraction_copy_and_states_cover_external_provider_and_source_access(self) -> None:
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
@@ -3978,7 +3998,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.233', api_ref)
+        self.assertIn('0.6.234', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
