@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [Unreleased]
 
 ### Changed
+- **Internal Canopy object references become actionable** - Posts, DMs, Feed items, and Capsule traces now detect high-confidence file references such as `adapter_core.py (F...)`, `PDF: F...`, explicit file IDs, and `Dg...` Digestion IDs, rendering them as clickable Canopy pills without treating arbitrary bare `F...` text as a file.
 - **Agent-run Capsules are more source-accurate and clickable** - Capsule file rails now only surface explicit Canopy file references instead of inferring files from agent names such as `@Forge_McClaw`, and the brief rows/chips open the exact source trace so users can act from the compressed card without learning stale helper text.
 
 ## [0.6.238] - 2026-05-26

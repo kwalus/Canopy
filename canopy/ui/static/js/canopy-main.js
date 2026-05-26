@@ -14158,6 +14158,28 @@
                     '<i class="bi bi-paperclip" aria-hidden="true"></i><span data-canopy-file-ref-label="1">' + safeLabel + '</span></a>';
             }
 
+            function canopyDigestionRefAnchor(digestionId, label) {
+                const id = String(digestionId || '').trim();
+                if (!id) return '';
+                const safeId = _escapeHtml(id);
+                const fallbackLabel = 'Digestion ' + shortCanopyEntityId(id);
+                const rawLabel = String(label || fallbackLabel).replace(/\s+/g, ' ').trim() || fallbackLabel;
+                const safeLabel = _escapeHtml(rawLabel);
+                return '<a class="canopy-entity-link canopy-digestion-ref" href="/vault?digestion=' + encodeURIComponent(id) + '" ' +
+                    'data-canopy-digestion-id="' + safeId + '" title="Open Digestion ' + safeId + '">' +
+                    '<i class="bi bi-diagram-3" aria-hidden="true"></i><span>' + safeLabel + '</span></a>';
+            }
+
+            function cleanCanopyEntityRefLabel(value, fallback = '') {
+                const clean = String(value || '')
+                    .replace(/<[^>]*>/g, ' ')
+                    .replace(/&nbsp;/gi, ' ')
+                    .replace(/[`*#[\]<>]+/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                return clean || fallback;
+            }
+
             function decodeCanopyHtmlText(html) {
                 return String(html || '').replace(/&(#x[0-9a-f]+|#\d+|[a-z][a-z0-9]+);/gi, function(match, entity) {
                     const key = String(entity || '').toLowerCase();
@@ -14183,16 +14205,30 @@
 
             function linkifyCanopyEntityRefs(html) {
                 const value = String(html || '');
-                if (!value || (!value.includes('/files/') && !value.includes('/file-ref/') && !/[`'"]F[A-Za-z0-9_-]{6,}[`'"]/.test(value) && !/file\s*:/.test(value))) {
+                const hasFileSignal = value.includes('/files/')
+                    || value.includes('/file-ref/')
+                    || /[`'"]F[A-Za-z0-9_-]{6,}[`'"]/.test(value)
+                    || /\b(?:file(?:\s*id)?|file_id|source_file_id|vault_file_id|attachment_id|origin_file_id|image_file_id|pdf|figure|image|attachment|output|artifact)\s*[:=]\s*['"`]?F[A-Za-z0-9_-]{6,}/i.test(value)
+                    || /(^|[\s>])[^()\s<>]{1,140}\.(?:pdf|docx?|xlsx?|csv|tsv|json|md|txt|py|ipynb|js|ts|tsx|jsx|html?|css|tex|bib|ya?ml|png|jpe?g|gif|webp|svg|tiff?|zip|tar|gz|mp4|mov|m4v|mp3|wav|wasm)\s*\(\s*F[A-Za-z0-9_-]{6,}\s*\)/i.test(value);
+                const hasDigestionSignal = /\bDg[A-Za-z0-9_-]{6,}\b/.test(value) || value.includes('/vault?digestion=');
+                if (!value || (!hasFileSignal && !hasDigestionSignal)) {
                     return value;
                 }
                 const fileId = '(F[A-Za-z0-9_-]{6,})';
+                const digestionId = '(Dg[A-Za-z0-9_-]{6,})';
                 const fileRefTokens = [];
+                const digestionRefTokens = [];
                 const fileRefTokenPrefix = '\x00CANOPY_FILE_REF_TOKEN_';
+                const digestionRefTokenPrefix = '\x00CANOPY_DIGESTION_REF_TOKEN_';
                 function canopyFileRefToken(id, label) {
                     const index = fileRefTokens.length;
                     fileRefTokens.push({ id: String(id || ''), label: String(label || '') });
                     return fileRefTokenPrefix + index + '\x00';
+                }
+                function canopyDigestionRefToken(id, label) {
+                    const index = digestionRefTokens.length;
+                    digestionRefTokens.push({ id: String(id || ''), label: String(label || '') });
+                    return digestionRefTokenPrefix + index + '\x00';
                 }
                 let working = value.replace(new RegExp('(?:&lt;|<)a\\b[\\s\\S]{0,800}?href=(?:&quot;|"|\\\')(?:https?:\\/\\/[^"&\\\']+)?\\/(?:files|file-ref)\\/' + fileId + '[\\s\\S]{0,800}?(?:&gt;|>)([\\s\\S]{0,500}?)(?:(?:&lt;|<)\\/a(?:&gt;|>))', 'gi'), function(match, id, labelHtml) {
                     const textLabel = decodeCanopyHtmlText(labelHtml).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
@@ -14220,11 +14256,32 @@
                 working = working.replace(new RegExp('\\[([^\\]]+)\\]\\((?:https?:\\/\\/[^\\s)]+)?\\/(?:files|file-ref)\\/' + fileId + '(?:[/?#][^)]*)?\\)', 'g'), function(match, text, id) {
                     return canopyFileRefToken(id, text);
                 });
+                working = working.replace(new RegExp('\\[([^\\]]+)\\]\\((?:https?:\\/\\/[^\\s)]+)?\\/vault\\?digestion=' + digestionId + '(?:[&#][^)]*)?\\)', 'g'), function(match, text, id) {
+                    return canopyDigestionRefToken(id, cleanCanopyEntityRefLabel(text, 'Digestion ' + shortCanopyEntityId(id)));
+                });
                 working = working.replace(new RegExp("(^|[\\s([{<>\"'`])file\\s*:\\s*(['\"`])?" + fileId + "\\2", 'gi'), function(match, prefix, quote, id) {
                     return (prefix || '') + canopyFileRefToken(id, 'file:' + shortCanopyEntityId(id));
                 });
+                working = working.replace(new RegExp("\\b((?:file(?:\\s*id)?|file_id|source_file_id|vault_file_id|attachment_id|origin_file_id|image_file_id|pdf|figure|image|attachment|output|artifact)\\s*[:=]\\s*)(['\"`]?)" + fileId + "\\2", 'gi'), function(match, labelPrefix, quote, id) {
+                    return labelPrefix + canopyFileRefToken(id, '');
+                });
                 working = working.replace(new RegExp("(^|[\\s([{<>\"'`])(?:https?:\\/\\/[^\\s)]+)?\\/(?:files|file-ref)\\/" + fileId + "(?=$|[\\s)\\]}>\\'\",.;:!?#/])", 'g'), function(match, prefix, id) {
                     return (prefix || '') + canopyFileRefToken(id, shortCanopyEntityId(id));
+                });
+                working = working.replace(new RegExp("(^|[\\s([{<>\"'`])(?:https?:\\/\\/[^\\s)]+)?\\/vault\\?digestion=" + digestionId + "(?=$|[\\s)\\]}>\\'\",.;:!?#&/])", 'g'), function(match, prefix, id) {
+                    return (prefix || '') + canopyDigestionRefToken(id, 'Digestion ' + shortCanopyEntityId(id));
+                });
+                working = working.replace(new RegExp('(^|[\\s>])([^()\\s<>]{1,140}\\.(?:pdf|docx?|xlsx?|csv|tsv|json|md|txt|py|ipynb|js|ts|tsx|jsx|html?|css|tex|bib|ya?ml|png|jpe?g|gif|webp|svg|tiff?|zip|tar|gz|mp4|mov|m4v|mp3|wav|wasm))\\s*\\(\\s*' + fileId + '\\s*\\)', 'gi'), function(match, prefix, label, id) {
+                    return (prefix || '') + canopyFileRefToken(id, cleanCanopyEntityRefLabel(label, 'file:' + shortCanopyEntityId(id)));
+                });
+                working = working.replace(new RegExp("\\b((?:digestion(?:\\s*id)?|digest(?:\\s*id)?|corpus(?:\\s*id)?|reference[-\\s]*corpus(?:\\s*id)?)\\s*[:=]\\s*)(['\"`]?)" + digestionId + "\\2", 'gi'), function(match, labelPrefix, quote, id) {
+                    return labelPrefix + canopyDigestionRefToken(id, 'Digestion ' + shortCanopyEntityId(id));
+                });
+                working = working.replace(new RegExp("(^|[\\s([{<])(['\"`])" + digestionId + "\\2(?=$|[\\s)\\]}>.,;:!?])", 'g'), function(match, prefix, quote, id) {
+                    return (prefix || '') + canopyDigestionRefToken(id, 'Digestion ' + shortCanopyEntityId(id));
+                });
+                working = working.replace(new RegExp("(^|[\\s([{<>\"'`])" + digestionId + "(?=$|[\\s)\\]}>\\'\",.;:!?])", 'g'), function(match, prefix, id) {
+                    return (prefix || '') + canopyDigestionRefToken(id, 'Digestion ' + shortCanopyEntityId(id));
                 });
                 // Users sometimes paste a rendered Canopy file pill, which arrives as a partial
                 // anchor attribute tail after the href has already been linkified. Collapse that
@@ -14242,6 +14299,10 @@
                 for (let i = 0; i < fileRefTokens.length; i++) {
                     const token = fileRefTokens[i] || {};
                     working = working.replace(fileRefTokenPrefix + i + '\x00', canopyFileRefAnchor(token.id, token.label || shortCanopyEntityId(token.id)));
+                }
+                for (let i = 0; i < digestionRefTokens.length; i++) {
+                    const token = digestionRefTokens[i] || {};
+                    working = working.replace(digestionRefTokenPrefix + i + '\x00', canopyDigestionRefAnchor(token.id, token.label || ('Digestion ' + shortCanopyEntityId(token.id))));
                 }
                 return working;
             }
