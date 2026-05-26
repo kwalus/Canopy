@@ -2792,12 +2792,35 @@
         margin-top: 0.62rem;
     }
     .agent-run-capsule-brief-row {
+        display: block;
+        width: 100%;
+        text-align: left;
         min-width: 0;
         border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, var(--canopy-primary) 24%);
         border-radius: 13px;
         padding: 0.48rem 0.58rem;
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 76%, var(--canopy-primary) 24%);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+        appearance: none;
+        cursor: pointer;
+        transition: border-color 140ms ease, transform 140ms ease, background 140ms ease;
+    }
+    .agent-run-capsule-brief-row:hover,
+    .agent-run-capsule-brief-row:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-primary) 70%, var(--canopy-border) 30%);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 66%, var(--canopy-primary) 34%);
+        transform: translateY(-1px);
+        outline: none;
+    }
+    .agent-run-capsule-brief-row::after {
+        content: "Open source";
+        display: inline-flex;
+        margin-top: 0.36rem;
+        color: color-mix(in srgb, var(--canopy-primary) 86%, var(--canopy-text-primary) 14%);
+        font-size: 0.68rem;
+        font-weight: 850;
+        letter-spacing: 0.03em;
+        opacity: 0.78;
     }
     .agent-run-capsule-brief-row.needs-human {
         border-color: rgba(251, 146, 60, 0.42);
@@ -2968,6 +2991,16 @@
         border: 1px solid color-mix(in srgb, var(--canopy-border) 75%, var(--canopy-primary) 25%);
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 82%, var(--canopy-primary) 18%);
         color: var(--canopy-text-secondary);
+    }
+    button.agent-run-capsule-chip {
+        appearance: none;
+        cursor: pointer;
+    }
+    button.agent-run-capsule-chip:hover,
+    button.agent-run-capsule-chip:focus-visible {
+        color: var(--canopy-text-primary);
+        border-color: color-mix(in srgb, var(--canopy-primary) 62%, var(--canopy-border) 38%);
+        outline: none;
     }
     .agent-run-capsule-status.status-needs-human {
         color: #fed7aa;
@@ -14091,8 +14124,14 @@ function countAgentRunCards(message) {
 
 function getAgentRunArtifacts(messages) {
     const text = (messages || []).map(getAgentRunMessageText).join(' ');
-    const uniqueFileRefs = new Set((text.match(/\bF[0-9A-Za-z_-]{8,}\b/g) || []).map(String));
+    const rawMessages = Array.isArray(messages) ? messages : [];
+    const uniqueFileRefs = new Set();
     const uniqueDigestionRefs = new Set((text.match(/\bDg[0-9A-Za-z_-]{8,}\b/g) || []).map(String));
+    rawMessages.forEach((message) => {
+        extractAgentRunFileRefsFromText(getAgentRunRawText(message)).forEach((ref) => {
+            if (ref && ref.fileId) uniqueFileRefs.add(ref.fileId);
+        });
+    });
     const attachmentCount = (messages || []).reduce((count, message) => {
         const attachments = Array.isArray(message && message.attachments) ? message.attachments.length : 0;
         return count + attachments;
@@ -14199,7 +14238,12 @@ function extractAgentRunFileRefsFromText(text) {
         push(id, deriveAgentRunFileRefLabelFromPrefix(leading, id));
         return match;
     });
-    raw.replace(/\b(F[A-Za-z0-9_-]{6,})\b/g, function (match, id, offset) {
+    raw.replace(/(^|[\s([{<])(['"`])(F[A-Za-z0-9_-]{6,})\2(?=$|[\s)\]}>.,;:!?])/g, function (match, prefix, quote, id, offset) {
+        const leading = raw.slice(Math.max(0, offset - 140), offset);
+        push(id, deriveAgentRunFileRefLabelFromPrefix(leading, id));
+        return match;
+    });
+    raw.replace(/\b(?:file_id|source_file_id|vault_file_id|attachment_id|origin_file_id|image_file_id)\s*[:=]\s*['"`]?(F[A-Za-z0-9_-]{6,})/gi, function (match, id, offset) {
         const leading = raw.slice(Math.max(0, offset - 140), offset);
         push(id, deriveAgentRunFileRefLabelFromPrefix(leading, id));
         return match;
@@ -14434,25 +14478,31 @@ function splitAgentRunBriefSentences(text) {
         .filter(part => part && part.length >= 10);
 }
 
-function getAgentRunBriefSentences(messages) {
+function getAgentRunBriefSentenceRecords(messages) {
     const seen = new Set();
-    const sentences = [];
+    const records = [];
     (messages || []).forEach((message) => {
         splitAgentRunBriefSentences(getAgentRunMessageText(message)).forEach((sentence) => {
             const key = sentence.toLowerCase();
             if (seen.has(key)) return;
             seen.add(key);
-            sentences.push(sentence);
+            records.push({
+                text: sentence,
+                messageId: String((message && message.id) || ''),
+            });
         });
     });
-    return sentences;
+    return records;
 }
 
-function findAgentRunBriefSentence(sentences, patterns, options = {}) {
-    const list = Array.isArray(sentences) ? sentences : [];
+function findAgentRunBriefRecord(records, patterns, options = {}) {
+    const list = Array.isArray(records) ? records : [];
     const ordered = options.fromStart ? list : list.slice().reverse();
-    const found = ordered.find(sentence => (patterns || []).some(pattern => pattern.test(sentence)));
-    return found ? truncateAgentRunText(found, options.maxLength || 170) : '';
+    const found = ordered.find(record => (patterns || []).some(pattern => pattern.test(record && record.text)));
+    return found ? {
+        value: truncateAgentRunText(found.text, options.maxLength || 170),
+        messageId: found.messageId || '',
+    } : { value: '', messageId: '' };
 }
 
 function getAgentRunParticipantSummary(participants) {
@@ -14478,34 +14528,39 @@ function getAgentRunArtifactSummary(artifacts, messages) {
 }
 
 function getAgentRunHumanBrief(messages, artifacts, status, participants) {
-    const sentences = getAgentRunBriefSentences(messages);
+    const records = getAgentRunBriefSentenceRecords(messages);
     const participantLabel = getAgentRunParticipantSummary(participants);
-    const attention = findAgentRunBriefSentence(sentences, [
+    const attention = findAgentRunBriefRecord(records, [
         /\b(blocked|failed|cannot|could not|unable|denied|403|404|permission|approval|required|requires|grant access|owner action|review needed|needs? human|check local storage|not retrievable)\b/i,
     ], { maxLength: 180 });
-    const outcome = findAgentRunBriefSentence(sentences, [
+    const outcome = findAgentRunBriefRecord(records, [
         /\b(complete|completed|done|ready|uploaded|indexed|added|verified|built|resolved|implemented|patched|created|posted|attached|packaged|successfully|get 200)\b/i,
     ], { maxLength: 180 });
-    const handoff = findAgentRunBriefSentence(sentences, [
+    const handoff = findAgentRunBriefRecord(records, [
         /\b(next|please|recommend|suggest|action|review|approve|grant|try|rerun|rebuild|follow up|handoff|owner)\b/i,
     ], { maxLength: 180 });
-    const fallback = sentences.length ? truncateAgentRunText(sentences[sentences.length - 1], 180) : '';
-    const keyUpdate = outcome || fallback || 'A fast sequence of agent posts was compressed so the channel remains readable.';
+    const fallbackRecord = records.length ? records[records.length - 1] : null;
+    const fallback = fallbackRecord ? truncateAgentRunText(fallbackRecord.text, 180) : '';
+    const keyUpdate = outcome.value || fallback || 'A fast sequence of agent posts was compressed so the channel remains readable.';
     const sourceTrail = getAgentRunArtifactSummary(artifacts, messages);
     const overview = status && status.key === 'needs-human'
         ? `${participantLabel} reached a checkpoint that likely needs a human decision, access change, or review.`
         : status && status.key === 'complete'
             ? `${participantLabel} produced a usable checkpoint; the exact posts remain expandable below.`
             : `${participantLabel} compressed a fast agent run into a slower human-readable checkpoint.`;
-    const reentry = attention
+    const nextAction = attention.value
         ? 'Open the trace to resolve the blocker, reply in context, or hand off the next step.'
-        : (handoff || 'Open the trace to inspect exact posts, reply to a source item, or continue the work.');
+        : (handoff.value || 'Open the trace to inspect exact posts, reply to a source item, or continue the work.');
     return {
         overview,
         keyUpdate,
-        attention,
+        keyUpdateMessageId: outcome.messageId || (fallbackRecord && fallbackRecord.messageId) || '',
+        attention: attention.value,
+        attentionMessageId: attention.messageId,
         sourceTrail,
-        reentry: truncateAgentRunText(reentry, 170),
+        sourceTrailMessageId: (records[0] && records[0].messageId) || '',
+        nextAction: truncateAgentRunText(nextAction, 170),
+        nextActionMessageId: attention.messageId || handoff.messageId || '',
     };
 }
 
@@ -14516,20 +14571,23 @@ function getAgentRunSummary(messages) {
     return brief.overview;
 }
 
-function renderAgentRunBriefRows(brief) {
+function renderAgentRunBriefRows(brief, capsuleId) {
     const rows = [
-        { label: 'What changed', value: brief && brief.keyUpdate, icon: 'bi-check2-circle', className: '' },
-        brief && brief.attention ? { label: 'Needs attention', value: brief.attention, icon: 'bi-person-raised-hand', className: ' needs-human' } : null,
-        { label: 'Source trail', value: brief && brief.sourceTrail, icon: 'bi-diagram-3', className: '' },
-        { label: 'Jump back in', value: brief && brief.reentry, icon: 'bi-arrow-return-right', className: '' },
+        { label: 'What changed', value: brief && brief.keyUpdate, messageId: brief && brief.keyUpdateMessageId, icon: 'bi-check2-circle', className: '' },
+        brief && brief.attention ? { label: 'Needs attention', value: brief.attention, messageId: brief.attentionMessageId, icon: 'bi-person-raised-hand', className: ' needs-human' } : null,
+        { label: 'Source trail', value: brief && brief.sourceTrail, messageId: brief && brief.sourceTrailMessageId, icon: 'bi-diagram-3', className: '' },
+        { label: 'Next action', value: brief && brief.nextAction, messageId: brief && brief.nextActionMessageId, icon: 'bi-arrow-return-right', className: '' },
     ].filter(row => row && row.value);
     if (!rows.length) return '';
     return `<div class="agent-run-capsule-brief">
         ${rows.map(row => `
-            <div class="agent-run-capsule-brief-row${escapeAttr(row.className || '')}">
+            <button type="button"
+                    class="agent-run-capsule-brief-row${escapeAttr(row.className || '')}"
+                    title="Open the source trace for ${escapeAttr(row.label)}"
+                    onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '${escapeAttr(row.messageId || '')}')">
                 <div class="agent-run-capsule-brief-label"><i class="bi ${escapeAttr(row.icon)}"></i>${escapeHtml(row.label)}</div>
                 <div class="agent-run-capsule-brief-value">${escapeHtml(row.value)}</div>
-            </div>
+            </button>
         `).join('')}
     </div>`;
 }
@@ -14620,16 +14678,22 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
     const levelConfig = options.levelConfig || getChannelAgentRunCapsuleLevelConfig();
     const capsuleKind = options.capsuleKind || 'reply';
     registerAgentRunCapsuleStats(options.statsCollector, run, participants);
+    const openTraceChip = (icon, label) => `<button type="button"
+            class="agent-run-capsule-chip"
+            onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '')"
+            title="Open the source trace for ${escapeAttr(label)}">
+        <i class="bi ${escapeAttr(icon)}"></i>${escapeHtml(label)}
+    </button>`;
     const artifactChips = [
-        `<span class="agent-run-capsule-chip"><i class="bi bi-chat-square-text"></i>${run.length} posts</span>`,
-        levelConfig ? `<span class="agent-run-capsule-chip"><i class="bi bi-sliders"></i>${escapeHtml(levelConfig.shortLabel)}</span>` : '',
-        capsuleKind === 'root' ? '<span class="agent-run-capsule-chip"><i class="bi bi-signpost-split"></i>channel flow</span>' : '',
-        participants.length ? `<span class="agent-run-capsule-chip"><i class="bi bi-robot"></i>${participants.length} agent${participants.length === 1 ? '' : 's'}</span>` : '',
-        artifacts.attachments ? `<span class="agent-run-capsule-chip"><i class="bi bi-paperclip"></i>${artifacts.attachments} file${artifacts.attachments === 1 ? '' : 's'}</span>` : '',
-        artifacts.fileRefs ? `<span class="agent-run-capsule-chip"><i class="bi bi-file-earmark"></i>${artifacts.fileRefs} file ref${artifacts.fileRefs === 1 ? '' : 's'}</span>` : '',
-        artifacts.digestionRefs ? `<span class="agent-run-capsule-chip"><i class="bi bi-diagram-3"></i>${artifacts.digestionRefs} Digestion ref${artifacts.digestionRefs === 1 ? '' : 's'}</span>` : '',
-        artifacts.cards ? `<span class="agent-run-capsule-chip"><i class="bi bi-kanban"></i>${artifacts.cards} card${artifacts.cards === 1 ? '' : 's'}</span>` : '',
-        artifacts.mentions ? `<span class="agent-run-capsule-chip"><i class="bi bi-at"></i>${artifacts.mentions} mention${artifacts.mentions === 1 ? '' : 's'}</span>` : '',
+        openTraceChip('bi-chat-square-text', `${run.length} posts`),
+        levelConfig ? openTraceChip('bi-sliders', levelConfig.shortLabel) : '',
+        capsuleKind === 'root' ? openTraceChip('bi-signpost-split', 'channel flow') : '',
+        participants.length ? openTraceChip('bi-robot', `${participants.length} agent${participants.length === 1 ? '' : 's'}`) : '',
+        artifacts.attachments ? openTraceChip('bi-paperclip', `${artifacts.attachments} file${artifacts.attachments === 1 ? '' : 's'}`) : '',
+        artifacts.fileRefs ? openTraceChip('bi-file-earmark', `${artifacts.fileRefs} file ref${artifacts.fileRefs === 1 ? '' : 's'}`) : '',
+        artifacts.digestionRefs ? openTraceChip('bi-diagram-3', `${artifacts.digestionRefs} Digestion ref${artifacts.digestionRefs === 1 ? '' : 's'}`) : '',
+        artifacts.cards ? openTraceChip('bi-kanban', `${artifacts.cards} card${artifacts.cards === 1 ? '' : 's'}`) : '',
+        artifacts.mentions ? openTraceChip('bi-at', `${artifacts.mentions} mention${artifacts.mentions === 1 ? '' : 's'}`) : '',
     ].filter(Boolean).join('');
     const directArtifactCopySummary = getAgentRunDirectArtifactCopySummary(directArtifacts);
     const copySummary = [
@@ -14640,7 +14704,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         brief.attention ? `Needs attention: ${brief.attention}` : '',
         brief.sourceTrail ? `Source trail: ${brief.sourceTrail}` : '',
         directArtifactCopySummary ? `Files & outputs: ${directArtifactCopySummary}` : '',
-        brief.reentry ? `Jump back in: ${brief.reentry}` : '',
+        brief.nextAction ? `Next action: ${brief.nextAction}` : '',
     ].filter(Boolean).join('\n');
     let traceHtml = '';
     const rootMessageIds = options.rootMessageIds instanceof Set ? options.rootMessageIds : new Set();
@@ -14658,7 +14722,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
                     <div class="agent-run-capsule-eyebrow"><i class="bi bi-layers-fill"></i> Agent run capsule</div>
                     <div class="agent-run-capsule-title">${escapeHtml(title)}</div>
                     <div class="agent-run-capsule-summary">${escapeHtml(summary)}</div>
-                    ${renderAgentRunBriefRows(brief)}
+                    ${renderAgentRunBriefRows(brief, capsuleId)}
                     ${renderAgentRunCapsuleArtifactRail(directArtifacts, capsuleId)}
                     <div class="agent-run-capsule-meta">
                         <span class="agent-run-capsule-status status-${escapeAttr(status.key)}">
