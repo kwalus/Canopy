@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.233] - 2026-05-25
+
+### Added
+- **Structured work builder request output controls** — Channel and feed work builders now expose `required_output` as a first-class request field with quick presets for owner/status/evidence, recommendations, and artifact/patch handoffs.
+
+### Changed
+- **Structured builder drafts auto-expand the composer** — Live updates from the work builder now use the same large-draft expansion behavior as pasted text so users can review the evolving structured block without applying the draft and manually expanding afterward.
+
+### Fixed
+- **Work builder expansion no longer steals field focus** — Builder-triggered composer expansion preserves focus in the active builder input, avoiding the earlier failure mode where live draft updates could pull typing focus back into the composer.
+
 ## [0.6.232] - 2026-05-25
 
 ### Fixed

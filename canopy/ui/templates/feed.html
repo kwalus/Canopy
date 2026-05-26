@@ -140,6 +140,19 @@
                                       placeholder="Add context, desired output, evidence, or next steps"
                                       oninput="handleFeedStructuredBuilderFieldInput()"></textarea>
                         </div>
+                        <div class="structured-builder-field structured-builder-required-output" style="display: none;">
+                            <label id="feed-structured-builder-required-output-label" for="feed-structured-builder-required-output">Required output</label>
+                            <input type="text"
+                                   class="form-control form-control-sm"
+                                   id="feed-structured-builder-required-output"
+                                   placeholder="What should the recipient post back?"
+                                   oninput="handleFeedStructuredBuilderFieldInput()">
+                            <div class="structured-builder-presets" aria-label="Required output presets">
+                                <button type="button" onclick="setFeedStructuredBuilderRequiredOutput(this.dataset.preset)" data-preset="Reply with owner, status, evidence, and next step.">Owner / status / evidence</button>
+                                <button type="button" onclick="setFeedStructuredBuilderRequiredOutput(this.dataset.preset)" data-preset="Return a concise recommendation with risks, assumptions, and citations.">Recommendation</button>
+                                <button type="button" onclick="setFeedStructuredBuilderRequiredOutput(this.dataset.preset)" data-preset="Post the completed artifact, file link, or patch summary for review.">Artifact or patch</button>
+                            </div>
+                        </div>
                         <div class="structured-builder-field-grid structured-builder-field-grid--compact">
                             <div class="structured-builder-field">
                                 <label for="feed-structured-builder-priority">Priority</label>
@@ -1470,6 +1483,28 @@
 .structured-builder-field textarea.form-control {
     min-height: 4.4rem;
     resize: vertical;
+}
+.structured-builder-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.34rem;
+    margin-top: 0.4rem;
+}
+.structured-builder-presets button {
+    border: 1px solid color-mix(in srgb, var(--canopy-primary) 32%, var(--canopy-border) 68%);
+    border-radius: 999px;
+    padding: 0.18rem 0.5rem;
+    color: var(--canopy-text-secondary);
+    background: color-mix(in srgb, var(--canopy-primary) 10%, var(--canopy-bg-card) 90%);
+    font-size: 0.7rem;
+    font-weight: 750;
+    line-height: 1.2;
+}
+.structured-builder-presets button:hover,
+.structured-builder-presets button:focus-visible {
+    color: var(--canopy-text-primary);
+    border-color: color-mix(in srgb, var(--canopy-primary) 60%, var(--canopy-border) 40%);
+    background: color-mix(in srgb, var(--canopy-primary) 20%, var(--canopy-bg-card) 80%);
 }
 .structured-builder-live-row {
     display: flex;
@@ -4950,7 +4985,7 @@
             }
         }
 
-        function setFeedDraftExpanded(expanded) {
+        function setFeedDraftExpanded(expanded, options = {}) {
             const composer = document.getElementById('post-composer');
             const button = document.getElementById('feed-composer-expand-toggle');
             const textarea = document.getElementById('postContent');
@@ -4968,7 +5003,9 @@
             }
             if (textarea) {
                 textarea.setAttribute('rows', isExpanded ? '12' : '4');
-                requestAnimationFrame(() => textarea.focus());
+                if (!options || !options.preserveFocus) {
+                    requestAnimationFrame(() => textarea.focus());
+                }
             }
         }
 
@@ -6615,6 +6652,14 @@
             return input ? String(input.value || '').trim() : '';
         }
 
+        function setFeedStructuredBuilderRequiredOutput(value) {
+            const input = document.getElementById('feed-structured-builder-required-output');
+            if (!input) return;
+            input.value = String(value || '').trim();
+            feedStructuredBuilderFieldsTouched = true;
+            syncFeedStructuredBuilderToComposer();
+        }
+
         function setFeedStructuredBuilderFieldMeta(fieldName, meta = {}) {
             const input = document.getElementById(`feed-structured-builder-${fieldName}`);
             const label = document.getElementById(`feed-structured-builder-${fieldName}-label`);
@@ -6643,6 +6688,8 @@
                     detailsPlaceholder: 'Ask, required output, constraints, and evidence needed',
                     people: 'Assignees',
                     peoplePlaceholder: '@agent, @teammate',
+                    requiredOutputVisible: true,
+                    requiredOutputPlaceholder: 'Reply with owner, status, evidence, and next step.',
                     status: 'Status',
                     statusPlaceholder: 'open',
                     statusVisible: false,
@@ -6714,6 +6761,11 @@
             }[toolType] || {};
             setFeedStructuredBuilderFieldMeta('details', { label: meta.details || 'Details', placeholder: meta.detailsPlaceholder || '' });
             setFeedStructuredBuilderFieldMeta('people', { label: meta.people || 'People', placeholder: meta.peoplePlaceholder || '' });
+            setFeedStructuredBuilderFieldMeta('required-output', {
+                label: 'Required output',
+                placeholder: meta.requiredOutputPlaceholder || 'What should the recipient post back?',
+                visible: !!meta.requiredOutputVisible,
+            });
             setFeedStructuredBuilderFieldMeta('priority', { visible: meta.priorityVisible !== false });
             setFeedStructuredBuilderFieldMeta('status', {
                 label: meta.status || 'Status / type',
@@ -6733,6 +6785,7 @@
                 title: getFeedStructuredBuilderFieldValue('title'),
                 details: getFeedStructuredBuilderFieldValue('details'),
                 people: getFeedStructuredBuilderFieldValue('people'),
+                requiredOutput: getFeedStructuredBuilderFieldValue('required-output'),
                 priority: getFeedStructuredBuilderFieldValue('priority') || 'normal',
                 status: getFeedStructuredBuilderFieldValue('status'),
                 progress: feedStructuredBuilderSelection === 'telemetry-card' ? progressOrOptions : '',
@@ -6773,6 +6826,18 @@
             return `${raw.slice(0, last.start)}${block}${raw.slice(last.end)}`;
         }
 
+        function shouldExpandFeedComposerForStructuredDraft(text) {
+            const raw = String(text || '');
+            const lineCount = (raw.match(/\n/g) || []).length + 1;
+            return raw.length > 360 || lineCount >= 5;
+        }
+
+        function maybeExpandFeedComposerForStructuredDraft(text, preserveFocus) {
+            if (!shouldExpandFeedComposerForStructuredDraft(text)) return;
+            setFeedDraftExpanded(true, { preserveFocus: !!preserveFocus });
+            syncFeedComposerLayout({ forceExpand: true });
+        }
+
         function syncFeedStructuredBuilderToComposer(options = {}) {
             const textarea = document.getElementById('postContent');
             if (!textarea) return false;
@@ -6799,6 +6864,7 @@
             }
             textarea.value = nextValue;
             feedStructuredBuilderManagedBlock = block;
+            maybeExpandFeedComposerForStructuredDraft(nextValue, preserveBuilderFocus);
             notifyFeedComposerUpdate();
             if (preserveBuilderFocus) {
                 restoreFeedStructuredBuilderFocus(activeElement, selectionStart, selectionEnd);

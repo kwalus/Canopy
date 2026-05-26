@@ -8649,7 +8649,7 @@
                     return `[task]\ntitle: ${title}\ndescription: ${body || 'Define the work to execute.'}${assigneeLine}\npriority: normal\n[/task]`;
                 }
                 if (toolType === 'request') {
-                    return `[request]\ntitle: ${title}\nrequest: ${body || 'Please complete this request.'}${requestMemberLine}\nrequired_output: Reply with owner, status, and evidence.\npriority: normal\n[/request]`;
+                    return `[request]\ntitle: ${title}\nrequest: ${body || 'Please complete this request.'}${requestMemberLine}\nrequired_output: Reply with owner, status, evidence, and next step.\npriority: normal\n[/request]`;
                 }
                 if (toolType === 'input-card') {
                     const targetLine = assigneesCsv ? `\ntargets: ${assigneesCsv}` : '';
@@ -8723,6 +8723,7 @@
                 const title = normalizeStructuredBuilderField(data.title) || titleFallback[toolType] || 'Structured item';
                 const details = normalizeStructuredBuilderField(data.details);
                 const people = normalizeStructuredBuilderPeople(data.people);
+                const requiredOutput = normalizeStructuredBuilderField(data.requiredOutput || data.required_output);
                 const priority = normalizeStructuredBuilderField(data.priority) || 'normal';
                 const status = normalizeStructuredBuilderField(data.status) || (toolType === 'telemetry-card' ? 'running' : 'open');
                 const progress = normalizeStructuredBuilderField(data.progress) || '0%';
@@ -8735,7 +8736,7 @@
                     return `[task]\ntitle: ${title}\ndescription: ${details || 'Define the work to execute.'}${buildStructuredTaskPeopleLines(people)}\npriority: ${priority}\nstatus: ${status}\n[/task]`;
                 }
                 if (toolType === 'request') {
-                    return `[request]\ntitle: ${title}\nrequest: ${details || 'Please complete this request.'}${peopleLine('assignees')}\nrequired_output: Reply with owner, status, and evidence.\npriority: ${priority}\n[/request]`;
+                    return `[request]\ntitle: ${title}\nrequest: ${details || 'Please complete this request.'}${peopleLine('assignees')}\nrequired_output: ${requiredOutput || 'Reply with owner, status, evidence, and next step.'}\npriority: ${priority}\n[/request]`;
                 }
                 if (toolType === 'input-card') {
                     return `[input-card]\ntitle: ${title}\nprompt: ${details || 'Choose the best next action or provide the requested input.'}\nkind: decision\noptions: ${options}${peopleLine('targets')}\n[/input-card]`;

@@ -1369,6 +1369,28 @@
         min-height: 4.4rem;
         resize: vertical;
     }
+    .structured-builder-presets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.34rem;
+        margin-top: 0.4rem;
+    }
+    .structured-builder-presets button {
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 32%, var(--canopy-border) 68%);
+        border-radius: 999px;
+        padding: 0.18rem 0.5rem;
+        color: var(--canopy-text-secondary);
+        background: color-mix(in srgb, var(--canopy-primary) 10%, var(--canopy-bg-card) 90%);
+        font-size: 0.7rem;
+        font-weight: 750;
+        line-height: 1.2;
+    }
+    .structured-builder-presets button:hover,
+    .structured-builder-presets button:focus-visible {
+        color: var(--canopy-text-primary);
+        border-color: color-mix(in srgb, var(--canopy-primary) 60%, var(--canopy-border) 40%);
+        background: color-mix(in srgb, var(--canopy-primary) 20%, var(--canopy-bg-card) 80%);
+    }
     .structured-builder-live-row {
         display: flex;
         align-items: center;
@@ -6377,6 +6399,19 @@
                                               rows="2"
                                               placeholder="Add context, desired output, evidence, or next steps"
                                               oninput="handleChannelStructuredBuilderFieldInput()"></textarea>
+                                </div>
+                                <div class="structured-builder-field structured-builder-required-output" style="display: none;">
+                                    <label id="channel-structured-builder-required-output-label" for="channel-structured-builder-required-output">Required output</label>
+                                    <input type="text"
+                                           class="form-control form-control-sm"
+                                           id="channel-structured-builder-required-output"
+                                           placeholder="What should the recipient post back?"
+                                           oninput="handleChannelStructuredBuilderFieldInput()">
+                                    <div class="structured-builder-presets" aria-label="Required output presets">
+                                        <button type="button" onclick="setChannelStructuredBuilderRequiredOutput(this.dataset.preset)" data-preset="Reply with owner, status, evidence, and next step.">Owner / status / evidence</button>
+                                        <button type="button" onclick="setChannelStructuredBuilderRequiredOutput(this.dataset.preset)" data-preset="Return a concise recommendation with risks, assumptions, and citations.">Recommendation</button>
+                                        <button type="button" onclick="setChannelStructuredBuilderRequiredOutput(this.dataset.preset)" data-preset="Post the completed artifact, file link, or patch summary for review.">Artifact or patch</button>
+                                    </div>
                                 </div>
                                 <div class="structured-builder-field-grid structured-builder-field-grid--compact">
                                     <div class="structured-builder-field">
@@ -21139,7 +21174,7 @@ function buildToolBlock(toolType, sourceText) {
         return `[task]\ntitle: ${title}\ndescription: ${body || 'Define the work to execute.'}${assigneeLine}\npriority: normal\n[/task]`;
     }
     if (toolType === 'request') {
-        return `[request]\ntitle: ${title}\nrequest: ${body || 'Please complete this request.'}${requestMemberLine}\nrequired_output: Reply with owner, status, and evidence.\npriority: normal\n[/request]`;
+        return `[request]\ntitle: ${title}\nrequest: ${body || 'Please complete this request.'}${requestMemberLine}\nrequired_output: Reply with owner, status, evidence, and next step.\npriority: normal\n[/request]`;
     }
     if (toolType === 'input-card') {
         const targetLine = assigneesCsv ? `\ntargets: ${assigneesCsv}` : '';
@@ -22271,6 +22306,14 @@ function getChannelStructuredBuilderFieldValue(fieldName) {
     return input ? String(input.value || '').trim() : '';
 }
 
+function setChannelStructuredBuilderRequiredOutput(value) {
+    const input = document.getElementById('channel-structured-builder-required-output');
+    if (!input) return;
+    input.value = String(value || '').trim();
+    channelStructuredBuilderFieldsTouched = true;
+    syncChannelStructuredBuilderToComposer();
+}
+
 function setChannelStructuredBuilderFieldMeta(fieldName, meta = {}) {
     const input = document.getElementById(`channel-structured-builder-${fieldName}`);
     const label = document.getElementById(`channel-structured-builder-${fieldName}-label`);
@@ -22299,6 +22342,8 @@ function updateChannelStructuredBuilderFieldMeta() {
             detailsPlaceholder: 'Ask, required output, constraints, and evidence needed',
             people: 'Assignees',
             peoplePlaceholder: '@agent, @teammate',
+            requiredOutputVisible: true,
+            requiredOutputPlaceholder: 'Reply with owner, status, evidence, and next step.',
             status: 'Status',
             statusPlaceholder: 'open',
             statusVisible: false,
@@ -22370,6 +22415,11 @@ function updateChannelStructuredBuilderFieldMeta() {
     }[toolType] || {};
     setChannelStructuredBuilderFieldMeta('details', { label: meta.details || 'Details', placeholder: meta.detailsPlaceholder || '' });
     setChannelStructuredBuilderFieldMeta('people', { label: meta.people || 'People', placeholder: meta.peoplePlaceholder || '' });
+    setChannelStructuredBuilderFieldMeta('required-output', {
+        label: 'Required output',
+        placeholder: meta.requiredOutputPlaceholder || 'What should the recipient post back?',
+        visible: !!meta.requiredOutputVisible,
+    });
     setChannelStructuredBuilderFieldMeta('priority', { visible: meta.priorityVisible !== false });
     setChannelStructuredBuilderFieldMeta('status', {
         label: meta.status || 'Status / type',
@@ -22389,6 +22439,7 @@ function getChannelStructuredBuilderFields() {
         title: getChannelStructuredBuilderFieldValue('title'),
         details: getChannelStructuredBuilderFieldValue('details'),
         people: getChannelStructuredBuilderFieldValue('people'),
+        requiredOutput: getChannelStructuredBuilderFieldValue('required-output'),
         priority: getChannelStructuredBuilderFieldValue('priority') || 'normal',
         status: getChannelStructuredBuilderFieldValue('status'),
         progress: channelStructuredBuilderSelection === 'telemetry-card' ? progressOrOptions : '',
@@ -22426,6 +22477,17 @@ function replaceLastChannelStructuredBuilderBlock(raw, toolType, block) {
     return `${raw.slice(0, last.start)}${block}${raw.slice(last.end)}`;
 }
 
+function shouldExpandChannelComposerForStructuredDraft(text) {
+    const raw = String(text || '');
+    const lineCount = (raw.match(/\n/g) || []).length + 1;
+    return raw.length > 360 || lineCount >= 5;
+}
+
+function maybeExpandChannelComposerForStructuredDraft(text, preserveFocus) {
+    if (!shouldExpandChannelComposerForStructuredDraft(text)) return;
+    setChannelComposerExpanded(true, { preserveFocus: !!preserveFocus });
+}
+
 function syncChannelStructuredBuilderToComposer(options = {}) {
     const input = document.getElementById('message-input');
     if (!input) return false;
@@ -22452,6 +22514,7 @@ function syncChannelStructuredBuilderToComposer(options = {}) {
     }
     input.value = nextValue;
     channelStructuredBuilderManagedBlock = block;
+    maybeExpandChannelComposerForStructuredDraft(nextValue, preserveBuilderFocus);
     notifyComposerUpdate();
     if (preserveBuilderFocus) {
         restoreChannelStructuredBuilderFocus(activeElement, selectionStart, selectionEnd);
@@ -23036,7 +23099,7 @@ function maybeAutoExpandChannelComposerForPaste(event) {
     requestAnimationFrame(() => setChannelComposerExpanded(true));
 }
 
-function setChannelComposerExpanded(expanded) {
+function setChannelComposerExpanded(expanded, options = {}) {
     const wrapper = document.querySelector('.channel-composer-wrap');
     const button = document.getElementById('channel-composer-expand-toggle');
     const textarea = document.getElementById('message-input');
@@ -23054,7 +23117,9 @@ function setChannelComposerExpanded(expanded) {
     }
     if (textarea) {
         textarea.setAttribute('rows', isExpanded ? '10' : '1');
-        requestAnimationFrame(() => textarea.focus());
+        if (!options || !options.preserveFocus) {
+            requestAnimationFrame(() => textarea.focus());
+        }
     }
 }
 
