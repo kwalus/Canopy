@@ -87,6 +87,30 @@ def _build_odt_bytes(text: str = 'OpenDocument briefing note') -> bytes:
     return out.getvalue()
 
 
+def _build_ods_bytes() -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w') as archive:
+        archive.writestr('mimetype', 'application/vnd.oasis.opendocument.spreadsheet')
+        archive.writestr('content.xml', '''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+  <office:body><office:spreadsheet>
+    <table:table table:name="Budget">
+      <table:table-row>
+        <table:table-cell><text:p>Item</text:p></table:table-cell>
+        <table:table-cell><text:p>Cost</text:p></table:table-cell>
+      </table:table-row>
+      <table:table-row>
+        <table:table-cell><text:p>Compute</text:p></table:table-cell>
+        <table:table-cell><text:p>1200</text:p></table:table-cell>
+      </table:table-row>
+    </table:table>
+  </office:spreadsheet></office:body>
+</office:document-content>''')
+    return out.getvalue()
+
+
 class _FakeApiKeyManager:
     def validate_key(self, raw_key, required_permission=None):
         perms = {
@@ -491,6 +515,51 @@ img.src = blobUrl;
         self.assertTrue(preview['previewable'])
         self.assertEqual(preview['kind'], 'document')
         self.assertIn('OpenDocument briefing note', preview['text'])
+
+    def test_build_file_preview_returns_ods_grid_and_text(self):
+        ods_bytes = _build_ods_bytes()
+        preview = build_file_preview(
+            ods_bytes,
+            'budget.ods',
+            'application/vnd.oasis.opendocument.spreadsheet',
+        )
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'spreadsheet')
+        self.assertEqual(preview['sheets'][0]['name'], 'Budget')
+        self.assertEqual(preview['sheets'][0]['rows'][1][0]['display'], 'Compute')
+        self.assertIn('Compute', preview['text'])
+
+    def test_validate_file_upload_accepts_ods_with_generic_metadata(self):
+        ods_bytes = _build_ods_bytes()
+        is_valid, error, validated_type = validate_file_upload(
+            ods_bytes,
+            'application/octet-stream',
+            'budget.ods',
+        )
+        self.assertTrue(is_valid, error)
+        self.assertEqual(validated_type, 'application/vnd.oasis.opendocument.spreadsheet')
+
+    def test_build_file_preview_returns_eml_text(self):
+        preview = build_file_preview(
+            b"From: lead@example.test\r\nTo: team@example.test\r\nSubject: Launch plan\r\n\r\nPlease review the Q3 launch plan.",
+            'launch-plan.eml',
+            'message/rfc822',
+        )
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'document')
+        self.assertEqual(preview['document_format'], 'eml')
+        self.assertIn('Q3 launch plan', preview['text'])
+
+    def test_build_file_preview_returns_html_only_eml_text(self):
+        preview = build_file_preview(
+            b"From: lead@example.test\r\nTo: team@example.test\r\nSubject: HTML plan\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<html><body><h1>Roadmap</h1><p>Please review the Q4 launch plan.</p><script>ignore()</script></body></html>",
+            'html-plan.eml',
+            'message/rfc822',
+        )
+        self.assertTrue(preview['previewable'])
+        self.assertEqual(preview['kind'], 'document')
+        self.assertIn('Q4 launch plan', preview['text'])
+        self.assertNotIn('ignore()', preview['text'])
 
     def test_validate_file_upload_accepts_real_xlsx(self):
         workbook_bytes = _build_workbook_bytes()

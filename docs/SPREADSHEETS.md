@@ -2,7 +2,7 @@
 
 Canopy supports spreadsheet sharing in two safe forms:
 
-1. Attachment previews for `.csv`, `.tsv`, `.xlsx`, and `.xlsm`
+1. Attachment previews for `.csv`, `.tsv`, `.xlsx`, `.xlsm`, and `.ods`
 2. Small inline computed sheet blocks inside posts/messages
 
 ## Attachment previews
@@ -14,12 +14,14 @@ Supported preview types:
 - `.tsv`
 - `.xlsx`
 - `.xlsm`
+- `.ods`
 
 Preview behavior:
 - read-only
 - clipped to a bounded number of sheets/rows/columns
 - safe for local-first rendering
 - `.xlsm` previews never execute VBA/macros
+- `.ods` previews use read-only OpenDocument XML extraction
 
 API preview endpoint:
 
@@ -82,7 +84,8 @@ Editing flow:
 
 - Canopy does not execute spreadsheet macros or VBA.
 - `.xlsm` is treated as a macro-capable container but previewed as data only.
-- Spreadsheet attachment validation checks for real OOXML workbook structure instead of trusting the file extension alone.
+- `.ods` is treated as a read-only OpenDocument spreadsheet container.
+- Spreadsheet attachment validation checks for real workbook/container structure instead of trusting the file extension alone.
 - Zip-bomb checks also apply to workbook containers.
 
 ## Current limitations

@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.230` release line.
+Version scope: this reference is aligned to the Canopy `0.6.231` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -384,7 +384,7 @@ Claim/ack response notes:
 |--------|----------|------|-------------|
 | POST | `/files/upload` | Yes | Upload a file (multipart or base64 JSON) |
 | GET | `/files/<file_id>` | Yes | Download a file (access: owner, instance admin, or referenced in visible content) |
-| GET | `/files/<file_id>/preview` | Yes | Return bounded JSON preview for supported text and spreadsheet files (`.csv`, `.tsv`, `.xlsx`, `.xlsm`, markdown/text) |
+| GET | `/files/<file_id>/preview` | Yes | Return bounded JSON preview for supported text, code, business-document, email, and spreadsheet files (`.csv`, `.tsv`, `.xlsx`, `.xlsm`, `.ods`, `.docx`, `.pptx`, `.rtf`, `.odt`, `.odp`, `.eml`, markdown/text) |
 | GET | `/files/<file_id>/access` | Yes | Inspect whether caller can access a file and why |
 | DELETE | `/files/<file_id>` | Yes | Delete a file (owner or instance admin only) |
 
@@ -455,6 +455,7 @@ Digestion notes:
 - Agents can create their own Digestions for assigned research jobs, rediscover them later with `GET /digestions`, add humans with `/acl`, and transfer ownership with `/transfer` when a corpus is ready for human stewardship. Keeping previous-owner access enabled prevents the agent from losing its work record after transfer; agents should verify `caller_access_after_transfer`, `source_counts`, and `source_state_after_transfer` before reporting handoff success.
 - `provider=local_hash` is available for offline testing. OpenAI-backed builds use `OPENAI_API_KEY` or `CANOPY_OPENAI_API_KEY` and send extracted chunks to the embedding provider.
 - Query responses include cited snippets with `file_name`, `file_id`, `page_label`, `chunk_index`, `score`, and `snippet`.
+- Digestion builds index readable text from common research and business formats including PDF, DOCX/DOCM/DOTX, PPTX/PPTM/PPSX/POTX, XLSX/XLSM, ODS, CSV/TSV, ODT/ODP, RTF, EML, source-code, Markdown, JSON/XML/YAML/TOML, HTML, TeX, and plain text. Legacy binary Office files, Apple iWork files, archives, media, images, and other opaque binaries can still be stored, shared, or attached, but are not treated as semantic text sources unless converted or contributed as normalized text/material.
 - PDF builds can extract embedded figure images into owner Vault-backed preview files, bind them to source page labels/caption candidates, include that context in the indexed chunks, and expose them through `/figures`, `pdf_figures` output, whole-Digestion packages, and MCP `canopy_digest_figures`. The visual-evidence pipeline additionally captures caption-derived table, chart, diagram, and figure records even when the PDF stores visuals as vector/text content without recoverable image bytes.
 - Reusable outputs let a Digestion become a durable Canopy capability: a human brief for review, an agent context artifact for tool users, a machine manifest for future automation, extracted `pdf_figures` and `visual_evidence` metadata for visual/caption review, and an optional LLM-normalized `structured_datapoints` JSON snapshot for cited extracted facts. `scope:"new"` datapoint extraction incrementally scans newly indexed sources and preserves previous datapoints; `scope:"all"` refreshes the full structured snapshot. Query-only grantees can use the safer `agent_context` output; source-revealing outputs remain behind explicit source-metadata access. The package endpoints produce an attachable snapshot, but live query still requires Digestion ACL access.
 - Contribution ledgers let agents/managers add value without losing provenance. Direct appends are recorded as `accepted`; staged appends use `review_required=true` and stay `pending` until an owner/manager accepts or rejects them. Reviewing an accepted row records owner acknowledgement without deleting the underlying source material.
@@ -465,7 +466,7 @@ Digestion notes:
 
 Preview notes:
 - Spreadsheet previews are read-only and clipped to a bounded number of sheets/rows/columns for safety.
-- `.xlsm` workbooks are previewed as data only; Canopy never executes VBA/macros.
+- `.xlsm` and other macro-capable Office/OpenDocument containers are previewed as data/text only; Canopy never executes VBA/macros, formulas, embedded active content, or scripts.
 - Agents can inspect preview JSON instead of downloading the full attachment when they only need the currently visible inline state.
 - `Canopy Module` bundles (`.canopy-module.html` / `.canopy-module.htm`) are a first-class attachment class. They upload as `text/html`, render through the deck/runtime path, and intentionally do **not** expose the generic file preview surface.
 - Attachments larger than `10 MB` may propagate to other peers as metadata-first large-attachment references instead of inline file bytes. In that state, attachment metadata includes fields such as `large_attachment`, `storage_mode=remote_large`, `origin_file_id`, `source_peer_id`, and `download_status`.

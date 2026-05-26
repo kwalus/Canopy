@@ -8,11 +8,14 @@ It extracts a bounded preview suitable for inline Canopy rendering.
 from __future__ import annotations
 
 import csv
+import email
+import html as html_lib
 import io
 import json
 import re
 import zipfile
 from datetime import date, datetime, time
+from email import policy
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
@@ -27,9 +30,12 @@ SPREADSHEET_MIME_TYPES = {
     "text/csv",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-excel.sheet.macroenabled.12",
+    "application/vnd.oasis.opendocument.spreadsheet",
 }
 
-SPREADSHEET_EXTENSIONS = {".csv", ".tsv", ".xlsx", ".xlsm"}
+SPREADSHEET_EXTENSIONS = {".csv", ".tsv", ".xlsx", ".xlsm", ".ods"}
+EMAIL_PREVIEW_EXTENSIONS = {".eml"}
+EMAIL_PREVIEW_MIME_TYPES = {"message/rfc822"}
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
 DOCUMENT_PREVIEW_EXTENSIONS = {
     ".docx",
@@ -42,6 +48,7 @@ DOCUMENT_PREVIEW_EXTENSIONS = {
     ".rtf",
     ".odt",
     ".odp",
+    ".eml",
 }
 DOCUMENT_PREVIEW_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -55,6 +62,7 @@ DOCUMENT_PREVIEW_MIME_TYPES = {
     "text/rtf",
     "application/vnd.oasis.opendocument.text",
     "application/vnd.oasis.opendocument.presentation",
+    "message/rfc822",
 }
 TEXT_PREVIEW_EXTENSIONS = {
     ".bat",
@@ -300,6 +308,12 @@ def is_document_previewable(filename: str | None, content_type: str | None) -> b
     return ext in DOCUMENT_PREVIEW_EXTENSIONS or ctype in DOCUMENT_PREVIEW_MIME_TYPES
 
 
+def is_email_previewable(filename: str | None, content_type: str | None) -> bool:
+    ext = _file_extension(filename)
+    ctype = _normalized_mime_type(content_type)
+    return ext in EMAIL_PREVIEW_EXTENSIONS or ctype in EMAIL_PREVIEW_MIME_TYPES
+
+
 def is_text_previewable(filename: str | None, content_type: str | None) -> bool:
     if is_canopy_module_bundle(filename, content_type):
         return False
@@ -354,6 +368,17 @@ def _xml_text_chunks(xml_bytes: bytes, text_tags: set[str], paragraph_tags: set[
         elif tag in paragraph_tags and chunks and chunks[-1] != "\n":
             chunks.append("\n")
     return chunks
+
+
+def _xml_local_name(tag: Any) -> str:
+    return str(tag or "").rsplit("}", 1)[-1]
+
+
+def _xml_attr_suffix(elem: ET.Element, suffix: str, default: str = "") -> str:
+    for key, value in elem.attrib.items():
+        if str(key).rsplit("}", 1)[-1] == suffix:
+            return str(value)
+    return default
 
 
 def _extract_docx_text(file_data: bytes) -> str:
@@ -412,6 +437,68 @@ def _extract_opendocument_text(file_data: bytes) -> str:
             paragraph_tags={"h", "p"},
         )
     return _normalize_preview_text(" ".join(chunk.strip() for chunk in chunks if chunk.strip()))
+
+
+def _strip_html_text(html_text: str) -> str:
+    without_scripts = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", str(html_text or ""))
+    without_tags = re.sub(r"(?s)<[^>]+>", " ", without_scripts)
+    return _normalize_preview_text(html_lib.unescape(without_tags))
+
+
+def _extract_email_text(file_data: bytes) -> str:
+    message = email.message_from_bytes(file_data, policy=policy.default)
+    parts: list[str] = []
+    html_parts: list[str] = []
+    if message.is_multipart():
+        for part in message.walk():
+            if part.is_multipart():
+                continue
+            disposition = str(part.get_content_disposition() or "").lower()
+            if disposition == "attachment":
+                continue
+            content_type = str(part.get_content_type() or "").lower()
+            if content_type == "text/plain":
+                try:
+                    content = part.get_content()
+                except Exception:
+                    content = ""
+                if content:
+                    parts.append(str(content))
+            elif content_type == "text/html":
+                try:
+                    content = part.get_content()
+                except Exception:
+                    content = ""
+                if content:
+                    html_parts.append(_strip_html_text(str(content)))
+    elif str(message.get_content_type() or "").lower() == "text/plain":
+        try:
+            parts.append(str(message.get_content()))
+        except Exception:
+            pass
+    elif str(message.get_content_type() or "").lower() == "text/html":
+        try:
+            html_parts.append(_strip_html_text(str(message.get_content())))
+        except Exception:
+            pass
+    if not parts and html_parts:
+        html_text = _normalize_preview_text("\n\n".join(part for part in html_parts if part))
+        if html_text:
+            return html_text
+    if not parts:
+        subject = str(message.get("subject") or "").strip()
+        sender = str(message.get("from") or "").strip()
+        to = str(message.get("to") or "").strip()
+        fallback = "\n".join(
+            line for line in [
+                f"Subject: {subject}" if subject else "",
+                f"From: {sender}" if sender else "",
+                f"To: {to}" if to else "",
+            ]
+            if line
+        )
+        return _normalize_preview_text(fallback)
+    return _normalize_preview_text("\n\n".join(parts))
 
 
 def _extract_rtf_text(file_data: bytes) -> str:
@@ -639,6 +726,8 @@ def _build_document_preview(file_data: bytes, filename: str, content_type: str) 
             text = _extract_opendocument_text(file_data)
         elif ext == ".rtf" or ctype in {"application/rtf", "text/rtf"}:
             text = _extract_rtf_text(file_data)
+        elif ext == ".eml" or ctype == "message/rfc822":
+            text = _extract_email_text(file_data)
         else:
             text = ""
     except zipfile.BadZipFile:
@@ -745,6 +834,113 @@ def _build_csv_preview(file_data: bytes, filename: str, content_type: str) -> di
     }
 
 
+def _build_opendocument_spreadsheet_preview(file_data: bytes, filename: str, content_type: str) -> dict[str, Any]:
+    if len(file_data) > MAX_SPREADSHEET_PREVIEW_BYTES:
+        return {
+            "previewable": False,
+            "kind": "spreadsheet",
+            "error": (
+                f"Spreadsheet preview is limited to {MAX_SPREADSHEET_PREVIEW_BYTES // (1024 * 1024)} MB. "
+                "Download the file to inspect the full workbook."
+            ),
+        }
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_data)) as archive:
+            if "content.xml" not in archive.namelist():
+                return {
+                    "previewable": False,
+                    "kind": "spreadsheet",
+                    "error": "OpenDocument spreadsheet preview is unavailable because content.xml was not found.",
+                }
+            root = ET.fromstring(archive.read("content.xml"))
+    except zipfile.BadZipFile:
+        return {
+            "previewable": False,
+            "kind": "spreadsheet",
+            "error": "OpenDocument spreadsheet preview is unavailable because the file container is not readable.",
+        }
+    except Exception:
+        return {
+            "previewable": False,
+            "kind": "spreadsheet",
+            "error": "OpenDocument spreadsheet preview could not extract readable rows from this file.",
+        }
+
+    tables = [elem for elem in root.iter() if _xml_local_name(elem.tag) == "table"]
+    sheets: list[dict[str, Any]] = []
+    text_sections: list[str] = []
+    for table_index, table in enumerate(tables[:MAX_SHEETS], start=1):
+        name = _xml_attr_suffix(table, "name", f"Sheet {table_index}") or f"Sheet {table_index}"
+        rows: list[list[dict[str, Any]]] = []
+        total_rows = 0
+        total_cols = 0
+        for row in [child for child in list(table) if _xml_local_name(child.tag) == "table-row"]:
+            row_repeat = max(1, min(_safe_int(_xml_attr_suffix(row, "number-rows-repeated", "1")), MAX_ROWS + 1))
+            for _ in range(row_repeat):
+                total_rows += 1
+                cooked: list[dict[str, Any]] = []
+                for cell in [child for child in list(row) if _xml_local_name(child.tag) == "table-cell"]:
+                    repeat = max(1, min(_safe_int(_xml_attr_suffix(cell, "number-columns-repeated", "1")), MAX_COLS + 1))
+                    display = _normalize_preview_text(" ".join(str(text or "").strip() for text in cell.itertext() if str(text or "").strip()))
+                    for _ in range(repeat):
+                        total_cols = max(total_cols, len(cooked) + 1)
+                        if len(cooked) < MAX_COLS:
+                            cooked.append(_serialize_cell(display))
+                while cooked and cooked[-1]["kind"] == "empty":
+                    cooked.pop()
+                if len(rows) < MAX_ROWS:
+                    rows.append(cooked)
+                if total_rows >= MAX_ROWS + 1:
+                    break
+            if total_rows >= MAX_ROWS + 1:
+                break
+        if rows:
+            sheets.append(
+                {
+                    "name": name,
+                    "rows": rows,
+                    "row_count": total_rows,
+                    "col_count": total_cols,
+                    "preview_row_count": len(rows),
+                    "preview_col_count": min(MAX_COLS, max((len(row) for row in rows), default=0)),
+                    "truncated_rows": total_rows > MAX_ROWS,
+                    "truncated_cols": total_cols > MAX_COLS,
+                }
+            )
+            row_lines = []
+            for row in rows:
+                row_text = "\t".join(str(cell.get("display") or "") for cell in row if isinstance(cell, dict))
+                if row_text.strip():
+                    row_lines.append(row_text)
+            if row_lines:
+                text_sections.append(f"Sheet: {name}\n" + "\n".join(row_lines))
+
+    if not sheets:
+        return {
+            "previewable": False,
+            "kind": "spreadsheet",
+            "error": "No readable spreadsheet cells were found for inline preview. Download the file to inspect it.",
+        }
+
+    return {
+        "previewable": True,
+        "kind": "spreadsheet",
+        "macro_enabled": False,
+        "sheets": sheets,
+        "sheet_count": len(tables),
+        "text": _normalize_preview_text("\n\n".join(text_sections))[:MAX_TEXT_PREVIEW_CHARS],
+        "truncated": len(tables) > MAX_SHEETS or any(sheet["truncated_rows"] or sheet["truncated_cols"] for sheet in sheets),
+        "limits": {
+            "max_bytes": MAX_SPREADSHEET_PREVIEW_BYTES,
+            "max_sheets": MAX_SHEETS,
+            "max_rows": MAX_ROWS,
+            "max_cols": MAX_COLS,
+            "max_chars": MAX_TEXT_PREVIEW_CHARS,
+        },
+    }
+
+
 def _build_workbook_preview(file_data: bytes, filename: str, content_type: str) -> dict[str, Any]:
     if load_workbook is None:
         return {
@@ -837,7 +1033,11 @@ def build_file_preview(file_data: bytes, filename: str, content_type: str) -> di
     if is_spreadsheet_previewable(filename, content_type):
         if _file_extension(filename) in {".csv", ".tsv"} or str(content_type or "").lower() == "text/csv":
             return _build_csv_preview(file_data, filename, content_type)
+        if _file_extension(filename) == ".ods" or _normalized_mime_type(content_type) == "application/vnd.oasis.opendocument.spreadsheet":
+            return _build_opendocument_spreadsheet_preview(file_data, filename, content_type)
         return _build_workbook_preview(file_data, filename, content_type)
+    if is_email_previewable(filename, content_type):
+        return _build_document_preview(file_data, filename, content_type)
     if is_document_previewable(filename, content_type):
         return _build_document_preview(file_data, filename, content_type)
     if is_text_previewable(filename, content_type):

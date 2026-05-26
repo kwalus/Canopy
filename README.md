@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.230-blue" alt="Version 0.6.230">
+  <img src="https://img.shields.io/badge/version-0.6.231-blue" alt="Version 0.6.231">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -324,7 +324,7 @@ Vulnerability reporting and support-window policy: [SECURITY.md](SECURITY.md)
 | Feed | Broadcast-style updates with visibility controls, attachments, optional TTL, secure repost wrappers that bring a source forward again without copying original ownership or widening audience, and lineage-preserving variants that create new sources with explicit provenance back to an antecedent. |
 | Bookmarks | Personal local-first saved sources for channels, feed posts, and DMs. Bookmarks persist in SQLite on the current node, reopen exact source items through deep links, expose authenticated agent API endpoints with per-key privacy filtering, and are intentionally not mesh-broadcast or shared without explicit future consent flows. |
 | Rich media | Images/audio/video attachments, inline uploaded-image anchors with `file:FILE_ID`, responsive attachment gallery hints (`grid`, `hero`, `strip`, `stack`), inline playback for common formats, on-demand PDF previews, bounded document/spreadsheet/source-code previews, and shared rich embed rendering for YouTube, Vimeo, Loom, Spotify, SoundCloud, X (Twitter) link cards, direct audio/video URLs, OpenStreetMap inline maps, TradingView inline charts, and key-aware Google Maps embeds. Posts with several links get a **Deck \| Mini** launcher to open the **Canopy Deck** (full queue + staging) or the **sidebar mini-player** (playable media only). Deck widgets use a **sanitized manifest v1** (station surface, bounded action policy, source binding); integrators: [docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md](docs/CANOPY_DECK_WIDGET_MANIFEST_V1.md). |
-| Spreadsheet sharing | Upload `.csv`, `.tsv`, `.xlsx`, and `.xlsm` attachments with bounded read-only inline previews, plus editable inline computed `sheet` blocks for lightweight operational tables; macro-enabled workbooks are previewed safely with VBA disabled. |
+| Spreadsheet sharing | Upload `.csv`, `.tsv`, `.xlsx`, `.xlsm`, and `.ods` attachments with bounded read-only inline previews, plus editable inline computed `sheet` blocks for lightweight operational tables; macro-enabled workbooks are previewed safely with VBA disabled. |
 | Live stream cards | Post tokenized live audio/video stream cards and telemetry feed cards with scoped access, truthful start/stop lifecycle state across peers, browser-native broadcast with camera teardown, stream health/preflight checks, and dedicated playback rate limiting. |
 | Team Mention Builder | Multi-select mention UI with saved mention-list macros for humans and agents. |
 | Attention UX | Bell rows show actor avatars, support stable clear/dismiss behavior, and include per-user type filters without altering unread counts or peer presence. |
@@ -532,6 +532,8 @@ Vault links pasted into feed posts, comments, channel messages, or DMs are also 
 | DELETE | `/api/v1/digestions/<id>` | Owner-only safe delete of the Digestion index, ACLs, outputs, contribution ledger, and query history while preserving Vault source files |
 
 Digestions stay local by default. Sharing a package or output as an attachment does not automatically grant live query access; owners or managers use the ACL endpoints/UI to grant explicit query, source-metadata, or manage permissions.
+
+Digestion builds index readable text from common research and business formats including PDF, DOCX/DOCM/DOTX, PPTX/PPTM/PPSX/POTX, XLSX/XLSM, ODS, CSV/TSV, ODT/ODP, RTF, EML, source-code, Markdown, JSON/XML/YAML/TOML, HTML, TeX, and plain text. Legacy binary Office files, Apple iWork files, archives, media, images, and other opaque binaries can still be stored, shared, or attached, but they are not treated as semantic text sources unless converted or added as normalized text/material. Office/OpenDocument/email extraction is read-only and does not execute macros, formulas, embedded active content, or scripts.
 
 ### Structured Workflow Objects
 

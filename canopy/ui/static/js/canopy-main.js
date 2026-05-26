@@ -12167,16 +12167,17 @@
             }
 
             const CANOPY_MARKDOWN_PREVIEW_EXTENSIONS = ['.md', '.markdown'];
-            const CANOPY_SPREADSHEET_PREVIEW_EXTENSIONS = ['.csv', '.tsv', '.xlsx', '.xlsm'];
+            const CANOPY_SPREADSHEET_PREVIEW_EXTENSIONS = ['.csv', '.tsv', '.xlsx', '.xlsm', '.ods'];
             const CANOPY_SPREADSHEET_PREVIEW_MIME_TYPES = new Set([
                 'text/csv',
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'application/vnd.ms-excel.sheet.macroenabled.12'
+                'application/vnd.ms-excel.sheet.macroenabled.12',
+                'application/vnd.oasis.opendocument.spreadsheet'
             ]);
             const CANOPY_PDF_PREVIEW_EXTENSIONS = ['.pdf'];
             const CANOPY_PDF_PREVIEW_MIME_TYPES = new Set(['application/pdf']);
             const CANOPY_DOCUMENT_PREVIEW_EXTENSIONS = [
-                '.docx', '.docm', '.dotx', '.pptx', '.pptm', '.ppsx', '.potx', '.rtf', '.odt', '.odp'
+                '.docx', '.docm', '.dotx', '.pptx', '.pptm', '.ppsx', '.potx', '.rtf', '.odt', '.odp', '.eml'
             ];
             const CANOPY_DOCUMENT_PREVIEW_MIME_TYPES = new Set([
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -12189,7 +12190,8 @@
                 'application/rtf',
                 'text/rtf',
                 'application/vnd.oasis.opendocument.text',
-                'application/vnd.oasis.opendocument.presentation'
+                'application/vnd.oasis.opendocument.presentation',
+                'message/rfc822'
             ]);
             const CANOPY_TEXT_PREVIEW_EXTENSIONS = [
                 '.bat', '.c', '.cfg', '.cjs', '.cpp', '.cs', '.css', '.dockerfile',

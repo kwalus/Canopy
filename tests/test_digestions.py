@@ -1,6 +1,7 @@
 """Regression tests for File Vault Digestions."""
 
 import base64
+import io
 import json
 import os
 import sqlite3
@@ -8,6 +9,7 @@ import sys
 import tempfile
 import types
 import unittest
+import zipfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,6 +42,48 @@ from canopy.security.file_access import evaluate_file_access
 _TINY_PNG = base64.b64decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
 )
+
+
+def _build_docx_bytes(text: str) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w') as archive:
+        archive.writestr('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        archive.writestr('word/document.xml', f'''<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:body>
+</w:document>''')
+    return out.getvalue()
+
+
+def _build_pptx_bytes(text: str) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w') as archive:
+        archive.writestr('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>')
+        archive.writestr('ppt/presentation.xml', '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>')
+        archive.writestr('ppt/slides/slide1.xml', f'''<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+       xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
+</p:sld>''')
+    return out.getvalue()
+
+
+def _build_ods_bytes(text: str) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w') as archive:
+        archive.writestr('mimetype', 'application/vnd.oasis.opendocument.spreadsheet')
+        archive.writestr('content.xml', f'''<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+ xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">
+  <office:body><office:spreadsheet>
+    <table:table table:name="Metrics">
+      <table:table-row><table:table-cell><text:p>Metric</text:p></table:table-cell><table:table-cell><text:p>Value</text:p></table:table-cell></table:table-row>
+      <table:table-row><table:table-cell><text:p>{text}</text:p></table:table-cell><table:table-cell><text:p>42</text:p></table:table-cell></table:table-row>
+    </table:table>
+  </office:spreadsheet></office:body>
+</office:document-content>''')
+    return out.getvalue()
 
 
 class _FakeDbManager:
@@ -117,6 +161,11 @@ class TestDigestions(unittest.TestCase):
             'text/plain',
             owner,
         )
+        self.assertIsNotNone(info)
+        return info
+
+    def _save_bytes(self, name: str, content: bytes, content_type: str, owner: str = 'owner-user'):
+        info = self.file_manager.save_file(content, name, content_type, owner)
         self.assertIsNotNone(info)
         return info
 
@@ -340,6 +389,54 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(unrelated['success'])
         self.assertEqual(unrelated['result_count'], 0)
         self.assertTrue(unrelated['retrieval_ready'])
+
+    def test_digestion_indexes_common_business_documents(self) -> None:
+        docx = self._save_bytes(
+            'planning-memo.docx',
+            _build_docx_bytes('DOCX planning memo includes gallium arsenide procurement constraints.'),
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+        pptx = self._save_bytes(
+            'demo-brief.pptx',
+            _build_pptx_bytes('PPTX slide summarizes teleoperation latency mitigation.'),
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        )
+        ods = self._save_bytes(
+            'measurements.ods',
+            _build_ods_bytes('ODS spreadsheet records pump efficiency'),
+            'application/vnd.oasis.opendocument.spreadsheet',
+        )
+        eml = self._save_bytes(
+            'followup.eml',
+            b"From: lead@example.test\r\nTo: team@example.test\r\nSubject: Follow-up\r\n\r\nEML message captures vendor callback timing.",
+            'message/rfc822',
+        )
+
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Business document corpus',
+            source_file_ids=[docx.id, pptx.id, ods.id, eml.id],
+            provider='local_hash',
+            chunk_size=260,
+            chunk_overlap=0,
+        )
+        build = self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+
+        self.assertTrue(build['success'])
+        self.assertEqual(build['stats']['indexed_source_count'], 4)
+        self.assertGreaterEqual(build['chunk_count'], 4)
+        queries = {
+            'gallium arsenide': 'planning-memo.docx',
+            'latency mitigation': 'demo-brief.pptx',
+            'pump efficiency': 'measurements.ods',
+            'vendor callback': 'followup.eml',
+        }
+        for query, filename in queries.items():
+            with self.subTest(query=query):
+                result = self.digestion_manager.query(digestion['id'], 'owner-user', query, top_k=3)
+                self.assertTrue(result['success'])
+                self.assertGreaterEqual(result['result_count'], 1)
+                self.assertEqual(result['results'][0]['file_name'], filename)
 
     def test_merge_sources_from_digestion_copies_references_without_destroying_source(self) -> None:
         alpha = self._save_text('alpha.txt', 'Alpha source material for reusable digestion merging.')

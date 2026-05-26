@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.231] - 2026-05-25
+
+### Added
+- **Digestions index common business documents more explicitly** — DOCX/PPTX/OpenDocument/email/text extraction is now covered by Digestion regression tests, `.ods` spreadsheets have bounded read-only previews and indexable text, and `.eml` messages expose readable body text for previews and Digestion builds.
+
+### Changed
+- **Agent and user documentation now states the business-format boundary** — README, API reference, MCP quick start, agent onboarding, and spreadsheet docs distinguish readable/indexable formats from legacy Office, iWork, archives, media, images, and other stored-but-not-semantic binaries while preserving the no-macros/no-active-content safety model.
+
 ## [0.6.230] - 2026-05-25
 
 ### Added
