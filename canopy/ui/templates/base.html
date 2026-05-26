@@ -15207,16 +15207,45 @@
     <script>
         (function () {
             const STANDARD_EMOJIS = [
-                { char: '👍', name: 'thumbs_up' }, { char: '❤️', name: 'love' },
-                { char: '😂', name: 'laugh' }, { char: '😮', name: 'wow' },
-                { char: '🎉', name: 'celebrate' }, { char: '🚀', name: 'rocket' },
-                { char: '💯', name: '100_percent' }, { char: '🤷', name: 'idk' },
-                { char: '✅', name: 'check' }, { char: '👀', name: 'watching' },
-                { char: '🙏', name: 'thanks' }, { char: '🍺', name: 'beer' },
-                { char: '🧠', name: 'brain' }, { char: '💡', name: 'idea' },
-                { char: '📌', name: 'pin' }, { char: '🧬', name: 'dna' },
-                { char: '⚡', name: 'zap' }, { char: '🔥', name: 'fire' },
-                { char: '✨', name: 'sparkles' }, { char: '🤝', name: 'handshake' },
+                { char: '👍', name: 'thumbs_up', keywords: 'like approve yes' },
+                { char: '👎', name: 'thumbs_down', keywords: 'dislike no reject' },
+                { char: '❤️', name: 'love', keywords: 'heart' },
+                { char: '😂', name: 'laugh', keywords: 'joy funny lol' },
+                { char: '😀', name: 'grinning', keywords: 'smile happy' },
+                { char: '😊', name: 'smile', keywords: 'happy warm' },
+                { char: '😅', name: 'sweat_smile', keywords: 'relief awkward' },
+                { char: '😉', name: 'wink', keywords: 'playful' },
+                { char: '😍', name: 'heart_eyes', keywords: 'love excited' },
+                { char: '😮', name: 'wow', keywords: 'surprised' },
+                { char: '😭', name: 'sob', keywords: 'cry sad' },
+                { char: '🤯', name: 'mind_blown', keywords: 'wow shocked' },
+                { char: '🤔', name: 'thinking', keywords: 'question consider' },
+                { char: '🙌', name: 'raised_hands', keywords: 'celebrate praise' },
+                { char: '👏', name: 'clap', keywords: 'applause good' },
+                { char: '💪', name: 'strong', keywords: 'work muscle' },
+                { char: '👋', name: 'wave', keywords: 'hello hi bye' },
+                { char: '🎉', name: 'celebrate', keywords: 'party success' },
+                { char: '🚀', name: 'rocket', keywords: 'ship launch' },
+                { char: '💯', name: '100_percent', keywords: 'hundred perfect' },
+                { char: '🤷', name: 'idk', keywords: 'shrug unknown' },
+                { char: '✅', name: 'check', keywords: 'done complete approve' },
+                { char: '👀', name: 'watching', keywords: 'eyes look review' },
+                { char: '🙏', name: 'thanks', keywords: 'please pray' },
+                { char: '🍺', name: 'beer', keywords: 'cheers' },
+                { char: '🧠', name: 'brain', keywords: 'think intelligence' },
+                { char: '💡', name: 'idea', keywords: 'lightbulb insight' },
+                { char: '📌', name: 'pin', keywords: 'important save' },
+                { char: '📎', name: 'clip', keywords: 'attachment file' },
+                { char: '💬', name: 'speech', keywords: 'comment chat message' },
+                { char: '⭐', name: 'star', keywords: 'favorite excellent' },
+                { char: '⚠️', name: 'warning', keywords: 'caution risk' },
+                { char: '🔒', name: 'lock', keywords: 'private secure' },
+                { char: '🛠️', name: 'tools', keywords: 'fix build work' },
+                { char: '🧬', name: 'dna', keywords: 'science' },
+                { char: '⚡', name: 'zap', keywords: 'fast energy' },
+                { char: '🔥', name: 'fire', keywords: 'hot great' },
+                { char: '✨', name: 'sparkles', keywords: 'magic polish' },
+                { char: '🤝', name: 'handshake', keywords: 'deal agreement team' },
                 { image: "{{ url_for('static', filename='emojis/canopy_notxt.png') }}", name: 'canopy' },
             ];
 
@@ -15317,7 +15346,7 @@
                 const term = String(host.querySelector('.canopy-global-emoji-search')?.value || '').trim().toLowerCase();
                 const items = allEmojiItems().filter((item) => {
                     if (!term) return true;
-                    return String(item.name || '').toLowerCase().includes(term);
+                    return `${item.name || ''} ${item.keywords || ''}`.toLowerCase().includes(term);
                 });
                 if (!items.length) {
                     grid.innerHTML = '<div class="canopy-global-emoji-empty">No emoji match that search.</div>';
