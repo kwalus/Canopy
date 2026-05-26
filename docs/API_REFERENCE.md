@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.229` release line.
+Version scope: this reference is aligned to the Canopy `0.6.230` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -421,6 +421,7 @@ Vault notes:
 | GET | `/digestions` | Yes (`read_files`) | List Digestions owned by or shared with the authenticated user. Optional `include_sources=1` only returns source metadata when the caller has source-read access. |
 | POST | `/digestions` | Yes (`write_files`) | Create a local semantic Digestion owned by the authenticated user or agent over selected Vault file IDs and/or inline `materials`. Optional `purpose`, `provider`, `embedding_model`, `chunk_size`, `chunk_overlap`, and `auto_build`. |
 | GET | `/digestions/<digestion_id>` | Yes (`read_files`) | Return Digestion metadata, stats, operation progress, access state, and source metadata when permitted. Key fields are mirrored at the top level for agent clients and retained under `digestion` for web clients. |
+| PATCH | `/digestions/<digestion_id>` | Yes (`write_files`) | Rename a managed Digestion without changing its source corpus, ACL, outputs, or existing package files. Body: `name`. Requires manage access. |
 | DELETE | `/digestions/<digestion_id>` | Yes (`write_files`) | Owner-only safe delete of the Digestion object and derived records: source links, chunks, ACL rows, generated outputs, extracted figure/evidence records, contribution ledger, and query history. Raw Vault source files, exported package files, attachments, and generated image files are preserved and must be deleted separately if desired. Body must confirm the Digestion with `confirm_digestion_id` or `confirm_name`. |
 | GET | `/digestions/<digestion_id>/sources` | Yes (`read_files`) | List source metadata and build status; requires owner or explicit source-metadata access. Source rows include parsed provenance fields such as `submitted_by`, `original_file_id`, `copied_to_owner_vault`, `ownership_transfer`, and `preview_file_id` while preserving `source_metadata_json`. |
 | GET | `/digestions/<digestion_id>/figures` | Yes (`read_files`) | List extracted PDF figure previews, image file IDs, page labels, captions, and caption-context text; requires query access plus explicit source-metadata access. |

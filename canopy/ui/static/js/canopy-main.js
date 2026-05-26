@@ -3849,6 +3849,36 @@
                     `;
                 }
 
+                function renderDigestionRenamePanel(digestion) {
+                    const id = vaultEscape(digestion && digestion.id || '');
+                    const name = vaultEscape(digestion && digestion.name || 'Untitled Digestion');
+                    return `
+                        <form class="vault-digestion-rename" data-vault-digestion-rename="${id}" hidden>
+                            <div class="vault-digestion-rename-copy">
+                                Rename the Digestion card without changing sources, access grants, outputs, or existing package files.
+                            </div>
+                            <label>
+                                Digestion name
+                                <input class="form-control form-control-sm"
+                                       type="text"
+                                       maxlength="180"
+                                       value="${name}"
+                                       data-vault-digestion-rename-input="${id}"
+                                       aria-label="New name for ${name}">
+                            </label>
+                            <div class="vault-digestion-rename-actions">
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="cancel-rename" data-vault-digestion-id="${id}">
+                                    Cancel
+                                </button>
+                                <button class="btn btn-sm btn-success" type="submit" data-vault-digestion-action="confirm-rename" data-vault-digestion-id="${id}">
+                                    <i class="bi bi-check2"></i> Save name
+                                </button>
+                            </div>
+                            <div class="vault-digestion-rename-status" data-vault-digestion-rename-status="${id}" aria-live="polite"></div>
+                        </form>
+                    `;
+                }
+
                 function renderDigestionCard(digestion) {
 		                    const id = vaultEscape(digestion.id || '');
 		                    const name = vaultEscape(digestion.name || 'Untitled Digestion');
@@ -3945,6 +3975,9 @@
 	                                    <i class="bi bi-box-arrow-up-right"></i> Package
 	                                </button>
 	                                ${canManage ? `
+                                    <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="rename" data-vault-digestion-id="${id}" aria-label="Rename ${name}" aria-expanded="false" title="Rename this Digestion without changing sources or access grants.">
+                                        <i class="bi bi-pencil-square"></i> Rename
+                                    </button>
 	                                <button class="btn btn-sm btn-outline-success vault-digestion-btn" type="button" data-vault-digestion-action="share-access" data-vault-digestion-id="${id}" aria-label="Share live query access for ${name}" aria-expanded="false">
 	                                    <i class="bi bi-person-check"></i> Share access
 	                                </button>
@@ -3958,6 +3991,7 @@
                                     </button>
                                     ` : ''}
 	                            </div>
+                                ${canManage ? renderDigestionRenamePanel(digestion) : ''}
                                 ${canDelete ? renderDigestionDeletePanel(digestion) : ''}
                                 ${renderDigestionProgress('build', 'Build', buildProgress)}
                                 ${renderDigestionProgress('datapoints', 'Datapoint extraction', datapointProgress)}
@@ -4308,6 +4342,72 @@
                         if (button) {
                             button.disabled = false;
                             button.innerHTML = original;
+                        }
+                    }
+                }
+
+                function toggleDigestionRenamePanel(digestionId, forceOpen = null) {
+                    const id = String(digestionId || '').trim();
+                    const panel = document.querySelector(`[data-vault-digestion-rename="${vaultCssEscape(id)}"]`);
+                    if (!panel) return;
+                    const willOpen = forceOpen === null ? panel.hidden : !!forceOpen;
+                    panel.hidden = !willOpen;
+                    panel.classList.toggle('is-visible', willOpen);
+                    const button = digestionList && digestionList.querySelector(`[data-vault-digestion-action="rename"][data-vault-digestion-id="${vaultCssEscape(id)}"]`);
+                    if (button) button.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                    const digestion = findDigestion(id) || {};
+                    const input = panel.querySelector(`[data-vault-digestion-rename-input="${vaultCssEscape(id)}"]`);
+                    const status = panel.querySelector(`[data-vault-digestion-rename-status="${vaultCssEscape(id)}"]`);
+                    if (status) status.textContent = '';
+                    if (input) {
+                        input.value = String(digestion.name || '');
+                        if (willOpen) {
+                            global.setTimeout(() => {
+                                input.focus();
+                                input.select();
+                            }, 0);
+                        }
+                    }
+                    if (willOpen) {
+                        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }
+
+                async function renameDigestion(digestionId, form) {
+                    const id = String(digestionId || '').trim();
+                    if (!id || !form) return;
+                    const input = form.querySelector(`[data-vault-digestion-rename-input="${vaultCssEscape(id)}"]`);
+                    const status = form.querySelector(`[data-vault-digestion-rename-status="${vaultCssEscape(id)}"]`);
+                    const submit = form.querySelector(`[data-vault-digestion-action="confirm-rename"]`);
+                    const name = String(input && input.value || '').trim();
+                    if (!name) {
+                        if (status) status.textContent = 'Choose a name before saving.';
+                        if (input) input.focus();
+                        return;
+                    }
+                    if (status) status.textContent = 'Saving name...';
+                    const original = submit ? submit.innerHTML : '';
+                    if (submit) {
+                        submit.disabled = true;
+                        submit.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Saving';
+                    }
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(id)}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ name })
+                        });
+                        const updated = data && data.digestion ? data.digestion : { name };
+                        updateDigestionInState(id, updated);
+                        renderDigestions();
+                        if (typeof showAlert === 'function') showAlert('Digestion renamed.', 'success');
+                    } catch (error) {
+                        const message = error && (error.error || error.message) ? (error.error || error.message) : 'Could not rename Digestion.';
+                        if (status) status.textContent = message;
+                        if (typeof showAlert === 'function') showAlert(message, 'danger');
+                    } finally {
+                        if (submit) {
+                            submit.disabled = false;
+                            submit.innerHTML = original;
                         }
                     }
                 }
@@ -7537,6 +7637,12 @@
 		                            revokeDigestionAclAccess(actionBtn);
 		                        } else if (action === 'copy-agent-ref') {
 		                            copyDigestionAgentReference(digestionId);
+                        } else if (action === 'rename') {
+                            toggleDigestionRenamePanel(digestionId);
+                        } else if (action === 'cancel-rename') {
+                            toggleDigestionRenamePanel(digestionId, false);
+                        } else if (action === 'confirm-rename') {
+                            renameDigestion(digestionId, actionBtn.closest('[data-vault-digestion-rename]'));
                         } else if (action === 'delete') {
                             toggleDigestionDeletePanel(digestionId);
                         } else if (action === 'cancel-delete') {
@@ -7619,6 +7725,12 @@
 		                        }
 		                    });
 		                    digestionList.addEventListener('submit', (event) => {
+                        const renameForm = event.target.closest('[data-vault-digestion-rename]');
+                        if (renameForm && digestionList.contains(renameForm)) {
+                            event.preventDefault();
+                            renameDigestion(renameForm.getAttribute('data-vault-digestion-rename') || '', renameForm);
+                            return;
+                        }
 	                        const shareForm = event.target.closest('[data-vault-digestion-share]');
 	                        if (shareForm && digestionList.contains(shareForm)) {
 	                            event.preventDefault();

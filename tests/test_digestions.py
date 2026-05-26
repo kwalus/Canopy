@@ -495,6 +495,46 @@ class TestDigestions(unittest.TestCase):
             self.digestion_manager.query(digestion['id'], 'reader-user', 'access')
         self.assertTrue(self.digestion_manager.query(digestion['id'], 'other-user', 'access')['success'])
 
+    def test_rename_digestion_updates_name_for_managers_without_touching_acl(self) -> None:
+        source = self._save_text('rename-corpus.txt', 'Rename should not change retrieval or access grants.')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Default PDF Digestion',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=False,
+        )
+
+        renamed = self.digestion_manager.rename_digestion(
+            digestion['id'],
+            'reader-user',
+            'Fleet Teleoperation Library',
+        )
+
+        self.assertTrue(renamed['success'])
+        self.assertEqual(renamed['old_name'], 'Default PDF Digestion')
+        self.assertEqual(renamed['name'], 'Fleet Teleoperation Library')
+        owner_view = self.digestion_manager.get_digestion(digestion['id'], user_id='owner-user')
+        reader_view = self.digestion_manager.get_digestion(digestion['id'], user_id='reader-user')
+        self.assertEqual(owner_view['name'], 'Fleet Teleoperation Library')
+        self.assertEqual(reader_view['name'], 'Fleet Teleoperation Library')
+        self.assertTrue(reader_view['access']['can_manage'])
+        self.assertFalse(reader_view['access']['can_read_sources'])
+
+        with self.assertRaises(DigestionError) as empty_context:
+            self.digestion_manager.rename_digestion(digestion['id'], 'owner-user', '   ')
+        self.assertEqual(empty_context.exception.reason, 'missing_name')
+        with self.assertRaises(DigestionError) as denied_context:
+            self.digestion_manager.rename_digestion(digestion['id'], 'other-user', 'Denied')
+        self.assertEqual(denied_context.exception.reason, 'manage_denied')
+
     def test_delete_digestion_is_owner_only_and_preserves_vault_files(self) -> None:
         source = self._save_text(
             'delete-safe-corpus.txt',
@@ -1937,6 +1977,25 @@ class TestDigestions(unittest.TestCase):
             )
             self.assertEqual(create_response.status_code, 201)
             digestion_id = create_response.get_json()['digestion_id']
+
+            rename_response = client.patch(
+                f'/api/v1/digestions/{digestion_id}',
+                json={'name': 'API corpus renamed'},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(rename_response.status_code, 200)
+            rename_payload = rename_response.get_json() or {}
+            self.assertTrue(rename_payload['success'])
+            self.assertEqual(rename_payload['name'], 'API corpus renamed')
+            self.assertEqual(rename_payload['digestion']['name'], 'API corpus renamed')
+
+            empty_rename_response = client.patch(
+                f'/api/v1/digestions/{digestion_id}',
+                json={'name': '   '},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(empty_rename_response.status_code, 400)
+            self.assertEqual((empty_rename_response.get_json() or {}).get('reason'), 'missing_name')
 
             build_response = client.post(
                 f'/api/v1/digestions/{digestion_id}/build',
