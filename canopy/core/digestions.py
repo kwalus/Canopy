@@ -1321,6 +1321,32 @@ class DigestionManager:
         )
         return data
 
+    def rename_digestion(self, digestion_id: str, actor_user_id: str, name: str) -> dict[str, Any]:
+        """Rename a managed Digestion without changing its corpus, outputs, or ACL."""
+        actor = self._clean_id(actor_user_id)
+        digestion = self._require_digestion(digestion_id, actor, manage=True)
+        name_clean = " ".join(str(name or "").strip().split())
+        if not name_clean:
+            raise DigestionError("Digestion name is required", status_code=400, reason="missing_name")
+        if len(name_clean) > 180:
+            raise DigestionError("Digestion name must be 180 characters or fewer.", status_code=400, reason="name_too_long")
+        old_name = str(digestion.name or "")
+        now = self._now()
+        with self.db.get_connection() as conn:
+            conn.execute(
+                "UPDATE digestions SET name = ?, updated_at = ? WHERE id = ?",
+                (name_clean, now, digestion.id),
+            )
+            conn.commit()
+        item = self.get_digestion(digestion.id, user_id=actor) or {}
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "old_name": old_name,
+            "name": name_clean,
+            "digestion": item,
+        }
+
     def get_operation_progress(self, digestion_id: str, actor_user_id: str) -> dict[str, Any]:
         """Return live, non-sensitive progress for Digestion build/extraction operations."""
         digestion = self._require_digestion(digestion_id, actor_user_id, query=True)

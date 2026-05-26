@@ -11190,6 +11190,26 @@ def create_api_blueprint() -> Blueprint:
             'owner_user_id': item.get('owner_user_id') or '',
         })
 
+    @api.route('/digestions/<digestion_id>', methods=['PATCH'])
+    @require_auth(Permission.WRITE_FILES)
+    def rename_digestion_api(digestion_id: str):
+        """Rename a managed Digestion without rebuilding or changing ACLs."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.rename_digestion(
+                digestion_id,
+                g.api_key_info.user_id,
+                str(data.get('name') or data.get('title') or ''),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API rename failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>', methods=['DELETE'])
     @require_auth(Permission.WRITE_FILES)
     def delete_digestion_api(digestion_id: str):

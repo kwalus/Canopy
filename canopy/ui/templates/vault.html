@@ -676,6 +676,7 @@
     }
     .vault-digestion-card.is-compact .vault-digestion-progress,
     .vault-digestion-card.is-compact .vault-digestion-options,
+    .vault-digestion-card.is-compact .vault-digestion-rename,
     .vault-digestion-card.is-compact .vault-digestion-delete,
     .vault-digestion-card.is-compact .vault-digestion-contributions,
     .vault-digestion-card.is-compact .vault-digestion-share,
@@ -811,6 +812,49 @@
         color: #fff;
         border-color: color-mix(in srgb, var(--canopy-danger, #ef4444) 72%, white);
         background: linear-gradient(135deg, color-mix(in srgb, var(--canopy-danger, #ef4444) 92%, #7f1d1d), color-mix(in srgb, var(--canopy-danger, #ef4444) 76%, #111827));
+    }
+    .vault-digestion-rename {
+        display: none;
+        gap: 0.62rem;
+        margin-top: 0.72rem;
+        padding: 0.72rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-secondary) 38%, var(--canopy-border));
+        border-radius: 16px;
+        background:
+            radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--canopy-secondary) 13%, transparent), transparent 42%),
+            color-mix(in srgb, var(--canopy-bg-card) 90%, transparent);
+        min-width: 0;
+    }
+    .vault-digestion-rename.is-visible {
+        display: grid;
+    }
+    .vault-digestion-rename label {
+        display: grid;
+        gap: 0.32rem;
+        margin: 0;
+        min-width: 0;
+        color: var(--canopy-text-primary);
+        font-size: 0.78rem;
+        font-weight: 850;
+    }
+    .vault-digestion-rename .form-control {
+        border-radius: 12px;
+        border-color: var(--canopy-border);
+        background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
+        color: var(--canopy-text-primary);
+    }
+    .vault-digestion-rename-copy,
+    .vault-digestion-rename-status {
+        color: var(--canopy-text-muted);
+        font-size: 0.76rem;
+        line-height: 1.32;
+    }
+    .vault-digestion-rename-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        align-items: center;
+        justify-content: flex-end;
     }
     .vault-digestion-delete {
         display: none;
@@ -1775,6 +1819,7 @@
     }
     .vault-digestion-query .btn,
     .vault-digestion-create .btn,
+    .vault-digestion-rename .btn,
     .vault-digestion-share .btn,
     .vault-digestion-options .btn {
         border-radius: 12px;

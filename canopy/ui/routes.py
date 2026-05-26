@@ -7077,6 +7077,26 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI delete error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not delete Digestion'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>', methods=['PATCH'])
+    @require_login
+    def ajax_rename_digestion(digestion_id: str):
+        """Rename a managed Digestion from the Vault UI."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.rename_digestion(
+                digestion_id,
+                get_current_user(),
+                str(data.get('name') or data.get('title') or ''),
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI rename error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not rename Digestion'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/build', methods=['POST'])
     @require_login
     def ajax_build_digestion(digestion_id: str):

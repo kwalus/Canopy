@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.230] - 2026-05-25
+
+### Added
+- **Digestions can be renamed after creation** — The File Vault Digestions panel now exposes a manage-level Rename action with an inline edit panel, plus matching AJAX/REST rename endpoints that update the Digestion name without altering sources, access grants, outputs, or existing package files.
+
 ## [0.6.229] - 2026-05-25
 
 ### Changed
