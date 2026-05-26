@@ -1216,6 +1216,11 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('window.CanopyEmojiPicker', base_template)
         self.assertIn('canopy-global-emoji-picker', base_template)
         self.assertIn("url_for('static', filename='emojis/canopy_notxt.png')", base_template)
+        self.assertIn("{ char: '😀', name: 'grinning', keywords: 'smile happy' }", base_template)
+        self.assertIn("{ char: '👋', name: 'wave', keywords: 'hello hi bye' }", base_template)
+        self.assertIn("{ char: '⚠️', name: 'warning', keywords: 'caution risk' }", base_template)
+        self.assertIn("{ char: '🛠️', name: 'tools', keywords: 'fix build work' }", base_template)
+        self.assertIn("`${item.name || ''} ${item.keywords || ''}`.toLowerCase().includes(term)", base_template)
         self.assertTrue(canopy_emoji.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'))
         self.assertIn('reaction_options', feed_template)
         self.assertIn('FEED_REACTION_OPTIONS', feed_template)
@@ -4067,7 +4072,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.243', api_ref)
+        self.assertIn('0.6.244', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)

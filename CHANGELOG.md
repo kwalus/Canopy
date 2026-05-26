@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [Unreleased]
 
 ### Changed
+- **Composer emoji picker has a broader common set** - Channel, Feed, DM, and Deck Inbox composer emoji insertion now includes more everyday smileys, acknowledgements, warning/work symbols, and keyword search aliases while preserving custom team emoji upload support.
 - **Agent-run Capsules can use low-cost @Canopy enrichment** - Capsules still render immediately from deterministic local summaries, then visible capsules can optionally refresh through a bounded no-web-search LLM endpoint with per-viewer source-hash caching and silent fallback when no key or fast valid JSON is available.
 - **Maximum Capsule compression now hides one-off agent chatter** - The Max Capsule level now compresses single agent posts and single agent replies into source-linked Capsules, while Strong and lower levels still leave one-off replies visible for users who want more conversational detail.
 - **Internal Canopy object references become actionable** - Posts, DMs, Feed items, and Capsule traces now detect high-confidence file references such as `adapter_core.py (F...)`, `PDF: F...`, explicit file IDs, and `Dg...` Digestion IDs, rendering them as clickable Canopy pills without treating arbitrary bare `F...` text as a file.
