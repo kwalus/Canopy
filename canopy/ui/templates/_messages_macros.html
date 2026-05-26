@@ -38,27 +38,42 @@
     {% set show_all = hinted_layout in ['grid', 'strip', 'stack'] %}
     {% set show_count = images|length if show_all else [images|length, 4]|min %}
     {% set img_count = [images|length, 5]|min %}
-    {% set image_urls = images | map(attribute='url') | list %}
+    {% set gallery_urls = namespace(values=[]) %}
+    {% for img in images[:show_count] %}
+        {% set local_image_file_id = img.id or img.file_id or img.vault_file_id or ((img.url.split('/files/')[1].split('/')[0]) if img.url and '/files/' in img.url else None) %}
+        {% set image_url = img.url or ('/files/' ~ local_image_file_id if local_image_file_id else '') %}
+        {% set image_type = (img.type or '')|lower %}
+        {% set image_name = (img.name or '')|lower %}
+        {% set browser_previewable = not (image_type in ['image/heic', 'image/heif'] or image_name.endswith('.heic') or image_name.endswith('.heif')) %}
+        {% if image_url and browser_previewable %}
+            {% if gallery_urls.values.append(image_url) %}{% endif %}
+        {% endif %}
+    {% endfor %}
+    {% set image_urls = gallery_urls.values %}
+    {% set gallery_index = namespace(value=0) %}
     <div class="media-grid"
          data-count="{{ img_count }}"
          {% if hinted_layout %}data-layout="{{ hinted_layout }}"{% endif %}
          {% if gallery_id %}data-gallery-id="{{ gallery_id }}"{% endif %}>
         {% for img in images[:show_count] %}
-            {% set has_url = img.url and img.url|trim %}
+            {% set local_image_file_id = img.id or img.file_id or img.vault_file_id or ((img.url.split('/files/')[1].split('/')[0]) if img.url and '/files/' in img.url else None) %}
+            {% set image_url = img.url or ('/files/' ~ local_image_file_id if local_image_file_id else '') %}
+            {% set has_url = image_url and image_url|trim %}
             {% set image_type = (img.type or '')|lower %}
             {% set image_name = (img.name or '')|lower %}
             {% set browser_previewable = not (image_type in ['image/heic', 'image/heif'] or image_name.endswith('.heic') or image_name.endswith('.heif')) %}
-            {% set image_file_id = img.id or img.file_id or img.origin_file_id or ((img.url.split('/files/')[1].split('/')[0]) if img.url and '/files/' in img.url else None) %}
-            {% set thumb_url = img.thumb_url or (img.url ~ '/thumb' if has_url else '') %}
+            {% set image_file_id = local_image_file_id or img.origin_file_id %}
+            {% set thumb_url = img.thumb_url or ((image_url ~ '/thumb') if has_url and image_url.startswith('/files/') and not image_url.endswith('/thumb') else image_url) %}
             {% if has_url and browser_previewable %}
-                <div class="mg-cell"{% if image_file_id %} data-canopy-source-ref="attachment:{{ image_file_id }}"{% endif %} onclick="openLightbox({{ loop.index0 }}, '{{ image_urls | tojson | urlencode }}')">
+                <div class="mg-cell"{% if image_file_id %} data-canopy-source-ref="attachment:{{ image_file_id }}"{% endif %} onclick="openLightbox({{ gallery_index.value }}, '{{ image_urls | tojson | urlencode }}')">
+                    {% set gallery_index.value = gallery_index.value + 1 %}
                     <img src="{{ thumb_url }}" alt="{{ img.name or 'image' }}" loading="lazy" decoding="async" onerror="this.closest('.mg-cell')?.classList.add('mg-cell-image-error');">
                     <div class="mg-image-fallback small text-muted text-center p-2">
                         {{ img.name or 'Image' }}<br>
                         <span class="opacity-75">Preview unavailable</span>
                     </div>
 		                    <a class="mg-download"
-		                       href="{{ img.url }}"
+		                       href="{{ image_url }}"
 	                       download="{{ img.name or 'image' }}"
 	                       title="Download full resolution"
 	                       onclick="event.stopPropagation();">
@@ -92,7 +107,7 @@
 		                        {{ img.name or 'Image' }}<br>
 		                        <span class="opacity-75">{% if has_url %}Preview unavailable for this image type{% else %}Not on this device yet — will appear when synced{% endif %}</span>
 		                        {% if has_url %}
-		                            <a class="btn btn-sm btn-outline-secondary mt-2" href="{{ img.url }}" download="{{ img.name or 'image' }}" onclick="event.stopPropagation();">
+		                            <a class="btn btn-sm btn-outline-secondary mt-2" href="{{ image_url }}" download="{{ img.name or 'image' }}" onclick="event.stopPropagation();">
 		                                <i class="bi bi-download"></i> Download
 		                            </a>
 		                        {% endif %}
@@ -109,7 +124,10 @@
 {%- endmacro %}
 
 {% macro render_dm_attachment(attachment, message_id, idx) -%}
-    {% set attachment_file_id = attachment.id or attachment.file_id or attachment.origin_file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
+    {% set local_file_id = attachment.id or attachment.file_id or attachment.vault_file_id or ((attachment.url.split('/files/')[1].split('/')[0]) if attachment.url and '/files/' in attachment.url else None) %}
+    {% set attachment_file_id = local_file_id or attachment.origin_file_id %}
+    {% set attachment_url = attachment.url or ('/files/' ~ local_file_id if local_file_id else '') %}
+    {% set attachment_thumb_url = attachment.thumb_url or ((attachment_url ~ '/thumb') if attachment_url and attachment_url.startswith('/files/') and attachment.type and attachment.type.startswith('image/') and not attachment_url.endswith('/thumb') else attachment_url) %}
     {% set remote_large = attachment.large_attachment or attachment.storage_mode == 'remote_large' %}
     {% set remote_payload = {
         'origin_file_id': attachment.origin_file_id or attachment.id or attachment.file_id,
@@ -128,7 +146,7 @@
     {% set document_preview = lower_name.endswith('.docx') or lower_name.endswith('.docm') or lower_name.endswith('.dotx') or lower_name.endswith('.pptx') or lower_name.endswith('.pptm') or lower_name.endswith('.ppsx') or lower_name.endswith('.potx') or lower_name.endswith('.rtf') or lower_name.endswith('.odt') or lower_name.endswith('.odp') or lower_name.endswith('.eml') %}
     {% set code_preview = lower_name.endswith('.c') or lower_name.endswith('.h') or lower_name.endswith('.cpp') or lower_name.endswith('.hpp') or lower_name.endswith('.cs') or lower_name.endswith('.dockerfile') or lower_name.endswith('.makefile') or lower_name.endswith('.go') or lower_name.endswith('.java') or lower_name.endswith('.jsx') or lower_name.endswith('.tsx') or lower_name.endswith('.mjs') or lower_name.endswith('.cjs') or lower_name.endswith('.kt') or lower_name.endswith('.kts') or lower_name.endswith('.php') or lower_name.endswith('.ps1') or lower_name.endswith('.rb') or lower_name.endswith('.rs') or lower_name.endswith('.sql') or lower_name.endswith('.svelte') or lower_name.endswith('.swift') or lower_name.endswith('.vue') %}
     {% set digestion_package = lower_name.endswith('-canopy-digestion-package.json') or lower_name.endswith('.canopy-digestion-package.json') or (lower_name.endswith('.json') and 'digestion-package' in lower_name) %}
-    {% set previewable = attachment_file_id and (digestion_package or lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or pdf_preview or document_preview or code_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
+    {% set previewable = local_file_id and (digestion_package or lower_name.endswith('.md') or lower_name.endswith('.markdown') or lower_name.endswith('.txt') or lower_name.endswith('.log') or lower_name.endswith('.json') or lower_name.endswith('.py') or lower_name.endswith('.js') or lower_name.endswith('.ts') or spreadsheet_preview or pdf_preview or document_preview or code_preview or lower_name.endswith('.yaml') or lower_name.endswith('.yml') or lower_name.endswith('.xml') or lower_name.endswith('.tex') or lower_name.endswith('.html') or lower_name.endswith('.css') or lower_name.endswith('.sh') or lower_name.endswith('.bat') or lower_name.endswith('.cfg') or lower_name.endswith('.ini') or lower_name.endswith('.toml')) %}
     {% set preview_id = 'dm-attachment-preview-' ~ message_id ~ '-' ~ idx %}
     {% set module_title = (attachment.name or 'Canopy Module')|replace('.canopy-module.html', '')|replace('.canopy-module.htm', '')|replace('-', ' ')|replace('_', ' ')|title %}
     {% set module_manifest = {
@@ -167,8 +185,8 @@
         },
         'module_runtime': {
             'format': 'single_html',
-            'bundle_file_id': attachment_file_id,
-            'bundle_url': '/files/' ~ attachment_file_id,
+            'bundle_file_id': local_file_id or attachment_file_id,
+            'bundle_url': attachment_url,
             'module_type': module_title,
             'runtime_label': 'Canopy Module',
             'capabilities': {
@@ -179,9 +197,9 @@
     } %}
 
     {% if attachment.type and attachment.type.startswith('image/') %}
-	        {% if attachment.url %}
+	        {% if attachment_url %}
 	            <div class="dm-attachment dm-attachment-image"{% if attachment_file_id %} data-canopy-source-ref="attachment:{{ attachment_file_id }}"{% endif %}>
-	                <img src="{{ attachment.url }}" alt="{{ attachment.name }}" onclick="viewImage('{{ attachment.url }}')">
+	                <img src="{{ attachment_thumb_url }}" alt="{{ attachment.name }}" loading="lazy" decoding="async" onclick="viewImage({{ attachment_url|tojson|forceescape }})">
 	                <button type="button"
 	                        class="btn btn-sm attachment-save-vault-btn"
 	                        title="Save to File Vault"
@@ -221,12 +239,12 @@
                     <strong>{{ attachment.name }}</strong>
                     <small>{{ attachment.type }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
                 </div>
-	                {% if attachment.url %}
+	                {% if attachment_url %}
 	                    <div class="dm-attachment-actions">
 	                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" title="Save to File Vault" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)'>
 	                            <i class="bi bi-folder-plus"></i> Save to Vault
 	                        </button>
-	                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+	                        <a href="{{ attachment_url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
 	                            <i class="bi bi-download"></i>
 	                        </a>
 	                    </div>
@@ -241,9 +259,9 @@
 	                    </div>
 	                {% endif %}
             </div>
-            {% if attachment.url %}
+            {% if attachment_url %}
                 <audio controls preload="metadata" class="w-100 mt-2">
-                    <source src="{{ attachment.url }}" type="{{ attachment.type or 'audio/mpeg' }}">
+                    <source src="{{ attachment_url }}" type="{{ attachment.type or 'audio/mpeg' }}">
                 </audio>
             {% endif %}
         </div>
@@ -254,12 +272,12 @@
                     <strong>{{ attachment.name }}</strong>
                     <small>{{ attachment.type }} • {{ attachment.size | filesizeformat if attachment.size is defined and attachment.size is not none else '—' }}</small>
                 </div>
-	                {% if attachment.url %}
+	                {% if attachment_url %}
 	                    <div class="dm-attachment-actions">
 	                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" title="Save to File Vault" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)'>
 	                            <i class="bi bi-folder-plus"></i> Save to Vault
 	                        </button>
-	                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+	                        <a href="{{ attachment_url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
 	                            <i class="bi bi-download"></i>
 	                        </a>
 	                    </div>
@@ -274,9 +292,9 @@
 	                    </div>
 	                {% endif %}
             </div>
-            {% if attachment.url %}
+            {% if attachment_url %}
                 <video controls preload="metadata" playsinline class="w-100 mt-2" style="max-width:100%;border-radius:12px;background:#000;">
-                    <source src="{{ attachment.url }}" type="{{ attachment.type or 'video/mp4' }}">
+                    <source src="{{ attachment_url }}" type="{{ attachment.type or 'video/mp4' }}">
                 </video>
             {% endif %}
         </div>
@@ -305,11 +323,11 @@
                         <i class="bi bi-grid-1x2"></i>
                         Open module
                     </button>
-	                    {% if attachment.url %}
+	                    {% if attachment_url %}
 	                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" title="Save to File Vault" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)'>
 	                            <i class="bi bi-folder-plus"></i> Save to Vault
 	                        </button>
-	                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+	                        <a href="{{ attachment_url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
 	                            <i class="bi bi-download"></i>
 	                        </a>
                     {% endif %}
@@ -329,16 +347,18 @@
                     </div>
                 </div>
                 <div class="dm-attachment-actions">
-                    {% if attachment_file_id %}
+                    {% if local_file_id %}
                         <button type="button"
                                 class="btn btn-sm btn-outline-success"
                                 data-preview-toggle="{{ preview_id }}"
                                 data-preview-label="Open reader"
                                 data-preview-expanded-label="Hide reader"
-                                onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ attachment_file_id }}/preview')">
+                                onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ local_file_id }}/preview')">
                             <i class="bi bi-eye"></i>
                             <span class="preview-label">Open reader</span>
                         </button>
+                    {% endif %}
+                    {% if attachment_file_id %}
                         <button type="button"
                                 class="btn btn-sm btn-outline-secondary"
                                 data-canopy-file-id="{{ attachment_file_id|e }}"
@@ -357,11 +377,11 @@
                             <span>Manage access</span>
                         </button>
                     {% endif %}
-                    {% if attachment.url %}
+                    {% if attachment_url %}
                         <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" title="Save to File Vault" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)'>
                             <i class="bi bi-folder-plus"></i> Save to Vault
                         </button>
-                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+                        <a href="{{ attachment_url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
                             <i class="bi bi-download"></i>
                         </a>
                     {% endif %}
@@ -395,26 +415,26 @@
                     {% endif %}
                 </div>
                 <div class="dm-attachment-actions">
-                    {% if previewable and (not pdf_preview or attachment.url) %}
+                    {% if previewable and (not pdf_preview or attachment_url) %}
                         <button type="button"
                                 class="btn btn-sm btn-outline-secondary"
                                 data-preview-toggle="{{ preview_id }}"
                                 data-preview-label="{{ 'Open PDF' if pdf_preview else ('Open sheet' if spreadsheet_preview else ('Preview text' if document_preview else 'Preview')) }}"
                                 data-preview-expanded-label="{{ 'Hide PDF' if pdf_preview else ('Hide sheet' if spreadsheet_preview else ('Hide text' if document_preview else 'Collapse')) }}"
                                 {% if pdf_preview %}
-                                onclick='togglePdfAttachmentPreview({{ preview_id|tojson }}, {{ attachment.url|tojson }}, {{ attachment.name|tojson }})'
+                                onclick='togglePdfAttachmentPreview({{ preview_id|tojson }}, {{ attachment_url|tojson }}, {{ attachment.name|tojson }})'
                                 {% else %}
-                                onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ attachment_file_id }}/preview')"
+                                onclick="toggleAttachmentPreview('{{ preview_id }}', '/ajax/files/{{ local_file_id }}/preview')"
                                 {% endif %}>
                             <i class="bi bi-eye"></i>
                             <span class="preview-label">{{ 'Open PDF' if pdf_preview else ('Open sheet' if spreadsheet_preview else ('Preview text' if document_preview else 'Preview')) }}</span>
                         </button>
                     {% endif %}
-	                    {% if attachment.url %}
+	                    {% if attachment_url %}
 	                        <button type="button" class="btn btn-sm btn-outline-secondary attachment-save-vault-btn" title="Save to File Vault" onclick='saveAttachmentToVault({{ attachment|tojson }}, this)'>
 	                            <i class="bi bi-folder-plus"></i> Save to Vault
 	                        </button>
-	                        <a href="{{ attachment.url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
+	                        <a href="{{ attachment_url }}" class="btn btn-sm btn-outline-primary" download="{{ attachment.name }}">
 	                            <i class="bi bi-download"></i>
 	                        </a>
 	                    {% elif remote_large %}
@@ -427,7 +447,7 @@
 	                    {% endif %}
                 </div>
             </div>
-            {% if previewable and (not pdf_preview or attachment.url) %}
+            {% if previewable and (not pdf_preview or attachment_url) %}
                 <div id="{{ preview_id }}" class="file-preview-wrapper mt-2" style="display:none;"></div>
             {% endif %}
         </div>

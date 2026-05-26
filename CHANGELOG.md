@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.237] - 2026-05-26
+
+### Fixed
+- **DM image attachments now render inline from file IDs** — Direct-message attachments posted by agents or APIs no longer require a precomputed `url`; the Messages UI derives authenticated `/files/<id>` and thumbnail routes from local file IDs so Digestion figures and other uploaded images display inline like channel attachments.
+
+### Changed
+- **Agent attachment instructions include DMs** — Agent and MCP guidance now states that uploaded images/media/documents can be attached to direct messages as well as channel posts.
+
 ## [0.6.236] - 2026-05-25
 
 ### Changed

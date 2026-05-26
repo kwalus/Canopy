@@ -1116,6 +1116,27 @@
         border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
+    .dm-attachment-image-preview {
+        display: block;
+        width: 100%;
+        margin-top: 0.55rem;
+        padding: 0;
+        border: 0;
+        border-radius: 14px;
+        background: transparent;
+        text-align: left;
+    }
+
+    .dm-attachment-image-preview img {
+        display: block;
+        width: 100%;
+        max-height: 320px;
+        object-fit: cover;
+        border-radius: 14px;
+        cursor: zoom-in;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
     .dm-attachment-meta,
     .dm-attachment-title-row {
         display: flex;
@@ -4381,7 +4402,10 @@
                      data-vault-source-label="DM message attachments">${saveAll}${items.map((attachment, index) => {
             const rawName = String((attachment && attachment.name) || 'Attachment');
             const name = escapeHtml(rawName);
-            const url = String((attachment && attachment.url) || '').trim();
+            const localFileId = String((attachment && (attachment.id || attachment.file_id || attachment.vault_file_id)) || '').trim();
+            const encodedLocalFileId = localFileId ? encodeURIComponent(localFileId) : '';
+            const url = String((attachment && attachment.url) || (encodedLocalFileId ? `/files/${encodedLocalFileId}` : '')).trim();
+            const thumbUrl = String((attachment && attachment.thumb_url) || (url && url.startsWith('/files/') ? `${url}/thumb` : url) || '').trim();
             const type = escapeHtml(String((attachment && attachment.type) || 'file'));
             const rawType = String((attachment && attachment.type) || '').trim().toLowerCase();
             const size = Number(attachment && attachment.size);
@@ -4389,7 +4413,18 @@
             const download = url ? `<a href="${dmEscapeAttr(url)}" class="btn btn-sm btn-outline-primary" download="${dmEscapeAttr(name)}"><i class="bi bi-download"></i></a>` : '';
             let mediaHtml = '';
             const isPdf = rawType === 'application/pdf' || rawName.toLowerCase().endsWith('.pdf');
-            if (url && rawType.startsWith('audio/')) {
+            const isImage = rawType.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(rawName);
+            if (url && isImage) {
+                mediaHtml = `
+                    <button type="button"
+                            class="dm-attachment-image-preview"
+                            data-full-url="${dmEscapeAttr(url)}"
+                            onclick="viewImage(this.dataset.fullUrl)"
+                            title="Open image preview">
+                        <img src="${dmEscapeAttr(thumbUrl || url)}" alt="${dmEscapeAttr(rawName)}" loading="lazy" decoding="async">
+                    </button>
+                `;
+            } else if (url && rawType.startsWith('audio/')) {
                 mediaHtml = `
                     <audio controls preload="metadata" class="w-100 mt-2">
                         <source src="${dmEscapeAttr(url)}" type="${dmEscapeAttr(rawType || 'audio/mpeg')}">

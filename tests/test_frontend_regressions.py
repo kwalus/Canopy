@@ -2307,6 +2307,26 @@ console.log(JSON.stringify({{
         self.assertIn('.media-grid[data-layout="hero"]', base_template)
         self.assertIn('.media-grid[data-layout="strip"]', base_template)
 
+    def test_dm_attachments_derive_authenticated_urls_from_file_ids(self) -> None:
+        messages_macros = (ROOT / 'canopy' / 'ui' / 'templates' / '_messages_macros.html').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        agent_instructions = (ROOT / 'canopy' / 'api' / 'agent_instructions_data.py').read_text(encoding='utf-8')
+
+        self.assertIn("local_file_id = attachment.id or attachment.file_id", messages_macros)
+        self.assertIn("attachment_url = attachment.url or ('/files/' ~ local_file_id if local_file_id else '')", messages_macros)
+        self.assertIn("attachment_thumb_url = attachment.thumb_url or", messages_macros)
+        self.assertIn('viewImage({{ attachment_url|tojson|forceescape }})', messages_macros)
+        self.assertIn("togglePdfAttachmentPreview({{ preview_id|tojson }}, {{ attachment_url|tojson }}", messages_macros)
+        self.assertIn("local_image_file_id = img.id or img.file_id", messages_macros)
+        self.assertIn("image_url = img.url or ('/files/' ~ local_image_file_id if local_image_file_id else '')", messages_macros)
+
+        self.assertIn("const localFileId = String((attachment && (attachment.id || attachment.file_id || attachment.vault_file_id))", messages_template)
+        self.assertIn("const url = String((attachment && attachment.url) || (encodedLocalFileId ? `/files/${encodedLocalFileId}` : '')).trim();", messages_template)
+        self.assertIn('class="dm-attachment-image-preview"', messages_template)
+
+        self.assertIn('channel and DM image attachments inline', agent_instructions)
+        self.assertIn('POST /api/v1/messages/reply', agent_instructions)
+
     def test_channel_thread_polling_has_snapshot_fallback(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
         self.assertIn("// Fall back to a direct snapshot refresh if the event poll fails.", channels_template)
@@ -3686,7 +3706,7 @@ console.log(JSON.stringify({{
         self.assertIn('data-canopy-widget-key="{{ module_manifest.key|e }}"', feed_template)
         self.assertIn('data-canopy-widget-key="{{ module_manifest.key|e }}"', dm_macros)
         self.assertIn("'bundle_url': '/files/' ~ attachment_file_id", feed_template)
-        self.assertIn("'bundle_url': '/files/' ~ attachment_file_id", dm_macros)
+        self.assertIn("'bundle_url': attachment_url", dm_macros)
         self.assertIn("function buildDeckWidgetItem(node, manifest, sourceEl) {", main_js)
         self.assertIn("function mergeExplicitDeckItem(items, explicitItem) {", main_js)
         self.assertIn("items = reconcileDeckQueueItemsBuilt(items, previousDeckItems, sourceEl);", main_js)
@@ -4013,7 +4033,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.236', api_ref)
+        self.assertIn('0.6.237', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
