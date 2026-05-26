@@ -871,6 +871,7 @@ class CollabCardManager:
         config: Optional[Dict[str, Any]] = None,
         telemetry: Optional[Dict[str, Any]] = None,
         created_at: Optional[Any] = None,
+        updated_at: Optional[Any] = None,
         actor_id: Optional[str] = None,
         preserve_runtime: bool = True,
     ) -> Optional[Dict[str, Any]]:
@@ -878,6 +879,7 @@ class CollabCardManager:
             return None
         now = _now_iso()
         created_value = str(created_at or now)
+        updated_value = str(updated_at or now)
         permissions_json = json.dumps(permissions or [])
         editors_json = json.dumps(editors or [])
         config_json = json.dumps(config or {})
@@ -927,7 +929,7 @@ class CollabCardManager:
                             editors_json,
                             config_json,
                             json.dumps(telemetry_to_store),
-                            now,
+                            updated_value,
                             card_id,
                         ),
                     )
@@ -959,7 +961,7 @@ class CollabCardManager:
                             config_json,
                             telemetry_json,
                             created_value,
-                            now,
+                            updated_value,
                         ),
                     )
                 conn.commit()
@@ -1076,6 +1078,69 @@ class CollabCardManager:
             return [self._row_to_response(row) for row in rows]
         except Exception as exc:
             logger.error("Failed to list card responses for %s: %s", card_id, exc)
+            return []
+
+    def get_cards_latest_timestamp(self) -> Optional[str]:
+        """Return the newest network-visible card/response timestamp for mesh catch-up."""
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT MAX(latest) AS latest
+                      FROM (
+                            SELECT MAX(updated_at) AS latest
+                              FROM collab_cards
+                             WHERE COALESCE(visibility, 'network') = 'network'
+                            UNION ALL
+                            SELECT MAX(r.updated_at) AS latest
+                              FROM collab_card_responses r
+                              JOIN collab_cards c ON c.id = r.card_id
+                             WHERE COALESCE(c.visibility, 'network') = 'network'
+                           )
+                    """
+                ).fetchone()
+            return str(row["latest"]) if row and row["latest"] else None
+        except Exception as exc:
+            logger.debug("Failed to get collaboration-card latest timestamp: %s", exc)
+            return None
+
+    def get_cards_since(self, since_timestamp: Optional[str], limit: int = 500) -> List[Dict[str, Any]]:
+        """Return network-visible card snapshots changed since a timestamp.
+
+        The snapshots intentionally include responses. Live interactions already
+        broadcast card state to online peers; this method is the durable catch-up
+        surface for peers that were offline when an input response or telemetry
+        update occurred.
+        """
+        since = str(since_timestamp or "1970-01-01 00:00:00").strip() or "1970-01-01 00:00:00"
+        limit_val = max(1, min(int(limit or 500), 1000))
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT DISTINCT c.*
+                      FROM collab_cards c
+                 LEFT JOIN collab_card_responses r
+                        ON r.card_id = c.id
+                     WHERE COALESCE(c.visibility, 'network') = 'network'
+                       AND (
+                            COALESCE(c.updated_at, c.created_at) > ?
+                            OR COALESCE(r.updated_at, r.created_at) > ?
+                           )
+                  ORDER BY COALESCE(c.updated_at, c.created_at) ASC, c.id ASC
+                     LIMIT ?
+                    """,
+                    (since, since, limit_val),
+                ).fetchall()
+            snapshots: List[Dict[str, Any]] = []
+            for row in rows:
+                card = self._row_to_card(row)
+                card["responses"] = self.list_responses(card.get("id"))
+                card["response_count"] = len(card["responses"])
+                snapshots.append(card)
+            return snapshots
+        except Exception as exc:
+            logger.error("Failed to list collaboration cards since %s: %s", since, exc)
             return []
 
     def submit_response(
@@ -1245,6 +1310,7 @@ class CollabCardManager:
             config=payload.get("config") if isinstance(payload.get("config"), dict) else {},
             telemetry=payload.get("telemetry") if isinstance(payload.get("telemetry"), dict) else {},
             created_at=payload.get("created_at"),
+            updated_at=payload.get("updated_at"),
             actor_id=None,
             preserve_runtime=False,
         )

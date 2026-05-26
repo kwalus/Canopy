@@ -4698,11 +4698,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _get_tasks_latest():
             return task_manager.get_tasks_latest_timestamp() if task_manager else None
 
+        def _get_collab_cards_latest():
+            return collab_card_manager.get_cards_latest_timestamp() if collab_card_manager else None
+
         p2p_manager.get_feed_latest_timestamp = _get_feed_latest_timestamp
         p2p_manager.get_circle_entries_latest_timestamp = _get_circle_entries_latest
         p2p_manager.get_circle_votes_latest_timestamp = _get_circle_votes_latest
         p2p_manager.get_circles_latest_timestamp = _get_circles_latest
         p2p_manager.get_tasks_latest_timestamp = _get_tasks_latest
+        p2p_manager.get_collab_cards_latest_timestamp = _get_collab_cards_latest
 
         denied_catchup_audit_ts: dict[tuple[str, str], float] = {}
         denied_catchup_audit_interval_s = 120.0
@@ -4903,13 +4907,15 @@ def create_app(config: Optional[Config] = None) -> Flask:
                                 feed_latest=None, circle_entries_latest=None,
                                 circle_votes_latest=None, circles_latest=None,
                                 tasks_latest=None,
+                                collab_cards_latest=None,
                                 digest=None,
                                 channel_ranges=None):
             """A peer is asking us for messages it missed.
 
             For each channel, query messages newer than the timestamp
             the peer reports, then send them back.  Also gathers missed
-            feed posts, circle entries, circle votes, and tasks.
+            feed posts, circle entries, circle votes, tasks, and
+            collaboration-card snapshots.
 
             IMPORTANT: This callback runs on the asyncio event loop
             (called from the routing layer's message handler).  We
@@ -5310,6 +5316,19 @@ def create_app(config: Optional[Config] = None) -> Flask:
                     except Exception as t_err:
                         logger.debug(f"Catchup tasks gathering failed: {t_err}")
 
+                # Collaboration cards newer than what the peer has. Live card
+                # updates are broadcast as interactions; this snapshot path
+                # closes the offline/reconnect gap for input responses and
+                # telemetry progress.
+                if trusted_content and collab_card_manager:
+                    try:
+                        since_cc = collab_cards_latest or '1970-01-01 00:00:00'
+                        collab_cards = collab_card_manager.get_cards_since(since_cc)
+                        if collab_cards:
+                            extra_data['collab_cards'] = collab_cards
+                    except Exception as cc_err:
+                        logger.debug(f"Catchup collaboration cards gathering failed: {cc_err}")
+
                 total_extra = sum(len(v) for v in extra_data.values() if isinstance(v, list))
                 has_data = bool(all_messages) or total_extra > 0
 
@@ -5339,13 +5358,13 @@ def create_app(config: Optional[Config] = None) -> Flask:
         def _on_catchup_response(messages, from_peer,
                                  feed_posts=None, circle_entries=None,
                                  circle_votes=None, circles=None,
-                                 tasks=None):
+                                 tasks=None, collab_cards=None):
             """Store missed messages received in a catch-up response.
 
             Uses the same INSERT OR IGNORE pattern as the live P2P
             message handler to avoid duplicates.  Also processes
             missed feed posts, circle objects, circle entries, circle
-            votes, and tasks sent by peers running v0.3.36+.
+            votes, tasks, and collaboration-card snapshots sent by peers.
 
             NOTE: The send side dispatches channel messages individually
             and extra data (feed posts, circles, tasks) as a separate
@@ -5353,7 +5372,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
             messages is empty — the extra data still needs processing.
             """
             has_messages = bool(messages)
-            has_extra = bool(feed_posts) or bool(circle_entries) or bool(circle_votes) or bool(circles) or bool(tasks)
+            has_extra = bool(feed_posts) or bool(circle_entries) or bool(circle_votes) or bool(circles) or bool(tasks) or bool(collab_cards)
             if not has_messages and not has_extra:
                 return
             if _peer_requires_sync_approval(from_peer):
@@ -5812,6 +5831,32 @@ def create_app(config: Optional[Config] = None) -> Flask:
                 if t_stored:
                     logger.info(f"Catchup from {from_peer}: stored "
                                 f"{t_stored} missed tasks")
+
+            # Collaboration cards
+            if trusted_content and collab_cards and collab_card_manager:
+                cc_stored = 0
+                cc_responses = 0
+                for card_data in collab_cards:
+                    try:
+                        if not isinstance(card_data, dict):
+                            continue
+                        card = collab_card_manager.ingest_card_snapshot(card_data)
+                        if card:
+                            cc_stored += 1
+                        card_id = str(card_data.get('id') or '').strip()
+                        for response_data in card_data.get('responses') or []:
+                            if isinstance(response_data, dict) and card_id:
+                                if collab_card_manager.ingest_response_snapshot(card_id, response_data):
+                                    cc_responses += 1
+                    except Exception as cc_err:
+                        logger.debug(f"Catchup collaboration card failed: {cc_err}")
+                if cc_stored or cc_responses:
+                    logger.info(
+                        "Catchup from %s: stored %d collaboration card(s), %d response(s)",
+                        from_peer,
+                        cc_stored,
+                        cc_responses,
+                    )
 
         p2p_manager.on_catchup_response = _on_catchup_response
 

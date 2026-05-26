@@ -151,6 +151,7 @@ class P2PNetworkManager:
         self.get_circle_votes_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
         self.get_circles_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
         self.get_tasks_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
+        self.get_collab_cards_latest_timestamp: Optional[Callable[[], Optional[str]]] = None
         
         # Profile sync callbacks
         self.on_profile_sync: Optional[Callable] = None
@@ -6113,7 +6114,8 @@ class P2PNetworkManager:
         Builds a map of {channel_id: latest_timestamp} from local data
         and sends it so the peer can reply with any newer messages.
         Also includes latest timestamps for feed posts, circle entries,
-        circle votes, and tasks so the peer can send missed items.
+        circle votes, tasks, and collaboration cards so the peer can send
+        missed durable object updates.
         """
         if not self.message_router:
             return
@@ -6166,6 +6168,7 @@ class P2PNetworkManager:
                 ('get_circle_votes_latest_timestamp', 'circle_votes_latest'),
                 ('get_circles_latest_timestamp', 'circles_latest'),
                 ('get_tasks_latest_timestamp', 'tasks_latest'),
+                ('get_collab_cards_latest_timestamp', 'collab_cards_latest'),
             ]:
                 cb = getattr(self, attr, None)
                 if cb:

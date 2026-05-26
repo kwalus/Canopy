@@ -277,6 +277,64 @@ progress: 12%
         self.assertEqual(synced["telemetry"]["stage"], "synced")
         self.assertEqual(synced["status"], "complete")
 
+    def test_changed_card_snapshots_include_responses_for_mesh_catchup(self) -> None:
+        self.db.conn.execute(
+            "INSERT INTO channel_messages (id, channel_id) VALUES (?, ?)",
+            ("msg-catchup", "general"),
+        )
+        self.db.conn.execute(
+            "INSERT INTO channel_members (channel_id, user_id) VALUES (?, ?)",
+            ("general", "alice"),
+        )
+        self.db.conn.commit()
+
+        spec = InputCardSpec(title="Mesh decision", prompt="Approve catchup?")
+        card_id = derive_collab_card_id("channel", "msg-catchup", "input")
+        self.manager.upsert_input_card(
+            card_id=card_id,
+            spec=spec,
+            created_by="owner",
+            owner_id="owner",
+            source_type="channel_message",
+            source_id="msg-catchup",
+            channel_id="general",
+            permissions=["alice"],
+        )
+
+        self.manager.submit_response(
+            card_id,
+            responder_id="alice",
+            value="approved",
+            response_type="approval",
+            comment="Looks safe.",
+        )
+
+        latest = self.manager.get_cards_latest_timestamp()
+        self.assertTrue(latest)
+
+        snapshots = self.manager.get_cards_since("1970-01-01 00:00:00")
+        snapshot = next(card for card in snapshots if card["id"] == card_id)
+        self.assertEqual(snapshot["visibility"], "network")
+        self.assertEqual(snapshot["response_count"], 1)
+        self.assertEqual(snapshot["responses"][0]["responder_id"], "alice")
+        self.assertEqual(snapshot["responses"][0]["value"], "approved")
+
+    def test_local_cards_are_excluded_from_mesh_catchup_snapshots(self) -> None:
+        self.manager.upsert_card(
+            card_id="local-card",
+            card_type="telemetry",
+            title="Private local telemetry",
+            created_by="owner",
+            owner_id="owner",
+            source_type="api",
+            source_id="local-card",
+            visibility="local",
+            telemetry={"progress": 25},
+        )
+        snapshots = self.manager.get_cards_since("1970-01-01 00:00:00")
+        self.assertNotIn("local-card", {card["id"] for card in snapshots})
+        self.assertIsNone(self.manager.get_cards_latest_timestamp())
+
     def test_channel_source_visibility_blocks_direct_card_response_by_non_member(self) -> None:
         self.db.conn.execute(
             "INSERT INTO channel_messages (id, channel_id) VALUES (?, ?)",
