@@ -1168,6 +1168,49 @@
         flex-wrap: wrap;
     }
 
+    /* DM cards and attachment previews are often repeated in long threads; keep
+       them bounded so rich content cannot make the inbox feel sticky. */
+    .dm-conversation-card,
+    .dm-message-row,
+    .dm-attachment-card,
+    .dm-empty-card,
+    .dm-search-result-card {
+        max-width: 100%;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        contain: layout style;
+    }
+
+    @supports (content-visibility: auto) {
+        .dm-message-row:not(.dropdown-open):not(.editing),
+        .dm-conversation-card,
+        .dm-attachment-card,
+        .dm-search-result-card {
+            content-visibility: auto;
+            contain-intrinsic-size: 180px;
+        }
+    }
+
+    @media (max-width: 767.98px) {
+        .dm-attachment-card {
+            padding: 0.62rem 0.66rem;
+            border-radius: 13px;
+        }
+
+        .dm-attachment-meta,
+        .dm-attachment-title-row {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .dm-attachment-actions .btn,
+        .dm-attachment-actions button {
+            flex: 1 1 9rem;
+            min-height: 2.35rem;
+        }
+    }
+
     .dm-empty-state,
     .dm-search-results {
         padding: 1rem;

@@ -4653,6 +4653,113 @@
     gap: 0.45rem;
 }
 
+/* Rendered-card hardening: feed cards can contain rich work objects, so keep
+   them bounded and cheap to paint during long timeline scrolls. */
+.inline-task-card,
+.poll-card,
+.circle-card,
+.skill-card,
+.handoff-card,
+.community-note-card,
+.objective-card,
+.request-card,
+.signal-card,
+.collab-card,
+.contract-card {
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    contain: layout style;
+}
+
+@supports (content-visibility: auto) {
+    .inline-task-card,
+    .poll-card,
+    .circle-card,
+    .skill-card,
+    .handoff-card,
+    .community-note-card,
+    .objective-card,
+    .request-card,
+    .signal-card,
+    .collab-card,
+    .contract-card {
+        content-visibility: auto;
+        contain-intrinsic-size: 240px;
+    }
+}
+
+@media (max-width: 768px) {
+    .inline-task-card,
+    .poll-card,
+    .circle-card,
+    .skill-card,
+    .handoff-card,
+    .community-note-card,
+    .objective-card,
+    .request-card,
+    .signal-card,
+    .collab-card,
+    .contract-card {
+        border-radius: 14px;
+        padding: 0.76rem 0.78rem;
+    }
+
+    .inline-task-header,
+    .poll-header,
+    .circle-header,
+    .skill-header,
+    .handoff-header,
+    .community-note-head,
+    .objective-header,
+    .request-header,
+    .signal-header,
+    .collab-card-head,
+    .collab-card-meta,
+    .contract-header,
+    .contract-meta {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.42rem;
+    }
+
+    .objective-progress,
+    .signal-confidence {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .request-actions,
+    .signal-actions,
+    .skill-actions,
+    .circle-actions,
+    .contract-actions,
+    .community-note-actions,
+    .collab-card-options {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        width: 100%;
+    }
+
+    .request-actions .btn,
+    .request-actions button,
+    .signal-actions .btn,
+    .skill-actions .btn,
+    .circle-actions .btn,
+    .contract-actions .btn,
+    .community-note-actions .btn,
+    .collab-card-options .btn,
+    .collab-card-options button {
+        width: 100%;
+        min-height: 2.35rem;
+    }
+
+    .collab-telemetry-meta,
+    .collab-telemetry-metrics {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 /* Responsive embed constraints */
 .embed-preview {
     max-width: 100%;

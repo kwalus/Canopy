@@ -2748,6 +2748,8 @@
                 color-mix(in srgb, var(--canopy-bg-secondary) 92%, var(--canopy-primary) 8%));
         box-shadow: 0 16px 34px rgba(2, 6, 23, 0.2);
         overflow: hidden;
+        overflow-wrap: anywhere;
+        contain: layout style;
     }
     .agent-run-capsule::before {
         content: "";
@@ -3261,6 +3263,12 @@
         color: var(--canopy-text-muted);
         font-size: 0.85rem;
         padding: 0.7rem 1rem;
+    }
+    @supports (content-visibility: auto) {
+        .agent-run-capsule:not(.is-expanded) {
+            content-visibility: auto;
+            contain-intrinsic-size: 320px;
+        }
     }
     .channel-agent-capsule-level-panel {
         margin: 0.2rem 0.55rem 0.45rem;
@@ -9559,6 +9567,113 @@
     flex-wrap: wrap;
     gap: 0.45rem;
 }
+
+/* Rendered-card hardening: cards should be cheap to scroll and unable to
+   force horizontal overflow on narrow channel panes. */
+.inline-task-card,
+.poll-card,
+.circle-card,
+.skill-card,
+.handoff-card,
+.community-note-card,
+.objective-card,
+.request-card,
+.signal-card,
+.collab-card,
+.contract-card {
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    contain: layout style;
+}
+
+@supports (content-visibility: auto) {
+    .inline-task-card,
+    .poll-card,
+    .circle-card,
+    .skill-card,
+    .handoff-card,
+    .community-note-card,
+    .objective-card,
+    .request-card,
+    .signal-card,
+    .collab-card,
+    .contract-card {
+        content-visibility: auto;
+        contain-intrinsic-size: 240px;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .inline-task-card,
+    .poll-card,
+    .circle-card,
+    .skill-card,
+    .handoff-card,
+    .community-note-card,
+    .objective-card,
+    .request-card,
+    .signal-card,
+    .collab-card,
+    .contract-card {
+        border-radius: 14px;
+        padding: 0.76rem 0.78rem;
+    }
+
+    .inline-task-header,
+    .poll-header,
+    .circle-header,
+    .skill-header,
+    .handoff-header,
+    .community-note-head,
+    .objective-header,
+    .request-header,
+    .signal-header,
+    .collab-card-head,
+    .collab-card-meta,
+    .contract-header,
+    .contract-meta {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.42rem;
+    }
+
+    .objective-progress,
+    .signal-confidence {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .request-actions,
+    .signal-actions,
+    .skill-actions,
+    .circle-actions,
+    .contract-actions,
+    .community-note-actions,
+    .collab-card-options {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        width: 100%;
+    }
+
+    .request-actions .btn,
+    .request-actions button,
+    .signal-actions .btn,
+    .skill-actions .btn,
+    .circle-actions .btn,
+    .contract-actions .btn,
+    .community-note-actions .btn,
+    .collab-card-options .btn,
+    .collab-card-options button {
+        width: 100%;
+        min-height: 2.35rem;
+    }
+
+    .collab-telemetry-meta,
+    .collab-telemetry-metrics {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
 .channel-removal-banner {
     display: flex;
     align-items: center;
@@ -14389,6 +14504,7 @@ const AGENT_RUN_CAPSULE_LLM_MAX_ARTIFACTS = 10;
 const AGENT_RUN_CAPSULE_LLM_TIMEOUT_MS = 8000;
 const AGENT_RUN_CAPSULE_LLM_MAX_VISIBLE_PER_BATCH = 4;
 let channelAgentRunCapsuleEnrichmentPayloads = {};
+let channelAgentRunCapsuleTracePayloads = {};
 let channelAgentRunCapsuleEnrichmentCache = new Map();
 let channelAgentRunCapsuleEnrichmentQueue = [];
 let channelAgentRunCapsuleEnrichmentActive = 0;
@@ -15232,15 +15348,13 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         directArtifactCopySummary ? `Files & outputs: ${directArtifactCopySummary}` : '',
         brief.nextAction ? `Next action: ${brief.nextAction}` : '',
     ].filter(Boolean).join('\n');
-    let traceHtml = '';
     const rootMessageIds = options.rootMessageIds instanceof Set ? options.rootMessageIds : new Set();
-    run.forEach((message) => {
-        const messageId = String(message && message.id || '');
-        const replyMeta = Object.prototype.hasOwnProperty.call(replyMetaById || {}, messageId)
-            ? replyMetaById[messageId]
-            : !rootMessageIds.has(messageId);
-        traceHtml += renderMessage(message, userInfo, replyMeta);
-    });
+    channelAgentRunCapsuleTracePayloads[capsuleId] = {
+        messages: run,
+        userInfo: userInfo || {},
+        replyMetaById: replyMetaById || {},
+        rootMessageIds: Array.from(rootMessageIds),
+    };
     return `
         <section class="agent-run-capsule"
                  data-agent-run-capsule="${escapeAttr(capsuleId)}"
@@ -15282,10 +15396,48 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
                     ${renderAgentRunCapsuleSignalMap(run, directArtifacts, capsuleId)}
                 </div>
             </div>
-            <div class="agent-run-capsule-trace" role="region" aria-label="Exact source posts hidden inside this agent run capsule">
-                ${traceHtml || '<div class="agent-run-capsule-empty">No source posts available in this capsule.</div>'}
+            <div class="agent-run-capsule-trace"
+                 data-agent-run-capsule-trace-state="lazy"
+                 role="region"
+                 aria-label="Exact source posts hidden inside this agent run capsule">
+                <div class="agent-run-capsule-empty agent-run-capsule-trace-placeholder">
+                    <i class="bi bi-lightning-charge me-1"></i>Source trace renders when opened.
+                </div>
             </div>
         </section>`;
+}
+
+function renderAgentRunCapsuleTrace(capsule) {
+    if (!capsule) return false;
+    const trace = capsule.querySelector('.agent-run-capsule-trace');
+    if (!trace) return false;
+    if (trace.dataset.agentRunCapsuleTraceState === 'rendered') return true;
+    const capsuleId = String(capsule.dataset.agentRunCapsule || '');
+    const payload = channelAgentRunCapsuleTracePayloads[capsuleId];
+    const messages = payload && Array.isArray(payload.messages) ? payload.messages.filter(Boolean) : [];
+    if (!messages.length) {
+        trace.innerHTML = '<div class="agent-run-capsule-empty">No source posts available in this capsule.</div>';
+        trace.dataset.agentRunCapsuleTraceState = 'rendered';
+        return false;
+    }
+    const replyMetaById = payload.replyMetaById || {};
+    const rootMessageIds = new Set(payload.rootMessageIds || []);
+    let traceHtml = '';
+    messages.forEach((message) => {
+        const messageId = String(message && message.id || '');
+        const replyMeta = Object.prototype.hasOwnProperty.call(replyMetaById, messageId)
+            ? replyMetaById[messageId]
+            : !rootMessageIds.has(messageId);
+        traceHtml += renderMessage(message, payload.userInfo || {}, replyMeta);
+    });
+    trace.innerHTML = traceHtml || '<div class="agent-run-capsule-empty">No source posts available in this capsule.</div>';
+    trace.dataset.agentRunCapsuleTraceState = 'rendered';
+    scheduleChannelSourceLayouts(trace);
+    hydrateChannelReactionControls();
+    if (typeof formatTimestamps === 'function') {
+        formatTimestamps(trace);
+    }
+    return true;
 }
 
 function isAgentRunCapsuleNearViewport(capsule) {
@@ -15604,6 +15756,7 @@ function toggleAgentRunCapsuleTrace(button) {
         : '<i class="bi bi-arrows-expand me-1"></i><span>Show trace</span>';
     if (expanded) {
         const trace = capsule.querySelector('.agent-run-capsule-trace');
+        renderAgentRunCapsuleTrace(capsule);
         scheduleChannelSourceLayouts(trace);
         hydrateChannelReactionControls();
     }
@@ -15616,9 +15769,13 @@ function focusAgentRunCapsuleSource(capsuleId, messageId) {
     const toggle = capsule.querySelector('.agent-run-capsule-actions button[aria-expanded]');
     if (!capsule.classList.contains('is-expanded') && toggle) {
         toggleAgentRunCapsuleTrace(toggle);
+    } else if (capsule.classList.contains('is-expanded')) {
+        renderAgentRunCapsuleTrace(capsule);
+    } else {
+        renderAgentRunCapsuleTrace(capsule);
     }
     if (messageId) {
-        setTimeout(() => focusMessageById(messageId), 80);
+        setTimeout(() => focusMessageById(messageId), 120);
         return;
     }
     const trace = capsule.querySelector('.agent-run-capsule-trace');
@@ -15835,6 +15992,7 @@ function displayMessages(messages, options = {}) {
     const prevScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     replaceChannelMessagesSnapshot(messages);
     channelAgentRunCapsuleEnrichmentPayloads = {};
+    channelAgentRunCapsuleTracePayloads = {};
     
     if (messages.length === 0) {
         currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
