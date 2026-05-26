@@ -3141,6 +3141,16 @@
             box-shadow: 0 14px 34px rgba(2, 6, 23, 0.28);
         }
 
+        .vault-selection-bar:has(.vault-digestion-create.is-visible) {
+            position: static;
+            align-items: stretch;
+            box-shadow: none;
+        }
+
+        .vault-selection-bar:has(.vault-digestion-create.is-visible) > div:first-child {
+            width: 100%;
+        }
+
         .vault-selection-actions,
         .vault-card-actions,
         .vault-digestion-actions,
@@ -3160,6 +3170,26 @@
             overflow-x: visible;
         }
 
+        .vault-selection-bar:has(.vault-digestion-create.is-visible) .vault-selection-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            width: 100%;
+        }
+
+        .vault-selection-bar:has(.vault-digestion-create.is-visible) .vault-selection-actions > .btn,
+        .vault-selection-bar:has(.vault-digestion-create.is-visible) .vault-selection-digestion-target {
+            width: 100%;
+        }
+
+        .vault-selection-bar:has(.vault-digestion-create.is-visible) .vault-selection-actions > .btn {
+            justify-content: center;
+        }
+
+        .vault-selection-bar:has(.vault-digestion-create.is-visible) .vault-digestion-create {
+            grid-column: 1 / -1;
+            order: 10;
+        }
+
         .vault-selection-actions .btn,
         .vault-card-actions .btn,
         .vault-card-actions a.btn,
@@ -3169,8 +3199,74 @@
             white-space: nowrap;
         }
         .vault-digestion-create {
-            max-height: min(76vh, 720px);
-            overflow: auto;
+            max-height: none;
+            overflow: visible;
+        }
+
+        .vault-digestion-builder-head,
+        .vault-digestion-builder-footer {
+            align-items: stretch;
+        }
+
+        .vault-digestion-builder-stat {
+            width: 100%;
+            justify-content: center;
+            border-radius: 14px;
+        }
+
+        .vault-digestion-builder-copy {
+            max-width: none;
+        }
+
+        .vault-digestion-builder-recipient-tools {
+            display: grid;
+            grid-template-columns: 1fr;
+            align-items: stretch;
+        }
+
+        .vault-digestion-builder-filter {
+            flex-wrap: nowrap;
+            justify-content: flex-start;
+            overflow-x: auto;
+            padding-bottom: 0.08rem;
+            scrollbar-width: thin;
+        }
+
+        .vault-digestion-builder-filter .btn {
+            flex: 0 0 auto;
+        }
+
+        .vault-digestion-builder-results {
+            grid-template-columns: 1fr;
+            max-height: min(44dvh, 25rem);
+        }
+
+        .vault-digestion-builder-actions {
+            width: 100%;
+        }
+
+        .vault-digestion-builder-actions .btn {
+            flex: 1 1 9.5rem;
+            justify-content: center;
+        }
+
+        .vault-selection-digestion-menu,
+        .vault-digestion-share-results,
+        .vault-file-share-results {
+            position: fixed;
+            left: 0.75rem;
+            right: 0.75rem;
+            top: auto;
+            bottom: calc(env(safe-area-inset-bottom) + 0.75rem);
+            width: auto;
+            min-width: 0;
+            max-width: none;
+            max-height: min(58dvh, 26rem);
+            z-index: 70;
+        }
+
+        .vault-selection-digestion-choice {
+            grid-template-columns: minmax(0, 1fr);
         }
 
         .vault-inline-preview-panel {

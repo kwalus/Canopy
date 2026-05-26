@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.236] - 2026-05-25
+
+### Changed
+- **Mobile channel filters and Capsules are viewport-safe** — The channel filter strip, overflow menu, Capsule level controls, and collapsed agent-run cards now fit narrow screens with scrollable controls and full-width action buttons instead of clipping or crowding.
+- **File Vault and Digestion creation are mobile-aware** — The selected-file action bar stops behaving like a sticky bottom drawer when the Digestion builder opens, and builder recipients, access controls, add-to-existing menus, and share pickers stack cleanly on phone-sized viewports.
+- **Deck Digestion workspace uses mobile scroll regions** — Digestion stats, search results, chart controls, visual evidence, and chart panes now stack and scroll predictably in compact Deck sizes.
+
 ## [0.6.235] - 2026-05-25
 
 ### Changed

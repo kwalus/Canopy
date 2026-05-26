@@ -2971,9 +2971,12 @@
         .agent-run-capsule {
             margin-left: 0.25rem;
             margin-right: 0.25rem;
+            border-radius: 15px;
         }
         .agent-run-capsule-head {
             grid-template-columns: 1fr;
+            gap: 0.65rem;
+            padding: 0.72rem 0.72rem 0.68rem 0.86rem;
         }
         .agent-run-capsule-brief {
             grid-template-columns: 1fr;
@@ -2981,9 +2984,27 @@
         .agent-run-capsule-side {
             align-items: flex-start;
             min-width: 0;
+            width: 100%;
+        }
+        .agent-run-capsule-avatar-stack {
+            max-width: 100%;
+            overflow: hidden;
         }
         .agent-run-capsule-actions {
             justify-content: flex-start;
+            width: 100%;
+        }
+        .agent-run-capsule-actions .btn {
+            flex: 1 1 8rem;
+            min-width: min(100%, 8rem);
+        }
+        .agent-run-capsule-trace {
+            padding: 0.58rem 0.54rem 0.2rem 0;
+        }
+        .channel-agent-capsule-level-panel {
+            margin: 0.25rem 0.4rem 0.5rem;
+            min-width: 0;
+            width: calc(100% - 0.8rem);
         }
     }
     .channel-recent-filter-menu {
@@ -5540,6 +5561,21 @@
             max-height: min(68dvh, 520px);
             overflow: auto;
             transform: none !important;
+        }
+
+        .channel-header-overflow-menu {
+            max-width: calc(100vw - 1.3rem);
+            max-height: min(74vh, 560px);
+            max-height: min(74dvh, 560px);
+            overflow: auto;
+        }
+
+        .channel-header-overflow-menu .dropdown-item {
+            white-space: normal;
+        }
+
+        .channel-agent-capsule-level-panel {
+            max-width: calc(100vw - 2.3rem);
         }
     }
 </style>
