@@ -4098,6 +4098,7 @@
                 grid-template-rows: auto auto;
                 overflow: auto;
                 -webkit-overflow-scrolling: touch;
+                padding: 6px;
             }
 
             .deck-digestion-hero,
@@ -4107,13 +4108,40 @@
                 grid-template-columns: minmax(0, 1fr);
             }
 
+            .deck-digestion-hero {
+                align-items: start;
+                gap: 6px;
+            }
+
+            .deck-digestion-title-row {
+                align-items: flex-start;
+                flex-wrap: wrap;
+                gap: 4px 8px;
+            }
+
+            .deck-digestion-hero h3 {
+                white-space: normal;
+                overflow-wrap: anywhere;
+            }
+
+            .deck-digestion-copy {
+                -webkit-line-clamp: 2;
+            }
+
             .deck-digestion-stat-grid {
-                justify-content: flex-start;
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                justify-content: stretch;
                 max-width: none;
+                width: 100%;
+            }
+
+            .deck-digestion-stat-grid span {
+                min-width: 0;
             }
 
             .deck-digestion-search-panel {
-                min-height: clamp(280px, 62vh, 520px);
+                min-height: auto;
             }
 
             .deck-digestion-insight-rail {
@@ -4179,6 +4207,42 @@
 
             .deck-digestion-chart-svg {
                 min-width: 420px;
+            }
+
+            .deck-digestion-results {
+                max-height: min(56dvh, 30rem);
+            }
+
+            .deck-digestion-result {
+                padding: 10px;
+            }
+
+            .deck-digestion-results-head {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 3px;
+            }
+
+            .deck-digestion-results-head span {
+                text-align: left;
+            }
+
+            .deck-digestion-quant-list {
+                max-height: min(32dvh, 14rem);
+            }
+        }
+
+        @media (max-width: 420px) {
+            .deck-digestion-stat-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .deck-digestion-chart-nav {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+
+            .deck-digestion-chart-svg {
+                min-width: 360px;
             }
         }
 
