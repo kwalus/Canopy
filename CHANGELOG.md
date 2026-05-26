@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+### Changed
+- **Agent-run Capsules are more source-accurate and clickable** - Capsule file rails now only surface explicit Canopy file references instead of inferring files from agent names such as `@Forge_McClaw`, and the brief rows/chips open the exact source trace so users can act from the compressed card without learning stale helper text.
+
 ## [0.6.238] - 2026-05-26
 
 ### Changed
