@@ -2812,6 +2812,9 @@
         transform: translateY(-1px);
         outline: none;
     }
+    .agent-run-capsule-brief-row.is-empty {
+        display: none;
+    }
     .agent-run-capsule-brief-row::after {
         content: "Open source";
         display: inline-flex;
@@ -12131,7 +12134,10 @@ document.addEventListener('click', function(e) {
         openChannelOrgModal(organizeBtn.dataset.channelId);
     }
 });
-document.addEventListener('scroll', function() { closeAllChannelToolsMenus(); }, true);
+document.addEventListener('scroll', function() {
+    closeAllChannelToolsMenus();
+    scheduleAgentRunCapsuleEnrichments(document.getElementById('messages-list'));
+}, true);
 
 function bindChannelQuickActionHandlers() {
     document.querySelectorAll('.channel-tools-toggle').forEach(btn => {
@@ -14148,6 +14154,16 @@ function getAgentRunArtifacts(messages) {
 }
 
 const AGENT_RUN_CAPSULE_MAX_DIRECT_ARTIFACTS = 6;
+const AGENT_RUN_CAPSULE_LLM_MAX_MESSAGES = 12;
+const AGENT_RUN_CAPSULE_LLM_MAX_ARTIFACTS = 10;
+const AGENT_RUN_CAPSULE_LLM_TIMEOUT_MS = 8000;
+const AGENT_RUN_CAPSULE_LLM_MAX_VISIBLE_PER_BATCH = 4;
+let channelAgentRunCapsuleEnrichmentPayloads = {};
+let channelAgentRunCapsuleEnrichmentCache = new Map();
+let channelAgentRunCapsuleEnrichmentQueue = [];
+let channelAgentRunCapsuleEnrichmentActive = 0;
+let channelAgentRunCapsuleEnrichmentScheduled = false;
+let channelAgentRunCapsuleLlmUnavailableUntil = 0;
 
 function shortAgentRunEntityId(id) {
     const value = String(id || '').trim();
@@ -14208,6 +14224,105 @@ function getAgentRunAttachmentUrl(att, fileId = '') {
     if (url) return url;
     const id = String(fileId || '').trim();
     return id ? `/file-ref/${encodeURIComponent(id)}` : '';
+}
+
+function hashAgentRunCapsuleString(value) {
+    const text = String(value || '');
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i += 1) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function truncateAgentRunPayloadText(value, maxLength = 520) {
+    const normalized = normalizeAgentRunText(value);
+    if (normalized.length <= maxLength) return normalized;
+    return `${normalized.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+}
+
+function buildAgentRunCapsuleSourceHash(run, directArtifacts, deterministic) {
+    const messageBits = (run || []).map((message) => [
+        message && message.id,
+        message && message.updated_at,
+        message && message.created_at,
+        truncateAgentRunPayloadText(getAgentRunRawText(message), 260),
+    ].join('|')).join('~');
+    const artifactBits = (directArtifacts || []).map((artifact) => [
+        artifact && artifact.kind,
+        artifact && artifact.fileId,
+        artifact && artifact.digestionId,
+        artifact && artifact.label,
+    ].join('|')).join('~');
+    return hashAgentRunCapsuleString(JSON.stringify({
+        channelId: currentChannelId || '',
+        messages: messageBits,
+        artifacts: artifactBits,
+        deterministic: deterministic || {},
+    }));
+}
+
+function selectAgentRunCapsuleMessagesForEnrichment(run) {
+    const list = Array.isArray(run) ? run.filter(Boolean) : [];
+    if (list.length <= AGENT_RUN_CAPSULE_LLM_MAX_MESSAGES) return list;
+    const head = list.slice(0, 2);
+    const tail = list.slice(-(AGENT_RUN_CAPSULE_LLM_MAX_MESSAGES - head.length));
+    const seen = new Set();
+    return [...head, ...tail].filter((message) => {
+        const id = String(message && message.id || '');
+        if (id && seen.has(id)) return false;
+        if (id) seen.add(id);
+        return true;
+    });
+}
+
+function buildAgentRunCapsuleEnrichmentPayload(capsuleId, run, participants, directArtifacts, brief, title, summary, status, options = {}) {
+    const selectedMessages = selectAgentRunCapsuleMessagesForEnrichment(run);
+    const deterministic = {
+        title: title || '',
+        overview: summary || '',
+        key_update: (brief && brief.keyUpdate) || '',
+        attention: (brief && brief.attention) || '',
+        source_trail: (brief && brief.sourceTrail) || '',
+        next_action: (brief && brief.nextAction) || '',
+        status: (status && status.label) || '',
+    };
+    const sourceHash = buildAgentRunCapsuleSourceHash(run, directArtifacts, deterministic);
+    return {
+        capsule_id: capsuleId,
+        source_hash: sourceHash,
+        channel_id: currentChannelId || '',
+        capsule_kind: options.capsuleKind || 'reply',
+        level: options.levelConfig ? options.levelConfig.shortLabel : '',
+        message_count: Array.isArray(run) ? run.length : selectedMessages.length,
+        artifact_count: Array.isArray(directArtifacts) ? directArtifacts.length : 0,
+        deterministic,
+        participants: (participants || []).slice(0, 8).map((user) => ({
+            user_id: String(user && user.user_id || ''),
+            username: String(user && user.username || ''),
+            display_name: String(user && user.display_name || ''),
+            account_type: String(user && user.account_type || user && user.role || 'agent'),
+        })),
+        artifacts: (directArtifacts || []).slice(0, AGENT_RUN_CAPSULE_LLM_MAX_ARTIFACTS).map((artifact) => ({
+            kind: String(artifact && artifact.kind || ''),
+            label: String(artifact && artifact.label || artifact && artifact.name || ''),
+            file_id: String(artifact && artifact.fileId || ''),
+            digestion_id: String(artifact && artifact.digestionId || ''),
+            meta: getAgentRunArtifactMeta(artifact),
+            message_id: String(artifact && artifact.messageId || ''),
+        })),
+        messages: selectedMessages.map((message) => {
+            const userId = String(message && message.user_id || '');
+            const participant = (participants || []).find((user) => String(user && user.user_id || '') === userId) || {};
+            return {
+                id: String(message && message.id || ''),
+                author: String(participant.display_name || participant.username || userId || 'Agent'),
+                created_at: String(message && message.created_at || ''),
+                text: truncateAgentRunPayloadText(getAgentRunRawText(message), 520),
+            };
+        }),
+    };
 }
 
 function extractAgentRunFileRefsFromText(text) {
@@ -14580,16 +14695,17 @@ function getAgentRunSummary(messages) {
 
 function renderAgentRunBriefRows(brief, capsuleId) {
     const rows = [
-        { label: 'What changed', value: brief && brief.keyUpdate, messageId: brief && brief.keyUpdateMessageId, icon: 'bi-check2-circle', className: '' },
-        brief && brief.attention ? { label: 'Needs attention', value: brief.attention, messageId: brief.attentionMessageId, icon: 'bi-person-raised-hand', className: ' needs-human' } : null,
-        { label: 'Source trail', value: brief && brief.sourceTrail, messageId: brief && brief.sourceTrailMessageId, icon: 'bi-diagram-3', className: '' },
-        { label: 'Next action', value: brief && brief.nextAction, messageId: brief && brief.nextActionMessageId, icon: 'bi-arrow-return-right', className: '' },
-    ].filter(row => row && row.value);
+        { key: 'key_update', label: 'What changed', value: brief && brief.keyUpdate, messageId: brief && brief.keyUpdateMessageId, icon: 'bi-check2-circle', className: '' },
+        { key: 'attention', label: 'Needs attention', value: brief && brief.attention, messageId: brief && brief.attentionMessageId, icon: 'bi-person-raised-hand', className: ' needs-human' },
+        { key: 'source_trail', label: 'Source trail', value: brief && brief.sourceTrail, messageId: brief && brief.sourceTrailMessageId, icon: 'bi-diagram-3', className: '' },
+        { key: 'next_action', label: 'Next action', value: brief && brief.nextAction, messageId: brief && brief.nextActionMessageId, icon: 'bi-arrow-return-right', className: '' },
+    ].filter(row => row && (row.value || row.key === 'attention'));
     if (!rows.length) return '';
     return `<div class="agent-run-capsule-brief">
         ${rows.map(row => `
             <button type="button"
-                    class="agent-run-capsule-brief-row${escapeAttr(row.className || '')}"
+                    class="agent-run-capsule-brief-row${escapeAttr(row.className || '')}${row.value ? '' : ' is-empty'}"
+                    data-agent-run-capsule-brief-key="${escapeAttr(row.key || '')}"
                     title="Open the source trace for ${escapeAttr(row.label)}"
                     onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '${escapeAttr(row.messageId || '')}')">
                 <div class="agent-run-capsule-brief-label"><i class="bi ${escapeAttr(row.icon)}"></i>${escapeHtml(row.label)}</div>
@@ -14684,6 +14800,18 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
     const summary = brief.overview || getAgentRunSummary(run);
     const levelConfig = options.levelConfig || getChannelAgentRunCapsuleLevelConfig();
     const capsuleKind = options.capsuleKind || 'reply';
+    const enrichmentPayload = buildAgentRunCapsuleEnrichmentPayload(
+        capsuleId,
+        run,
+        participants,
+        directArtifacts,
+        brief,
+        title,
+        summary,
+        status,
+        { levelConfig, capsuleKind }
+    );
+    channelAgentRunCapsuleEnrichmentPayloads[capsuleId] = enrichmentPayload;
     registerAgentRunCapsuleStats(options.statsCollector, run, participants);
     const openTraceChip = (icon, label) => `<button type="button"
             class="agent-run-capsule-chip"
@@ -14723,12 +14851,16 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         traceHtml += renderMessage(message, userInfo, replyMeta);
     });
     return `
-        <section class="agent-run-capsule" data-agent-run-capsule="${escapeAttr(capsuleId)}" aria-label="Compressed agent run">
+        <section class="agent-run-capsule"
+                 data-agent-run-capsule="${escapeAttr(capsuleId)}"
+                 data-agent-run-capsule-source-hash="${escapeAttr(enrichmentPayload.source_hash || '')}"
+                 data-agent-run-capsule-enrichment-state="fallback"
+                 aria-label="Compressed agent run">
             <div class="agent-run-capsule-head">
                 <div class="min-width-0">
                     <div class="agent-run-capsule-eyebrow"><i class="bi bi-layers-fill"></i> Agent run capsule</div>
-                    <div class="agent-run-capsule-title">${escapeHtml(title)}</div>
-                    <div class="agent-run-capsule-summary">${escapeHtml(summary)}</div>
+                    <div class="agent-run-capsule-title" data-agent-run-capsule-field="title">${escapeHtml(title)}</div>
+                    <div class="agent-run-capsule-summary" data-agent-run-capsule-field="overview">${escapeHtml(summary)}</div>
                     ${renderAgentRunBriefRows(brief, capsuleId)}
                     ${renderAgentRunCapsuleArtifactRail(directArtifacts, capsuleId)}
                     <div class="agent-run-capsule-meta">
@@ -14760,6 +14892,184 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
                 ${traceHtml || '<div class="agent-run-capsule-empty">No source posts available in this capsule.</div>'}
             </div>
         </section>`;
+}
+
+function isAgentRunCapsuleNearViewport(capsule) {
+    if (!capsule || !capsule.getBoundingClientRect) return false;
+    const rect = capsule.getBoundingClientRect();
+    const height = window.innerHeight || document.documentElement.clientHeight || 900;
+    return rect.bottom >= -360 && rect.top <= height + 560;
+}
+
+function buildAgentRunCapsuleCopySummaryFromDom(capsule, summary) {
+    if (!capsule || !summary) return '';
+    const rows = [
+        `Agent run capsule: ${summary.title || ''}`,
+        summary.overview || '',
+        summary.key_update ? `What changed: ${summary.key_update}` : '',
+        summary.attention ? `Needs attention: ${summary.attention}` : '',
+        summary.source_trail ? `Source trail: ${summary.source_trail}` : '',
+        summary.next_action ? `Next action: ${summary.next_action}` : '',
+    ].filter(Boolean);
+    return rows.join('\n');
+}
+
+function applyAgentRunCapsuleEnrichment(capsule, result) {
+    if (!capsule || !result || !result.summary) return;
+    const summary = result.summary || {};
+    const setField = (field, value) => {
+        const text = String(value || '').trim();
+        if (!text) return;
+        const node = capsule.querySelector(`[data-agent-run-capsule-field="${field}"]`);
+        if (node) node.textContent = text;
+    };
+    setField('title', summary.title);
+    setField('overview', summary.overview);
+    ['key_update', 'attention', 'source_trail', 'next_action'].forEach((key) => {
+        const text = String(summary[key] || '').trim();
+        if (!text) return;
+        const row = capsule.querySelector(`[data-agent-run-capsule-brief-key="${key}"] .agent-run-capsule-brief-value`);
+        if (row) {
+            row.textContent = text;
+            const rowButton = row.closest('.agent-run-capsule-brief-row');
+            if (rowButton) rowButton.classList.remove('is-empty');
+        }
+    });
+    const copyButton = capsule.querySelector('[data-copy-summary]');
+    const copySummary = buildAgentRunCapsuleCopySummaryFromDom(capsule, summary);
+    if (copyButton && copySummary) {
+        copyButton.setAttribute('data-copy-summary', encodeURIComponent(copySummary));
+    }
+    capsule.dataset.agentRunCapsuleEnrichmentState = result.cached ? 'cached' : 'enriched';
+}
+
+function markAgentRunCapsuleEnrichmentUnavailable(capsule, state = 'unavailable') {
+    if (capsule) {
+        capsule.dataset.agentRunCapsuleEnrichmentState = state;
+    }
+}
+
+function collectVisibleAgentRunCapsulesForEnrichment(root) {
+    if (!currentChannelId || Date.now() < channelAgentRunCapsuleLlmUnavailableUntil) return [];
+    const scope = root || document;
+    const capsules = Array.from(scope.querySelectorAll('[data-agent-run-capsule]'));
+    const selected = [];
+    capsules.forEach((capsule) => {
+        if (selected.length >= AGENT_RUN_CAPSULE_LLM_MAX_VISIBLE_PER_BATCH) return;
+        const state = String(capsule.dataset.agentRunCapsuleEnrichmentState || 'fallback');
+        if (state === 'pending' || state === 'enriched' || state === 'cached' || state === 'unavailable' || state === 'error' || state === 'stale') return;
+        if (!isAgentRunCapsuleNearViewport(capsule)) return;
+        const capsuleId = String(capsule.dataset.agentRunCapsule || '');
+        const payload = channelAgentRunCapsuleEnrichmentPayloads[capsuleId];
+        if (!payload || !payload.channel_id) return;
+        selected.push(capsuleId);
+    });
+    return selected;
+}
+
+function scheduleAgentRunCapsuleEnrichments(root) {
+    if (!currentChannelId || Date.now() < channelAgentRunCapsuleLlmUnavailableUntil) return;
+    const capsuleIds = collectVisibleAgentRunCapsulesForEnrichment(root || document);
+    if (!capsuleIds.length) return;
+    capsuleIds.forEach((capsuleId) => {
+        if (!channelAgentRunCapsuleEnrichmentQueue.includes(capsuleId)) {
+            channelAgentRunCapsuleEnrichmentQueue.push(capsuleId);
+        }
+    });
+    if (channelAgentRunCapsuleEnrichmentScheduled) return;
+    channelAgentRunCapsuleEnrichmentScheduled = true;
+    const runner = () => {
+        channelAgentRunCapsuleEnrichmentScheduled = false;
+        pumpAgentRunCapsuleEnrichmentQueue();
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(runner, { timeout: 1200 });
+    } else {
+        window.setTimeout(runner, 120);
+    }
+}
+
+function pumpAgentRunCapsuleEnrichmentQueue() {
+    if (channelAgentRunCapsuleEnrichmentActive >= 1) return;
+    const capsuleId = channelAgentRunCapsuleEnrichmentQueue.shift();
+    if (!capsuleId) return;
+    const selectorId = window.CSS && window.CSS.escape ? window.CSS.escape(capsuleId) : capsuleId.replace(/"/g, '\\"');
+    const capsule = document.querySelector(`[data-agent-run-capsule="${selectorId}"]`);
+    const payload = channelAgentRunCapsuleEnrichmentPayloads[capsuleId];
+    if (!capsule || !payload) {
+        pumpAgentRunCapsuleEnrichmentQueue();
+        return;
+    }
+    const cacheKey = `${payload.channel_id || ''}:${capsuleId}:${payload.source_hash || ''}`;
+    const cached = channelAgentRunCapsuleEnrichmentCache.get(cacheKey);
+    if (cached) {
+        applyAgentRunCapsuleEnrichment(capsule, { ...cached, cached: true });
+        pumpAgentRunCapsuleEnrichmentQueue();
+        return;
+    }
+    enrichAgentRunCapsule(capsule, payload)
+        .catch(() => { markAgentRunCapsuleEnrichmentUnavailable(capsule, 'error'); })
+        .finally(() => {
+            channelAgentRunCapsuleEnrichmentActive = Math.max(0, channelAgentRunCapsuleEnrichmentActive - 1);
+            if (channelAgentRunCapsuleEnrichmentQueue.length) {
+                window.setTimeout(pumpAgentRunCapsuleEnrichmentQueue, 75);
+            }
+        });
+}
+
+async function enrichAgentRunCapsule(capsule, payload) {
+    channelAgentRunCapsuleEnrichmentActive += 1;
+    capsule.dataset.agentRunCapsuleEnrichmentState = 'pending';
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), AGENT_RUN_CAPSULE_LLM_TIMEOUT_MS);
+    let response = null;
+    try {
+        response = await fetch('/ajax/canopy_llm/capsule_summary', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRFToken': csrfToken,
+            },
+            body: JSON.stringify({
+                channel_id: payload.channel_id || currentChannelId || '',
+                capsule: payload,
+            }),
+            signal: controller.signal,
+        });
+    } finally {
+        window.clearTimeout(timeout);
+    }
+    if (!response || !response.ok) {
+        markAgentRunCapsuleEnrichmentUnavailable(capsule, 'error');
+        return;
+    }
+    const data = await response.json().catch(() => ({}));
+    if (!data || !data.success || data.fallback) {
+        const reason = String(data && data.reason || '');
+        if (reason === 'llm_disabled' || reason === 'missing_api_key') {
+            channelAgentRunCapsuleLlmUnavailableUntil = Date.now() + (5 * 60 * 1000);
+        }
+        markAgentRunCapsuleEnrichmentUnavailable(capsule, 'unavailable');
+        return;
+    }
+    const returnedHash = String(data.source_hash || payload.source_hash || '');
+    const currentHash = String(capsule.dataset.agentRunCapsuleSourceHash || '');
+    if (currentHash && payload.source_hash && currentHash !== String(payload.source_hash || '')) {
+        markAgentRunCapsuleEnrichmentUnavailable(capsule, 'stale');
+        return;
+    }
+    const result = {
+        summary: data.summary || {},
+        provider: data.provider || '',
+        model: data.model || '',
+        credential_source: data.credential_source || '',
+        cached: !!data.cached,
+    };
+    const cacheKey = `${payload.channel_id || ''}:${payload.capsule_id || ''}:${payload.source_hash || returnedHash || ''}`;
+    channelAgentRunCapsuleEnrichmentCache.set(cacheKey, result);
+    applyAgentRunCapsuleEnrichment(capsule, result);
 }
 
 function renderAgentRunCompressedMessages(messages, userInfo, replyMetaById, options = {}) {
@@ -15130,6 +15440,7 @@ function displayMessages(messages, options = {}) {
     const wasNearBottom = isNearBottom(scrollContainer);
     const prevScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     replaceChannelMessagesSnapshot(messages);
+    channelAgentRunCapsuleEnrichmentPayloads = {};
     
     if (messages.length === 0) {
         currentChannelHumanFilterStats = { hiddenThreads: 0, hiddenMessages: 0 };
@@ -15340,6 +15651,7 @@ function displayMessages(messages, options = {}) {
             if (typeof applyCanopyFileReferenceLabels === 'function') {
                 applyCanopyFileReferenceLabels(messagesContainer);
             }
+            scheduleAgentRunCapsuleEnrichments(messagesContainer);
 
             const container = document.getElementById('messages-container');
             applyUserAvatarStacks(userInfo, messagesContainer);
