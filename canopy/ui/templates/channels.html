@@ -2820,6 +2820,135 @@
         line-height: 1.36;
         overflow-wrap: anywhere;
     }
+    .agent-run-capsule-artifacts {
+        margin-top: 0.68rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 70%, var(--canopy-primary) 30%);
+        border-radius: 16px;
+        background:
+            radial-gradient(circle at top right, color-mix(in srgb, var(--canopy-primary) 14%, transparent), transparent 44%),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 82%, var(--canopy-primary) 18%);
+        overflow: hidden;
+    }
+    .agent-run-capsule-artifacts-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.7rem;
+        padding: 0.54rem 0.68rem 0.38rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.74rem;
+        font-weight: 850;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+    }
+    .agent-run-capsule-artifacts-head strong {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        color: color-mix(in srgb, var(--canopy-primary) 82%, var(--canopy-text-primary) 18%);
+    }
+    .agent-run-capsule-artifacts-head span:last-child {
+        color: var(--canopy-text-muted);
+        font-size: 0.68rem;
+        letter-spacing: 0.02em;
+        text-transform: none;
+    }
+    .agent-run-capsule-artifact-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+        gap: 0.44rem;
+        padding: 0 0.58rem 0.58rem;
+    }
+    .agent-run-capsule-artifact {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.48rem;
+        min-width: 0;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, var(--canopy-primary) 28%);
+        border-radius: 13px;
+        padding: 0.46rem 0.5rem;
+        background: color-mix(in srgb, var(--canopy-bg-card) 76%, var(--canopy-primary) 24%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    .agent-run-capsule-artifact-icon {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 11px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: color-mix(in srgb, var(--canopy-primary) 86%, #fff 14%);
+        background: color-mix(in srgb, var(--canopy-primary) 16%, var(--canopy-bg-secondary) 84%);
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border) 66%);
+        flex: 0 0 auto;
+    }
+    .agent-run-capsule-artifact-main {
+        min-width: 0;
+    }
+    .agent-run-capsule-artifact-name,
+    .agent-run-capsule-artifact-name:visited {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.28rem;
+        max-width: 100%;
+        color: var(--canopy-text-primary);
+        font-size: 0.84rem;
+        font-weight: 900;
+        line-height: 1.22;
+        text-decoration: none;
+    }
+    .agent-run-capsule-artifact-name:hover {
+        color: color-mix(in srgb, var(--canopy-primary) 88%, var(--canopy-text-primary) 12%);
+        text-decoration: underline;
+        text-underline-offset: 0.18rem;
+    }
+    .agent-run-capsule-artifact-name span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-artifact-meta {
+        margin-top: 0.12rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.72rem;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-artifact-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex-wrap: nowrap;
+    }
+    .agent-run-capsule-artifact-actions .btn,
+    .agent-run-capsule-artifact-btn {
+        width: 2rem;
+        height: 2rem;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 0;
+        flex: 0 0 auto;
+    }
+    .agent-run-capsule-artifact-more {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 3rem;
+        border: 1px dashed color-mix(in srgb, var(--canopy-border) 62%, var(--canopy-primary) 38%);
+        border-radius: 13px;
+        color: var(--canopy-text-secondary);
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 86%, var(--canopy-primary) 14%);
+        font-size: 0.78rem;
+        font-weight: 850;
+        text-align: center;
+        padding: 0.55rem;
+    }
     .agent-run-capsule-meta {
         display: flex;
         flex-wrap: wrap;
@@ -2980,6 +3109,22 @@
         }
         .agent-run-capsule-brief {
             grid-template-columns: 1fr;
+        }
+        .agent-run-capsule-artifacts-head {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 0.18rem;
+        }
+        .agent-run-capsule-artifact-list {
+            grid-template-columns: 1fr;
+        }
+        .agent-run-capsule-artifact {
+            grid-template-columns: auto minmax(0, 1fr);
+        }
+        .agent-run-capsule-artifact-actions {
+            grid-column: 1 / -1;
+            justify-content: flex-start;
+            padding-left: 2.48rem;
         }
         .agent-run-capsule-side {
             align-items: flex-start;
@@ -3268,6 +3413,27 @@
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-brief-label {
         color: #0f766e;
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-artifacts {
+        background:
+            radial-gradient(circle at top right, rgba(20, 184, 166, 0.1), transparent 44%),
+            rgba(255, 255, 255, 0.78);
+        border-color: rgba(15, 118, 110, 0.18);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-artifact {
+        background: rgba(255, 255, 255, 0.86);
+        border-color: rgba(15, 118, 110, 0.16);
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-artifact-icon {
+        color: #0f766e;
+        background: rgba(20, 184, 166, 0.1);
+        border-color: rgba(15, 118, 110, 0.18);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-artifact-more {
+        color: #334155;
+        background: rgba(240, 253, 250, 0.72);
+        border-color: rgba(15, 118, 110, 0.2);
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-status.status-needs-human {
         color: #9a3412;
@@ -13925,8 +14091,8 @@ function countAgentRunCards(message) {
 
 function getAgentRunArtifacts(messages) {
     const text = (messages || []).map(getAgentRunMessageText).join(' ');
-    const uniqueFileRefs = new Set((text.match(/\bF[0-9A-Za-z]{8,}\b/g) || []).map(String));
-    const uniqueDigestionRefs = new Set((text.match(/\bDg[0-9A-Za-z]{8,}\b/g) || []).map(String));
+    const uniqueFileRefs = new Set((text.match(/\bF[0-9A-Za-z_-]{8,}\b/g) || []).map(String));
+    const uniqueDigestionRefs = new Set((text.match(/\bDg[0-9A-Za-z_-]{8,}\b/g) || []).map(String));
     const attachmentCount = (messages || []).reduce((count, message) => {
         const attachments = Array.isArray(message && message.attachments) ? message.attachments.length : 0;
         return count + attachments;
@@ -13940,6 +14106,286 @@ function getAgentRunArtifacts(messages) {
         digestionRefs: uniqueDigestionRefs.size,
         mentions: mentionCount,
     };
+}
+
+const AGENT_RUN_CAPSULE_MAX_DIRECT_ARTIFACTS = 6;
+
+function shortAgentRunEntityId(id) {
+    const value = String(id || '').trim();
+    if (value.length <= 18) return value;
+    return `${value.slice(0, 10)}…${value.slice(-5)}`;
+}
+
+function getAgentRunRawText(message) {
+    if (!message) return '';
+    return [
+        message.content,
+        message.display_content,
+        message.title,
+        message.body,
+    ].filter(value => value !== undefined && value !== null)
+        .map(value => String(value || ''))
+        .join('\n');
+}
+
+function cleanAgentRunArtifactLabel(value, fallback = 'File') {
+    const clean = String(value || '')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/[`*_#[\]<>]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return (clean || fallback).slice(0, 180);
+}
+
+function deriveAgentRunFileRefLabelFromPrefix(prefix, fileId) {
+    const line = String(prefix || '')
+        .split(/\r?\n/)
+        .pop()
+        .replace(/^[\s>*•\-0-9.)]+/, '')
+        .replace(/\s*(?:file|source|attachment|id)\s*[:=]?\s*$/i, '')
+        .replace(/\s*(?:—|->|:|-)\s*$/g, '')
+        .trim();
+    if (!line || line.length < 5 || line.includes(fileId)) return '';
+    return cleanAgentRunArtifactLabel(line, '');
+}
+
+function getAgentRunAttachmentFileId(att) {
+    const direct = String((att && (att.id || att.file_id || att.vault_file_id || att.origin_file_id || att.remote_file_id)) || '').trim();
+    if (direct) return direct;
+    const raw = String((att && att.url) || '').trim();
+    if (!raw || raw.indexOf('/files/') === -1) return '';
+    try {
+        const path = raw.split(/[?#]/)[0];
+        const rest = path.slice(path.indexOf('/files/') + '/files/'.length);
+        return String(rest.split('/').filter(Boolean)[0] || '').trim();
+    } catch (_) {
+        return '';
+    }
+}
+
+function getAgentRunAttachmentUrl(att, fileId = '') {
+    const url = String((att && att.url) || '').trim();
+    if (url) return url;
+    const id = String(fileId || '').trim();
+    return id ? `/file-ref/${encodeURIComponent(id)}` : '';
+}
+
+function extractAgentRunFileRefsFromText(text) {
+    const raw = String(text || '');
+    if (!raw || !/F[A-Za-z0-9_-]{6,}/.test(raw)) return [];
+    const refs = [];
+    const seen = new Set();
+    const push = (id, label) => {
+        const fileId = String(id || '').trim();
+        if (!/^F[A-Za-z0-9_-]{6,}$/.test(fileId) || seen.has(fileId)) return;
+        seen.add(fileId);
+        refs.push({
+            kind: 'file-ref',
+            fileId,
+            label: cleanAgentRunArtifactLabel(label, `file:${shortAgentRunEntityId(fileId)}`),
+        });
+    };
+    raw.replace(/\[([^\]\r\n]{1,180})\]\((?:https?:\/\/[^\s)]+)?\/(?:files|file-ref)\/(F[A-Za-z0-9_-]{6,})(?:[/?#][^)]*)?\)/g, function (_match, label, id) {
+        push(id, label);
+        return _match;
+    });
+    raw.replace(/<a\b[\s\S]{0,500}?href=(?:"|')?(?:https?:\/\/[^"'\s>]+)?\/(?:files|file-ref)\/(F[A-Za-z0-9_-]{6,})[\s\S]{0,500}?>([\s\S]{0,260}?)<\/a>/gi, function (_match, id, labelHtml) {
+        push(id, String(labelHtml || '').replace(/<[^>]*>/g, ' '));
+        return _match;
+    });
+    raw.replace(/(^|[\s([{<>"'`])file\s*:\s*['"`]?(F[A-Za-z0-9_-]{6,})/gi, function (match, prefix, id, offset) {
+        const leading = raw.slice(Math.max(0, offset - 140), offset);
+        push(id, deriveAgentRunFileRefLabelFromPrefix(leading, id));
+        return match;
+    });
+    raw.replace(/\b(F[A-Za-z0-9_-]{6,})\b/g, function (match, id, offset) {
+        const leading = raw.slice(Math.max(0, offset - 140), offset);
+        push(id, deriveAgentRunFileRefLabelFromPrefix(leading, id));
+        return match;
+    });
+    return refs;
+}
+
+function extractAgentRunDigestionRefsFromText(text) {
+    const raw = String(text || '');
+    if (!raw || !/Dg[A-Za-z0-9_-]{6,}/.test(raw)) return [];
+    const seen = new Set();
+    const refs = [];
+    raw.replace(/\b(Dg[A-Za-z0-9_-]{6,})\b/g, function (match, id, offset) {
+        const digestionId = String(id || '').trim();
+        if (!digestionId || seen.has(digestionId)) return match;
+        seen.add(digestionId);
+        const leading = raw.slice(Math.max(0, offset - 120), offset);
+        refs.push({
+            kind: 'digestion-ref',
+            digestionId,
+            label: cleanAgentRunArtifactLabel(deriveAgentRunFileRefLabelFromPrefix(leading, digestionId), `Digestion ${shortAgentRunEntityId(digestionId)}`),
+        });
+        return match;
+    });
+    return refs;
+}
+
+function agentRunArtifactDedupeKey(artifact) {
+    if (!artifact) return '';
+    if (artifact.kind === 'digestion-ref') return `digestion:${artifact.digestionId || ''}`;
+    if (artifact.fileId) return `file:${artifact.fileId}`;
+    if (artifact.url) return `url:${artifact.url}`;
+    return `${artifact.kind || 'artifact'}:${artifact.label || artifact.name || ''}`;
+}
+
+function collectAgentRunDirectArtifacts(messages) {
+    const seen = new Set();
+    const artifacts = [];
+    const add = (artifact) => {
+        const key = agentRunArtifactDedupeKey(artifact);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        artifacts.push(artifact);
+    };
+    (messages || []).forEach((message, messageIndex) => {
+        const messageId = String((message && message.id) || '');
+        const attachments = Array.isArray(message && message.attachments) ? message.attachments : [];
+        attachments.forEach((att, attachmentIndex) => {
+            if (!att || typeof att !== 'object') return;
+            const fileId = getAgentRunAttachmentFileId(att);
+            const label = cleanAgentRunArtifactLabel(att.name || att.title || fileId, fileId ? `file:${shortAgentRunEntityId(fileId)}` : 'Attachment');
+            add({
+                kind: 'attachment',
+                fileId,
+                url: getAgentRunAttachmentUrl(att, fileId),
+                label,
+                contentType: String(att.type || att.content_type || ''),
+                size: att.size,
+                attachment: att,
+                messageId,
+                order: `${messageIndex}:${attachmentIndex}`,
+            });
+        });
+        const rawText = getAgentRunRawText(message);
+        extractAgentRunFileRefsFromText(rawText).forEach((ref) => {
+            add({ ...ref, messageId, order: `${messageIndex}:ref:${ref.fileId}` });
+        });
+        extractAgentRunDigestionRefsFromText(rawText).forEach((ref) => {
+            add({ ...ref, messageId, order: `${messageIndex}:digestion:${ref.digestionId}` });
+        });
+    });
+    return artifacts;
+}
+
+function getAgentRunArtifactMeta(artifact) {
+    if (!artifact) return '';
+    if (artifact.kind === 'digestion-ref') return 'Digestion object';
+    const bits = [];
+    const type = String(artifact.contentType || '').trim();
+    if (type) bits.push(type);
+    const size = formatFileSize(artifact.size);
+    if (size && size !== '—') bits.push(size);
+    if (artifact.kind === 'file-ref') bits.push('file reference');
+    return bits.join(' • ') || (artifact.kind === 'attachment' ? 'attachment' : 'file reference');
+}
+
+function getAgentRunArtifactIcon(artifact) {
+    if (artifact && artifact.kind === 'digestion-ref') return 'diagram-3';
+    const icon = getFileIcon(artifact && artifact.contentType, artifact && artifact.label);
+    return icon || 'file-earmark';
+}
+
+function getAgentRunDirectArtifactCopySummary(artifacts) {
+    const list = Array.isArray(artifacts) ? artifacts : [];
+    if (!list.length) return '';
+    const visible = list.slice(0, AGENT_RUN_CAPSULE_MAX_DIRECT_ARTIFACTS)
+        .map((artifact) => artifact && (artifact.label || artifact.fileId || artifact.digestionId))
+        .filter(Boolean);
+    const suffix = list.length > visible.length ? `, plus ${list.length - visible.length} more` : '';
+    return visible.length ? `${visible.join('; ')}${suffix}` : '';
+}
+
+function renderAgentRunCapsuleArtifactLink(artifact) {
+    const label = cleanAgentRunArtifactLabel(artifact && artifact.label, 'Artifact');
+    if (artifact && artifact.kind === 'digestion-ref' && artifact.digestionId) {
+        const href = `/vault?digestion=${encodeURIComponent(artifact.digestionId)}`;
+        return `<a class="agent-run-capsule-artifact-name" href="${escapeAttr(href)}" title="Open Digestion ${escapeAttr(artifact.digestionId)}">
+            <span>${escapeHtml(label)}</span>
+        </a>`;
+    }
+    if (artifact && artifact.fileId) {
+        const fileId = String(artifact.fileId || '').trim();
+        const fallback = !artifact.label || String(artifact.label || '').includes(shortAgentRunEntityId(fileId)) || String(artifact.label || '') === fileId;
+        return `<a class="agent-run-capsule-artifact-name canopy-entity-link canopy-file-ref"
+                   href="/file-ref/${encodeURIComponent(fileId)}"
+                   data-canopy-file-id="${escapeAttr(fileId)}"
+                   data-canopy-file-ref="1"
+                   data-canopy-file-label-fallback="${fallback ? '1' : '0'}"
+                   title="Open ${escapeAttr(label)}">
+            <span data-canopy-file-ref-label="1">${escapeHtml(label)}</span>
+        </a>`;
+    }
+    if (artifact && artifact.url) {
+        return `<a class="agent-run-capsule-artifact-name" href="${escapeAttr(artifact.url)}" target="_blank" rel="noopener noreferrer">
+            <span>${escapeHtml(label)}</span>
+        </a>`;
+    }
+    return `<span class="agent-run-capsule-artifact-name"><span>${escapeHtml(label)}</span></span>`;
+}
+
+function renderAgentRunCapsuleArtifactActions(artifact, capsuleId) {
+    const actions = [];
+    if (artifact && artifact.kind !== 'digestion-ref' && artifact.fileId) {
+        const savePayload = artifact.attachment || {
+            id: artifact.fileId,
+            file_id: artifact.fileId,
+            url: `/files/${encodeURIComponent(artifact.fileId)}`,
+            name: artifact.label || artifact.fileId,
+            type: artifact.contentType || '',
+            size: artifact.size,
+        };
+        actions.push(buildSaveToVaultButton(savePayload, {
+            className: 'btn btn-sm btn-outline-secondary agent-run-capsule-artifact-btn',
+            iconOnly: true,
+            title: 'Save this file to File Vault',
+        }));
+    }
+    if (artifact && artifact.messageId) {
+        actions.push(`<button type="button"
+                              class="btn btn-sm btn-outline-success agent-run-capsule-artifact-btn"
+                              title="Open the exact source post inside this capsule"
+                              onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '${escapeAttr(artifact.messageId)}')">
+            <i class="bi bi-signpost-split"></i>
+        </button>`);
+    }
+    return actions.filter(Boolean).join('');
+}
+
+function renderAgentRunCapsuleArtifactRail(artifacts, capsuleId) {
+    const list = Array.isArray(artifacts) ? artifacts.filter(Boolean) : [];
+    if (!list.length) return '';
+    const visible = list.slice(0, AGENT_RUN_CAPSULE_MAX_DIRECT_ARTIFACTS);
+    const hidden = Math.max(0, list.length - visible.length);
+    return `<div class="agent-run-capsule-artifacts" data-agent-run-capsule-artifacts="${escapeAttr(capsuleId)}">
+        <div class="agent-run-capsule-artifacts-head">
+            <strong><i class="bi bi-folder2-open"></i>Files & outputs</strong>
+            <span>${list.length} direct item${list.length === 1 ? '' : 's'} without expanding the trace</span>
+        </div>
+        <div class="agent-run-capsule-artifact-list">
+            ${visible.map((artifact) => `
+                <div class="agent-run-capsule-artifact">
+                    <span class="agent-run-capsule-artifact-icon"><i class="bi bi-${escapeAttr(getAgentRunArtifactIcon(artifact))}"></i></span>
+                    <div class="agent-run-capsule-artifact-main">
+                        ${renderAgentRunCapsuleArtifactLink(artifact)}
+                        <div class="agent-run-capsule-artifact-meta">${escapeHtml(getAgentRunArtifactMeta(artifact))}</div>
+                    </div>
+                    <div class="agent-run-capsule-artifact-actions">${renderAgentRunCapsuleArtifactActions(artifact, capsuleId)}</div>
+                </div>
+            `).join('')}
+            ${hidden > 0 ? `<button type="button"
+                                     class="agent-run-capsule-artifact-more"
+                                     onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '')">
+                +${hidden} more item${hidden === 1 ? '' : 's'} in source trace
+            </button>` : ''}
+        </div>
+    </div>`;
 }
 
 function agentRunHasWorkArtifacts(messages) {
@@ -14165,6 +14611,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
     const rootId = String(options.rootId || (run[0] && (run[0].parent_message_id || run[0].id)) || 'agent-run');
     const capsuleId = `${rootId}-agent-run-${String(options.runIndex || 0)}`.replace(/[^A-Za-z0-9_-]/g, '-');
     const artifacts = getAgentRunArtifacts(run);
+    const directArtifacts = collectAgentRunDirectArtifacts(run);
     const status = getAgentRunStatus(run);
     const participants = getAgentRunParticipants(run, userInfo || {});
     const brief = getAgentRunHumanBrief(run, artifacts, status, participants);
@@ -14184,6 +14631,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         artifacts.cards ? `<span class="agent-run-capsule-chip"><i class="bi bi-kanban"></i>${artifacts.cards} card${artifacts.cards === 1 ? '' : 's'}</span>` : '',
         artifacts.mentions ? `<span class="agent-run-capsule-chip"><i class="bi bi-at"></i>${artifacts.mentions} mention${artifacts.mentions === 1 ? '' : 's'}</span>` : '',
     ].filter(Boolean).join('');
+    const directArtifactCopySummary = getAgentRunDirectArtifactCopySummary(directArtifacts);
     const copySummary = [
         `Agent run capsule: ${title}`,
         `${status.label}. ${run.length} source posts from ${participants.length || 'multiple'} agent${participants.length === 1 ? '' : 's'}.`,
@@ -14191,6 +14639,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         brief.keyUpdate ? `What changed: ${brief.keyUpdate}` : '',
         brief.attention ? `Needs attention: ${brief.attention}` : '',
         brief.sourceTrail ? `Source trail: ${brief.sourceTrail}` : '',
+        directArtifactCopySummary ? `Files & outputs: ${directArtifactCopySummary}` : '',
         brief.reentry ? `Jump back in: ${brief.reentry}` : '',
     ].filter(Boolean).join('\n');
     let traceHtml = '';
@@ -14210,6 +14659,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
                     <div class="agent-run-capsule-title">${escapeHtml(title)}</div>
                     <div class="agent-run-capsule-summary">${escapeHtml(summary)}</div>
                     ${renderAgentRunBriefRows(brief)}
+                    ${renderAgentRunCapsuleArtifactRail(directArtifacts, capsuleId)}
                     <div class="agent-run-capsule-meta">
                         <span class="agent-run-capsule-status status-${escapeAttr(status.key)}">
                             <i class="bi ${escapeAttr(status.icon)}"></i>${escapeHtml(status.label)}
@@ -14381,6 +14831,24 @@ function toggleAgentRunCapsuleTrace(button) {
         const trace = capsule.querySelector('.agent-run-capsule-trace');
         scheduleChannelSourceLayouts(trace);
         hydrateChannelReactionControls();
+    }
+}
+
+function focusAgentRunCapsuleSource(capsuleId, messageId) {
+    const selectorId = String(capsuleId || '').replace(/["\\]/g, '\\$&');
+    const capsule = selectorId ? document.querySelector(`.agent-run-capsule[data-agent-run-capsule="${selectorId}"]`) : null;
+    if (!capsule) return;
+    const toggle = capsule.querySelector('.agent-run-capsule-actions button[aria-expanded]');
+    if (!capsule.classList.contains('is-expanded') && toggle) {
+        toggleAgentRunCapsuleTrace(toggle);
+    }
+    if (messageId) {
+        setTimeout(() => focusMessageById(messageId), 80);
+        return;
+    }
+    const trace = capsule.querySelector('.agent-run-capsule-trace');
+    if (trace) {
+        scrollMessageIntoContainer(trace, { align: 'nearest', behavior: 'smooth' });
     }
 }
 
@@ -14798,6 +15266,9 @@ function displayMessages(messages, options = {}) {
             }
             // Source layout compositor (feed uses full-page scan; channels inject HTML async — run explicitly)
             scheduleChannelSourceLayouts(messagesContainer);
+            if (typeof applyCanopyFileReferenceLabels === 'function') {
+                applyCanopyFileReferenceLabels(messagesContainer);
+            }
 
             const container = document.getElementById('messages-container');
             applyUserAvatarStacks(userInfo, messagesContainer);

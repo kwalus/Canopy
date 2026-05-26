@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.238] - 2026-05-26
+
+### Changed
+- **Agent-run Capsules now surface direct files and outputs** — Collapsed Capsules include a compact “Files & outputs” rail for attachments, pasted Canopy file references, and Digestion references, with direct open, save-to-Vault, and source-trace actions so users do not have to expand the full agent trace just to retrieve uploaded work.
+
 ## [0.6.237] - 2026-05-26
 
 ### Fixed
