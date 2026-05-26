@@ -1324,6 +1324,7 @@ class MessageRouter:
                         circle_votes_latest=meta.get('circle_votes_latest'),
                         circles_latest=meta.get('circles_latest'),
                         tasks_latest=meta.get('tasks_latest'),
+                        collab_cards_latest=meta.get('collab_cards_latest'),
                         digest=meta.get('digest'),
                         channel_ranges=meta.get('channel_ranges'),
                     )
@@ -1345,15 +1346,29 @@ class MessageRouter:
         elif message.type == MessageType.CHANNEL_CATCHUP_RESPONSE and self.on_catchup_response:
             try:
                 meta = payload.get('metadata', {})
-                self.on_catchup_response(
-                    messages=meta.get('messages', []),
-                    from_peer=message.from_peer,
-                    feed_posts=meta.get('feed_posts', []),
-                    circle_entries=meta.get('circle_entries', []),
-                    circle_votes=meta.get('circle_votes', []),
-                    circles=meta.get('circles', []),
-                    tasks=meta.get('tasks', []),
-                )
+                try:
+                    self.on_catchup_response(
+                        messages=meta.get('messages', []),
+                        from_peer=message.from_peer,
+                        feed_posts=meta.get('feed_posts', []),
+                        circle_entries=meta.get('circle_entries', []),
+                        circle_votes=meta.get('circle_votes', []),
+                        circles=meta.get('circles', []),
+                        tasks=meta.get('tasks', []),
+                        collab_cards=meta.get('collab_cards', []),
+                    )
+                except TypeError:
+                    # Backward-compatibility for callbacks that predate
+                    # collaboration-card catch-up snapshots.
+                    self.on_catchup_response(
+                        messages=meta.get('messages', []),
+                        from_peer=message.from_peer,
+                        feed_posts=meta.get('feed_posts', []),
+                        circle_entries=meta.get('circle_entries', []),
+                        circle_votes=meta.get('circle_votes', []),
+                        circles=meta.get('circles', []),
+                        tasks=meta.get('tasks', []),
+                    )
             except Exception as e:
                 logger.error(f"Error handling catchup response: {e}", exc_info=True)
         
@@ -2172,7 +2187,8 @@ class MessageRouter:
             to_peer: Peer to request catch-up from
             channel_timestamps: {channel_id: last_message_timestamp} pairs
             extra_timestamps: Optional dict with feed_latest, circle_entries_latest,
-                              circle_votes_latest, tasks_latest
+                              circle_votes_latest, tasks_latest,
+                              collab_cards_latest
             digest: Optional channel digest envelope for sync optimization
             channel_ranges: Optional per-channel oldest/latest/count hints
         """
@@ -2213,7 +2229,7 @@ class MessageRouter:
             to_peer: Peer that requested catch-up
             messages: List of channel message dicts to deliver
             extra_data: Optional dict with feed_posts, circle_entries,
-                        circle_votes, tasks lists
+                        circle_votes, tasks, collab_cards lists
         """
         meta: Dict[str, Any] = {
             'type': 'channel_catchup_response',

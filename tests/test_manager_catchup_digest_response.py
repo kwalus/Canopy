@@ -110,6 +110,34 @@ class TestManagerCatchupDigestResponse(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(digest_chunks, 1)
         self.assertEqual(total_posts, len(large_posts))
 
+    async def test_collaboration_card_extra_data_is_sent(self) -> None:
+        manager = P2PNetworkManager.__new__(P2PNetworkManager)
+        manager._running = True
+        manager.message_router = _DummyRouter()
+        manager.peer_versions = {}
+        manager._introduced_peers = {}
+        manager.connection_manager = None
+
+        await manager.send_catchup_response_async(
+            peer_id='peer-remote',
+            messages=[],
+            extra_data={
+                'collab_cards': [
+                    {
+                        'id': 'telemetry_card_channel_msg_1',
+                        'card_type': 'telemetry',
+                        'title': 'Mesh run state',
+                        'telemetry': {'progress': 80},
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(len(manager.message_router.calls), 1)
+        _peer_id, sent_messages, extra_data = manager.message_router.calls[0]
+        self.assertEqual(sent_messages, [])
+        self.assertEqual(extra_data['collab_cards'][0]['id'], 'telemetry_card_channel_msg_1')
+
     async def test_legacy_peer_extra_data_uses_legacy_budget(self) -> None:
         manager = P2PNetworkManager.__new__(P2PNetworkManager)
         manager._running = True

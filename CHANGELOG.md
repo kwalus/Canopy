@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [Unreleased]
 
 ### Changed
+- **P2P catch-up now includes collaboration card snapshots** - Mesh catch-up requests advertise the newest network-visible input/telemetry card timestamp, and upgraded peers return missed card snapshots plus responses so offline P2P peers can recover telemetry/input-card state that previously depended on live VPS-style interaction broadcasts.
 - **Composer emoji picker has a broader common set** - Channel, Feed, DM, and Deck Inbox composer emoji insertion now includes more everyday smileys, acknowledgements, warning/work symbols, and keyword search aliases while preserving custom team emoji upload support.
 - **Agent-run Capsules can use low-cost @Canopy enrichment** - Capsules still render immediately from deterministic local summaries, then visible capsules can optionally refresh through a bounded no-web-search LLM endpoint with per-viewer source-hash caching and silent fallback when no key or fast valid JSON is available.
 - **Maximum Capsule compression now hides one-off agent chatter** - The Max Capsule level now compresses single agent posts and single agent replies into source-linked Capsules, while Strong and lower levels still leave one-off replies visible for users who want more conversational detail.

@@ -99,6 +99,17 @@ class TestRoutingCatchupDigestMetadata(unittest.IsolatedAsyncioTestCase):
         self.assertIn('channel_ranges', metadata)
         self.assertEqual(metadata['channel_ranges']['general']['oldest'], '2026-03-01 09:00:00')
 
+    async def test_send_catchup_request_includes_collab_card_timestamp(self) -> None:
+        ok = await self.router.send_catchup_request(
+            to_peer='peer-remote',
+            channel_timestamps={'general': '2026-03-04 10:00:00'},
+            extra_timestamps={'collab_cards_latest': '2026-05-26T10:00:00+00:00'},
+        )
+        self.assertTrue(ok)
+        _peer, payload = self.conn.sent[-1]
+        metadata = payload['message']['payload']['metadata']
+        self.assertEqual(metadata['collab_cards_latest'], '2026-05-26T10:00:00+00:00')
+
     async def test_callback_receives_digest_when_supported(self) -> None:
         seen = {}
 
@@ -167,6 +178,70 @@ class TestRoutingCatchupDigestMetadata(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok)
         self.assertIn('channel_ranges', seen)
         self.assertEqual(seen['channel_ranges']['general']['message_count'], 8)
+
+    async def test_callback_receives_collab_card_metadata_when_supported(self) -> None:
+        seen = {}
+
+        def _cb(**kwargs):
+            seen.update(kwargs)
+
+        self.router.on_catchup_request = _cb
+        msg = P2PMessage(
+            id='MCATCH004',
+            type=MessageType.CHANNEL_CATCHUP_REQUEST,
+            from_peer='peer-remote',
+            to_peer='peer-local',
+            timestamp=time.time(),
+            ttl=5,
+            payload={
+                'content': '',
+                'metadata': {
+                    'channel_timestamps': {'general': '2026-03-04 10:00:00'},
+                    'collab_cards_latest': '2026-05-26T10:00:00+00:00',
+                },
+            },
+            signature='sig',
+            encrypted_payload=None,
+        )
+
+        ok = await self.router.route_message(msg)
+        self.assertTrue(ok)
+        self.assertEqual(seen['collab_cards_latest'], '2026-05-26T10:00:00+00:00')
+
+    async def test_catchup_response_callback_receives_collab_card_snapshots(self) -> None:
+        seen = {}
+
+        def _cb(**kwargs):
+            seen.update(kwargs)
+
+        self.router.on_catchup_response = _cb
+        msg = P2PMessage(
+            id='MCATCH005',
+            type=MessageType.CHANNEL_CATCHUP_RESPONSE,
+            from_peer='peer-remote',
+            to_peer='peer-local',
+            timestamp=time.time(),
+            ttl=5,
+            payload={
+                'content': '',
+                'metadata': {
+                    'messages': [],
+                    'collab_cards': [
+                        {
+                            'id': 'input_card_channel_msg_1',
+                            'card_type': 'input',
+                            'title': 'Decision',
+                        }
+                    ],
+                },
+            },
+            signature='sig',
+            encrypted_payload=None,
+        )
+
+        ok = await self.router.route_message(msg)
+        self.assertTrue(ok)
+        self.assertEqual(seen['collab_cards'][0]['id'], 'input_card_channel_msg_1')
 
     async def test_callback_without_digest_arg_still_works(self) -> None:
         called = {'value': False}
