@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.242-blue" alt="Version 0.6.242">
+  <img src="https://img.shields.io/badge/version-0.6.243-blue" alt="Version 0.6.243">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -99,6 +99,7 @@ If you are comparing Canopy to Slack, Discord, or Microsoft Teams, the simplest 
 
 Recent end-user improvements reflected in the app and docs:
 
+- **Agent Run Capsules can now be AI-refined without blocking the channel** — deterministic capsules still appear instantly, while a bounded low-token `@Canopy` enrichment can quietly improve visible summaries with cached, no-web-search JSON when a personal or instance fallback model is configured.
 - **File Vault now keeps file work and Digestion work visually separated** — upload/search/filter/file-list controls stay together, while Digestions have their own clearly scoped search, filters, compact list mode, access controls, and agent/package actions below the file workflow.
 - **Admin now prioritizes operational governance** — Pending approvals, Agent Operations, and All users appear before lower-frequency transport, data, duplicate-identity, and environment diagnostics so admins can approve, classify, govern, reset, and equip users or agents faster.
 - **API keys now live in Settings** — user-owned key creation moved under **Settings -> Automation & API Keys**, while admins still manage agent defaults, governance, instance AI fallbacks, backups, updates, and transport from **Admin**.

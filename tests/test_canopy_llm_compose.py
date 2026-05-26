@@ -71,6 +71,7 @@ class _FakeChannelManager:
 class _FakeLLMManager:
     def __init__(self) -> None:
         self.expand_calls: list[dict[str, Any]] = []
+        self.capsule_calls: list[dict[str, Any]] = []
         self.saved_payloads: list[dict[str, Any]] = []
         self.saved_instance_payloads: list[dict[str, Any]] = []
         self.saved_digestion_payloads: list[dict[str, Any]] = []
@@ -203,6 +204,36 @@ class _FakeLLMManager:
             'content': 'Streamed draft',
             'provider': 'openai',
             'model': 'gpt-5-mini',
+        }
+
+    def summarize_capsule(
+        self,
+        user_id: str,
+        capsule_payload: dict[str, Any],
+        *,
+        channel_name: Optional[str] = None,
+        context_label: Optional[str] = None,
+    ) -> dict[str, Any]:
+        self.capsule_calls.append({
+            'user_id': user_id,
+            'capsule_payload': capsule_payload,
+            'channel_name': channel_name,
+            'context_label': context_label,
+        })
+        return {
+            'summary': {
+                'title': 'Access checkpoint ready',
+                'overview': 'Forge produced a compact checkpoint with one file output.',
+                'key_update': 'One source file was uploaded and tagged for review.',
+                'attention': '',
+                'source_trail': '1 file source, 2 source posts',
+                'next_action': 'Open the file or reply with review instructions.',
+            },
+            'provider': 'openai',
+            'model': 'gpt-5-mini',
+            'credential_source': 'instance',
+            'cached': False,
+            'source_hash': 'server-hash',
         }
 
 
@@ -1034,6 +1065,102 @@ class TestCanopyLLMManager(unittest.TestCase):
             ],
         )
 
+    def test_capsule_summary_uses_bounded_prompt_without_web_search(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        manager.save_settings(
+            'user-1',
+            provider='openai',
+            model='gpt-5-mini',
+            enabled=True,
+            api_key='sk-test-secret',
+            web_search_enabled=True,
+            memory_enabled=True,
+            compose_memory='Prefer short operational checkpoints.',
+        )
+        captured: dict[str, Any] = {}
+
+        def _fake_openai(**kwargs: Any) -> str:
+            captured.update(kwargs)
+            return json.dumps({
+                'title': 'Files ready for review',
+                'overview': 'Gene uploaded new PDF sources and needs owner review.',
+                'key_update': 'Two source files were added to the run.',
+                'attention': 'Owner access is needed before indexing.',
+                'source_trail': '2 file sources, 3 source posts',
+                'next_action': 'Grant access or open the trace to inspect the files.',
+            })
+
+        manager._call_openai = _fake_openai  # type: ignore[method-assign]
+        result = manager.summarize_capsule(
+            'user-1',
+            {
+                'capsule_id': 'M1-agent-run-0',
+                'channel_id': 'general',
+                'capsule_kind': 'reply',
+                'level': 'Max',
+                'deterministic': {
+                    'title': 'Source and file work run',
+                    'overview': 'Gene reached a checkpoint.',
+                    'key_update': 'File work completed.',
+                    'source_trail': '2 file sources',
+                    'next_action': 'Open trace.',
+                },
+                'participants': [{'display_name': 'Gene McClaw', 'account_type': 'agent'}],
+                'artifacts': [{'kind': 'file-ref', 'label': 'teleop.pdf', 'file_id': 'Fabc123456'}],
+                'messages': [
+                    {'id': f'M{i}', 'author': 'Gene McClaw', 'text': 'Uploaded and verified open access PDF source for teleoperation.'}
+                    for i in range(20)
+                ],
+            },
+            channel_name='fleetops-teleops',
+        )
+
+        self.assertFalse(captured['web_search_enabled'])
+        self.assertLessEqual(captured['max_output_tokens'], 1600)
+        self.assertLessEqual(captured['timeout_seconds'], 20)
+        self.assertLessEqual(len(captured['prompt']), 9000)
+        self.assertIn('Prefer short operational checkpoints.', captured['prompt'])
+        self.assertIn('fleetops-teleops', captured['prompt'])
+        self.assertEqual(result['summary']['title'], 'Files ready for review')
+        self.assertEqual(result['credential_source'], 'user')
+
+    def test_capsule_summary_reuses_cache_for_same_source(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        manager.save_settings(
+            'user-1',
+            provider='openai',
+            model='gpt-5-mini',
+            enabled=True,
+            api_key='sk-test-secret',
+        )
+        calls = {'count': 0}
+
+        def _fake_openai(**kwargs: Any) -> str:
+            calls['count'] += 1
+            return json.dumps({
+                'title': 'Cached title',
+                'overview': 'Cached overview.',
+                'key_update': 'Cached update.',
+                'attention': '',
+                'source_trail': '1 post',
+                'next_action': 'Open the trace.',
+            })
+
+        manager._call_openai = _fake_openai  # type: ignore[method-assign]
+        payload = {
+            'capsule_id': 'M1-agent-run-0',
+            'channel_id': 'general',
+            'deterministic': {'title': 'Fallback', 'overview': 'Fallback overview.'},
+            'messages': [{'id': 'M1', 'author': 'Forge', 'text': 'Done. Uploaded the requested output.'}],
+        }
+
+        first = manager.summarize_capsule('user-1', payload, channel_name='general')
+        second = manager.summarize_capsule('user-1', payload, channel_name='general')
+
+        self.assertFalse(first['cached'])
+        self.assertTrue(second['cached'])
+        self.assertEqual(calls['count'], 1)
+
 
 class TestCanopyLLMComposeRoutes(unittest.TestCase):
     def setUp(self) -> None:
@@ -1110,6 +1237,34 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
         self.assertTrue(payload.get('success'))
         self.assertIsNone(self.llm_manager.expand_calls[-1]['channel_name'])
         self.assertEqual(self.llm_manager.expand_calls[-1]['context_label'], 'Personal scratchpad')
+
+    def test_capsule_summary_endpoint_requires_channel_access_and_returns_summary(self) -> None:
+        csrf = self._login()
+
+        response = self.client.post(
+            '/ajax/canopy_llm/capsule_summary',
+            json={
+                'channel_id': 'general',
+                'capsule': {
+                    'capsule_id': 'M1-agent-run-0',
+                    'source_hash': 'client-hash',
+                    'deterministic': {
+                        'title': 'Source work run',
+                        'overview': 'Fallback overview',
+                    },
+                    'messages': [{'id': 'M1', 'author': 'Gene', 'text': 'Uploaded a file and needs review.'}],
+                },
+            },
+            headers={'X-CSRFToken': csrf},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('summary', {}).get('title'), 'Access checkpoint ready')
+        self.assertEqual(payload.get('credential_source'), 'instance')
+        self.assertEqual(self.llm_manager.capsule_calls[0]['channel_name'], 'general')
+        self.assertEqual(self.llm_manager.capsule_calls[0]['capsule_payload']['channel_id'], 'general')
 
     def test_expand_stream_endpoint_returns_sse_draft_events(self) -> None:
         csrf = self._login()

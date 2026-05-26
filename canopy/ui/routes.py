@@ -24679,6 +24679,45 @@ def create_ui_blueprint() -> Blueprint:
             channel_name = None
         return None, channel_name, None
 
+    def _resolve_canopy_llm_channel_read_context(
+        data: dict[str, Any],
+        *,
+        db_manager: Any,
+        channel_manager: Any,
+        user_id: str,
+    ) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+        """Return an error payload and channel name for non-posting AI channel helpers."""
+        channel_id = str(data.get('channel_id') or '').strip()
+        if not channel_id:
+            return {'error': 'Channel ID required', 'status_code': 400}, None
+
+        access = channel_manager.get_channel_access_decision(
+            channel_id=channel_id,
+            user_id=user_id,
+            require_membership=True,
+        )
+        if not access.get('allowed'):
+            if str(access.get('reason') or '').startswith('governance_'):
+                return {
+                    'error': 'Channel access blocked by admin governance policy',
+                    'reason': access.get('reason'),
+                    'status_code': 403,
+                }, None
+            return {'error': 'You are not a member of this channel', 'status_code': 403}, None
+
+        channel_name = None
+        try:
+            with db_manager.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT name FROM channels WHERE id = ?",
+                    (channel_id,),
+                ).fetchone()
+                if row:
+                    channel_name = str((row['name'] if hasattr(row, 'keys') else row[0]) or '').strip() or None
+        except Exception:
+            channel_name = None
+        return None, channel_name
+
     @ui.route('/ajax/canopy_llm/settings', methods=['GET', 'POST'])
     @require_login
     def ajax_canopy_llm_settings():
@@ -24878,6 +24917,66 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as e:
             logger.error("Canopy LLM expand error: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
+
+    @ui.route('/ajax/canopy_llm/capsule_summary', methods=['POST'])
+    @require_login
+    def ajax_canopy_llm_capsule_summary():
+        """Optionally refine deterministic channel capsules with the configured @Canopy model."""
+        try:
+            from ..core.canopy_ai import CanopyLLMError
+
+            db_manager, _, _, _, channel_manager, _, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            data = request.get_json(silent=True) or {}
+            manager = _get_canopy_llm_manager()
+
+            error_payload, channel_name = _resolve_canopy_llm_channel_read_context(
+                data,
+                db_manager=db_manager,
+                channel_manager=channel_manager,
+                user_id=user_id,
+            )
+            if error_payload:
+                status_code = int(error_payload.pop('status_code', 400) or 400)
+                return jsonify(error_payload), status_code
+
+            payload = data.get('capsule') if isinstance(data.get('capsule'), dict) else dict(data)
+            payload['channel_id'] = str(data.get('channel_id') or payload.get('channel_id') or '').strip()
+            result = manager.summarize_capsule(
+                user_id,
+                payload,
+                channel_name=channel_name,
+                context_label='Channel capsule',
+            )
+            return jsonify({
+                'success': True,
+                'summary': result.get('summary') or {},
+                'provider': result.get('provider') or 'openai',
+                'model': result.get('model') or '',
+                'credential_source': result.get('credential_source') or 'user',
+                'cached': bool(result.get('cached')),
+                'source_hash': result.get('source_hash') or '',
+            })
+        except CanopyLLMError as e:
+            # Capsule LLM enrichment is intentionally non-blocking; the browser keeps
+            # the deterministic capsule when keys are absent, slow, or provider output is weak.
+            if e.reason in {
+                'llm_disabled',
+                'missing_api_key',
+                'provider_unreachable',
+                'provider_http_error',
+                'provider_response_error',
+                'provider_empty_response',
+                'provider_response_too_large',
+                'provider_bad_response',
+                'empty_llm_output',
+                'invalid_capsule_summary',
+            }:
+                return jsonify({'success': False, 'fallback': True, 'reason': e.reason, 'error': str(e)}), 200
+            return jsonify({'error': str(e), 'reason': e.reason}), e.status_code
+        except Exception as e:
+            logger.error("Canopy LLM capsule summary error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'fallback': True, 'reason': 'capsule_summary_failed'}), 200
 
     @ui.route('/ajax/canopy_llm/expand_stream', methods=['POST'])
     @require_login

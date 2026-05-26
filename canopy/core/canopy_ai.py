@@ -169,6 +169,10 @@ MAX_COMPOSE_MEMORY_CHARS = 2000
 MAX_COMPOSE_CONTEXT_CHARS = 6500
 MAX_COMPOSE_TEAM_MEMBERS = 24
 MAX_COMPOSE_STYLE_EXAMPLES = 5
+MAX_CAPSULE_SUMMARY_MESSAGES = 12
+MAX_CAPSULE_MESSAGE_CHARS = 520
+MAX_CAPSULE_ARTIFACTS = 10
+MAX_CAPSULE_PROMPT_CHARS = 9000
 _MAX_LLM_RESPONSE_BYTES = 512 * 1024  # 512 KiB is generous; typical responses are much smaller.
 _OPENAI_PENDING_STATUSES = {'queued', 'in_progress'}
 _OPENAI_WEB_SEARCH_TOOL_STATUSES = {
@@ -176,6 +180,19 @@ _OPENAI_WEB_SEARCH_TOOL_STATUSES = {
     'response.web_search_call.searching',
     'response.web_search_call.completed',
 }
+
+CANOPY_CAPSULE_LLM_SYSTEM_PROMPT = """
+You are Canopy's agent-run capsule summarizer. Rewrite a deterministic channel capsule into a concise,
+human-actionable checkpoint for a busy collaborator. Output strict JSON only, with keys:
+title, overview, key_update, attention, source_trail, next_action.
+
+Rules:
+- Use only the supplied capsule packet. Do not invent files, teammates, conclusions, or permissions.
+- Make the summary useful at a glance: surface concrete outputs, blockers, access requests, files, Digestions, or decisions.
+- Keep each value short. Empty string is allowed for attention when no blocker or human decision is visible.
+- Prefer plain operational language over chatbot narration.
+- Do not include markdown fences, bullets, HTML, or commentary outside the JSON object.
+""".strip()
 
 
 class CanopyLLMError(RuntimeError):
@@ -808,6 +825,98 @@ class CanopyLLMManager:
         if not final_content:
             raise CanopyLLMError('The LLM returned an empty draft.', status_code=502, reason='empty_llm_output')
 
+    def summarize_capsule(
+        self,
+        user_id: str,
+        capsule_payload: dict[str, Any],
+        *,
+        channel_name: Optional[str] = None,
+        context_label: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Return a low-token, cached LLM refinement for a deterministic agent-run capsule."""
+        user_id = str(user_id or '').strip()
+        if not user_id:
+            raise CanopyLLMError('Sign in before using Canopy capsule summaries.', status_code=401, reason='not_authenticated')
+        packet = self._normalize_capsule_payload(capsule_payload)
+        capsule_id = str(packet.get('capsule_id') or '').strip()
+        if not capsule_id:
+            raise CanopyLLMError('Capsule ID required.', status_code=400, reason='missing_capsule_id')
+        source_hash = self._capsule_source_hash(packet)
+        channel_id = str(packet.get('channel_id') or '').strip()
+
+        cached = self._get_capsule_summary_cache(
+            viewer_user_id=user_id,
+            capsule_id=capsule_id,
+            source_hash=source_hash,
+        )
+        if cached:
+            cached.update({
+                'cached': True,
+                'source_hash': source_hash,
+            })
+            return cached
+
+        settings = self._resolve_effective_settings(user_id)
+        provider = str(settings.get('provider') or 'openai')
+        api_key = str(settings.get('api_key') or '').strip()
+        memory_context = self._build_compose_memory_context(
+            user_id,
+            settings,
+            channel_name=channel_name,
+            context_label=context_label,
+        )
+        prompt = self._build_capsule_summary_prompt(
+            packet,
+            memory_context=memory_context,
+            channel_name=channel_name,
+            context_label=context_label,
+        )
+        max_tokens = self._bounded_int_env(
+            'CANOPY_CAPSULE_LLM_MAX_OUTPUT_TOKENS',
+            default=850,
+            minimum=300,
+            maximum=1600,
+        )
+        timeout_seconds = self._bounded_float_env(
+            'CANOPY_CAPSULE_LLM_TIMEOUT_SECONDS',
+            default=7.5,
+            minimum=2.0,
+            maximum=20.0,
+        )
+        output = self._call_openai(
+            api_key=api_key,
+            model=str(settings.get('model') or DEFAULT_CANOPY_LLM_MODEL),
+            system_prompt=CANOPY_CAPSULE_LLM_SYSTEM_PROMPT,
+            prompt=prompt,
+            web_search_enabled=False,
+            max_output_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
+        ) if provider == 'openai' else self._call_bedrock(
+            credential_secret=api_key,
+            model=str(settings.get('model') or DEFAULT_BEDROCK_LLM_MODEL),
+            system_prompt=CANOPY_CAPSULE_LLM_SYSTEM_PROMPT,
+            prompt=prompt,
+            max_output_tokens=max_tokens,
+            timeout_seconds=timeout_seconds,
+        )
+        summary = self._parse_capsule_summary_output(output, packet)
+        result = {
+            'summary': summary,
+            'provider': provider,
+            'model': str(settings.get('model') or DEFAULT_CANOPY_LLM_MODEL),
+            'credential_source': settings.get('credential_source') or 'user',
+            'cached': False,
+            'source_hash': source_hash,
+        }
+        self._save_capsule_summary_cache(
+            viewer_user_id=user_id,
+            capsule_id=capsule_id,
+            source_hash=source_hash,
+            channel_id=channel_id,
+            result=result,
+        )
+        return result
+
     def _prepare_expand_context(
         self,
         user_id: str,
@@ -1102,6 +1211,28 @@ class CanopyLLMManager:
                     updated_by TEXT,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS canopy_capsule_summaries (
+                    viewer_user_id TEXT NOT NULL,
+                    capsule_id TEXT NOT NULL,
+                    source_hash TEXT NOT NULL,
+                    channel_id TEXT,
+                    summary_json TEXT NOT NULL,
+                    provider TEXT,
+                    model TEXT,
+                    credential_source TEXT,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (viewer_user_id, capsule_id, source_hash)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_canopy_capsule_summaries_updated
+                ON canopy_capsule_summaries(updated_at)
                 """
             )
             columns = {
@@ -1537,6 +1668,262 @@ class CanopyLLMManager:
             return compact
         return compact[: max(0, limit - 3)].rstrip() + '...'
 
+    def _normalize_capsule_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise CanopyLLMError('Capsule payload must be a JSON object.', status_code=400, reason='invalid_capsule_payload')
+        def bounded_count(value: Any, fallback: int) -> int:
+            try:
+                return max(0, min(int(value or fallback or 0), 500))
+            except (TypeError, ValueError):
+                return max(0, min(int(fallback or 0), 500))
+
+        deterministic_raw = payload.get('deterministic') if isinstance(payload.get('deterministic'), dict) else {}
+        deterministic = {
+            'title': self._compact_compose_text(deterministic_raw.get('title'), limit=120),
+            'overview': self._compact_compose_text(deterministic_raw.get('overview'), limit=240),
+            'key_update': self._compact_compose_text(deterministic_raw.get('key_update'), limit=240),
+            'attention': self._compact_compose_text(deterministic_raw.get('attention'), limit=220),
+            'source_trail': self._compact_compose_text(deterministic_raw.get('source_trail'), limit=220),
+            'next_action': self._compact_compose_text(deterministic_raw.get('next_action'), limit=220),
+            'status': self._compact_compose_text(deterministic_raw.get('status'), limit=80),
+        }
+
+        participants: list[dict[str, str]] = []
+        for item in (payload.get('participants') if isinstance(payload.get('participants'), list) else [])[:8]:
+            if not isinstance(item, dict):
+                continue
+            label = self._compact_compose_text(
+                item.get('display_name') or item.get('username') or item.get('user_id'),
+                limit=80,
+            )
+            if not label:
+                continue
+            participants.append({
+                'name': label,
+                'role': self._compact_compose_text(item.get('role') or item.get('account_type'), limit=40),
+            })
+
+        messages_raw = payload.get('messages') if isinstance(payload.get('messages'), list) else []
+        if len(messages_raw) > MAX_CAPSULE_SUMMARY_MESSAGES:
+            messages_raw = messages_raw[-MAX_CAPSULE_SUMMARY_MESSAGES:]
+        messages: list[dict[str, str]] = []
+        for item in messages_raw:
+            if not isinstance(item, dict):
+                continue
+            text = self._compact_compose_text(
+                item.get('text') or item.get('content') or item.get('display_content'),
+                limit=MAX_CAPSULE_MESSAGE_CHARS,
+            )
+            if not text:
+                continue
+            messages.append({
+                'id': self._compact_compose_text(item.get('id'), limit=80),
+                'author': self._compact_compose_text(item.get('author') or item.get('display_name') or item.get('username'), limit=80),
+                'created_at': self._compact_compose_text(item.get('created_at'), limit=80),
+                'text': text,
+            })
+
+        artifacts_raw = payload.get('artifacts') if isinstance(payload.get('artifacts'), list) else []
+        artifacts: list[dict[str, str]] = []
+        for item in artifacts_raw[:MAX_CAPSULE_ARTIFACTS]:
+            if not isinstance(item, dict):
+                continue
+            label = self._compact_compose_text(item.get('label') or item.get('name') or item.get('file_id') or item.get('digestion_id'), limit=160)
+            if not label:
+                continue
+            artifacts.append({
+                'kind': self._compact_compose_text(item.get('kind'), limit=40),
+                'label': label,
+                'file_id': self._compact_compose_text(item.get('file_id'), limit=80),
+                'digestion_id': self._compact_compose_text(item.get('digestion_id'), limit=80),
+                'meta': self._compact_compose_text(item.get('meta'), limit=120),
+                'message_id': self._compact_compose_text(item.get('message_id'), limit=80),
+            })
+
+        packet = {
+            'capsule_id': self._compact_compose_text(payload.get('capsule_id'), limit=160),
+            'channel_id': self._compact_compose_text(payload.get('channel_id'), limit=160),
+            'capsule_kind': self._compact_compose_text(payload.get('capsule_kind'), limit=40),
+            'level': self._compact_compose_text(payload.get('level'), limit=40),
+            'message_count': bounded_count(payload.get('message_count'), len(messages)),
+            'artifact_count': bounded_count(payload.get('artifact_count'), len(artifacts)),
+            'deterministic': deterministic,
+            'participants': participants,
+            'artifacts': artifacts,
+            'messages': messages,
+        }
+        if not packet['messages'] and not packet['artifacts'] and not any(deterministic.values()):
+            raise CanopyLLMError('Capsule payload does not include enough context to summarize.', status_code=400, reason='empty_capsule_payload')
+        return packet
+
+    @staticmethod
+    def _capsule_source_hash(packet: dict[str, Any]) -> str:
+        source = {
+            'channel_id': packet.get('channel_id') or '',
+            'capsule_kind': packet.get('capsule_kind') or '',
+            'message_count': packet.get('message_count') or 0,
+            'artifact_count': packet.get('artifact_count') or 0,
+            'deterministic': packet.get('deterministic') or {},
+            'participants': packet.get('participants') or [],
+            'artifacts': packet.get('artifacts') or [],
+            'messages': packet.get('messages') or [],
+        }
+        encoded = json.dumps(source, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+        return hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:24]
+
+    def _build_capsule_summary_prompt(
+        self,
+        packet: dict[str, Any],
+        *,
+        memory_context: str = '',
+        channel_name: Optional[str] = None,
+        context_label: Optional[str] = None,
+    ) -> str:
+        surface = f"Channel #{channel_name}" if channel_name else (str(context_label or 'Canopy channel').strip() or 'Canopy channel')
+        memory_block = ''
+        if memory_context:
+            memory_block = (
+                "Viewer memory and team context, for tone/routing only; do not quote as source facts:\n"
+                f"{memory_context[:1600]}\n\n"
+            )
+        payload_json = json.dumps(packet, ensure_ascii=False, sort_keys=True, indent=2)
+        prompt = (
+            f"Surface: {surface}\n"
+            f"Current node timestamp: {datetime.now().astimezone().isoformat(timespec='seconds')}\n\n"
+            f"{memory_block}"
+            "Rewrite this deterministic capsule packet into a compact human checkpoint. "
+            "The browser already has an instant fallback, so return only a materially better JSON summary.\n\n"
+            f"Capsule packet JSON:\n{payload_json}\n\n"
+            "Return JSON object only."
+        )
+        return prompt[:MAX_CAPSULE_PROMPT_CHARS].rstrip()
+
+    def _parse_capsule_summary_output(self, output: Any, packet: dict[str, Any]) -> dict[str, str]:
+        text = str(output or '').strip()
+        if not text:
+            raise CanopyLLMError('The LLM returned an empty capsule summary.', status_code=502, reason='empty_llm_output')
+        if text.startswith('```'):
+            text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE).strip()
+            text = re.sub(r'\s*```$', '', text).strip()
+        parsed: Any = None
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r'\{[\s\S]*\}', text)
+            if match:
+                try:
+                    parsed = json.loads(match.group(0))
+                except json.JSONDecodeError as exc:
+                    raise CanopyLLMError('The LLM returned a non-JSON capsule summary.', status_code=502, reason='invalid_capsule_summary') from exc
+            else:
+                raise CanopyLLMError('The LLM returned a non-JSON capsule summary.', status_code=502, reason='invalid_capsule_summary')
+        if not isinstance(parsed, dict):
+            raise CanopyLLMError('The LLM returned an invalid capsule summary shape.', status_code=502, reason='invalid_capsule_summary')
+
+        deterministic = packet.get('deterministic') if isinstance(packet.get('deterministic'), dict) else {}
+        summary = {
+            'title': self._compact_compose_text(parsed.get('title') or deterministic.get('title'), limit=96),
+            'overview': self._compact_compose_text(parsed.get('overview') or deterministic.get('overview'), limit=220),
+            'key_update': self._compact_compose_text(parsed.get('key_update') or deterministic.get('key_update'), limit=220),
+            'attention': self._compact_compose_text(parsed.get('attention') or '', limit=200),
+            'source_trail': self._compact_compose_text(parsed.get('source_trail') or deterministic.get('source_trail'), limit=180),
+            'next_action': self._compact_compose_text(parsed.get('next_action') or deterministic.get('next_action'), limit=180),
+        }
+        if not any(summary.get(key) for key in ('title', 'overview', 'key_update', 'next_action')):
+            raise CanopyLLMError('The LLM returned no useful capsule summary fields.', status_code=502, reason='invalid_capsule_summary')
+        return summary
+
+    def _get_capsule_summary_cache(self, *, viewer_user_id: str, capsule_id: str, source_hash: str) -> dict[str, Any] | None:
+        max_age = self._bounded_int_env(
+            'CANOPY_CAPSULE_LLM_CACHE_SECONDS',
+            default=900,
+            minimum=60,
+            maximum=86400,
+        )
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT summary_json, provider, model, credential_source, updated_at
+                FROM canopy_capsule_summaries
+                WHERE viewer_user_id = ? AND capsule_id = ? AND source_hash = ?
+                """,
+                (viewer_user_id, capsule_id, source_hash),
+            ).fetchone()
+        if not row:
+            return None
+        updated_at = float(self._row_value(row, 'updated_at', 4, 0) or 0)
+        if updated_at <= 0 or (time.time() - updated_at) > max_age:
+            return None
+        try:
+            summary = json.loads(str(self._row_value(row, 'summary_json', 0, '') or '{}'))
+        except Exception:
+            return None
+        if not isinstance(summary, dict):
+            return None
+        return {
+            'summary': {
+                'title': self._compact_compose_text(summary.get('title'), limit=96),
+                'overview': self._compact_compose_text(summary.get('overview'), limit=220),
+                'key_update': self._compact_compose_text(summary.get('key_update'), limit=220),
+                'attention': self._compact_compose_text(summary.get('attention'), limit=200),
+                'source_trail': self._compact_compose_text(summary.get('source_trail'), limit=180),
+                'next_action': self._compact_compose_text(summary.get('next_action'), limit=180),
+            },
+            'provider': self._row_value(row, 'provider', 1, ''),
+            'model': self._row_value(row, 'model', 2, ''),
+            'credential_source': self._row_value(row, 'credential_source', 3, 'user'),
+        }
+
+    def _save_capsule_summary_cache(
+        self,
+        *,
+        viewer_user_id: str,
+        capsule_id: str,
+        source_hash: str,
+        channel_id: str,
+        result: dict[str, Any],
+    ) -> None:
+        summary = result.get('summary') if isinstance(result.get('summary'), dict) else {}
+        if not summary:
+            return
+        self._ensure_schema()
+        with self.db_manager.get_connection() as conn:
+            conn.execute(
+                """
+                DELETE FROM canopy_capsule_summaries
+                WHERE viewer_user_id = ? AND capsule_id = ? AND source_hash != ?
+                """,
+                (viewer_user_id, capsule_id, source_hash),
+            )
+            conn.execute(
+                """
+                INSERT INTO canopy_capsule_summaries (
+                    viewer_user_id, capsule_id, source_hash, channel_id, summary_json,
+                    provider, model, credential_source, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(viewer_user_id, capsule_id, source_hash) DO UPDATE SET
+                    channel_id = excluded.channel_id,
+                    summary_json = excluded.summary_json,
+                    provider = excluded.provider,
+                    model = excluded.model,
+                    credential_source = excluded.credential_source,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    viewer_user_id,
+                    capsule_id,
+                    source_hash,
+                    channel_id,
+                    json.dumps(summary, ensure_ascii=False, sort_keys=True, separators=(',', ':')),
+                    str(result.get('provider') or ''),
+                    str(result.get('model') or ''),
+                    str(result.get('credential_source') or 'user'),
+                    time.time(),
+                ),
+            )
+            conn.commit()
+
     @staticmethod
     def _normalize_compose_memory(compose_memory: Any) -> str:
         memory = str(compose_memory or '').replace('\r\n', '\n').replace('\r', '\n').strip()
@@ -1888,11 +2275,12 @@ class CanopyLLMManager:
         system_prompt: str,
         prompt: str,
         max_output_tokens: Optional[int] = None,
+        timeout_seconds: Optional[float] = None,
     ) -> str:
         credentials = self._parse_bedrock_credentials(credential_secret)
         region = credentials['region']
         endpoint = (credentials.get('endpoint_url') or f'https://bedrock-runtime.{region}.amazonaws.com').rstrip('/')
-        timeout = float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '90') or '90')
+        timeout = float(timeout_seconds) if timeout_seconds is not None else float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '90') or '90')
         if max_output_tokens is None:
             max_output_tokens = self._bounded_int_env(
                 'CANOPY_BEDROCK_MAX_TOKENS',
@@ -2103,9 +2491,10 @@ class CanopyLLMManager:
         prompt: str,
         web_search_enabled: bool = False,
         max_output_tokens: Optional[int] = None,
+        timeout_seconds: Optional[float] = None,
     ) -> str:
         base_url = os.getenv('CANOPY_OPENAI_BASE_URL', 'https://api.openai.com/v1').strip().rstrip('/')
-        timeout = float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '90') or '90')
+        timeout = float(timeout_seconds) if timeout_seconds is not None else float(os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '90') or '90')
         if max_output_tokens is None:
             max_output_tokens = self._default_max_output_tokens(web_search_enabled=web_search_enabled)
         else:
