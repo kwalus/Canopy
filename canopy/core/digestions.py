@@ -815,6 +815,187 @@ class DigestionManager:
             "skipped": skipped,
         }
 
+    def remove_sources(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        source_file_ids: Iterable[str],
+    ) -> dict[str, Any]:
+        """Detach sources from a Digestion while preserving Vault files.
+
+        Removing a source invalidates derived index artifacts and reusable
+        outputs because those artifacts may contain snippets, figure metadata, or
+        structured datapoints from the removed file. The contribution ledger is
+        intentionally preserved as audit history.
+        """
+        actor = self._clean_id(actor_user_id)
+        digestion = self._require_digestion(digestion_id, actor, manage=True)
+        file_ids = self._clean_id_list(source_file_ids)
+        if not file_ids:
+            raise DigestionError("source_file_ids is required", status_code=400, reason="missing_source_file_ids")
+
+        placeholders = ",".join("?" for _ in file_ids)
+        now = self._now()
+        removed_sources: list[dict[str, Any]] = []
+        skipped: list[dict[str, str]] = []
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT file_id, file_name, content_type, status, source_kind,
+                       source_label, source_uri, source_metadata_json
+                FROM digestion_sources
+                WHERE digestion_id = ? AND file_id IN ({placeholders})
+                """,
+                (digestion.id, *file_ids),
+            ).fetchall()
+            found_ids = {str(row["file_id"] or "") for row in rows}
+            for file_id in file_ids:
+                if file_id not in found_ids:
+                    skipped.append({"file_id": file_id, "reason": "source_not_found"})
+            removed_sources = [self._source_row_to_dict(row) for row in rows]
+            if rows:
+                found_list = sorted(found_ids)
+                found_placeholders = ",".join("?" for _ in found_list)
+                self._delete_source_artifacts(conn, digestion.id, found_list)
+                conn.execute(
+                    f"DELETE FROM digestion_sources WHERE digestion_id = ? AND file_id IN ({found_placeholders})",
+                    (digestion.id, *found_list),
+                )
+                conn.execute(
+                    "UPDATE digestions SET status = ?, error = NULL, updated_at = ? WHERE id = ?",
+                    ("draft", now, digestion.id),
+                )
+            conn.commit()
+
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "removed": len(removed_sources),
+            "removed_sources": removed_sources,
+            "skipped": skipped,
+            "source_count_after": len(self._source_rows(digestion.id)),
+            "stats": self.stats(digestion.id),
+            "preserved": {
+                "vault_files_are_preserved": True,
+                "contribution_ledger_is_preserved": True,
+                "derived_outputs_were_invalidated": bool(removed_sources),
+            },
+        }
+
+    def replace_sources(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        remove_file_ids: Iterable[str],
+        add_file_ids: Optional[Iterable[str]] = None,
+        materials: Optional[Iterable[dict[str, Any]]] = None,
+        build_after: bool = False,
+    ) -> dict[str, Any]:
+        """Replace one or more Digestion sources with Vault files/materials."""
+        actor = self._clean_id(actor_user_id)
+        digestion = self._require_digestion(digestion_id, actor, manage=True)
+        to_remove = self._clean_id_list(remove_file_ids)
+        if not to_remove:
+            raise DigestionError("remove_file_ids is required", status_code=400, reason="missing_remove_file_ids")
+
+        remove_result = self.remove_sources(digestion.id, actor, to_remove)
+        add_result: dict[str, Any] = {}
+        material_result: dict[str, Any] = {}
+        add_ids = self._clean_id_list(add_file_ids)
+        if add_ids:
+            add_result = self.add_sources(digestion.id, actor, add_ids)
+        material_items = list(materials or [])
+        if material_items:
+            material_result = self.add_materials(digestion.id, actor, material_items)
+
+        result: dict[str, Any] = {
+            "success": True,
+            "digestion_id": digestion.id,
+            "removed": remove_result.get("removed", 0),
+            "removed_sources": remove_result.get("removed_sources", []),
+            "remove_skipped": remove_result.get("skipped", []),
+            "added": int(add_result.get("added") or 0) + int(material_result.get("added") or 0),
+            "added_sources": [
+                *(add_result.get("sources") or []),
+                *(material_result.get("sources") or []),
+            ],
+            "add_skipped": [
+                *(add_result.get("skipped") or []),
+                *(material_result.get("skipped") or []),
+            ],
+            "source_count_after": len(self._source_rows(digestion.id)),
+            "stats": self.stats(digestion.id),
+        }
+        if build_after:
+            result["build_result"] = self.build_digestion(digestion.id, actor, rebuild=False)
+            result["stats"] = self.stats(digestion.id)
+        return result
+
+    def update_source_metadata(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        file_id: str,
+        *,
+        source_label: Optional[str] = None,
+        source_uri: Optional[str] = None,
+        source_metadata: Optional[dict[str, Any]] = None,
+        merge_metadata: bool = True,
+    ) -> dict[str, Any]:
+        """Edit source-facing metadata without touching Vault bytes or chunks."""
+        actor = self._clean_id(actor_user_id)
+        digestion = self._require_digestion(digestion_id, actor, manage=True)
+        source_id = self._clean_id(file_id)
+        if not source_id:
+            raise DigestionError("file_id is required", status_code=400, reason="missing_file_id")
+        if source_metadata is not None and not isinstance(source_metadata, dict):
+            raise DigestionError("source_metadata must be an object", status_code=400, reason="invalid_source_metadata")
+
+        now = self._now()
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM digestion_sources WHERE digestion_id = ? AND file_id = ?",
+                (digestion.id, source_id),
+            ).fetchone()
+            if not row:
+                raise DigestionError("Source not found in this Digestion.", status_code=404, reason="source_not_found")
+            current_metadata = self._json_loads(row["source_metadata_json"] if "source_metadata_json" in row.keys() else "{}", {})
+            if not isinstance(current_metadata, dict):
+                current_metadata = {}
+            if source_metadata is not None:
+                new_metadata = dict(current_metadata) if merge_metadata else {}
+                new_metadata.update(source_metadata)
+                current_metadata = new_metadata
+            label_value = row["source_label"] if source_label is None else str(source_label or "").strip()[:260]
+            uri_value = row["source_uri"] if source_uri is None else str(source_uri or "").strip()[:1200]
+            conn.execute(
+                """
+                UPDATE digestion_sources
+                SET source_label = ?, source_uri = ?, source_metadata_json = ?, updated_at = ?
+                WHERE digestion_id = ? AND file_id = ?
+                """,
+                (
+                    label_value,
+                    uri_value,
+                    json.dumps(current_metadata, ensure_ascii=False, sort_keys=True),
+                    now,
+                    digestion.id,
+                    source_id,
+                ),
+            )
+            conn.execute("UPDATE digestions SET updated_at = ? WHERE id = ?", (now, digestion.id))
+            updated = conn.execute(
+                "SELECT * FROM digestion_sources WHERE digestion_id = ? AND file_id = ?",
+                (digestion.id, source_id),
+            ).fetchone()
+            conn.commit()
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "source": self._source_row_to_dict(updated),
+        }
+
     def add_materials(self, digestion_id: str, actor_user_id: str, materials: Iterable[dict[str, Any]]) -> dict[str, Any]:
         """Add inline/source materials by normalizing them into Vault-backed source files.
 
@@ -4824,6 +5005,24 @@ class DigestionManager:
                 "SELECT * FROM digestion_sources WHERE digestion_id = ? ORDER BY file_name COLLATE NOCASE, file_id",
                 (digestion_id,),
             ).fetchall()
+
+    def _delete_source_artifacts(self, conn: Any, digestion_id: str, file_ids: Iterable[str]) -> None:
+        clean_ids = self._clean_id_list(file_ids)
+        if not clean_ids:
+            return
+        placeholders = ",".join("?" for _ in clean_ids)
+        params = (digestion_id, *clean_ids)
+        for table, column in (
+            ("digestion_visual_evidence", "source_file_id"),
+            ("digestion_pdf_figures", "source_file_id"),
+            ("digestion_chunks", "file_id"),
+        ):
+            conn.execute(
+                f"DELETE FROM {table} WHERE digestion_id = ? AND {column} IN ({placeholders})",
+                params,
+            )
+        # Reusable outputs may contain removed source names, snippets, figures, or datapoints.
+        conn.execute("DELETE FROM digestion_outputs WHERE digestion_id = ?", (digestion_id,))
 
     def _source_row_to_dict(self, row: Any) -> dict[str, Any]:
         """Return a source row with parsed owner/copy/contribution metadata.

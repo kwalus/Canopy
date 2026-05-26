@@ -2302,6 +2302,106 @@ class TestDigestions(unittest.TestCase):
         source = self.digestion_manager.list_sources(digestion['id'], user_id='reader-user')[0]
         self.assertEqual(self.file_manager.get_file(source['file_id']).uploaded_by, 'owner-user')
 
+    def test_digestion_rest_source_lifecycle_endpoints_are_safe_and_manage_gated(self) -> None:
+        first = self._save_text('wrong-source.txt', 'Old oscilloscope note with stale channel limits.')
+        second = self._save_text('scope-reference.txt', 'Tektronix SCPI command limits and voltage measurement ranges.')
+        replacement = self._save_text('scope-reference-v2.txt', 'Updated SCPI limits with acquisition safety notes.')
+        components = (
+            self.db_manager,
+            _FakeApiKeyManager(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            self.file_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        )
+        with patch('canopy.api.routes.get_app_components', return_value=components), \
+             patch('canopy.api.routes._get_app_components_any', return_value=components):
+            app = Flask(__name__)
+            app.config['TESTING'] = True
+            app.secret_key = 'digestion-api-source-lifecycle'
+            app.config['DIGESTION_MANAGER'] = self.digestion_manager
+            app.register_blueprint(create_api_blueprint(), url_prefix='/api/v1')
+            client = app.test_client()
+
+            create_response = client.post(
+                '/api/v1/digestions',
+                json={
+                    'name': 'Source lifecycle corpus',
+                    'source_file_ids': [first.id, second.id],
+                    'provider': 'local_hash',
+                    'auto_build': True,
+                },
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(create_response.status_code, 201)
+            digestion_id = create_response.get_json()['digestion_id']
+            self.digestion_manager.generate_outputs(digestion_id, 'owner-user')
+            self.assertGreater(self.digestion_manager.stats(digestion_id)['outputs'], 0)
+
+            update_response = client.patch(
+                f'/api/v1/digestions/{digestion_id}/sources/{first.id}',
+                json={
+                    'source_label': 'Stale source - remove after review',
+                    'source_uri': 'canopy://source/stale',
+                    'source_metadata': {'review_state': 'stale'},
+                },
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(update_response.status_code, 200)
+            updated_source = update_response.get_json()['source']
+            self.assertEqual(updated_source['source_label'], 'Stale source - remove after review')
+            self.assertEqual(updated_source['metadata']['review_state'], 'stale')
+
+            reader_blocked = client.delete(
+                f'/api/v1/digestions/{digestion_id}/sources/{first.id}',
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(reader_blocked.status_code, 403)
+
+            remove_response = client.delete(
+                f'/api/v1/digestions/{digestion_id}/sources/{first.id}',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(remove_response.status_code, 200)
+            remove_payload = remove_response.get_json() or {}
+            self.assertEqual(remove_payload['removed'], 1)
+            self.assertTrue(remove_payload['preserved']['vault_files_are_preserved'])
+            self.assertEqual(remove_payload['stats']['outputs'], 0)
+            self.assertIsNotNone(self.file_manager.get_file(first.id))
+            remaining_sources = self.digestion_manager.list_sources(digestion_id, user_id='owner-user')
+            self.assertEqual([source['file_id'] for source in remaining_sources], [second.id])
+
+            replace_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/sources/replace',
+                json={
+                    'remove_file_ids': [second.id],
+                    'add_file_ids': [replacement.id],
+                    'build_after': True,
+                },
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(replace_response.status_code, 200)
+            replace_payload = replace_response.get_json() or {}
+            self.assertEqual(replace_payload['removed'], 1)
+            self.assertEqual(replace_payload['added'], 1)
+            self.assertTrue(replace_payload['build_result']['success'])
+            final_sources = self.digestion_manager.list_sources(digestion_id, user_id='owner-user')
+            self.assertEqual([source['file_id'] for source in final_sources], [replacement.id])
+            self.assertEqual(final_sources[0]['status'], 'indexed')
+
+            missing_remove_ids = client.post(
+                f'/api/v1/digestions/{digestion_id}/sources/remove',
+                json={},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(missing_remove_ids.status_code, 400)
+            self.assertEqual((missing_remove_ids.get_json() or {}).get('reason'), 'missing_source_file_ids')
+
     def test_digestion_rest_materials_outputs_and_context(self) -> None:
         components = (
             self.db_manager,

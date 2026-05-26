@@ -11286,6 +11286,142 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API add sources failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/sources/remove', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def remove_digestion_sources_api(digestion_id: str):
+        """Detach one or more sources from a Digestion without deleting Vault files."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        source_file_ids = (
+            data.get('source_file_ids')
+            or data.get('file_ids')
+            or data.get('remove_file_ids')
+            or data.get('file_id')
+            or []
+        )
+        if isinstance(source_file_ids, str):
+            source_file_ids = [source_file_ids]
+        try:
+            result = manager.remove_sources(
+                digestion_id,
+                g.api_key_info.user_id,
+                source_file_ids if isinstance(source_file_ids, list) else [],
+            )
+            if _as_bool(data.get('build_after') or data.get('auto_build')):
+                result['build_result'] = manager.build_digestion(
+                    digestion_id,
+                    g.api_key_info.user_id,
+                    rebuild=False,
+                )
+                result['stats'] = manager.stats(digestion_id)
+            return jsonify(result)
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API remove sources failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/sources/replace', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def replace_digestion_sources_api(digestion_id: str):
+        """Replace Digestion sources with new Vault files or inline materials."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        remove_file_ids = (
+            data.get('remove_file_ids')
+            or data.get('old_source_file_ids')
+            or data.get('source_file_ids_to_remove')
+            or data.get('remove_file_id')
+            or []
+        )
+        add_file_ids = (
+            data.get('add_file_ids')
+            or data.get('new_source_file_ids')
+            or data.get('source_file_ids')
+            or data.get('file_ids')
+            or []
+        )
+        materials = data.get('materials') or data.get('source_materials') or []
+        if isinstance(remove_file_ids, str):
+            remove_file_ids = [remove_file_ids]
+        if isinstance(add_file_ids, str):
+            add_file_ids = [add_file_ids]
+        if isinstance(materials, dict):
+            materials = [materials]
+        try:
+            return jsonify(manager.replace_sources(
+                digestion_id,
+                g.api_key_info.user_id,
+                remove_file_ids=remove_file_ids if isinstance(remove_file_ids, list) else [],
+                add_file_ids=add_file_ids if isinstance(add_file_ids, list) else [],
+                materials=materials if isinstance(materials, list) else [],
+                build_after=_as_bool(data.get('build_after') or data.get('auto_build')),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API replace sources failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/sources/<source_file_id>', methods=['PATCH'])
+    @require_auth(Permission.WRITE_FILES)
+    def update_digestion_source_api(digestion_id: str, source_file_id: str):
+        """Update source label, URI, or metadata for a managed Digestion source."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        metadata = data.get('source_metadata') if 'source_metadata' in data else data.get('metadata')
+        if metadata is not None and not isinstance(metadata, dict):
+            return jsonify({
+                'success': False,
+                'error': 'source_metadata must be an object',
+                'reason': 'invalid_source_metadata',
+            }), 400
+        try:
+            return jsonify(manager.update_source_metadata(
+                digestion_id,
+                g.api_key_info.user_id,
+                source_file_id,
+                source_label=data.get('source_label') if 'source_label' in data else data.get('label'),
+                source_uri=data.get('source_uri') if 'source_uri' in data else data.get('uri'),
+                source_metadata=metadata,
+                merge_metadata=True if 'merge_metadata' not in data else _as_bool(data.get('merge_metadata')),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API update source failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/sources/<source_file_id>', methods=['DELETE'])
+    @require_auth(Permission.WRITE_FILES)
+    def delete_digestion_source_api(digestion_id: str, source_file_id: str):
+        """Detach a single source from a Digestion without deleting the Vault file."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            result = manager.remove_sources(digestion_id, g.api_key_info.user_id, [source_file_id])
+            if _as_bool(data.get('build_after') or data.get('auto_build')):
+                result['build_result'] = manager.build_digestion(
+                    digestion_id,
+                    g.api_key_info.user_id,
+                    rebuild=False,
+                )
+                result['stats'] = manager.stats(digestion_id)
+            return jsonify(result)
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API delete source failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/merge', methods=['POST'])
     @require_auth(Permission.WRITE_FILES)
     def merge_digestion_sources_api(digestion_id: str):

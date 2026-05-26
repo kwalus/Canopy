@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.238` release line.
+Version scope: this reference is aligned to the Canopy `0.6.239` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -427,6 +427,10 @@ Vault notes:
 | GET | `/digestions/<digestion_id>/figures` | Yes (`read_files`) | List extracted PDF figure previews, image file IDs, page labels, captions, and caption-context text; requires query access plus explicit source-metadata access. |
 | GET | `/digestions/<digestion_id>/visual-evidence` | Yes (`read_files`) | List source-derived visual evidence records, including caption-derived figures, tables, charts, diagrams, page labels, context text, and optional image file IDs; requires query access plus explicit source-metadata access. Optional `kind=table|chart|diagram|figure|visual`. |
 | POST | `/digestions/<digestion_id>/sources` | Yes (`write_files`) | Add Vault files to a managed Digestion. Owners add their own files directly; manager-contributed files are copied into the Digestion owner's Vault-backed corpus for durable indexing. |
+| POST | `/digestions/<digestion_id>/sources/remove` | Yes (`write_files`) | Detach one or more sources from a managed Digestion. Body: `source_file_ids` or `file_ids`, optional `build_after`. Preserves Vault files and contribution history while clearing derived chunks, PDF figures, visual evidence, and reusable outputs for removed sources. |
+| DELETE | `/digestions/<digestion_id>/sources/<file_id>` | Yes (`write_files`) | Detach a single source from a managed Digestion with the same non-destructive behavior as bulk source removal. |
+| POST | `/digestions/<digestion_id>/sources/replace` | Yes (`write_files`) | Replace stale/wrong sources with new Vault files or inline materials. Body: `remove_file_ids`, optional `add_file_ids`, optional `materials`, and optional `build_after`. |
+| PATCH | `/digestions/<digestion_id>/sources/<file_id>` | Yes (`write_files`) | Update source-facing metadata without touching Vault bytes or chunks. Body may include `source_label`, `source_uri`, `source_metadata`, and `merge_metadata`. |
 | POST | `/digestions/<digestion_id>/materials` | Yes (`write_files`) | Normalize inline/source materials such as posts, notes, transcripts, or pasted text into Vault-backed Digestion sources. |
 | GET | `/digestions/<digestion_id>/contributions` | Yes (`read_files`) | List the durable contribution ledger for a managed Digestion. Optional `status`, `include_payload`, and `limit`; requires manage access. |
 | POST | `/digestions/<digestion_id>/contributions` | Yes (`write_files`) | Append durable agent/human work product to a managed Digestion. Body may include `contributions`, `source_file_ids`, `datapoints`, `build_after`, and `review_required`. Inline notes/claims/references become owner-bound Vault sources; referenced files use the source add/copy path; explicit datapoints require source-metadata access because `structured_datapoints` is source-revealing. When `review_required=true`, the addition is staged in the contribution ledger until accepted. |
