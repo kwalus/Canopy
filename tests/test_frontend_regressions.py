@@ -3968,7 +3968,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.231', api_ref)
+        self.assertIn('0.6.232', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
@@ -4055,6 +4055,10 @@ console.log(JSON.stringify({{
         self.assertIn('id="feed-posts-region"', feed_template)
         self.assertIn('{% include "_feed_posts_fragment.html" %}', feed_template)
         self.assertIn('function hydrateFeedPostsFragment(scope)', feed_template)
+        self.assertIn('function captureFeedViewportAnchor(region)', feed_template)
+        self.assertIn('function scheduleFeedViewportRestore(anchor, fallbackY)', feed_template)
+        self.assertIn("params.delete('focus_post');", feed_template)
+        self.assertIn("params.delete('open_deck');", feed_template)
         self.assertIn("params.set('fragment', 'posts');", feed_template)
         self.assertIn("'X-Canopy-Fragment': 'posts'", feed_template)
         self.assertIn("response.headers.get('X-Canopy-Fragment')", feed_template)
@@ -4068,11 +4072,22 @@ console.log(JSON.stringify({{
         self.assertIn("response.headers['X-Canopy-Fragment'] = 'feed-posts'", ui_routes)
         self.assertIn("requested_fragment = str(", ui_routes)
         self.assertIn("requestAnimationFrame(() => {", feed_template)
+        self.assertIn('window.canopyInstallEmbedScrollGuards(root);', feed_template)
 
         self.assertIn('{% for post in posts %}', feed_fragment)
         self.assertIn('data-post-id="{{ post.id }}"', feed_fragment)
         self.assertIn('id="feed-mention-filter-empty"', feed_fragment)
         self.assertIn('Your feed is empty', feed_fragment)
+
+    def test_rich_iframe_embeds_are_guarded_against_feed_scroll_focus_jumps(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        self.assertIn('function installCanopyEmbedScrollGuards(scope)', main_js)
+        self.assertIn('window.canopyInstallEmbedScrollGuards = installCanopyEmbedScrollGuards;', main_js)
+        self.assertIn('data-canopy-embed-iframe="1"', main_js)
+        self.assertIn('tabindex="-1"', main_js)
+        self.assertIn('data-canopy-scroll-guard', main_js)
+        self.assertIn('canopyEmbedLastHumanViewport', main_js)
+        self.assertIn('installCanopyEmbedScrollGuards(document);', main_js)
 
     def test_feed_author_and_phone_image_rendering_are_defensive(self) -> None:
         feed_template = read_feed_surface()

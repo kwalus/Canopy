@@ -11142,6 +11142,71 @@
             return '<div class="embed-provider-caption">' + escapeEmbedHtml(text) + '</div>';
         }
 
+        let canopyEmbedLastHumanInputAt = 0;
+        let canopyEmbedLastHumanViewport = {
+            x: window.scrollX || window.pageXOffset || 0,
+            y: window.scrollY || window.pageYOffset || 0,
+        };
+
+        function rememberCanopyEmbedHumanInput() {
+            canopyEmbedLastHumanInputAt = Date.now();
+        }
+
+        function rememberCanopyEmbedHumanViewport() {
+            canopyEmbedLastHumanViewport = {
+                x: window.scrollX || window.pageXOffset || 0,
+                y: window.scrollY || window.pageYOffset || 0,
+            };
+        }
+
+        ['wheel', 'touchmove', 'keydown', 'pointerdown'].forEach((eventName) => {
+            document.addEventListener(eventName, () => {
+                rememberCanopyEmbedHumanInput();
+                window.requestAnimationFrame(rememberCanopyEmbedHumanViewport);
+            }, { passive: true, capture: true });
+        });
+
+        window.addEventListener('scroll', () => {
+            if ((Date.now() - canopyEmbedLastHumanInputAt) < 1400) {
+                rememberCanopyEmbedHumanViewport();
+            }
+        }, { passive: true });
+
+        function installCanopyEmbedScrollGuards(scope) {
+            const root = typeof scope === 'string'
+                ? document.querySelector(scope)
+                : (scope || document);
+            if (!root || !root.querySelectorAll) return;
+            root.querySelectorAll('.embed-preview.iframe-embed iframe:not([data-canopy-scroll-guard])').forEach((iframe) => {
+                iframe.setAttribute('data-canopy-scroll-guard', '1');
+                if (!iframe.hasAttribute('tabindex')) iframe.setAttribute('tabindex', '-1');
+                const wrapper = iframe.closest ? iframe.closest('.embed-preview.iframe-embed') : null;
+                const markEmbedInteraction = () => {
+                    iframe.dataset.canopyUserInteractionAt = String(Date.now());
+                };
+                iframe.addEventListener('pointerdown', markEmbedInteraction, { passive: true, capture: true });
+                if (wrapper) {
+                    wrapper.addEventListener('pointerdown', markEmbedInteraction, { passive: true, capture: true });
+                }
+                iframe.addEventListener('focus', () => {
+                    const recentEmbedInteraction = Date.now() - Number(iframe.dataset.canopyUserInteractionAt || 0) < 1600;
+                    const recentHumanInput = Date.now() - canopyEmbedLastHumanInputAt < 1600;
+                    if (recentEmbedInteraction || recentHumanInput) return;
+                    const target = canopyEmbedLastHumanViewport || {};
+                    window.requestAnimationFrame(() => {
+                        try { iframe.blur(); } catch (_) {}
+                        window.scrollTo({
+                            left: Number.isFinite(target.x) ? target.x : 0,
+                            top: Number.isFinite(target.y) ? target.y : 0,
+                            behavior: 'auto',
+                        });
+                    });
+                }, true);
+            });
+        }
+
+        window.canopyInstallEmbedScrollGuards = installCanopyEmbedScrollGuards;
+
         function buildIframeEmbedPreview(providerClass, src, title, options = {}) {
             const safeSrc = escapeEmbedAttr(src);
             const safeTitle = escapeEmbedAttr(title || 'Embedded content');
@@ -11157,7 +11222,7 @@
                 '<div class="embed-preview iframe-embed ' + escapeEmbedAttr(providerClass) + extraClass + '"' + widgetAttrs + '>' +
                 '<iframe src="' + safeSrc + '" title="' + safeTitle + '" frameborder="0" loading="lazy" allowfullscreen ' +
                 'referrerpolicy="' + referrerPolicy + '" allow="' + allow + '"' + sandbox + heightStyle +
-                ' class="' + frameClass.trim() + '"></iframe>' +
+                ' class="' + frameClass.trim() + '" tabindex="-1" data-canopy-embed-iframe="1"></iframe>' +
                 caption +
                 '</div>'
             );
@@ -14599,6 +14664,9 @@
 	            }
                     if (typeof applyCanopyFileReferenceLabels === 'function') {
                         applyCanopyFileReferenceLabels(document);
+                    }
+                    if (typeof installCanopyEmbedScrollGuards === 'function') {
+                        installCanopyEmbedScrollGuards(document);
                     }
 	        }
 

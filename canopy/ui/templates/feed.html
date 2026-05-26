@@ -7395,6 +7395,11 @@
                 }
             } catch (_) {}
             try {
+                if (typeof window.canopyInstallEmbedScrollGuards === 'function') {
+                    window.canopyInstallEmbedScrollGuards(root);
+                }
+            } catch (_) {}
+            try {
                 if (window.applyInlineTaskAvatars) {
                     window.applyInlineTaskAvatars();
                 }
@@ -7409,6 +7414,74 @@
             return raw.replace(/["\\]/g, '\\$&');
         }
 
+        function captureFeedViewportAnchor(region) {
+            if (!region || !region.querySelectorAll) return null;
+            const cards = Array.from(region.querySelectorAll('.post-card[data-post-id]'));
+            if (!cards.length) return null;
+            const viewportTop = 72;
+            const targetLine = Math.max(viewportTop, Math.min(window.innerHeight * 0.38, window.innerHeight - 160));
+            let best = null;
+            for (const card of cards) {
+                const rect = card.getBoundingClientRect();
+                const postId = card.getAttribute('data-post-id') || '';
+                if (!postId || rect.height <= 0) continue;
+                if (rect.top <= targetLine && rect.bottom >= targetLine) {
+                    best = { postId, top: rect.top };
+                    break;
+                }
+                if (!best && rect.bottom > viewportTop) {
+                    best = { postId, top: rect.top };
+                }
+            }
+            return best;
+        }
+
+        function restoreFeedViewportAnchor(anchor, fallbackY) {
+            if (anchor && anchor.postId) {
+                const target = document.querySelector(`.post-card[data-post-id="${feedCssEscape(anchor.postId)}"]`);
+                if (target) {
+                    const nextTop = target.getBoundingClientRect().top;
+                    const delta = nextTop - Number(anchor.top || 0);
+                    if (Number.isFinite(delta) && Math.abs(delta) > 0.5) {
+                        window.scrollTo({
+                            top: Math.max(0, (window.scrollY || window.pageYOffset || 0) + delta),
+                            left: 0,
+                            behavior: 'auto'
+                        });
+                    }
+                    return true;
+                }
+            }
+            if (Number.isFinite(fallbackY)) {
+                window.scrollTo({ top: Math.max(0, fallbackY), left: 0, behavior: 'auto' });
+                return true;
+            }
+            return false;
+        }
+
+        function scheduleFeedViewportRestore(anchor, fallbackY) {
+            let userMoved = false;
+            const markUserMoved = () => { userMoved = true; };
+            const restore = () => {
+                if (!userMoved) restoreFeedViewportAnchor(anchor, fallbackY);
+            };
+            const cleanup = () => {
+                window.removeEventListener('wheel', markUserMoved, true);
+                window.removeEventListener('touchmove', markUserMoved, true);
+                window.removeEventListener('keydown', markUserMoved, true);
+            };
+            window.addEventListener('wheel', markUserMoved, { passive: true, capture: true });
+            window.addEventListener('touchmove', markUserMoved, { passive: true, capture: true });
+            window.addEventListener('keydown', markUserMoved, { passive: true, capture: true });
+            requestAnimationFrame(() => {
+                restore();
+                requestAnimationFrame(restore);
+            });
+            setTimeout(restore, 180);
+            setTimeout(restore, 620);
+            setTimeout(cleanup, 900);
+        }
+
 	    function refreshFeed(options = {}) {
             const region = document.getElementById('feed-posts-region');
             if (!region || !window.fetch) {
@@ -7418,11 +7491,18 @@
             if (feedFragmentRefreshPromise) return feedFragmentRefreshPromise;
 
             const params = new URLSearchParams(window.location.search || '');
+            const focusPostId = options && options.focusPostId ? String(options.focusPostId) : '';
+            // Stale deep-link params can keep re-inserting an old focused post into
+            // fragment refreshes long after the user has moved elsewhere in the feed.
+            params.delete('focus_post');
+            params.delete('post');
+            params.delete('open_deck');
+            if (focusPostId) params.set('focus_post', focusPostId);
             params.set('fragment', 'posts');
             params.set('_', String(Date.now()));
             const fragmentUrl = `${window.location.pathname}?${params.toString()}`;
             const previousScrollY = window.scrollY || window.pageYOffset || 0;
-            const focusPostId = options && options.focusPostId ? String(options.focusPostId) : '';
+            const viewportAnchor = captureFeedViewportAnchor(region);
             region.classList.add('is-refreshing');
 
             feedFragmentRefreshPromise = fetch(fragmentUrl, {
@@ -7458,7 +7538,7 @@
                     } else if (options && options.scrollToPostsTop) {
                         region.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     } else if (!options || options.preserveScroll !== false) {
-                        window.scrollTo({ top: previousScrollY, left: 0, behavior: 'auto' });
+                        scheduleFeedViewportRestore(viewportAnchor, previousScrollY);
                     }
                     return true;
                 })

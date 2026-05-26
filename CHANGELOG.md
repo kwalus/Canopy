@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.232] - 2026-05-25
+
+### Fixed
+- **Feed refresh no longer reuses stale deep-link anchors** — Fragment refreshes now strip old `focus_post`, `post`, and `open_deck` URL parameters unless the current action explicitly focuses a post, preventing old rich-media posts from being reinserted into the refreshed feed and pulling the viewport away from where the user was reading.
+- **Rich iframe embeds are guarded against surprise scroll jumps** — Provider iframes, including TradingView charts, are marked inert for tab focus by default and protected by a focus guard so iframe initialization cannot unexpectedly move the parent feed unless the user has just interacted with that embed.
+
+### Changed
+- **Feed scroll preservation is anchor-based** — Normal feed refreshes now preserve the visible post anchor across rich embed hydration instead of relying only on a raw scroll pixel, which is more stable when charts, maps, videos, or source layouts finish rendering after the fragment updates.
+
 ## [0.6.231] - 2026-05-25
 
 ### Added
