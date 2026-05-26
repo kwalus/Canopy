@@ -2758,7 +2758,7 @@
     }
     .agent-run-capsule-head {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
         gap: 0.8rem;
         padding: 0.85rem 0.95rem 0.75rem 1rem;
     }
@@ -3023,9 +3023,15 @@
     .agent-run-capsule-side {
         display: flex;
         flex-direction: column;
-        align-items: flex-end;
+        align-items: stretch;
         gap: 0.55rem;
-        min-width: 9rem;
+        min-width: 16rem;
+    }
+    .agent-run-capsule-side-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.55rem;
     }
     .agent-run-capsule-avatar-stack {
         display: flex;
@@ -3064,6 +3070,179 @@
     .agent-run-capsule-actions .btn {
         border-radius: 999px;
         font-weight: 800;
+    }
+    .agent-run-capsule-map {
+        position: relative;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 70%, var(--canopy-primary) 30%);
+        border-radius: 16px;
+        padding: 0.58rem;
+        background:
+            radial-gradient(circle at 85% 12%, color-mix(in srgb, var(--canopy-primary) 20%, transparent), transparent 38%),
+            color-mix(in srgb, var(--canopy-bg-card) 76%, var(--canopy-primary) 24%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        overflow: hidden;
+    }
+    .agent-run-capsule-map::before {
+        content: "";
+        position: absolute;
+        left: 1.05rem;
+        right: 1.05rem;
+        top: 3.18rem;
+        height: 2px;
+        background: linear-gradient(90deg,
+            rgba(34, 211, 238, 0.08),
+            rgba(52, 211, 153, 0.55),
+            rgba(163, 230, 53, 0.12));
+        pointer-events: none;
+    }
+    .agent-run-capsule-map-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    .agent-run-capsule-map-head strong {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        color: color-mix(in srgb, var(--canopy-primary) 84%, var(--canopy-text-primary) 16%);
+    }
+    .agent-run-capsule-map-head button {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--canopy-text-muted);
+        font: inherit;
+        letter-spacing: 0.02em;
+        text-transform: none;
+        padding: 0;
+        cursor: pointer;
+    }
+    .agent-run-capsule-map-head button:hover,
+    .agent-run-capsule-map-head button:focus-visible {
+        color: var(--canopy-text-primary);
+        outline: none;
+    }
+    .agent-run-capsule-map-strip {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(2.32rem, 1fr));
+        gap: 0.38rem;
+        margin-top: 0.5rem;
+        z-index: 1;
+    }
+    .agent-run-capsule-map-node {
+        position: relative;
+        min-width: 0;
+        min-height: 3.1rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 68%, var(--canopy-primary) 32%);
+        border-radius: 14px;
+        background:
+            linear-gradient(180deg,
+                color-mix(in srgb, var(--canopy-bg-tertiary) 72%, var(--canopy-primary) 28%),
+                color-mix(in srgb, var(--canopy-bg-secondary) 88%, var(--canopy-primary) 12%));
+        color: var(--canopy-text-secondary);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.14rem;
+        padding: 0.36rem 0.24rem 0.32rem;
+        cursor: pointer;
+        appearance: none;
+        transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, color 140ms ease;
+    }
+    .agent-run-capsule-map-node:hover,
+    .agent-run-capsule-map-node:focus-visible {
+        color: var(--canopy-text-primary);
+        border-color: color-mix(in srgb, var(--canopy-primary) 74%, var(--canopy-border) 26%);
+        background:
+            linear-gradient(180deg,
+                color-mix(in srgb, var(--canopy-bg-tertiary) 58%, var(--canopy-primary) 42%),
+                color-mix(in srgb, var(--canopy-bg-secondary) 78%, var(--canopy-primary) 22%));
+        transform: translateY(-2px);
+        outline: none;
+    }
+    .agent-run-capsule-map-node i {
+        font-size: 1.04rem;
+        line-height: 1;
+    }
+    .agent-run-capsule-map-time {
+        display: block;
+        max-width: 100%;
+        color: var(--canopy-text-muted);
+        font-size: 0.57rem;
+        font-weight: 900;
+        line-height: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-map-count {
+        position: absolute;
+        top: -0.32rem;
+        right: -0.24rem;
+        min-width: 1.02rem;
+        height: 1.02rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 0.18rem;
+        color: #052e16;
+        background: #86efac;
+        border: 1px solid rgba(255, 255, 255, 0.26);
+        font-size: 0.58rem;
+        font-weight: 950;
+        box-shadow: 0 4px 12px rgba(5, 46, 22, 0.26);
+    }
+    .agent-run-capsule-map-node.signal-attention {
+        border-color: rgba(251, 146, 60, 0.55);
+        color: #fed7aa;
+        background:
+            linear-gradient(180deg, rgba(251, 146, 60, 0.22), rgba(15, 23, 42, 0.18)),
+            color-mix(in srgb, var(--canopy-bg-secondary) 82%, rgba(251, 146, 60, 0.18) 18%);
+    }
+    .agent-run-capsule-map-node.signal-file,
+    .agent-run-capsule-map-node.signal-digestion {
+        border-color: rgba(45, 212, 191, 0.56);
+        color: #99f6e4;
+    }
+    .agent-run-capsule-map-node.signal-card {
+        border-color: rgba(96, 165, 250, 0.54);
+        color: #bfdbfe;
+    }
+    .agent-run-capsule-map-node.signal-complete {
+        border-color: rgba(163, 230, 53, 0.5);
+        color: #d9f99d;
+    }
+    .agent-run-capsule-map-node.signal-mention {
+        border-color: rgba(192, 132, 252, 0.54);
+        color: #e9d5ff;
+    }
+    .agent-run-capsule-map-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        margin-top: 0.5rem;
+    }
+    .agent-run-capsule-map-legend span {
+        width: 0.58rem;
+        height: 0.58rem;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: var(--map-color, rgba(148, 163, 184, 0.8));
+    }
+    .agent-run-capsule-map-empty {
+        margin-top: 0.42rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.75rem;
+        line-height: 1.3;
     }
     .agent-run-capsule-trace {
         display: none;
@@ -3167,6 +3346,9 @@
             min-width: 0;
             width: 100%;
         }
+        .agent-run-capsule-side-top {
+            width: 100%;
+        }
         .agent-run-capsule-avatar-stack {
             max-width: 100%;
             overflow: hidden;
@@ -3178,6 +3360,12 @@
         .agent-run-capsule-actions .btn {
             flex: 1 1 8rem;
             min-width: min(100%, 8rem);
+        }
+        .agent-run-capsule-map {
+            width: 100%;
+        }
+        .agent-run-capsule-map-strip {
+            grid-template-columns: repeat(auto-fit, minmax(2.45rem, 1fr));
         }
         .agent-run-capsule-trace {
             padding: 0.58rem 0.54rem 0.2rem 0;
@@ -3470,6 +3658,48 @@
         color: #334155;
         background: rgba(240, 253, 250, 0.72);
         border-color: rgba(15, 118, 110, 0.2);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map {
+        background:
+            radial-gradient(circle at 85% 12%, rgba(20, 184, 166, 0.12), transparent 38%),
+            rgba(255, 255, 255, 0.78);
+        border-color: rgba(15, 118, 110, 0.18);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-head strong {
+        color: #0f766e;
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node {
+        color: #334155;
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 253, 250, 0.82));
+        border-color: rgba(15, 118, 110, 0.18);
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node:focus-visible {
+        color: #0f172a;
+        background:
+            linear-gradient(180deg, rgba(236, 253, 245, 0.98), rgba(209, 250, 229, 0.9));
+        border-color: rgba(15, 118, 110, 0.34);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-attention {
+        color: #9a3412;
+        border-color: rgba(234, 88, 12, 0.3);
+        background: rgba(255, 247, 237, 0.92);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-file,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-digestion {
+        color: #0f766e;
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-card {
+        color: #1d4ed8;
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-complete {
+        color: #3f6212;
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-mention {
+        color: #6b21a8;
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-status.status-needs-human {
         color: #9a3412;
@@ -14412,6 +14642,7 @@ function collectAgentRunDirectArtifacts(messages) {
     };
     (messages || []).forEach((message, messageIndex) => {
         const messageId = String((message && message.id) || '');
+        const createdAt = String((message && (message.created_at || message.updated_at)) || '');
         const attachments = Array.isArray(message && message.attachments) ? message.attachments : [];
         attachments.forEach((att, attachmentIndex) => {
             if (!att || typeof att !== 'object') return;
@@ -14426,28 +14657,48 @@ function collectAgentRunDirectArtifacts(messages) {
                 size: att.size,
                 attachment: att,
                 messageId,
+                createdAt,
                 order: `${messageIndex}:${attachmentIndex}`,
             });
         });
         const rawText = getAgentRunRawText(message);
         extractAgentRunFileRefsFromText(rawText).forEach((ref) => {
-            add({ ...ref, messageId, order: `${messageIndex}:ref:${ref.fileId}` });
+            add({ ...ref, messageId, createdAt, order: `${messageIndex}:ref:${ref.fileId}` });
         });
         extractAgentRunDigestionRefsFromText(rawText).forEach((ref) => {
-            add({ ...ref, messageId, order: `${messageIndex}:digestion:${ref.digestionId}` });
+            add({ ...ref, messageId, createdAt, order: `${messageIndex}:digestion:${ref.digestionId}` });
         });
     });
     return artifacts;
 }
 
+function getAgentRunCompactTimeLabel(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const parsed = parseChannelMessageTimestamp(raw);
+    if (!parsed) return formatTimestamp(raw);
+    const now = Date.now();
+    const diff = Math.max(0, now - parsed);
+    if (diff < 60000) return 'now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`;
+    if (diff < 604800000) return `${Math.floor(diff / 86400000)}d`;
+    return new Date(parsed).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 function getAgentRunArtifactMeta(artifact) {
     if (!artifact) return '';
-    if (artifact.kind === 'digestion-ref') return 'Digestion object';
+    if (artifact.kind === 'digestion-ref') {
+        const created = getAgentRunCompactTimeLabel(artifact.createdAt);
+        return ['Digestion object', created].filter(Boolean).join(' • ');
+    }
     const bits = [];
     const type = String(artifact.contentType || '').trim();
     if (type) bits.push(type);
     const size = formatFileSize(artifact.size);
     if (size && size !== '—') bits.push(size);
+    const created = getAgentRunCompactTimeLabel(artifact.createdAt);
+    if (created) bits.push(created);
     if (artifact.kind === 'file-ref') bits.push('file reference');
     return bits.join(' • ') || (artifact.kind === 'attachment' ? 'attachment' : 'file reference');
 }
@@ -14550,6 +14801,146 @@ function renderAgentRunCapsuleArtifactRail(artifacts, capsuleId) {
                                      onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '')">
                 +${hidden} more item${hidden === 1 ? '' : 's'} in source trace
             </button>` : ''}
+        </div>
+    </div>`;
+}
+
+const AGENT_RUN_CAPSULE_MAP_MAX_NODES = 14;
+
+function getAgentRunMapArtifactsByMessage(artifacts) {
+    const byMessage = new Map();
+    (artifacts || []).forEach((artifact) => {
+        const messageId = String(artifact && artifact.messageId || '');
+        if (!messageId) return;
+        const list = byMessage.get(messageId) || [];
+        list.push(artifact);
+        byMessage.set(messageId, list);
+    });
+    return byMessage;
+}
+
+function getAgentRunMapSignal(message, artifactsForMessage) {
+    const raw = getAgentRunRawText(message);
+    const text = normalizeAgentRunText(raw).toLowerCase();
+    const fileCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind !== 'digestion-ref').length : 0;
+    const digestionCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind === 'digestion-ref').length : 0;
+    const mentionCount = (raw.match(/@[A-Za-z0-9_.-]{2,}/g) || []).length;
+    const cardCount = countAgentRunCards(message);
+    const needsAttention = /\b(blocked|failed|cannot|could not|unable|denied|403|404|permission|approval|required|requires|grant access|owner action|review needed|needs? human|check local storage|not retrievable)\b/i.test(text);
+    const complete = /\b(complete|completed|done|ready|uploaded|indexed|added|verified|get 200|success|successfully|built|resolved)\b/i.test(text);
+    if (needsAttention) return { key: 'attention', icon: 'exclamation-triangle', count: Math.max(1, fileCount + digestionCount + cardCount + mentionCount) };
+    if (fileCount > 0) return { key: 'file', icon: 'file-earmark-arrow-up', count: fileCount };
+    if (digestionCount > 0) return { key: 'digestion', icon: 'diagram-3', count: digestionCount };
+    if (cardCount > 0) return { key: 'card', icon: 'kanban', count: cardCount };
+    if (complete) return { key: 'complete', icon: 'check2-circle', count: 0 };
+    if (mentionCount > 0) return { key: 'mention', icon: 'at', count: mentionCount };
+    return { key: 'post', icon: 'chat-dots', count: 0 };
+}
+
+function getAgentRunMapNodeScore(node, total) {
+    let score = 0;
+    if (node.index === 0 || node.index === total - 1) score += 8;
+    if (node.signal === 'attention') score += 18;
+    if (node.signal === 'file' || node.signal === 'digestion') score += 14;
+    if (node.signal === 'card') score += 11;
+    if (node.signal === 'complete') score += 7;
+    if (node.signal === 'mention') score += 6;
+    score += Math.min(5, Number(node.count || 0));
+    return score;
+}
+
+function buildAgentRunCapsuleMapNodes(messages, artifacts, maxNodes = AGENT_RUN_CAPSULE_MAP_MAX_NODES) {
+    const run = (Array.isArray(messages) ? messages : []).filter(Boolean);
+    if (!run.length) return { nodes: [], hidden: 0 };
+    const byMessage = getAgentRunMapArtifactsByMessage(artifacts);
+    const nodes = run.map((message, index) => {
+        const messageId = String(message && message.id || '');
+        const artifactsForMessage = byMessage.get(messageId) || [];
+        const signal = getAgentRunMapSignal(message, artifactsForMessage);
+        const createdAt = String(message && (message.created_at || message.updated_at) || '');
+        const authorLabel = String(message && (message.display_name || message.username || message.user_name || message.user_id) || '');
+        const titleParts = [
+            signal.key === 'attention' ? 'Needs attention' : '',
+            signal.key === 'file' ? `${signal.count} file${signal.count === 1 ? '' : 's'}` : '',
+            signal.key === 'digestion' ? `${signal.count} Digestion ref${signal.count === 1 ? '' : 's'}` : '',
+            signal.key === 'card' ? `${signal.count} work card${signal.count === 1 ? '' : 's'}` : '',
+            signal.key === 'mention' ? `${signal.count} mention${signal.count === 1 ? '' : 's'}` : '',
+            signal.key === 'complete' ? 'Completed checkpoint' : '',
+            authorLabel ? `by ${authorLabel}` : '',
+            createdAt ? formatTimestamp(createdAt) : '',
+            truncateAgentRunText(getAgentRunRawText(message), 140),
+        ].filter(Boolean);
+        return {
+            index,
+            messageId,
+            signal: signal.key,
+            icon: signal.icon,
+            count: signal.count,
+            createdAt,
+            timeLabel: getAgentRunCompactTimeLabel(createdAt) || `${index + 1}`,
+            title: titleParts.join(' • '),
+        };
+    });
+    if (nodes.length <= maxNodes) return { nodes, hidden: 0 };
+    const selected = new Map();
+    const addNode = (node) => {
+        if (node && node.messageId) selected.set(node.messageId, node);
+    };
+    addNode(nodes[0]);
+    addNode(nodes[nodes.length - 1]);
+    nodes
+        .map(node => ({ node, score: getAgentRunMapNodeScore(node, nodes.length) }))
+        .sort((a, b) => b.score - a.score || a.node.index - b.node.index)
+        .forEach(({ node }) => {
+            if (selected.size < maxNodes) addNode(node);
+        });
+    const visible = Array.from(selected.values()).sort((a, b) => a.index - b.index);
+    return { nodes: visible, hidden: Math.max(0, nodes.length - visible.length) };
+}
+
+function renderAgentRunCapsuleSignalMap(messages, artifacts, capsuleId) {
+    const map = buildAgentRunCapsuleMapNodes(messages, artifacts);
+    const nodes = map.nodes || [];
+    if (!nodes.length) {
+        return `<div class="agent-run-capsule-map">
+            <div class="agent-run-capsule-map-head"><strong><i class="bi bi-compass"></i>Run map</strong></div>
+            <div class="agent-run-capsule-map-empty">Open the trace to inspect the compressed source posts.</div>
+        </div>`;
+    }
+    const legendSignals = Array.from(new Set(nodes.map(node => node.signal))).slice(0, 6);
+    const colorForSignal = (signal) => ({
+        attention: '#fb923c',
+        file: '#2dd4bf',
+        digestion: '#22d3ee',
+        card: '#60a5fa',
+        complete: '#a3e635',
+        mention: '#c084fc',
+        post: '#94a3b8',
+    }[signal] || '#94a3b8');
+    return `<div class="agent-run-capsule-map" data-agent-run-capsule-map="${escapeAttr(capsuleId)}">
+        <div class="agent-run-capsule-map-head">
+            <strong><i class="bi bi-compass"></i>Run map</strong>
+            <button type="button"
+                    onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '')"
+                    title="Open all source posts in this capsule">
+                ${nodes.length}${map.hidden ? ` +${map.hidden}` : ''} stops
+            </button>
+        </div>
+        <div class="agent-run-capsule-map-strip" aria-label="Clickable source-post map">
+            ${nodes.map(node => `
+                <button type="button"
+                        class="agent-run-capsule-map-node signal-${escapeAttr(node.signal)}"
+                        data-agent-run-capsule-map-node="${escapeAttr(node.messageId)}"
+                        title="${escapeAttr(node.title || 'Open source post')}"
+                        onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '${escapeAttr(node.messageId)}')">
+                    <i class="bi bi-${escapeAttr(node.icon)}"></i>
+                    <span class="agent-run-capsule-map-time">${escapeHtml(node.timeLabel)}</span>
+                    ${node.count ? `<span class="agent-run-capsule-map-count">${escapeHtml(String(node.count))}</span>` : ''}
+                </button>
+            `).join('')}
+        </div>
+        <div class="agent-run-capsule-map-legend" aria-hidden="true">
+            ${legendSignals.map(signal => `<span style="--map-color: ${escapeAttr(colorForSignal(signal))}"></span>`).join('')}
         </div>
     </div>`;
 }
@@ -14871,21 +15262,24 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
                     </div>
                 </div>
                 <div class="agent-run-capsule-side">
-                    ${renderAgentRunAvatarStack(participants)}
-                    <div class="agent-run-capsule-actions">
-                        <button type="button"
-                                class="btn btn-sm btn-outline-secondary"
-                                onclick="copyAgentRunCapsuleSummary(this)"
-                                data-copy-summary="${escapeAttr(encodeURIComponent(copySummary))}">
-                            <i class="bi bi-clipboard me-1"></i>Copy summary
-                        </button>
-                        <button type="button"
-                                class="btn btn-sm btn-outline-success"
-                                onclick="toggleAgentRunCapsuleTrace(this)"
-                                aria-expanded="false">
-                            <i class="bi bi-arrows-expand me-1"></i><span>Show trace</span>
-                        </button>
+                    <div class="agent-run-capsule-side-top">
+                        ${renderAgentRunAvatarStack(participants)}
+                        <div class="agent-run-capsule-actions">
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-secondary"
+                                    onclick="copyAgentRunCapsuleSummary(this)"
+                                    data-copy-summary="${escapeAttr(encodeURIComponent(copySummary))}">
+                                <i class="bi bi-clipboard me-1"></i>Copy
+                            </button>
+                            <button type="button"
+                                    class="btn btn-sm btn-outline-success"
+                                    onclick="toggleAgentRunCapsuleTrace(this)"
+                                    aria-expanded="false">
+                                <i class="bi bi-arrows-expand me-1"></i><span>Trace</span>
+                            </button>
+                        </div>
                     </div>
+                    ${renderAgentRunCapsuleSignalMap(run, directArtifacts, capsuleId)}
                 </div>
             </div>
             <div class="agent-run-capsule-trace" role="region" aria-label="Exact source posts hidden inside this agent run capsule">
