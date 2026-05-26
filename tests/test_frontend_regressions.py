@@ -2945,9 +2945,14 @@ console.log(JSON.stringify({{
         self.assertIn('function shouldCapsuleAgentRun(messages, options = {})', channels_template)
         self.assertIn('function getAgentRunHumanBrief(messages, artifacts, status, participants)', channels_template)
         self.assertIn('function renderAgentRunBriefRows(brief)', channels_template)
+        self.assertIn('function collectAgentRunDirectArtifacts(messages)', channels_template)
+        self.assertIn('function renderAgentRunCapsuleArtifactRail(artifacts, capsuleId)', channels_template)
+        self.assertIn('function focusAgentRunCapsuleSource(capsuleId, messageId)', channels_template)
         self.assertIn('function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {})', channels_template)
         self.assertIn('function renderAgentRunCompressedMessages(messages, userInfo, replyMetaById, options = {})', channels_template)
         self.assertIn('agent-run-capsule-brief-row', channels_template)
+        self.assertIn('agent-run-capsule-artifacts', channels_template)
+        self.assertIn('Files & outputs', channels_template)
         self.assertIn('What changed', channels_template)
         self.assertIn('Needs attention', channels_template)
         self.assertIn('Jump back in', channels_template)
@@ -4033,7 +4038,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.237', api_ref)
+        self.assertIn('0.6.238', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
