@@ -14171,7 +14171,7 @@ function cleanAgentRunArtifactLabel(value, fallback = 'File') {
     const clean = String(value || '')
         .replace(/<[^>]*>/g, ' ')
         .replace(/&nbsp;/gi, ' ')
-        .replace(/[`*_#[\]<>]+/g, ' ')
+        .replace(/[`*#[\]<>]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
     return (clean || fallback).slice(0, 180);
@@ -14225,6 +14225,10 @@ function extractAgentRunFileRefsFromText(text) {
             label: cleanAgentRunArtifactLabel(label, `file:${shortAgentRunEntityId(fileId)}`),
         });
     };
+    raw.replace(/(^|[\s>])([^()\s<>]{1,140}\.(?:pdf|docx?|xlsx?|csv|tsv|json|md|txt|py|ipynb|js|ts|tsx|jsx|html?|css|tex|bib|ya?ml|png|jpe?g|gif|webp|svg|tiff?|zip|tar|gz|mp4|mov|m4v|mp3|wav|wasm))\s*\(\s*(F[A-Za-z0-9_-]{6,})\s*\)/gi, function (_match, _prefix, label, id) {
+        push(id, label);
+        return _match;
+    });
     raw.replace(/\[([^\]\r\n]{1,180})\]\((?:https?:\/\/[^\s)]+)?\/(?:files|file-ref)\/(F[A-Za-z0-9_-]{6,})(?:[/?#][^)]*)?\)/g, function (_match, label, id) {
         push(id, label);
         return _match;
@@ -14243,9 +14247,12 @@ function extractAgentRunFileRefsFromText(text) {
         push(id, deriveAgentRunFileRefLabelFromPrefix(leading, id));
         return match;
     });
-    raw.replace(/\b(?:file_id|source_file_id|vault_file_id|attachment_id|origin_file_id|image_file_id)\s*[:=]\s*['"`]?(F[A-Za-z0-9_-]{6,})/gi, function (match, id, offset) {
-        const leading = raw.slice(Math.max(0, offset - 140), offset);
-        push(id, deriveAgentRunFileRefLabelFromPrefix(leading, id));
+    raw.replace(/\b(?:file_id|source_file_id|vault_file_id|attachment_id|origin_file_id|image_file_id)\s*[:=]\s*['"`]?(F[A-Za-z0-9_-]{6,})/gi, function (match, id) {
+        push(id, '');
+        return match;
+    });
+    raw.replace(/\b(?:file(?:\s*id)?|source\s*file|pdf|figure|image|attachment|output|artifact)\s*[:=]\s*['"`]?(F[A-Za-z0-9_-]{6,})/gi, function (match, id) {
+        push(id, '');
         return match;
     });
     return refs;
