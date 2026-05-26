@@ -2914,6 +2914,11 @@ console.log(JSON.stringify({{
         self.assertIn('CHANNEL_AGENT_RUN_CAPSULE_PREFERRED_LEVEL_STORAGE_KEY', channels_template)
         self.assertIn('CHANNEL_AGENT_RUN_CAPSULE_LEVELS', channels_template)
         self.assertIn('CHANNEL_AGENT_RUN_CAPSULE_DEFAULT_LEVEL', channels_template)
+        max_capsule_level = re.search(r"level:\s*4,[\s\S]*?soloArtifact:\s*true,", channels_template)
+        self.assertIsNotNone(max_capsule_level)
+        self.assertIn('replyMin: 1', max_capsule_level.group(0))
+        self.assertIn('rootMin: 1', max_capsule_level.group(0))
+        self.assertIn('use Strong if you want one-off replies visible', max_capsule_level.group(0))
         self.assertIn('CHANNEL_RECENT_FILTER_PRESETS', channels_template)
         self.assertIn('channel-human-filter-toggle', channels_template)
         self.assertIn('channel-agent-capsule-toggle', channels_template)
@@ -4056,7 +4061,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.241', api_ref)
+        self.assertIn('0.6.242', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
