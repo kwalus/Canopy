@@ -2785,6 +2785,41 @@
         font-size: 0.9rem;
         line-height: 1.42;
     }
+    .agent-run-capsule-brief {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.44rem;
+        margin-top: 0.62rem;
+    }
+    .agent-run-capsule-brief-row {
+        min-width: 0;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, var(--canopy-primary) 24%);
+        border-radius: 13px;
+        padding: 0.48rem 0.58rem;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 76%, var(--canopy-primary) 24%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+    .agent-run-capsule-brief-row.needs-human {
+        border-color: rgba(251, 146, 60, 0.42);
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, rgba(251, 146, 60, 0.22) 22%);
+    }
+    .agent-run-capsule-brief-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.34rem;
+        color: color-mix(in srgb, var(--canopy-primary) 78%, var(--canopy-text-primary) 22%);
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    .agent-run-capsule-brief-value {
+        margin-top: 0.22rem;
+        color: var(--canopy-text-primary);
+        font-size: 0.84rem;
+        line-height: 1.36;
+        overflow-wrap: anywhere;
+    }
     .agent-run-capsule-meta {
         display: flex;
         flex-wrap: wrap;
@@ -2938,6 +2973,9 @@
             margin-right: 0.25rem;
         }
         .agent-run-capsule-head {
+            grid-template-columns: 1fr;
+        }
+        .agent-run-capsule-brief {
             grid-template-columns: 1fr;
         }
         .agent-run-capsule-side {
@@ -3197,6 +3235,18 @@
         color: #334155;
         background: rgba(15, 118, 110, 0.08);
         border-color: rgba(15, 118, 110, 0.18);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-brief-row {
+        background: rgba(255, 255, 255, 0.72);
+        border-color: rgba(15, 118, 110, 0.16);
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-brief-row.needs-human {
+        background: rgba(255, 247, 237, 0.92);
+        border-color: rgba(234, 88, 12, 0.24);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-brief-label {
+        color: #0f766e;
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-status.status-needs-human {
         color: #9a3412;
@@ -13881,13 +13931,125 @@ function getAgentRunTitle(messages, artifacts) {
     return firstLine || 'Agent work run';
 }
 
+function cleanAgentRunBriefText(text) {
+    return normalizeAgentRunText(text)
+        .replace(/^(@[A-Za-z0-9_.-]+\s*[—:-]?\s*)+/, '')
+        .replace(/\bExpires in\s+\S+/gi, '')
+        .replace(/\bCanopy\s+Digestion\s+Agent\s+Ref\.?/gi, 'Digestion reference')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function splitAgentRunBriefSentences(text) {
+    const cleaned = cleanAgentRunBriefText(text);
+    if (!cleaned) return [];
+    return cleaned
+        .replace(/([.!?])\s+/g, '$1|')
+        .replace(/\s+[•*]\s+/g, '|')
+        .replace(/\s+\d{1,2}\.\s+/g, '|')
+        .split('|')
+        .map(part => truncateAgentRunText(part, 190))
+        .filter(part => part && part.length >= 10);
+}
+
+function getAgentRunBriefSentences(messages) {
+    const seen = new Set();
+    const sentences = [];
+    (messages || []).forEach((message) => {
+        splitAgentRunBriefSentences(getAgentRunMessageText(message)).forEach((sentence) => {
+            const key = sentence.toLowerCase();
+            if (seen.has(key)) return;
+            seen.add(key);
+            sentences.push(sentence);
+        });
+    });
+    return sentences;
+}
+
+function findAgentRunBriefSentence(sentences, patterns, options = {}) {
+    const list = Array.isArray(sentences) ? sentences : [];
+    const ordered = options.fromStart ? list : list.slice().reverse();
+    const found = ordered.find(sentence => (patterns || []).some(pattern => pattern.test(sentence)));
+    return found ? truncateAgentRunText(found, options.maxLength || 170) : '';
+}
+
+function getAgentRunParticipantSummary(participants) {
+    const names = (participants || [])
+        .map(user => String(user && (user.display_name || user.username || user.user_id) || '').replace(/^@+/, '').trim())
+        .filter(Boolean);
+    if (!names.length) return 'Agents';
+    if (names.length === 1) return names[0];
+    if (names.length === 2) return `${names[0]} and ${names[1]}`;
+    return `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`;
+}
+
+function getAgentRunArtifactSummary(artifacts, messages) {
+    const facts = [];
+    const fileLikeCount = Number((artifacts && artifacts.attachments) || 0) + Number((artifacts && artifacts.fileRefs) || 0);
+    if (fileLikeCount > 0) facts.push(`${fileLikeCount} file source${fileLikeCount === 1 ? '' : 's'}`);
+    if (artifacts && artifacts.digestionRefs > 0) facts.push(`${artifacts.digestionRefs} Digestion reference${artifacts.digestionRefs === 1 ? '' : 's'}`);
+    if (artifacts && artifacts.cards > 0) facts.push(`${artifacts.cards} work card${artifacts.cards === 1 ? '' : 's'}`);
+    if (artifacts && artifacts.mentions > 0) facts.push(`${artifacts.mentions} tagged teammate${artifacts.mentions === 1 ? '' : 's'}`);
+    if (facts.length) return facts.join(', ');
+    const count = Array.isArray(messages) ? messages.length : 0;
+    return `${count || 'Multiple'} source post${count === 1 ? '' : 's'} compressed into one readable checkpoint`;
+}
+
+function getAgentRunHumanBrief(messages, artifacts, status, participants) {
+    const sentences = getAgentRunBriefSentences(messages);
+    const participantLabel = getAgentRunParticipantSummary(participants);
+    const attention = findAgentRunBriefSentence(sentences, [
+        /\b(blocked|failed|cannot|could not|unable|denied|403|404|permission|approval|required|requires|grant access|owner action|review needed|needs? human|check local storage|not retrievable)\b/i,
+    ], { maxLength: 180 });
+    const outcome = findAgentRunBriefSentence(sentences, [
+        /\b(complete|completed|done|ready|uploaded|indexed|added|verified|built|resolved|implemented|patched|created|posted|attached|packaged|successfully|get 200)\b/i,
+    ], { maxLength: 180 });
+    const handoff = findAgentRunBriefSentence(sentences, [
+        /\b(next|please|recommend|suggest|action|review|approve|grant|try|rerun|rebuild|follow up|handoff|owner)\b/i,
+    ], { maxLength: 180 });
+    const fallback = sentences.length ? truncateAgentRunText(sentences[sentences.length - 1], 180) : '';
+    const keyUpdate = outcome || fallback || 'A fast sequence of agent posts was compressed so the channel remains readable.';
+    const sourceTrail = getAgentRunArtifactSummary(artifacts, messages);
+    const overview = status && status.key === 'needs-human'
+        ? `${participantLabel} reached a checkpoint that likely needs a human decision, access change, or review.`
+        : status && status.key === 'complete'
+            ? `${participantLabel} produced a usable checkpoint; the exact posts remain expandable below.`
+            : `${participantLabel} compressed a fast agent run into a slower human-readable checkpoint.`;
+    const reentry = attention
+        ? 'Open the trace to resolve the blocker, reply in context, or hand off the next step.'
+        : (handoff || 'Open the trace to inspect exact posts, reply to a source item, or continue the work.');
+    return {
+        overview,
+        keyUpdate,
+        attention,
+        sourceTrail,
+        reentry: truncateAgentRunText(reentry, 170),
+    };
+}
+
 function getAgentRunSummary(messages) {
-    const texts = (messages || []).map(getAgentRunMessageText).filter(Boolean);
-    if (!texts.length) return 'This capsule keeps a dense sequence of agent posts available without forcing the whole channel to move at agent speed.';
-    const first = truncateAgentRunText(texts[0], 128);
-    const last = truncateAgentRunText(texts[texts.length - 1], 128);
-    if (texts.length === 1 || first === last) return first;
-    return `${first} → ${last}`;
+    const artifacts = getAgentRunArtifacts(messages);
+    const status = getAgentRunStatus(messages);
+    const brief = getAgentRunHumanBrief(messages, artifacts, status, []);
+    return brief.overview;
+}
+
+function renderAgentRunBriefRows(brief) {
+    const rows = [
+        { label: 'What changed', value: brief && brief.keyUpdate, icon: 'bi-check2-circle', className: '' },
+        brief && brief.attention ? { label: 'Needs attention', value: brief.attention, icon: 'bi-person-raised-hand', className: ' needs-human' } : null,
+        { label: 'Source trail', value: brief && brief.sourceTrail, icon: 'bi-diagram-3', className: '' },
+        { label: 'Jump back in', value: brief && brief.reentry, icon: 'bi-arrow-return-right', className: '' },
+    ].filter(row => row && row.value);
+    if (!rows.length) return '';
+    return `<div class="agent-run-capsule-brief">
+        ${rows.map(row => `
+            <div class="agent-run-capsule-brief-row${escapeAttr(row.className || '')}">
+                <div class="agent-run-capsule-brief-label"><i class="bi ${escapeAttr(row.icon)}"></i>${escapeHtml(row.label)}</div>
+                <div class="agent-run-capsule-brief-value">${escapeHtml(row.value)}</div>
+            </div>
+        `).join('')}
+    </div>`;
 }
 
 function getAgentRunParticipants(messages, userInfo) {
@@ -13968,9 +14130,10 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
     const capsuleId = `${rootId}-agent-run-${String(options.runIndex || 0)}`.replace(/[^A-Za-z0-9_-]/g, '-');
     const artifacts = getAgentRunArtifacts(run);
     const status = getAgentRunStatus(run);
-    const title = getAgentRunTitle(run, artifacts);
-    const summary = getAgentRunSummary(run);
     const participants = getAgentRunParticipants(run, userInfo || {});
+    const brief = getAgentRunHumanBrief(run, artifacts, status, participants);
+    const title = getAgentRunTitle(run, artifacts);
+    const summary = brief.overview || getAgentRunSummary(run);
     const levelConfig = options.levelConfig || getChannelAgentRunCapsuleLevelConfig();
     const capsuleKind = options.capsuleKind || 'reply';
     registerAgentRunCapsuleStats(options.statsCollector, run, participants);
@@ -13989,6 +14152,10 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         `Agent run capsule: ${title}`,
         `${status.label}. ${run.length} source posts from ${participants.length || 'multiple'} agent${participants.length === 1 ? '' : 's'}.`,
         summary,
+        brief.keyUpdate ? `What changed: ${brief.keyUpdate}` : '',
+        brief.attention ? `Needs attention: ${brief.attention}` : '',
+        brief.sourceTrail ? `Source trail: ${brief.sourceTrail}` : '',
+        brief.reentry ? `Jump back in: ${brief.reentry}` : '',
     ].filter(Boolean).join('\n');
     let traceHtml = '';
     const rootMessageIds = options.rootMessageIds instanceof Set ? options.rootMessageIds : new Set();
@@ -14006,6 +14173,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
                     <div class="agent-run-capsule-eyebrow"><i class="bi bi-layers-fill"></i> Agent run capsule</div>
                     <div class="agent-run-capsule-title">${escapeHtml(title)}</div>
                     <div class="agent-run-capsule-summary">${escapeHtml(summary)}</div>
+                    ${renderAgentRunBriefRows(brief)}
                     <div class="agent-run-capsule-meta">
                         <span class="agent-run-capsule-status status-${escapeAttr(status.key)}">
                             <i class="bi ${escapeAttr(status.icon)}"></i>${escapeHtml(status.label)}

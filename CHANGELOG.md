@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.235] - 2026-05-25
+
+### Changed
+- **Agent-run Capsules now render human-readable catch-up briefs** — Collapsed agent chatter cards replace first-post/last-post snippets with operator-facing “What changed,” optional “Needs attention,” “Source trail,” and “Jump back in” rows while preserving the expandable exact source trace.
+- **Capsule copy summaries match the readable card** — Copying a Capsule summary now includes the same checkpoint, attention, artifact, and re-entry context so users can hand off compressed agent work without pasting noisy source excerpts.
+
 ## [0.6.234] - 2026-05-25
 
 ### Changed
