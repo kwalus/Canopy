@@ -1088,6 +1088,9 @@ class TestCanopyLLMManager(unittest.TestCase):
                 'attention': 'Owner access is needed before indexing.',
                 'source_trail': '2 file sources, 3 source posts',
                 'next_action': 'Grant access or open the trace to inspect the files.',
+                'workproducts': [
+                    {'type': 'Finding', 'label': 'Open-access source list verified', 'message_id': 'M19'},
+                ],
             })
 
         manager._call_openai = _fake_openai  # type: ignore[method-assign]
@@ -1121,7 +1124,10 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertLessEqual(len(captured['prompt']), 9000)
         self.assertIn('Prefer short operational checkpoints.', captured['prompt'])
         self.assertIn('fleetops-teleops', captured['prompt'])
+        self.assertIn('workproducts', captured['system_prompt'])
         self.assertEqual(result['summary']['title'], 'Files ready for review')
+        self.assertEqual(result['summary']['workproducts'][0]['label'], 'Open-access source list verified')
+        self.assertEqual(result['summary']['workproducts'][0]['message_id'], 'M19')
         self.assertEqual(result['credential_source'], 'user')
 
     def test_capsule_summary_reuses_cache_for_same_source(self) -> None:
