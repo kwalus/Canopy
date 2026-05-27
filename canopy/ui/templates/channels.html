@@ -3087,11 +3087,11 @@
     .agent-run-capsule-map::before {
         content: "";
         position: absolute;
-        left: 1.05rem;
-        right: 1.05rem;
+        left: 1.72rem;
         top: 3.18rem;
-        height: 2px;
-        background: linear-gradient(90deg,
+        bottom: 1.15rem;
+        width: 2px;
+        background: linear-gradient(180deg,
             rgba(34, 211, 238, 0.08),
             rgba(52, 211, 153, 0.55),
             rgba(163, 230, 53, 0.12));
@@ -3132,16 +3132,20 @@
     }
     .agent-run-capsule-map-strip {
         position: relative;
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(2.32rem, 1fr));
-        gap: 0.38rem;
-        margin-top: 0.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.42rem;
+        margin-top: 0.58rem;
+        max-height: min(31rem, 56vh);
+        overflow-y: auto;
+        padding-right: 0.12rem;
         z-index: 1;
+        scrollbar-width: thin;
     }
     .agent-run-capsule-map-node {
         position: relative;
         min-width: 0;
-        min-height: 3.1rem;
+        min-height: 4.15rem;
         border: 1px solid color-mix(in srgb, var(--canopy-border) 68%, var(--canopy-primary) 32%);
         border-radius: 14px;
         background:
@@ -3149,12 +3153,12 @@
                 color-mix(in srgb, var(--canopy-bg-tertiary) 72%, var(--canopy-primary) 28%),
                 color-mix(in srgb, var(--canopy-bg-secondary) 88%, var(--canopy-primary) 12%));
         color: var(--canopy-text-secondary);
-        display: flex;
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
         align-items: center;
-        justify-content: center;
-        gap: 0.14rem;
-        padding: 0.36rem 0.24rem 0.32rem;
+        gap: 0.48rem;
+        padding: 0.48rem 0.54rem;
+        text-align: left;
         cursor: pointer;
         appearance: none;
         transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, color 140ms ease;
@@ -3167,28 +3171,98 @@
             linear-gradient(180deg,
                 color-mix(in srgb, var(--canopy-bg-tertiary) 58%, var(--canopy-primary) 42%),
                 color-mix(in srgb, var(--canopy-bg-secondary) 78%, var(--canopy-primary) 22%));
-        transform: translateY(-2px);
+        transform: translateX(-2px);
         outline: none;
     }
-    .agent-run-capsule-map-node i {
-        font-size: 1.04rem;
-        line-height: 1;
+    .agent-run-capsule-map-avatar {
+        width: 2.15rem;
+        height: 2.15rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--canopy-text-primary);
+        background: linear-gradient(135deg, rgba(14, 165, 233, 0.28), rgba(16, 185, 129, 0.32));
+        border: 2px solid color-mix(in srgb, var(--canopy-bg-card) 82%, var(--canopy-primary) 18%);
+        font-size: 0.7rem;
+        font-weight: 950;
+        overflow: hidden;
+        box-shadow: 0 5px 14px rgba(2, 6, 23, 0.24);
     }
-    .agent-run-capsule-map-time {
+    .agent-run-capsule-map-avatar img {
+        width: 100%;
+        height: 100%;
         display: block;
-        max-width: 100%;
-        color: var(--canopy-text-muted);
-        font-size: 0.57rem;
-        font-weight: 900;
-        line-height: 1;
+        object-fit: cover;
+    }
+    .agent-run-capsule-map-body {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        gap: 0.1rem;
+    }
+    .agent-run-capsule-map-node-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.4rem;
+        min-width: 0;
+    }
+    .agent-run-capsule-map-signal {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.26rem;
+        min-width: 0;
+        color: color-mix(in srgb, var(--canopy-primary) 80%, var(--canopy-text-primary) 20%);
+        font-size: 0.63rem;
+        font-weight: 950;
+        letter-spacing: 0.07em;
+        line-height: 1.05;
+        text-transform: uppercase;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+    .agent-run-capsule-map-signal i {
+        font-size: 0.86rem;
+        line-height: 1;
+    }
+    .agent-run-capsule-map-node-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        flex: 0 0 auto;
+    }
+    .agent-run-capsule-map-time {
+        display: block;
+        color: var(--canopy-text-muted);
+        font-size: 0.58rem;
+        font-weight: 900;
+        line-height: 1;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-map-author {
+        display: block;
+        max-width: 100%;
+        color: var(--canopy-text-primary);
+        font-size: 0.78rem;
+        font-weight: 900;
+        line-height: 1.15;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-map-excerpt {
+        display: -webkit-box;
+        color: var(--canopy-text-secondary);
+        font-size: 0.68rem;
+        line-height: 1.22;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+    }
     .agent-run-capsule-map-count {
-        position: absolute;
-        top: -0.32rem;
-        right: -0.24rem;
         min-width: 1.02rem;
         height: 1.02rem;
         border-radius: 999px;
@@ -3231,7 +3305,8 @@
         display: flex;
         flex-wrap: wrap;
         gap: 0.3rem;
-        margin-top: 0.5rem;
+        margin-top: 0.55rem;
+        padding-left: 0.1rem;
     }
     .agent-run-capsule-map-legend span {
         width: 0.58rem;
@@ -3373,7 +3448,15 @@
             width: 100%;
         }
         .agent-run-capsule-map-strip {
-            grid-template-columns: repeat(auto-fit, minmax(2.45rem, 1fr));
+            max-height: min(22rem, 50vh);
+        }
+        .agent-run-capsule-map-node {
+            min-height: 3.7rem;
+            padding: 0.44rem 0.5rem;
+        }
+        .agent-run-capsule-map-avatar {
+            width: 2rem;
+            height: 2rem;
         }
         .agent-run-capsule-trace {
             padding: 0.58rem 0.54rem 0.2rem 0;
@@ -3683,6 +3766,15 @@
             linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 253, 250, 0.82));
         border-color: rgba(15, 118, 110, 0.18);
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-avatar {
+        color: #0f172a;
+        background: linear-gradient(135deg, rgba(219, 234, 254, 0.96), rgba(209, 250, 229, 0.96));
+        border-color: rgba(15, 118, 110, 0.18);
+        box-shadow: 0 5px 14px rgba(15, 23, 42, 0.08);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-signal {
+        color: #0f766e;
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node:hover,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node:focus-visible {
@@ -14965,7 +15057,28 @@ function getAgentRunMapNodeScore(node, total) {
     return score;
 }
 
-function buildAgentRunCapsuleMapNodes(messages, artifacts, maxNodes = AGENT_RUN_CAPSULE_MAP_MAX_NODES) {
+function getAgentRunMapAuthor(message, userInfo = {}) {
+    const userId = String((message && message.user_id) || '').trim();
+    const profile = (userId && userInfo && userInfo[userId]) ? userInfo[userId] : {};
+    const label = String(
+        profile.display_name ||
+        profile.username ||
+        message && message.display_name ||
+        message && message.username ||
+        message && message.user_name ||
+        userId ||
+        'Agent'
+    ).trim();
+    const avatarUrl = String(profile.avatar_url || message && message.avatar_url || '').trim();
+    return {
+        userId,
+        label,
+        avatarUrl,
+        initials: getAgentRunInitials({ ...profile, user_id: userId, display_name: label }),
+    };
+}
+
+function buildAgentRunCapsuleMapNodes(messages, artifacts, maxNodes = AGENT_RUN_CAPSULE_MAP_MAX_NODES, userInfo = {}) {
     const run = (Array.isArray(messages) ? messages : []).filter(Boolean);
     if (!run.length) return { nodes: [], hidden: 0 };
     const byMessage = getAgentRunMapArtifactsByMessage(artifacts);
@@ -14974,7 +15087,9 @@ function buildAgentRunCapsuleMapNodes(messages, artifacts, maxNodes = AGENT_RUN_
         const artifactsForMessage = byMessage.get(messageId) || [];
         const signal = getAgentRunMapSignal(message, artifactsForMessage);
         const createdAt = String(message && (message.created_at || message.updated_at) || '');
-        const authorLabel = String(message && (message.display_name || message.username || message.user_name || message.user_id) || '');
+        const author = getAgentRunMapAuthor(message, userInfo);
+        const authorLabel = author.label || '';
+        const excerpt = truncateAgentRunText(getAgentRunRawText(message), 88);
         const titleParts = [
             signal.key === 'attention' ? 'Needs attention' : '',
             signal.key === 'file' ? `${signal.count} file${signal.count === 1 ? '' : 's'}` : '',
@@ -14994,6 +15109,8 @@ function buildAgentRunCapsuleMapNodes(messages, artifacts, maxNodes = AGENT_RUN_
             count: signal.count,
             createdAt,
             timeLabel: getAgentRunCompactTimeLabel(createdAt) || `${index + 1}`,
+            author,
+            excerpt,
             title: titleParts.join(' • '),
         };
     });
@@ -15014,8 +15131,30 @@ function buildAgentRunCapsuleMapNodes(messages, artifacts, maxNodes = AGENT_RUN_
     return { nodes: visible, hidden: Math.max(0, nodes.length - visible.length) };
 }
 
-function renderAgentRunCapsuleSignalMap(messages, artifacts, capsuleId) {
-    const map = buildAgentRunCapsuleMapNodes(messages, artifacts);
+function renderAgentRunMapAvatar(author) {
+    const label = String(author && author.label || 'Agent');
+    const avatarUrl = String(author && author.avatarUrl || '').trim();
+    return `<span class="agent-run-capsule-map-avatar" title="${escapeAttr(label)}">
+        ${avatarUrl
+            ? `<img src="${escapeAttr(avatarUrl)}" alt="${escapeAttr(label)}">`
+            : escapeHtml(author && author.initials || 'A')}
+    </span>`;
+}
+
+function getAgentRunMapSignalLabel(signal) {
+    return ({
+        attention: 'Needs attention',
+        file: 'File output',
+        digestion: 'Digestion',
+        card: 'Work card',
+        complete: 'Complete',
+        mention: 'Mention',
+        post: 'Post',
+    }[signal] || 'Post');
+}
+
+function renderAgentRunCapsuleSignalMap(messages, artifacts, capsuleId, userInfo = {}) {
+    const map = buildAgentRunCapsuleMapNodes(messages, artifacts, AGENT_RUN_CAPSULE_MAP_MAX_NODES, userInfo);
     const nodes = map.nodes || [];
     if (!nodes.length) {
         return `<div class="agent-run-capsule-map">
@@ -15049,9 +15188,18 @@ function renderAgentRunCapsuleSignalMap(messages, artifacts, capsuleId) {
                         data-agent-run-capsule-map-node="${escapeAttr(node.messageId)}"
                         title="${escapeAttr(node.title || 'Open source post')}"
                         onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '${escapeAttr(node.messageId)}')">
-                    <i class="bi bi-${escapeAttr(node.icon)}"></i>
-                    <span class="agent-run-capsule-map-time">${escapeHtml(node.timeLabel)}</span>
-                    ${node.count ? `<span class="agent-run-capsule-map-count">${escapeHtml(String(node.count))}</span>` : ''}
+                    ${renderAgentRunMapAvatar(node.author)}
+                    <span class="agent-run-capsule-map-body">
+                        <span class="agent-run-capsule-map-node-head">
+                            <span class="agent-run-capsule-map-signal"><i class="bi bi-${escapeAttr(node.icon)}"></i>${escapeHtml(getAgentRunMapSignalLabel(node.signal))}</span>
+                            <span class="agent-run-capsule-map-node-meta">
+                                <span class="agent-run-capsule-map-time">${escapeHtml(node.timeLabel)}</span>
+                                ${node.count ? `<span class="agent-run-capsule-map-count">${escapeHtml(String(node.count))}</span>` : ''}
+                            </span>
+                        </span>
+                        <span class="agent-run-capsule-map-author">${escapeHtml(node.author && node.author.label || 'Agent')}</span>
+                        ${node.excerpt ? `<span class="agent-run-capsule-map-excerpt">${escapeHtml(node.excerpt)}</span>` : ''}
+                    </span>
                 </button>
             `).join('')}
         </div>
@@ -15393,7 +15541,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
                             </button>
                         </div>
                     </div>
-                    ${renderAgentRunCapsuleSignalMap(run, directArtifacts, capsuleId)}
+                    ${renderAgentRunCapsuleSignalMap(run, directArtifacts, capsuleId, userInfo || {})}
                 </div>
             </div>
             <div class="agent-run-capsule-trace"
