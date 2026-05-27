@@ -2269,6 +2269,30 @@ def create_ui_blueprint() -> Blueprint:
         except Exception:
             return []
 
+    def _vault_upload_folder_parts(raw_path: Any) -> list[str]:
+        """Extract safe folder components from a browser-provided relative upload path."""
+        clean = str(raw_path or '').replace('\\', '/').strip().strip('/')
+        if not clean:
+            return []
+        raw_parts = [part.strip() for part in clean.split('/') if part and part.strip()]
+        if len(raw_parts) <= 1:
+            return []
+        if len(raw_parts) > 18:
+            raise ValueError('Dropped folder nesting is too deep for this upload.')
+        folder_parts: list[str] = []
+        for part in raw_parts[:-1]:
+            if part in {'.', '..'}:
+                raise ValueError('Dropped folder path contains an unsafe segment.')
+            folder_parts.append(part)
+        return folder_parts
+
+    def _vault_folder_for_upload_path(file_manager: Any, user_id: str, root_folder_id: str, raw_path: Any) -> Optional[str]:
+        parts = _vault_upload_folder_parts(raw_path)
+        if not parts:
+            return str(root_folder_id or '').strip() or None
+        folder = file_manager.ensure_user_folder_path(user_id, parts, str(root_folder_id or '').strip() or None)
+        return str(getattr(folder, 'id', '') or '').strip() or None
+
     def _save_inline_composer_attachment(file_manager: Any, attachment: dict[str, Any], user_id: str) -> tuple[Optional[dict[str, Any]], Optional[str]]:
         """Persist one base64 composer attachment and return normalized metadata."""
         try:
@@ -7884,15 +7908,24 @@ def create_ui_blueprint() -> Blueprint:
             folder_id = str(request.form.get('folder_id') or '').strip()
             if folder_id and not file_manager.get_user_folder(user_id, folder_id):
                 return jsonify({'success': False, 'error': 'Folder not found'}), 404
+            relative_paths = request.form.getlist('relative_paths') or request.form.getlist('paths')
 
-            from ..security.file_validation import detect_zip_bomb, validate_file_upload
+            from ..security.file_validation import (
+                detect_zip_bomb,
+                format_upload_size_limit,
+                get_vault_upload_max_bytes,
+                validate_file_upload,
+            )
 
-            max_size = current_app.config.get('MAX_FILE_SIZE', 104857600)
+            max_size = get_vault_upload_max_bytes(current_app.config)
+            max_size_human = format_upload_size_limit(max_size)
             saved: list[dict[str, Any]] = []
-            failed: list[dict[str, str]] = []
-            for upload in uploads:
+            failed: list[dict[str, Any]] = []
+            created_folder_ids: set[str] = set()
+            for index, upload in enumerate(uploads):
                 original_name = upload.filename or 'upload'
                 content_type = upload.content_type or 'application/octet-stream'
+                raw_relative_path = relative_paths[index] if index < len(relative_paths) else ''
                 try:
                     file_data = upload.read()
                     original_name, content_type = file_manager.normalize_upload_metadata(
@@ -7900,6 +7933,15 @@ def create_ui_blueprint() -> Blueprint:
                         original_name=original_name,
                         content_type=content_type,
                     )
+                    if len(file_data) > max_size:
+                        failed.append({
+                            'name': original_name,
+                            'size': len(file_data),
+                            'max_size': max_size,
+                            'max_size_human': max_size_human,
+                            'error': f'File exceeds the File Vault upload limit of {max_size_human}.',
+                        })
+                        continue
                     is_valid, error_msg, validated_type = validate_file_upload(
                         file_data,
                         content_type,
@@ -7914,10 +7956,27 @@ def create_ui_blueprint() -> Blueprint:
                     if not is_safe:
                         failed.append({'name': original_name, 'error': bomb_msg})
                         continue
-                    file_info = file_manager.save_file(file_data, original_name, content_type, user_id)
+                    try:
+                        target_folder_id = _vault_folder_for_upload_path(
+                            file_manager,
+                            user_id,
+                            folder_id,
+                            raw_relative_path,
+                        )
+                        if target_folder_id:
+                            created_folder_ids.add(target_folder_id)
+                    except ValueError as folder_err:
+                        failed.append({'name': original_name, 'error': str(folder_err)})
+                        continue
+                    file_info = file_manager.save_file(
+                        file_data,
+                        original_name,
+                        content_type,
+                        user_id,
+                        vault_folder_id=target_folder_id,
+                        max_size_override=max_size,
+                    )
                     if file_info:
-                        if folder_id:
-                            file_info = file_manager.move_user_file_to_folder(user_id, file_info.id, folder_id)
                         saved.append(_file_info_to_vault_entry(file_info))
                     else:
                         failed.append({
@@ -7938,6 +7997,9 @@ def create_ui_blueprint() -> Blueprint:
                 'error': error,
                 'files': saved,
                 'failed': failed,
+                'folders_created': len(created_folder_ids),
+                'max_size': max_size,
+                'max_size_human': max_size_human,
             }), status
         except Exception as e:
             logger.error(f"Vault upload error: {e}", exc_info=True)

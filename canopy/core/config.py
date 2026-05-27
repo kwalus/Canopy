@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, cast
 from dataclasses import dataclass, field
 
+from ..security.file_validation import DEFAULT_UPLOAD_MAX_BYTES, DEFAULT_VAULT_UPLOAD_MAX_BYTES
 from .meshspaces import (
     build_legacy_meshspace_id,
     default_meshspace_root,
@@ -236,7 +237,8 @@ class StorageConfig:
     data_dir: str = ""       # Per-device data directory (set at runtime)
     backup_interval: int = 3600  # 1 hour
     max_message_size: int = 1024 * 1024  # 1MB
-    max_file_size: int = 1024 * 1024 * 100  # 100MB
+    max_file_size: int = DEFAULT_UPLOAD_MAX_BYTES  # Post/message attachments
+    max_vault_file_size: int = DEFAULT_VAULT_UPLOAD_MAX_BYTES  # Local Vault staging/Digestions
 
 
 @dataclass
@@ -480,6 +482,25 @@ class Config:
                     digest_max,
                     config.security.sync_digest_max_channels_per_request,
                 )
+
+        if max_file_size := os.getenv('CANOPY_MAX_FILE_SIZE'):
+            try:
+                config.storage.max_file_size = max(1, int(max_file_size))
+            except Exception:
+                logger.warning(
+                    "Invalid CANOPY_MAX_FILE_SIZE value '%s'; using default %s",
+                    max_file_size,
+                    config.storage.max_file_size,
+                )
+        if max_vault_file_size := os.getenv('CANOPY_MAX_VAULT_FILE_SIZE'):
+            try:
+                config.storage.max_vault_file_size = max(1, int(max_vault_file_size))
+            except Exception:
+                logger.warning(
+                    "Invalid CANOPY_MAX_VAULT_FILE_SIZE value '%s'; using default %s",
+                    max_vault_file_size,
+                    config.storage.max_vault_file_size,
+                )
             
         # Network configuration
         if host := os.getenv('CANOPY_HOST'):
@@ -620,6 +641,7 @@ class Config:
                 'data_dir': self.storage.data_dir,
                 'max_message_size': self.storage.max_message_size,
                 'max_file_size': self.storage.max_file_size,
+                'max_vault_file_size': self.storage.max_vault_file_size,
             },
             'meshspace': {
                 'enabled': self.meshspace.enabled,

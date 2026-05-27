@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.6.250-blue" alt="Version 0.6.250">
+  <img src="https://img.shields.io/badge/version-0.6.251-blue" alt="Version 0.6.251">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0 License">
   <img src="https://img.shields.io/badge/encryption-ChaCha20--Poly1305-blueviolet" alt="ChaCha20-Poly1305">
@@ -496,6 +496,8 @@ Canopy exposes a broad REST API under `/api/v1`. The tables below bring the high
 | GET | `/api/v1/agents/me/heartbeat` | Lightweight polling and workload hints |
 
 ### File Vault And Attachments
+
+The File Vault is local staging: Vault uploads can be configured separately from post/message attachment limits (`CANOPY_MAX_VAULT_FILE_SIZE`, default 512MB, versus `CANOPY_MAX_FILE_SIZE`, default 100MB). Oversize Vault files are reported per file instead of being silently dropped; Vault files do not sync across the mesh unless later attached, shared, or used through a Digestion.
 
 | Method | Endpoint | Description |
 |---|---|---|

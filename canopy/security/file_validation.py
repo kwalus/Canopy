@@ -11,15 +11,83 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import zipfile
 from html.parser import HTMLParser
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 CANOPY_MODULE_SUFFIXES = ('.canopy-module.html', '.canopy-module.htm')
 CANOPY_MODULE_MAX_BYTES = 300 * 1024
+DEFAULT_UPLOAD_MAX_BYTES = 100 * 1024 * 1024
+DEFAULT_VAULT_UPLOAD_MAX_BYTES = 512 * 1024 * 1024
+
+
+def format_upload_size_limit(size_bytes: Any) -> str:
+    """Return a compact human-readable upload limit label."""
+    try:
+        value = float(size_bytes or 0)
+    except (TypeError, ValueError):
+        value = 0
+    if value <= 0:
+        return "0 B"
+    units = ("B", "KB", "MB", "GB", "TB")
+    unit_index = 0
+    while value >= 1024 and unit_index < len(units) - 1:
+        value /= 1024
+        unit_index += 1
+    precision = 0 if value >= 10 or unit_index == 0 else 1
+    return f"{value:.{precision}f} {units[unit_index]}"
+
+
+def resolve_upload_max_bytes(
+    config: Any,
+    *,
+    config_key: str,
+    env_key: str,
+    default: int,
+) -> int:
+    """Resolve an upload size cap from Flask config/env with a safe default."""
+    candidates: list[Any] = []
+    if config is not None:
+        try:
+            candidates.append(config.get(config_key))
+        except AttributeError:
+            candidates.append(getattr(config, config_key, None))
+    candidates.append(os.getenv(env_key))
+    candidates.append(default)
+    for candidate in candidates:
+        if candidate is None or candidate == '':
+            continue
+        try:
+            value = int(candidate)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return int(default)
+
+
+def get_standard_upload_max_bytes(config: Any = None) -> int:
+    """Return the post/message attachment upload cap."""
+    return resolve_upload_max_bytes(
+        config,
+        config_key="MAX_FILE_SIZE",
+        env_key="CANOPY_MAX_FILE_SIZE",
+        default=DEFAULT_UPLOAD_MAX_BYTES,
+    )
+
+
+def get_vault_upload_max_bytes(config: Any = None) -> int:
+    """Return the local File Vault upload cap, intentionally larger than post uploads."""
+    return resolve_upload_max_bytes(
+        config,
+        config_key="MAX_VAULT_FILE_SIZE",
+        env_key="CANOPY_MAX_VAULT_FILE_SIZE",
+        default=DEFAULT_VAULT_UPLOAD_MAX_BYTES,
+    )
 
 SOURCE_CODE_EXT_TO_MIME = {
     '.bash': 'text/x-shellscript',

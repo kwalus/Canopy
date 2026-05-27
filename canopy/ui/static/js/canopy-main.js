@@ -1226,6 +1226,12 @@
                 return `${size.toFixed(precision)} ${units[unitIndex]}`;
             }
 
+            function vaultMaxUploadBytes() {
+                const raw = (((global.CANOPY_VARS || {}).uploadLimits || {}).vaultMaxBytes);
+                const value = Number(raw || 0);
+                return Number.isFinite(value) && value > 0 ? value : 512 * 1024 * 1024;
+            }
+
             function fileIcon(file) {
                 const type = String((file && (file.type || file.content_type)) || '').toLowerCase();
                 const name = String((file && (file.name || file.filename)) || '').toLowerCase();
@@ -2250,6 +2256,11 @@
 	                const loadMore = document.getElementById('vault-load-more');
 	                const uploadInput = document.getElementById('vault-upload-input');
 	                const dropzone = document.getElementById('vault-dropzone');
+                    const uploadStatus = document.getElementById('vault-upload-status');
+                    const uploadStatusTitle = document.getElementById('vault-upload-status-title');
+                    const uploadStatusCount = document.getElementById('vault-upload-status-count');
+                    const uploadStatusDetail = document.getElementById('vault-upload-status-detail');
+                    const uploadProgressBar = document.getElementById('vault-upload-progress-bar');
                 const breadcrumb = document.getElementById('vault-breadcrumb');
                 const newFolderBtn = document.getElementById('vault-new-folder-btn');
                 const newFolderForm = document.getElementById('vault-new-folder-form');
@@ -7006,6 +7017,106 @@
                     return message || 'Upload failed.';
                 }
 
+                function vaultUploadFailureSummary(failedFiles) {
+                    const failed = Array.isArray(failedFiles) ? failedFiles.filter(Boolean) : [];
+                    if (!failed.length) return 'Upload failed.';
+                    const first = failed[0] || {};
+                    const name = first.name ? `"${first.name}"` : 'Upload';
+                    const reason = first.error || 'Upload failed.';
+                    const extra = failed.length > 1 ? ` (${failed.length} files blocked or failed)` : '';
+                    return `${name}: ${reason}${extra}`;
+                }
+
+                function setVaultUploadStatus({ visible = true, title = '', count = '', detail = '', progress = 0 } = {}) {
+                    if (!uploadStatus) return;
+                    uploadStatus.hidden = !visible;
+                    if (!visible) return;
+                    if (uploadStatusTitle) uploadStatusTitle.textContent = title || 'Uploading to File Vault...';
+                    if (uploadStatusCount) uploadStatusCount.textContent = count || '';
+                    if (uploadStatusDetail) uploadStatusDetail.textContent = detail || '';
+                    if (uploadProgressBar) {
+                        const safeProgress = Math.max(0, Math.min(100, Number(progress || 0)));
+                        uploadProgressBar.style.setProperty('--vault-upload-progress', `${safeProgress}%`);
+                    }
+                }
+
+                function clearVaultUploadStatusSoon() {
+                    if (!uploadStatus) return;
+                    window.setTimeout(() => {
+                        if (!uploadStatus.classList.contains('is-sticky')) {
+                            setVaultUploadStatus({ visible: false });
+                        }
+                    }, 2600);
+                }
+
+                function setVaultRelativePath(file, relativePath) {
+                    if (!file || !relativePath) return file;
+                    try {
+                        Object.defineProperty(file, '__vaultRelativePath', {
+                            value: String(relativePath || ''),
+                            configurable: true,
+                        });
+                    } catch (_) {
+                        try { file.__vaultRelativePath = String(relativePath || ''); } catch (_) {}
+                    }
+                    return file;
+                }
+
+                function vaultRelativePath(file) {
+                    return String(
+                        (file && (file.__vaultRelativePath || file.webkitRelativePath || file.relativePath))
+                        || (file && file.name)
+                        || ''
+                    ).replace(/\\/g, '/');
+                }
+
+                function uploadVaultFormWithProgress(form, filesCount) {
+                    return new Promise((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', vaultUrls().upload, true);
+                        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                        if (csrfToken) xhr.setRequestHeader('X-CSRFToken', csrfToken);
+                        xhr.upload.onprogress = (event) => {
+                            if (!event.lengthComputable) {
+                                setVaultUploadStatus({
+                                    title: 'Uploading to File Vault...',
+                                    count: `${filesCount} file${filesCount === 1 ? '' : 's'}`,
+                                    detail: 'Sending files to local Vault storage.',
+                                    progress: 45,
+                                });
+                                return;
+                            }
+                            const percent = Math.max(3, Math.min(98, (event.loaded / Math.max(event.total, 1)) * 100));
+                            setVaultUploadStatus({
+                                title: 'Uploading to File Vault...',
+                                count: `${formatBytes(event.loaded)} / ${formatBytes(event.total)}`,
+                                detail: `${filesCount} file${filesCount === 1 ? '' : 's'} selected; folder paths are preserved when provided by the browser.`,
+                                progress: percent,
+                            });
+                        };
+                        xhr.onload = () => {
+                            const contentType = String(xhr.getResponseHeader('content-type') || '').toLowerCase();
+                            let payload = {};
+                            if (contentType.includes('application/json')) {
+                                try { payload = JSON.parse(xhr.responseText || '{}'); } catch (_) { payload = {}; }
+                            } else if (xhr.responseText) {
+                                payload = { error: xhr.responseText, message: xhr.responseText };
+                            }
+                            if (xhr.status < 200 || xhr.status >= 300) {
+                                const err = payload && typeof payload === 'object' ? payload : {};
+                                err.status = xhr.status;
+                                if (!err.error && !err.message) err.error = `Upload failed (${xhr.status})`;
+                                reject(err);
+                                return;
+                            }
+                            resolve(payload && typeof payload === 'object' ? payload : {});
+                        };
+                        xhr.onerror = () => reject({ error: 'Network error while uploading to the File Vault.' });
+                        xhr.onabort = () => reject({ error: 'File Vault upload was cancelled.' });
+                        xhr.send(form);
+                    });
+                }
+
                 function dataTransferHasExternalFiles(dataTransfer) {
                     if (!dataTransfer) return false;
                     const types = Array.from(dataTransfer.types || []);
@@ -7027,11 +7138,13 @@
                     });
                 }
 
-                async function filesFromEntry(entry, droppedItems = [], seenFileKeys = new Set()) {
+                async function filesFromEntry(entry, droppedItems = [], seenFileKeys = new Set(), parentPath = '') {
                     if (!entry) return droppedItems;
                     if (entry.isFile) {
                         try {
                             const file = await entryFile(entry);
+                            const relativePath = [parentPath, file && file.name ? file.name : entry.name].filter(Boolean).join('/');
+                            setVaultRelativePath(file, relativePath);
                             pushUniqueDroppedFile(droppedItems, seenFileKeys, file);
                         } catch (error) {
                             droppedItems.push({
@@ -7046,11 +7159,12 @@
                     const reader = entry.createReader && entry.createReader();
                     if (!reader) return droppedItems;
                     try {
+                        const nextPath = [parentPath, entry.name].filter(Boolean).join('/');
                         let batch = [];
                         do {
                             batch = await readDirectoryEntries(reader);
                             for (const child of batch) {
-                                await filesFromEntry(child, droppedItems, seenFileKeys);
+                                await filesFromEntry(child, droppedItems, seenFileKeys, nextPath);
                             }
                         } while (batch.length);
                     } catch (error) {
@@ -7066,7 +7180,7 @@
                 function vaultDroppedFileKey(file) {
                     if (!file || file.__vaultDropError) return '';
                     return [
-                        String(file.webkitRelativePath || file.name || ''),
+                        String(file.__vaultRelativePath || file.webkitRelativePath || file.name || ''),
                         Number(file.size || 0),
                         Number(file.lastModified || 0),
                         String(file.type || ''),
@@ -7116,6 +7230,9 @@
                         }
                         if (file) snapshot.push({ file });
                     }
+                    if (snapshot.length) {
+                        return snapshot;
+                    }
                     let transferFiles = [];
                     try {
                         transferFiles = Array.from(dataTransfer.files || []);
@@ -7147,6 +7264,10 @@
                     if (!file || typeof file.arrayBuffer !== 'function') return file;
                     try {
                         const size = Number(file.size || 0) || 0;
+                        const maxSize = vaultMaxUploadBytes();
+                        if (size > maxSize) {
+                            throw new Error(`File exceeds the File Vault upload limit of ${formatBytes(maxSize)}.`);
+                        }
                         const probe = size > 0 && typeof file.slice === 'function' ? file.slice(0, Math.min(size, 1)) : file;
                         await probe.arrayBuffer();
                         return file;
@@ -7213,7 +7334,7 @@
                             state.currentFolderId = String(data.current_folder_id || state.currentFolderId || '');
                         }
                         state.stats = data.stats || state.stats || {};
-		                render();
+                        render();
                         setVaultFilePanelCollapsed(state.filePanelCollapsed);
                     } catch (error) {
                         console.error('Vault load failed:', error);
@@ -7227,25 +7348,52 @@
                     }
                 }
 
-	                async function uploadFiles(fileList, options = {}) {
-	                    const incoming = Array.from(fileList || []).filter(Boolean);
-	                    const files = incoming.filter(file => !(file && file.__vaultDropError));
+                async function uploadFiles(fileList, options = {}) {
+                    const incoming = Array.from(fileList || []).filter(Boolean);
+                    const vaultLimit = vaultMaxUploadBytes();
+                    const files = [];
                     const preflightFailures = incoming
                         .filter(file => file && file.__vaultDropError)
                         .map(file => ({
                             name: file.name || 'Dropped item',
                             error: file.error || 'Could not read dropped item.',
                         }));
+                    incoming
+                        .filter(file => file && !file.__vaultDropError)
+                        .forEach(file => {
+                            const size = Number(file.size || 0) || 0;
+                            if (size > vaultLimit) {
+                                preflightFailures.push({
+                                    name: file.name || 'upload',
+                                    size,
+                                    max_size: vaultLimit,
+                                    max_size_human: formatBytes(vaultLimit),
+                                    error: `File exceeds the File Vault upload limit of ${formatBytes(vaultLimit)}.`,
+                                });
+                                return;
+                            }
+                            files.push(file);
+                        });
                     const quiet = !!(options && options.quiet);
                     const refresh = !(options && options.refresh === false);
                     if (!files.length && !preflightFailures.length) return { savedFiles: [], failedFiles: [] };
+                    if (!quiet) {
+                        setVaultUploadStatus({
+                            title: 'Preparing File Vault upload...',
+                            count: `${files.length} file${files.length === 1 ? '' : 's'}`,
+                            detail: preflightFailures.length
+                                ? `${preflightFailures.length} file${preflightFailures.length === 1 ? '' : 's'} blocked before upload.`
+                                : 'Scanning dropped files and preserving folder paths.',
+                            progress: files.length ? 7 : 100,
+                        });
+                    }
                     const savedFiles = [];
                     const failedFiles = preflightFailures.slice();
                     if (!files.length) {
                         if (!quiet && typeof showAlert === 'function') {
-                            const first = failedFiles[0] || {};
-                            showAlert(`${first.name || 'Upload'}: ${first.error || 'No readable files were dropped.'}`, 'danger');
+                            showAlert(vaultUploadFailureSummary(failedFiles), 'danger');
                         }
+                        if (!quiet) clearVaultUploadStatusSoon();
                         return { savedFiles, failedFiles };
                     }
                     if (dropzone) {
@@ -7259,6 +7407,7 @@
                             try {
                                 const uploadFile = await prepareVaultUploadFile(file);
                                 form.append('files', uploadFile, file.name || 'upload');
+                                form.append('relative_paths', vaultRelativePath(file));
                             } catch (error) {
                                 failedFiles.push({
                                     name: file.name || 'upload',
@@ -7268,9 +7417,12 @@
                         }
                         if (form.getAll('files').length) {
                             try {
-                                const data = await apiCall(vaultUrls().upload, {
-                                    method: 'POST',
-                                    body: form
+                                const data = await uploadVaultFormWithProgress(form, form.getAll('files').length);
+                                setVaultUploadStatus({
+                                    title: 'Finalizing File Vault upload...',
+                                    count: `${form.getAll('files').length} file${form.getAll('files').length === 1 ? '' : 's'}`,
+                                    detail: 'Saving metadata and refreshing the Vault list.',
+                                    progress: 99,
                                 });
                                 savedFiles.push(...(Array.isArray(data.files) ? data.files : []));
                                 failedFiles.push(...(Array.isArray(data.failed) ? data.failed : []));
@@ -7296,45 +7448,67 @@
                         const failed = failedFiles.length;
                         if (!quiet && typeof showAlert === 'function') {
                             if (saved) {
-                                showAlert(`${saved} file${saved === 1 ? '' : 's'} added to your vault${failed ? `; ${failed} failed` : ''}.`, failed ? 'warning' : 'success');
+                                const blockedNote = failed ? `; ${failed} blocked or failed (${vaultUploadFailureSummary(failedFiles)})` : '';
+                                showAlert(`${saved} file${saved === 1 ? '' : 's'} added to your vault${blockedNote}.`, failed ? 'warning' : 'success');
+                                setVaultUploadStatus({
+                                    title: 'File Vault upload complete',
+                                    count: `${saved} saved${failed ? ` · ${failed} blocked/failed` : ''}`,
+                                    detail: failed ? vaultUploadFailureSummary(failedFiles) : 'Files are ready in your local Vault.',
+                                    progress: 100,
+                                });
                             } else if (failed) {
-                                const first = failedFiles[0] || {};
-                                showAlert(`${first.name || 'Upload'}: ${first.error || 'Upload failed.'}`, 'danger');
+                                showAlert(vaultUploadFailureSummary(failedFiles), 'danger');
+                                setVaultUploadStatus({
+                                    title: 'File Vault upload blocked',
+                                    count: `${failed} failed`,
+                                    detail: vaultUploadFailureSummary(failedFiles),
+                                    progress: 100,
+                                });
                             }
                         }
                         if (uploadInput) uploadInput.value = '';
                         if (saved && refresh) {
                             await loadFiles({ append: false });
                         }
+                        if (!quiet) clearVaultUploadStatusSoon();
                     } catch (error) {
                         console.error('Vault upload failed:', error);
                         if (!quiet && typeof showAlert === 'function') showAlert(summarizeVaultUploadError(error), 'danger');
+                        if (!quiet) {
+                            setVaultUploadStatus({
+                                title: 'File Vault upload failed',
+                                count: '',
+                                detail: summarizeVaultUploadError(error),
+                                progress: 100,
+                            });
+                            clearVaultUploadStatusSoon();
+                        }
                     } finally {
                         if (dropzone) {
                             dropzone.classList.remove('is-dragging', 'is-uploading');
                             dropzone.removeAttribute('aria-busy');
-	                        }
-	                    }
+                        }
+                    }
                     return { savedFiles, failedFiles };
-	                }
+                }
 
-	                async function uploadFilesFromDataTransfer(dataTransfer) {
-	                    const droppedFiles = await filesFromDataTransfer(dataTransfer);
-	                    if (!droppedFiles.length) {
-	                        if (typeof showAlert === 'function') {
-	                            showAlert('No readable files were found in that drop. Try selecting the files directly.', 'warning');
-	                        }
-	                        return { savedFiles: [], failedFiles: [] };
-	                    }
-	                    return uploadFiles(droppedFiles);
-	                }
+                async function uploadFilesFromDataTransfer(dataTransfer) {
+                    const droppedFiles = await filesFromDataTransfer(dataTransfer);
+                    if (!droppedFiles.length) {
+                        if (typeof showAlert === 'function') {
+                            showAlert('No readable files were found in that drop. Try selecting the files directly.', 'warning');
+                        }
+                        return { savedFiles: [], failedFiles: [] };
+                    }
+                    return uploadFiles(droppedFiles);
+                }
 
-	                function setVaultListDropActive(active) {
-	                    if (filePanel) filePanel.classList.toggle('is-external-dragging', !!active);
-	                    if (grid) grid.classList.toggle('is-external-dragging', !!active);
-	                }
+                function setVaultListDropActive(active) {
+                    if (filePanel) filePanel.classList.toggle('is-external-dragging', !!active);
+                    if (grid) grid.classList.toggle('is-external-dragging', !!active);
+                }
 
-	                render();
+                render();
                 if (breadcrumb) {
                     breadcrumb.addEventListener('click', (event) => {
                         const target = event.target.closest('[data-vault-folder-target]');
