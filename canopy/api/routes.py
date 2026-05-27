@@ -11643,6 +11643,54 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API datapoint search failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/structured-records', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def digestion_structured_records_append_api(digestion_id: str):
+        """Append profile-specific source-of-truth records to a Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        records = data.get('records') or data.get('structured_records') or data.get('items') or data.get('record') or []
+        if isinstance(records, dict):
+            records = [records]
+        try:
+            return jsonify(manager.append_structured_records(
+                digestion_id,
+                g.api_key_info.user_id,
+                profile=str(data.get('profile') or data.get('schema') or 'generic'),
+                records=records if isinstance(records, list) else [],
+                replace=_as_bool(data.get('replace') or data.get('replace_profile')),
+                note=str(data.get('note') or data.get('summary') or ''),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API structured record append failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/structured-records/search', methods=['POST'])
+    @require_auth(Permission.READ_FILES)
+    def digestion_structured_records_search_api(digestion_id: str):
+        """Search profile-specific structured record outputs."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.search_structured_records(
+                digestion_id,
+                g.api_key_info.user_id,
+                str(data.get('query') or data.get('q') or ''),
+                profile=str(data.get('profile') or ''),
+                limit=_api_int_param(data.get('limit') or data.get('top_k'), default=25, minimum=1, maximum=120),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API structured record search failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/figures', methods=['GET'])
     @require_auth(Permission.READ_FILES)
     def digestion_figures_api(digestion_id: str):

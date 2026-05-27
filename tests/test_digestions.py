@@ -2734,6 +2734,115 @@ class TestDigestions(unittest.TestCase):
         self.assertNotIn('errors', reader_build['details'])
         self.assertEqual(reader_build['details']['chunk_count'], 2)
 
+    def test_structured_records_append_search_and_persisted_progress(self) -> None:
+        """Agents can append source-grounded chart records and owners can see persisted progress."""
+        source = self._save_text(
+            '00373COMIX.txt',
+            'KSAN LOC RWY 27 chart. Final approach fix REEBO. Final approach altitude 2000 ft. '
+            'Missed approach instructions are shown on the source plate.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Approach Charts Library',
+            source_file_ids=[source.id],
+            provider='local_hash',
+            chunk_size=120,
+            chunk_overlap=0,
+        )
+        self.assertTrue(self.digestion_manager.build_digestion(digestion['id'], 'owner-user')['success'])
+
+        result = self.digestion_manager.append_structured_records(
+            digestion['id'],
+            'owner-user',
+            profile='approach_chart',
+            records=[
+                {
+                    'record_type': 'approach',
+                    'airport_icao': 'KSAN',
+                    'procedure_name': 'LOC RWY 27',
+                    'procedure_type': 'LOC',
+                    'runway': '27',
+                    'fields': {
+                        'final_approach_fix': 'REEBO',
+                        'final_approach_altitude': '2000 ft',
+                        'missed_approach': 'Use exact chart text before operational use.',
+                    },
+                    'source': {
+                        'file_id': source.id,
+                        'file_name': '00373COMIX.txt',
+                        'page_label': 'p. 1',
+                    },
+                    'provenance': [
+                        {
+                            'field': 'final_approach_fix',
+                            'text': 'Final approach fix REEBO on KSAN LOC RWY 27 source plate.',
+                            'page_label': 'p. 1',
+                        }
+                    ],
+                    'verification': {'status': 'needs_human_review', 'confidence': 0.72},
+                }
+            ],
+            note='Corrected LOC RWY 27 source-of-truth record.',
+        )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['profile'], 'aviation_chart')
+        self.assertEqual(result['record_count'], 1)
+        self.assertEqual(result['progress']['status'], 'completed')
+        self.assertEqual(result['progress']['details']['record_count'], 1)
+
+        output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'structured_records')
+        payload = json.loads(output['content'])
+        self.assertEqual(payload['kind'], 'canopy_structured_records_v1')
+        self.assertEqual(payload['records'][0]['fields']['final_approach_fix'], 'REEBO')
+
+        stats = self.digestion_manager.stats(digestion['id'])
+        self.assertEqual(stats['structured_record_count'], 1)
+
+        search = self.digestion_manager.search_structured_records(
+            digestion['id'],
+            'owner-user',
+            'KSAN LOC RWY 27 REEBO',
+            profile='aviation_chart',
+        )
+        self.assertTrue(search['records_ready'])
+        self.assertEqual(search['result_count'], 1)
+        self.assertEqual(search['results'][0]['fields']['final_approach_fix'], 'REEBO')
+
+        persisted_manager = DigestionManager(self.db_manager, self.file_manager)
+        progress = persisted_manager.get_operation_progress(digestion['id'], 'owner-user')
+        self.assertEqual(progress['operations']['structured_records']['status'], 'completed')
+        self.assertEqual(progress['operations']['structured_records']['details']['record_count'], 1)
+
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_read_sources=False,
+        )
+        with self.assertRaises(DigestionError):
+            self.digestion_manager.search_structured_records(
+                digestion['id'],
+                'reader-user',
+                'REEBO',
+                profile='aviation_chart',
+            )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_read_sources=True,
+        )
+        reader_search = self.digestion_manager.search_structured_records(
+            digestion['id'],
+            'reader-user',
+            'REEBO',
+            profile='aviation_chart',
+        )
+        self.assertEqual(reader_search['result_count'], 1)
+
     def test_chunk_limit_build_reports_truncation_and_remains_queryable(self) -> None:
         """Chunk-limit truncation should surface clearly without making the index unusable."""
         import canopy.core.digestions as dig_mod

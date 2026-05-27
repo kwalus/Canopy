@@ -7356,6 +7356,54 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI datapoint search error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not search structured datapoints'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/structured-records', methods=['POST'])
+    @require_login
+    def ajax_digestion_structured_records_append(digestion_id: str):
+        """Append profile-specific structured records from the web UI."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        records = data.get('records') or data.get('structured_records') or data.get('items') or data.get('record') or []
+        if isinstance(records, dict):
+            records = [records]
+        try:
+            return jsonify(manager.append_structured_records(
+                digestion_id,
+                get_current_user(),
+                profile=str(data.get('profile') or data.get('schema') or 'generic'),
+                records=records if isinstance(records, list) else [],
+                replace=_ui_as_bool(data.get('replace') or data.get('replace_profile')),
+                note=str(data.get('note') or data.get('summary') or ''),
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI structured record append error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not append structured records'}), 500
+
+    @ui.route('/ajax/digestions/<digestion_id>/structured-records/search', methods=['POST'])
+    @require_login
+    def ajax_digestion_structured_records_search(digestion_id: str):
+        """Search profile-specific structured record outputs from the web UI."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.search_structured_records(
+                digestion_id,
+                get_current_user(),
+                str(data.get('query') or data.get('q') or ''),
+                profile=str(data.get('profile') or ''),
+                limit=_ajax_optional_int(data.get('limit') or data.get('top_k'), minimum=1, maximum=120) or 25,
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI structured record search error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not search structured records'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/figures', methods=['GET'])
     @require_login
     def ajax_digestion_figures(digestion_id: str):

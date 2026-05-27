@@ -51,6 +51,8 @@ MIN_LOCAL_HASH_QUERY_SCORE = float(os.getenv("CANOPY_DIGESTION_LOCAL_HASH_MIN_SC
 MIN_PARTIAL_QUERY_TERM_CHARS = int(os.getenv("CANOPY_DIGESTION_PARTIAL_QUERY_TERM_MIN_CHARS", "3") or "3")
 STRUCTURED_DATAPOINT_OUTPUT_KIND = "structured_datapoints"
 STRUCTURED_DATAPOINT_SCHEMA_VERSION = "canopy_structured_datapoints_v1"
+STRUCTURED_RECORD_OUTPUT_KIND = "structured_records"
+STRUCTURED_RECORD_SCHEMA_VERSION = "canopy_structured_records_v1"
 AGENT_CONTRIBUTION_SCHEMA_VERSION = "canopy_agent_digestion_contribution_v1"
 DIGESTION_CONTRIBUTION_LEDGER_SCHEMA_VERSION = "canopy_digestion_contribution_ledger_v1"
 CONTRIBUTION_STATUS_PENDING = "pending"
@@ -75,6 +77,7 @@ MAX_STRUCTURED_DATAPOINT_LLM_CHUNK_CHARS = int(os.getenv("CANOPY_DIGESTION_DATAP
 MAX_STRUCTURED_DATAPOINTS_PER_LLM_BATCH = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_BATCH_RECORDS", "40"))
 MAX_STRUCTURED_DATAPOINT_LLM_OUTPUT_TOKENS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_OUTPUT_TOKENS", "7000"))
 DATAPOINT_MIN_TERM_OVERLAP = float(os.getenv("CANOPY_DIGESTION_DATAPOINT_MIN_TERM_OVERLAP", "0.75"))
+MAX_STRUCTURED_RECORDS_PER_APPEND = int(os.getenv("CANOPY_DIGESTION_MAX_STRUCTURED_RECORDS_PER_APPEND", "500"))
 PDF_FIGURE_OUTPUT_KIND = "pdf_figures"
 PDF_FIGURE_SCHEMA_VERSION = "canopy_pdf_figures_v1"
 VISUAL_EVIDENCE_OUTPUT_KIND = "visual_evidence"
@@ -87,6 +90,7 @@ _SOURCE_REVEALING_OUTPUT_KINDS = {
     "manifest",
     "human_brief",
     STRUCTURED_DATAPOINT_OUTPUT_KIND,
+    STRUCTURED_RECORD_OUTPUT_KIND,
     PDF_FIGURE_OUTPUT_KIND,
     VISUAL_EVIDENCE_OUTPUT_KIND,
 }
@@ -265,6 +269,26 @@ class DigestionManager:
                     FOREIGN KEY (digestion_id) REFERENCES digestions(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS digestion_operations (
+                    digestion_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'idle',
+                    phase TEXT,
+                    percent INTEGER NOT NULL DEFAULT 0,
+                    processed INTEGER NOT NULL DEFAULT 0,
+                    total INTEGER NOT NULL DEFAULT 0,
+                    current_label TEXT,
+                    message TEXT,
+                    details_json TEXT,
+                    actor_user_id TEXT,
+                    started_at TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    finished_at TIMESTAMP,
+                    PRIMARY KEY (digestion_id, operation),
+                    FOREIGN KEY (digestion_id) REFERENCES digestions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS digestion_pdf_figures (
                     id TEXT PRIMARY KEY,
                     digestion_id TEXT NOT NULL,
@@ -349,6 +373,7 @@ class DigestionManager:
                 CREATE INDEX IF NOT EXISTS idx_digestion_chunks_digestion ON digestion_chunks(digestion_id, file_id, chunk_index);
                 CREATE INDEX IF NOT EXISTS idx_digestion_sources_status ON digestion_sources(digestion_id, status);
                 CREATE INDEX IF NOT EXISTS idx_digestion_outputs ON digestion_outputs(digestion_id, output_kind);
+                CREATE INDEX IF NOT EXISTS idx_digestion_operations ON digestion_operations(digestion_id, updated_at);
                 CREATE INDEX IF NOT EXISTS idx_digestion_pdf_figures ON digestion_pdf_figures(digestion_id, source_file_id, page_number);
                 CREATE INDEX IF NOT EXISTS idx_digestion_visual_evidence ON digestion_visual_evidence(digestion_id, source_file_id, page_number, evidence_kind);
                 CREATE INDEX IF NOT EXISTS idx_digestion_contributions_digestion ON digestion_contributions(digestion_id, status, created_at);
@@ -2154,6 +2179,7 @@ class DigestionManager:
             for table in (
                 "digestion_query_log",
                 "digestion_contributions",
+                "digestion_operations",
                 "digestion_visual_evidence",
                 "digestion_pdf_figures",
                 "digestion_outputs",
@@ -2202,6 +2228,7 @@ class DigestionManager:
                 processed=0,
                 total=0,
                 message="Add at least one source before building this Digestion.",
+                actor_user_id=actor_user_id,
             )
             raise DigestionError("Add at least one Vault file before building a Digestion.", status_code=400, reason="no_sources")
 
@@ -2224,6 +2251,7 @@ class DigestionManager:
                 "provider": digestion.provider,
                 "embedding_model": digestion.embedding_model,
             },
+            actor_user_id=actor_user_id,
         )
         total_chunks = 0
         embedded_count = 0
@@ -2425,6 +2453,7 @@ class DigestionManager:
                 percent=0,
                 message=message,
                 details={"errors": [{"error": message}]},
+                actor_user_id=actor_user_id,
             )
             raise
 
@@ -2660,6 +2689,551 @@ class DigestionManager:
             },
         }
 
+    def append_structured_records(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        profile: str = "generic",
+        records: Optional[Iterable[dict[str, Any]]] = None,
+        replace: bool = False,
+        note: str = "",
+    ) -> dict[str, Any]:
+        """Append profile-specific source-of-truth records to a managed Digestion.
+
+        This is intentionally schema-first. It lets agents convert graphical or
+        semi-structured material, such as aviation approach plates, into durable,
+        cited records without pretending ordinary text RAG can recover every
+        operational field from chart geometry.
+        """
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        access = self._access_for(digestion, actor_user_id)
+        self._set_operation_progress(
+            digestion.id,
+            "structured_records",
+            status="running",
+            phase="preflight",
+            percent=5,
+            processed=0,
+            total=0,
+            message="Checking source access before appending structured records.",
+            details={},
+            actor_user_id=actor_user_id,
+        )
+        if not access.get("can_read_sources"):
+            self._set_operation_progress(
+                digestion.id,
+                "structured_records",
+                status="failed",
+                phase="source_access_denied",
+                percent=0,
+                message="Source-read access is required for source-grounded structured records.",
+                actor_user_id=actor_user_id,
+            )
+            raise DigestionError(
+                "Structured records are source-revealing. Grant source metadata access before appending or reading them.",
+                status_code=403,
+                reason="structured_record_source_metadata_denied",
+            )
+        profile_name = self._normalize_structured_record_profile(profile)
+        raw_all = list(records or [])
+        if not raw_all:
+            self._set_operation_progress(
+                digestion.id,
+                "structured_records",
+                status="failed",
+                phase="missing_records",
+                percent=0,
+                message="Provide at least one structured record to append.",
+                actor_user_id=actor_user_id,
+            )
+            raise DigestionError(
+                "Provide at least one structured record to append.",
+                status_code=400,
+                reason="missing_structured_records",
+            )
+        raw_items = raw_all[:MAX_STRUCTURED_RECORDS_PER_APPEND]
+        skipped: list[dict[str, str]] = []
+        normalized: list[dict[str, Any]] = []
+        total = len(raw_items)
+        for index, item in enumerate(raw_items, start=1):
+            self._set_operation_progress(
+                digestion.id,
+                "structured_records",
+                status="running",
+                phase="normalizing",
+                percent=5 + int((index - 1) / max(1, total) * 70),
+                processed=index - 1,
+                total=total,
+                current_label=str(item.get("title") or item.get("procedure_name") or item.get("record_type") or f"record {index}") if isinstance(item, dict) else f"record {index}",
+                message=f"Normalizing structured record {index} of {total}.",
+                details={"profile": profile_name},
+                actor_user_id=actor_user_id,
+            )
+            if not isinstance(item, dict):
+                skipped.append({"index": str(index), "reason": "record_not_object"})
+                continue
+            record = self._normalize_structured_record(digestion, actor_user_id, item, profile_name, index=index)
+            if not record:
+                skipped.append({"index": str(index), "reason": "empty_record"})
+                continue
+            normalized.append(record)
+        extra_count = max(0, len(raw_all) - len(raw_items))
+        if extra_count:
+            skipped.append({"reason": "record_limit_reached", "count": str(extra_count)})
+
+        existing_payload = self._structured_record_payload(digestion.id)
+        existing_records = (
+            existing_payload.get("records")
+            if isinstance(existing_payload, dict) and isinstance(existing_payload.get("records"), list)
+            else []
+        )
+        retained_records = [] if replace else [
+            item for item in existing_records
+            if isinstance(item, dict) and str(item.get("profile") or "generic") != profile_name
+        ]
+        if not replace:
+            retained_records.extend(
+                item for item in existing_records
+                if isinstance(item, dict) and str(item.get("profile") or "generic") == profile_name
+            )
+
+        merged_by_id: dict[str, dict[str, Any]] = {}
+        ordered_ids: list[str] = []
+        updated_ids: set[str] = set()
+        for item in [*retained_records, *normalized]:
+            if not isinstance(item, dict):
+                continue
+            record_id = str(item.get("id") or "").strip()
+            if not record_id:
+                record_id = self._structured_record_identity(digestion.id, actor_user_id, item)
+                item["id"] = record_id
+            if record_id not in merged_by_id:
+                ordered_ids.append(record_id)
+            elif item in normalized:
+                updated_ids.add(record_id)
+            merged_by_id[record_id] = item
+        records_merged = [merged_by_id[record_id] for record_id in ordered_ids if record_id in merged_by_id]
+        profile_counts = self._count_by_key(records_merged, "profile")
+        sources = self._source_summary_rows(digestion.id)
+        now = self._now()
+        payload = {
+            "kind": STRUCTURED_RECORD_SCHEMA_VERSION,
+            "schema_version": STRUCTURED_RECORD_SCHEMA_VERSION,
+            "digestion": {
+                "id": digestion.id,
+                "name": digestion.name,
+                "purpose": digestion.purpose or digestion.description,
+                "status": digestion.status,
+                "built_at": digestion.built_at,
+            },
+            "profiles": {
+                name: self._structured_record_profile_definition(name)
+                for name in sorted(profile_counts.keys() or {profile_name})
+            },
+            "stats": {
+                "record_count": len(records_merged),
+                "new_or_updated_record_count": len(normalized),
+                "updated_record_count": len(updated_ids),
+                "profile_counts": profile_counts,
+                "source_count": len(sources),
+                "skipped_count": len(skipped),
+            },
+            "sources": [
+                {
+                    "file_id": item.get("file_id") or "",
+                    "file_name": item.get("file_name") or "",
+                    "source_kind": item.get("source_kind") or "",
+                    "source_label": item.get("source_label") or "",
+                    "chunk_count": item.get("chunk_count") or 0,
+                }
+                for item in sources
+            ],
+            "records": records_merged,
+            "reuse_guidance": [
+                "Treat structured records as cited operational facts derived from source material, not as a substitute for reviewing the source when safety-critical use demands it.",
+                "For aviation chart records, prefer field-level provenance and verification_status=verified when a human or trusted agent has checked the exact chart field.",
+                "Use structured-record search for normalized plate facts and Digestion query/context for cited chunk retrieval.",
+            ],
+            "updated_by": actor_user_id,
+            "updated_note": str(note or "")[:1000],
+            "updated_at": now,
+        }
+        output = self._upsert_output(
+            digestion,
+            actor_user_id,
+            STRUCTURED_RECORD_OUTPUT_KIND,
+            f"{digestion.name or 'Digestion'} Structured Records",
+            "application/json",
+            json.dumps(payload, indent=2, sort_keys=True),
+            {
+                "schema_version": STRUCTURED_RECORD_SCHEMA_VERSION,
+                "record_count": len(records_merged),
+                "new_or_updated_record_count": len(normalized),
+                "updated_record_count": len(updated_ids),
+                "profile_counts": profile_counts,
+                "active_profile": profile_name,
+                "source_count": len(sources),
+                "source_revealing": True,
+            },
+        )
+        self._set_operation_progress(
+            digestion.id,
+            "structured_records",
+            status="completed",
+            phase="completed",
+            percent=100,
+            processed=total,
+            total=total,
+            message=(
+                f"Stored {len(normalized)} {profile_name.replace('_', ' ')} structured record"
+                f"{'' if len(normalized) == 1 else 's'}; {len(records_merged)} total records retained."
+            ),
+            details={
+                "profile": profile_name,
+                "record_count": len(records_merged),
+                "new_or_updated_record_count": len(normalized),
+                "updated_record_count": len(updated_ids),
+                "skipped_count": len(skipped),
+                "profile_counts": profile_counts,
+            },
+            actor_user_id=actor_user_id,
+        )
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "profile": profile_name,
+            "added_or_updated": len(normalized),
+            "updated": len(updated_ids),
+            "record_count": len(records_merged),
+            "skipped": skipped,
+            "output": output,
+            "preview": normalized[:5],
+            "progress": self._progress_snapshot(digestion.id).get("structured_records", {}),
+            "stats": payload["stats"],
+        }
+
+    def search_structured_records(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        query: str,
+        *,
+        profile: str = "",
+        limit: int = 25,
+    ) -> dict[str, Any]:
+        """Search profile-specific structured records with source-gated access."""
+        query_text = str(query or "").strip()
+        if not query_text:
+            raise DigestionError("query is required", status_code=400, reason="missing_query")
+        try:
+            result_limit = int(limit or 25)
+        except (TypeError, ValueError):
+            result_limit = 25
+        limit = max(1, min(result_limit, 120))
+        digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
+        stats = self.stats(digestion.id)
+        try:
+            output = self.get_output(digestion.id, actor_user_id, STRUCTURED_RECORD_OUTPUT_KIND)
+        except DigestionError as exc:
+            if getattr(exc, "reason", "") == "output_not_found":
+                return {
+                    "success": True,
+                    "digestion_id": digestion.id,
+                    "query": query_text,
+                    "mode": "structured_records",
+                    "result_count": 0,
+                    "results": [],
+                    "stats": stats,
+                    "records_ready": False,
+                    "warning": "No structured records output exists yet. Ask a manager or agent to append profile records first.",
+                }
+            raise
+        try:
+            payload = json.loads(str(output.get("content") or "{}"))
+        except Exception:
+            payload = {}
+        records = payload.get("records") if isinstance(payload, dict) else []
+        if not isinstance(records, list):
+            records = []
+        requested_profile = self._normalize_structured_record_profile(profile) if str(profile or "").strip() else ""
+        query_terms = self._query_terms(query_text)
+        query_lower = query_text.lower()
+        results: list[dict[str, Any]] = []
+        for index, item in enumerate(records, start=1):
+            if not isinstance(item, dict):
+                continue
+            item_profile = str(item.get("profile") or "generic").strip().lower()
+            if requested_profile and item_profile != requested_profile:
+                continue
+            haystack = json.dumps(item, ensure_ascii=False, sort_keys=True).lower()
+            terms = self._query_terms(haystack)
+            overlap = len(query_terms & terms)
+            phrase_match = query_lower in haystack
+            if query_terms:
+                if overlap <= 0 and not phrase_match:
+                    continue
+            elif not phrase_match:
+                continue
+            source = item.get("source") if isinstance(item.get("source"), dict) else {}
+            fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
+            title = str(
+                item.get("title")
+                or item.get("procedure_name")
+                or item.get("record_type")
+                or item.get("id")
+                or "Structured record"
+            ).strip()
+            summary_parts = [
+                title,
+                str(item.get("summary") or ""),
+                str(item.get("airport_icao") or ""),
+                str(item.get("runway") or ""),
+                " ".join(f"{key}: {value}" for key, value in list(fields.items())[:12]),
+            ]
+            score = 1.0 if phrase_match else (overlap / max(1, len(query_terms)))
+            results.append({
+                "record_index": index,
+                "id": str(item.get("id") or ""),
+                "profile": item_profile,
+                "record_type": str(item.get("record_type") or ""),
+                "title": title,
+                "score": round(float(score), 6),
+                "term_overlap": overlap,
+                "summary": self._snippet(" ".join(part for part in summary_parts if part))[:900],
+                "fields": fields,
+                "airport_icao": str(item.get("airport_icao") or ""),
+                "runway": str(item.get("runway") or ""),
+                "verification": item.get("verification") if isinstance(item.get("verification"), dict) else {},
+                "source": {
+                    "file_id": str(source.get("file_id") or ""),
+                    "file_name": str(source.get("file_name") or ""),
+                    "page_label": str(source.get("page_label") or item.get("page_label") or ""),
+                    "chart_id": str(source.get("chart_id") or item.get("chart_id") or ""),
+                    "source_uri": str(source.get("source_uri") or item.get("source_uri") or ""),
+                },
+                "provenance": item.get("provenance")[:6] if isinstance(item.get("provenance"), list) else [],
+                "updated_at": str(item.get("updated_at") or ""),
+            })
+        results.sort(key=lambda item: (item["score"], item["term_overlap"]), reverse=True)
+        results = results[:limit]
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "query": query_text,
+            "profile": requested_profile,
+            "mode": "structured_records",
+            "result_count": len(results),
+            "results": results,
+            "stats": stats,
+            "records_ready": True,
+            "record_count": len(records),
+            "profiles": (payload.get("profiles") if isinstance(payload, dict) else {}) or {},
+            "output": {
+                "id": output.get("id") or "",
+                "title": output.get("title") or "",
+                "updated_at": output.get("updated_at") or "",
+                "metadata": output.get("metadata") or {},
+            },
+        }
+
+    def _structured_record_payload(self, digestion_id: str) -> dict[str, Any]:
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT content
+                FROM digestion_outputs
+                WHERE digestion_id = ? AND output_kind = ?
+                """,
+                (self._clean_id(digestion_id), STRUCTURED_RECORD_OUTPUT_KIND),
+            ).fetchone()
+        if not row:
+            return {}
+        try:
+            payload = json.loads(row["content"] or "{}")
+        except Exception:
+            payload = {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _normalize_structured_record_profile(self, profile: str) -> str:
+        value = str(profile or "").strip().lower().replace("-", "_")
+        value = re.sub(r"[^a-z0-9_]+", "_", value).strip("_")
+        if value in {"aviation", "aviation_plate", "approach_chart", "approach_plate", "chart"}:
+            return "aviation_chart"
+        return value or "generic"
+
+    @staticmethod
+    def _structured_record_profile_definition(profile: str) -> dict[str, Any]:
+        if profile == "aviation_chart":
+            return {
+                "profile": "aviation_chart",
+                "description": "Structured source-of-truth records derived from aviation charts, approach plates, airport data, and verified agent/human review.",
+                "recommended_fields": [
+                    "airport_icao",
+                    "procedure_name",
+                    "procedure_type",
+                    "runway",
+                    "chart_cycle",
+                    "effective_date",
+                    "nav_frequency",
+                    "final_approach_fix",
+                    "final_approach_course",
+                    "glideslope_angle",
+                    "minimums",
+                    "missed_approach",
+                    "notes",
+                    "warnings",
+                ],
+                "verification_statuses": ["draft", "agent_extracted", "needs_human_review", "verified", "superseded"],
+                "safety_note": "Aviation records should carry source file/page/chart identifiers and field-level provenance; do not rely on unverified extraction for operational flight safety.",
+            }
+        return {
+            "profile": profile or "generic",
+            "description": "Generic structured records derived from source materials and agent/human review.",
+            "recommended_fields": ["subject", "claim", "value", "evidence", "source"],
+            "verification_statuses": ["draft", "agent_extracted", "needs_human_review", "verified", "superseded"],
+        }
+
+    def _normalize_structured_record(
+        self,
+        digestion: Digestion,
+        actor_user_id: str,
+        item: dict[str, Any],
+        profile: str,
+        *,
+        index: int,
+    ) -> Optional[dict[str, Any]]:
+        fields_raw = item.get("fields") if isinstance(item.get("fields"), dict) else {}
+        fields = {
+            str(key or "").strip(): self._llm_scalar(value, limit=1200)
+            for key, value in fields_raw.items()
+            if str(key or "").strip() and self._llm_scalar(value, limit=1200)
+        }
+        source_raw = item.get("source") if isinstance(item.get("source"), dict) else {}
+        source_file_id = self._clean_id(
+            source_raw.get("file_id")
+            or item.get("source_file_id")
+            or item.get("file_id")
+            or item.get("vault_file_id")
+            or item.get("image_file_id")
+        )
+        record_type = self._llm_scalar(
+            item.get("record_type") or item.get("type") or item.get("kind") or ("approach" if profile == "aviation_chart" else "record"),
+            limit=120,
+        )
+        title = self._llm_scalar(
+            item.get("title")
+            or item.get("procedure_name")
+            or fields.get("procedure_name")
+            or item.get("subject")
+            or item.get("label"),
+            limit=300,
+        )
+        summary = self._llm_scalar(
+            item.get("summary") or item.get("claim") or item.get("description") or item.get("text"),
+            limit=1600,
+        )
+        if not any([title, summary, fields, source_file_id]):
+            return None
+        now = self._now()
+        airport_icao = self._llm_scalar(item.get("airport_icao") or fields.get("airport_icao") or item.get("icao"), limit=24).upper()
+        runway = self._llm_scalar(item.get("runway") or fields.get("runway"), limit=80).upper()
+        procedure_name = self._llm_scalar(item.get("procedure_name") or fields.get("procedure_name") or title, limit=300)
+        procedure_type = self._llm_scalar(item.get("procedure_type") or fields.get("procedure_type") or record_type, limit=120).upper()
+        source = {
+            "digestion_id": digestion.id,
+            "file_id": source_file_id,
+            "file_name": self._llm_scalar(source_raw.get("file_name") or item.get("file_name"), limit=240),
+            "content_type": self._llm_scalar(source_raw.get("content_type") or item.get("content_type"), limit=120),
+            "page_label": self._llm_scalar(source_raw.get("page_label") or item.get("page_label") or item.get("page"), limit=80),
+            "chart_id": self._llm_scalar(source_raw.get("chart_id") or item.get("chart_id") or fields.get("chart_id"), limit=160),
+            "source_uri": self._llm_scalar(source_raw.get("source_uri") or item.get("source_uri") or item.get("url"), limit=500),
+            "source_ref": self._llm_scalar(source_raw.get("source_ref") or item.get("source_ref") or f"record_{index:04d}", limit=160),
+        }
+        provenance_raw = item.get("provenance") or item.get("evidence") or []
+        if isinstance(provenance_raw, dict):
+            provenance_raw = [provenance_raw]
+        provenance: list[dict[str, Any]] = []
+        for entry in provenance_raw[:24] if isinstance(provenance_raw, list) else []:
+            if isinstance(entry, dict):
+                text = self._llm_scalar(entry.get("text") or entry.get("quote") or entry.get("evidence"), limit=1000)
+                field = self._llm_scalar(entry.get("field") or "record", limit=120)
+                ref = self._llm_scalar(entry.get("source_ref") or source.get("source_ref") or "", limit=160)
+                page = self._llm_scalar(entry.get("page_label") or entry.get("page") or source.get("page_label") or "", limit=80)
+            else:
+                text = self._llm_scalar(entry, limit=1000)
+                field = "record"
+                ref = source.get("source_ref") or ""
+                page = source.get("page_label") or ""
+            if text or ref or page:
+                provenance.append({"field": field, "text": text, "source_ref": ref, "page_label": page})
+        verification = item.get("verification") if isinstance(item.get("verification"), dict) else {}
+        verification_status = self._llm_scalar(
+            verification.get("status") or item.get("verification_status") or item.get("status") or "agent_extracted",
+            limit=80,
+        ).lower()
+        record = {
+            "id": self._llm_scalar(item.get("id") or item.get("record_id"), limit=160),
+            "profile": profile,
+            "record_type": record_type,
+            "title": title or procedure_name or "Structured record",
+            "summary": summary,
+            "airport_icao": airport_icao,
+            "procedure_name": procedure_name,
+            "procedure_type": procedure_type,
+            "runway": runway,
+            "chart_cycle": self._llm_scalar(item.get("chart_cycle") or fields.get("chart_cycle") or item.get("cycle"), limit=80),
+            "effective_date": self._llm_scalar(item.get("effective_date") or fields.get("effective_date"), limit=80),
+            "fields": fields,
+            "source": source,
+            "source_refs": [source.get("source_ref") or source_file_id or f"record_{index:04d}"],
+            "provenance": provenance,
+            "verification": {
+                "status": verification_status or "agent_extracted",
+                "confidence": self._normalize_confidence(verification.get("confidence") if verification else item.get("confidence")),
+                "reviewed_by": self._llm_scalar(verification.get("reviewed_by") if verification else item.get("reviewed_by"), limit=160),
+                "notes": self._llm_scalar(verification.get("notes") if verification else item.get("verification_notes"), limit=800),
+            },
+            "tags": self._llm_string_list(item.get("tags"), limit=32, item_limit=80),
+            "updated_by": actor_user_id,
+            "updated_at": now,
+        }
+        if profile == "aviation_chart":
+            for key in (
+                "nav_frequency",
+                "final_approach_fix",
+                "final_approach_course",
+                "glideslope_angle",
+                "minimums",
+                "missed_approach",
+                "notes",
+                "warnings",
+            ):
+                value = self._llm_scalar(item.get(key) or fields.get(key), limit=1200)
+                if value:
+                    record[key] = value
+        if not record["id"]:
+            record["id"] = self._structured_record_identity(digestion.id, actor_user_id, record)
+        return record
+
+    @staticmethod
+    def _structured_record_identity(digestion_id: str, actor_user_id: str, item: dict[str, Any]) -> str:
+        seed = json.dumps(
+            {
+                "digestion_id": digestion_id,
+                "profile": item.get("profile") or "",
+                "record_type": item.get("record_type") or "",
+                "airport_icao": item.get("airport_icao") or "",
+                "procedure_name": item.get("procedure_name") or item.get("title") or "",
+                "runway": item.get("runway") or "",
+                "source": item.get("source") or {},
+                "actor_user_id": actor_user_id,
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        return "sr_" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
+
     def stats(self, digestion_id: str) -> dict[str, Any]:
         return self.stats_many([digestion_id]).get(str(digestion_id or ""), self._empty_stats())
 
@@ -2677,6 +3251,7 @@ class DigestionManager:
             "error_source_count": 0,
             "datapoint_count": 0,
             "quantitative_result_count": 0,
+            "structured_record_count": 0,
             "contribution_count": 0,
             "pending_contribution_count": 0,
             "retrieval_ready": False,
@@ -2781,13 +3356,11 @@ class DigestionManager:
             if digestion_id not in stats_by_id:
                 continue
             stats_by_id[digestion_id]["outputs"] = int(stats_by_id[digestion_id].get("outputs") or 0) + 1
-            if str(row["output_kind"] or "") != STRUCTURED_DATAPOINT_OUTPUT_KIND:
-                continue
             try:
                 metadata = json.loads(row["metadata_json"] or "{}")
             except Exception:
                 metadata = {}
-            if isinstance(metadata, dict):
+            if str(row["output_kind"] or "") == STRUCTURED_DATAPOINT_OUTPUT_KIND and isinstance(metadata, dict):
                 stats_by_id[digestion_id]["datapoint_count"] = self._bounded_int(
                     metadata.get("datapoint_count"),
                     0,
@@ -2796,6 +3369,13 @@ class DigestionManager:
                 )
                 stats_by_id[digestion_id]["quantitative_result_count"] = self._bounded_int(
                     metadata.get("quantitative_result_count"),
+                    0,
+                    0,
+                    1_000_000_000,
+                )
+            elif str(row["output_kind"] or "") == STRUCTURED_RECORD_OUTPUT_KIND and isinstance(metadata, dict):
+                stats_by_id[digestion_id]["structured_record_count"] = self._bounded_int(
+                    metadata.get("record_count"),
                     0,
                     0,
                     1_000_000_000,
@@ -2910,6 +3490,7 @@ class DigestionManager:
             total=0,
             message="Checking source access and Digestion AI extraction settings.",
             details={},
+            actor_user_id=actor_user_id,
         )
         if not access.get("can_read_sources"):
             self._set_operation_progress(
@@ -2919,6 +3500,7 @@ class DigestionManager:
                 phase="source_access_denied",
                 percent=0,
                 message="Source-read access is required for structured datapoint extraction.",
+                actor_user_id=actor_user_id,
             )
             raise DigestionError(
                 "Structured datapoint extraction sends indexed source chunks to the configured LLM provider. Source metadata access is required.",
@@ -3248,7 +3830,8 @@ class DigestionManager:
                         WHEN 'pdf_figures' THEN 3
                         WHEN 'visual_evidence' THEN 4
                         WHEN 'structured_datapoints' THEN 5
-                        WHEN 'manifest' THEN 6
+                        WHEN 'structured_records' THEN 6
+                        WHEN 'manifest' THEN 7
                         ELSE 9
                     END,
                     updated_at DESC
@@ -3328,6 +3911,8 @@ class DigestionManager:
             "context": f"POST {api_base}/context",
             "datapoints_extract": f"POST {api_base}/datapoints/extract",
             "datapoints_search": f"POST {api_base}/datapoints/search",
+            "structured_records_append": f"POST {api_base}/structured-records",
+            "structured_records_search": f"POST {api_base}/structured-records/search",
             "figures": f"GET {api_base}/figures",
             "visual_evidence": f"GET {api_base}/visual-evidence",
             "outputs": f"GET|POST {api_base}/outputs",
@@ -3353,6 +3938,7 @@ class DigestionManager:
             "contributions": "canopy_digest_contributions",
             "datapoints_extract": "canopy_digest_datapoints_extract",
             "datapoints_search": "canopy_digest_datapoints_search",
+            "structured_records": "canopy_digest_structured_records",
             "figures": "canopy_digest_figures",
             "visual_evidence": "canopy_digest_visual_evidence",
             "outputs": "canopy_digest_outputs",
@@ -3412,6 +3998,29 @@ class DigestionManager:
                     "scope": "new",
                 },
                 "datapoints_search": {"query": "metric, material, method, claim, tag, or evidence term", "limit": 25},
+                "structured_records_append": {
+                    "profile": "aviation_chart",
+                    "records": [
+                        {
+                            "record_type": "approach",
+                            "airport_icao": "KSAN",
+                            "procedure_name": "LOC RWY 27",
+                            "procedure_type": "LOC",
+                            "runway": "27",
+                            "fields": {
+                                "final_approach_fix": "REEBO",
+                                "final_approach_altitude": "2000 ft",
+                                "missed_approach": "cite exact chart text here",
+                            },
+                            "source": {"file_id": "<chart_pdf_file_id>", "file_name": "00373COMIX.pdf", "page_label": "p. 1"},
+                            "provenance": [{"field": "final_approach_fix", "text": "quoted or visually verified chart evidence"}],
+                            "verification": {"status": "needs_human_review", "confidence": 0.7},
+                        }
+                    ],
+                    "replace": False,
+                    "note": "What was extracted or corrected.",
+                },
+                "structured_records_search": {"query": "KSAN LOC RWY 27 FAF", "profile": "aviation_chart", "limit": 25},
                 "acl_grant": {
                     "grantee_user_id": "<agent_or_user_id>",
                     "can_query": True,
@@ -6250,6 +6859,12 @@ Use this as a permissioned retrieval capability, not as raw file access.
                 "source_reveal_tier": "structured_source_facts",
                 "sensitivity_label": "source_grounded_structured_data",
             })
+        elif kind == STRUCTURED_RECORD_OUTPUT_KIND:
+            policy.update({
+                "source_reveal_tier": "profiled_source_facts",
+                "sensitivity_label": "source_grounded_structured_records",
+                "citation_required": True,
+            })
         elif kind == PDF_FIGURE_OUTPUT_KIND:
             policy.update({
                 "source_reveal_tier": "visual_source_derivative",
@@ -6386,6 +7001,7 @@ Use this as a permissioned retrieval capability, not as raw file access.
         current_label: str = "",
         message: str = "",
         details: Optional[dict[str, Any]] = None,
+        actor_user_id: str = "",
     ) -> dict[str, Any]:
         digestion_id = self._clean_id(digestion_id)
         operation = str(operation or "").strip().lower() or "operation"
@@ -6394,8 +7010,14 @@ Use this as a permissioned retrieval capability, not as raw file access.
         with self._progress_lock:
             by_operation = self._operation_progress.setdefault(digestion_id, {})
             existing = dict(by_operation.get(operation) or {})
-            started_at = str(existing.get("started_at") or now)
-            finished_at = now if str(status or "").lower() in {"completed", "failed", "cancelled"} else ""
+            next_status = str(status or "running").lower()
+            existing_status = str(existing.get("status") or "").lower()
+            if next_status == "running" and existing_status in {"completed", "failed", "cancelled", "idle"}:
+                started_at = now
+            else:
+                started_at = str(existing.get("started_at") or now)
+            finished_at = now if next_status in {"completed", "failed", "cancelled"} else ""
+            actor = self._clean_id(actor_user_id) or self._clean_id(existing.get("actor_user_id") or "")
             payload = {
                 "operation": operation,
                 "status": str(status or "running"),
@@ -6407,21 +7029,118 @@ Use this as a permissioned retrieval capability, not as raw file access.
                 "message": str(message or ""),
                 "started_at": started_at,
                 "updated_at": now,
-                "finished_at": finished_at or str(existing.get("finished_at") or ""),
+                "finished_at": finished_at,
                 "elapsed_seconds": self._elapsed_seconds(started_at, now),
                 "details": details if isinstance(details, dict) else dict(existing.get("details") or {}),
+                "actor_user_id": actor,
             }
             by_operation[operation] = payload
-            return dict(payload)
+        self._persist_operation_progress(digestion_id, operation, payload)
+        return dict(payload)
+
+    def _persist_operation_progress(self, digestion_id: str, operation: str, payload: dict[str, Any]) -> None:
+        """Persist the last progress snapshot so owners can audit agent work after completion."""
+        try:
+            actor_value = self._clean_id(payload.get("actor_user_id") or "") or None
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO digestion_operations (
+                        digestion_id, operation, status, phase, percent, processed, total,
+                        current_label, message, details_json, actor_user_id,
+                        started_at, updated_at, finished_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(digestion_id, operation) DO UPDATE SET
+                        status = excluded.status,
+                        phase = excluded.phase,
+                        percent = excluded.percent,
+                        processed = excluded.processed,
+                        total = excluded.total,
+                        current_label = excluded.current_label,
+                        message = excluded.message,
+                        details_json = excluded.details_json,
+                        actor_user_id = COALESCE(excluded.actor_user_id, digestion_operations.actor_user_id),
+                        started_at = excluded.started_at,
+                        updated_at = excluded.updated_at,
+                        finished_at = excluded.finished_at
+                    """,
+                    (
+                        digestion_id,
+                        operation,
+                        str(payload.get("status") or "idle"),
+                        str(payload.get("phase") or ""),
+                        int(payload.get("percent") or 0),
+                        int(payload.get("processed") or 0),
+                        int(payload.get("total") or 0),
+                        str(payload.get("current_label") or ""),
+                        str(payload.get("message") or ""),
+                        json.dumps(payload.get("details") or {}, sort_keys=True),
+                        actor_value,
+                        str(payload.get("started_at") or ""),
+                        str(payload.get("updated_at") or self._now()),
+                        str(payload.get("finished_at") or ""),
+                    ),
+                )
+                conn.commit()
+        except Exception as exc:
+            logger.debug("Could not persist Digestion operation progress for %s/%s: %s", digestion_id, operation, exc)
+
+    def _persisted_operation_progress(self, digestion_id: str) -> dict[str, dict[str, Any]]:
+        operations: dict[str, dict[str, Any]] = {}
+        try:
+            with self.db.get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT digestion_id, operation, status, phase, percent, processed, total,
+                           current_label, message, details_json, actor_user_id,
+                           started_at, updated_at, finished_at
+                    FROM digestion_operations
+                    WHERE digestion_id = ?
+                    """,
+                    (digestion_id,),
+                ).fetchall()
+        except Exception:
+            rows = []
+        now = self._now()
+        for row in rows:
+            operation = str(row["operation"] or "").strip().lower()
+            if not operation:
+                continue
+            try:
+                details = json.loads(row["details_json"] or "{}")
+            except Exception:
+                details = {}
+            if not isinstance(details, dict):
+                details = {}
+            started_at = str(row["started_at"] or "")
+            updated_at = str(row["updated_at"] or "")
+            operations[operation] = {
+                "operation": operation,
+                "status": str(row["status"] or "idle"),
+                "phase": str(row["phase"] or ""),
+                "percent": max(0, min(int(row["percent"] or 0), 100)),
+                "processed": max(0, int(row["processed"] or 0)),
+                "total": max(0, int(row["total"] or 0)),
+                "current_label": str(row["current_label"] or ""),
+                "message": str(row["message"] or ""),
+                "started_at": started_at,
+                "updated_at": updated_at,
+                "finished_at": str(row["finished_at"] or ""),
+                "elapsed_seconds": self._elapsed_seconds(started_at, updated_at or now) if started_at else 0,
+                "details": details,
+                "actor_user_id": self._clean_id(row["actor_user_id"] or ""),
+            }
+        return operations
 
     def _progress_snapshot(self, digestion_id: str, *, include_source_details: bool = True) -> dict[str, Any]:
         digestion_id = self._clean_id(digestion_id)
+        operations = self._persisted_operation_progress(digestion_id)
         with self._progress_lock:
-            operations = {
+            operations.update({
                 str(operation): dict(payload or {})
                 for operation, payload in (self._operation_progress.get(digestion_id) or {}).items()
-            }
-        for operation in ("build", "datapoints"):
+            })
+        for operation in ("build", "datapoints", "structured_records"):
             operations.setdefault(operation, self._idle_progress(operation))
         if not include_source_details:
             operations = {
@@ -6452,6 +7171,7 @@ Use this as a permissioned retrieval capability, not as raw file access.
         """Strip source metadata from progress visible to query-only grantees."""
         public = dict(payload or {})
         public["current_label"] = ""
+        public["actor_user_id"] = ""
         public["message"] = DigestionManager._public_progress_message(public)
         details = public.get("details") if isinstance(public.get("details"), dict) else {}
         allowed_keys = {
@@ -6471,6 +7191,11 @@ Use this as a permissioned retrieval capability, not as raw file access.
             "credential_source",
             "final_status",
             "reason",
+            "profile",
+            "record_count",
+            "new_or_updated_record_count",
+            "updated_record_count",
+            "skipped_count",
         }
         public["details"] = {key: details[key] for key in allowed_keys if key in details}
         return public
@@ -6494,6 +7219,10 @@ Use this as a permissioned retrieval capability, not as raw file access.
             if phase in {"llm_batch", "batch_normalized", "batch_error"} and total:
                 return f"Extracting datapoints batch {min(processed + 1, total)} of {total}."
             return "Extracting structured datapoints."
+        if operation == "structured_records":
+            if total:
+                return f"Updating structured record {min(processed + 1, total)} of {total}."
+            return "Updating structured records."
         return "Operation running."
 
     @staticmethod
