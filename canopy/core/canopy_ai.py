@@ -184,12 +184,13 @@ _OPENAI_WEB_SEARCH_TOOL_STATUSES = {
 CANOPY_CAPSULE_LLM_SYSTEM_PROMPT = """
 You are Canopy's agent-run capsule summarizer. Rewrite a deterministic channel capsule into a concise,
 human-actionable checkpoint for a busy collaborator. Output strict JSON only, with keys:
-title, overview, key_update, attention, source_trail, next_action.
+title, overview, key_update, attention, source_trail, next_action, workproducts.
 
 Rules:
 - Use only the supplied capsule packet. Do not invent files, teammates, conclusions, or permissions.
 - Make the summary useful at a glance: surface concrete outputs, blockers, access requests, files, Digestions, or decisions.
 - Keep each value short. Empty string is allowed for attention when no blocker or human decision is visible.
+- workproducts must be an array of up to 4 source-linked items with type, label, and message_id when the packet contains a concrete work product that is not already obvious as a file.
 - Prefer plain operational language over chatbot narration.
 - Do not include markdown fences, bullets, HTML, or commentary outside the JSON object.
 """.strip()
@@ -1798,7 +1799,45 @@ class CanopyLLMManager:
         )
         return prompt[:MAX_CAPSULE_PROMPT_CHARS].rstrip()
 
-    def _parse_capsule_summary_output(self, output: Any, packet: dict[str, Any]) -> dict[str, str]:
+    def _normalize_capsule_workproducts(self, raw: Any, packet: dict[str, Any]) -> list[dict[str, str]]:
+        if not isinstance(raw, list):
+            return []
+        source_message_ids = {
+            str(item.get('id') or '').strip()
+            for item in (packet.get('messages') if isinstance(packet.get('messages'), list) else [])
+            if isinstance(item, dict) and str(item.get('id') or '').strip()
+        }
+        source_message_ids.update({
+            str(item.get('message_id') or '').strip()
+            for item in (packet.get('artifacts') if isinstance(packet.get('artifacts'), list) else [])
+            if isinstance(item, dict) and str(item.get('message_id') or '').strip()
+        })
+        normalized: list[dict[str, str]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for item in raw[:6]:
+            if not isinstance(item, dict):
+                continue
+            label = self._compact_compose_text(item.get('label') or item.get('title') or item.get('summary'), limit=120)
+            if not label:
+                continue
+            message_id = self._compact_compose_text(item.get('message_id') or item.get('source_message_id'), limit=80)
+            if message_id and source_message_ids and message_id not in source_message_ids:
+                message_id = ''
+            work_type = self._compact_compose_text(item.get('type') or item.get('kind') or 'Workproduct', limit=40) or 'Workproduct'
+            key = (work_type.lower(), label.lower(), message_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append({
+                'type': work_type,
+                'label': label,
+                'message_id': message_id,
+            })
+            if len(normalized) >= 4:
+                break
+        return normalized
+
+    def _parse_capsule_summary_output(self, output: Any, packet: dict[str, Any]) -> dict[str, Any]:
         text = str(output or '').strip()
         if not text:
             raise CanopyLLMError('The LLM returned an empty capsule summary.', status_code=502, reason='empty_llm_output')
@@ -1828,6 +1867,7 @@ class CanopyLLMManager:
             'attention': self._compact_compose_text(parsed.get('attention') or '', limit=200),
             'source_trail': self._compact_compose_text(parsed.get('source_trail') or deterministic.get('source_trail'), limit=180),
             'next_action': self._compact_compose_text(parsed.get('next_action') or deterministic.get('next_action'), limit=180),
+            'workproducts': self._normalize_capsule_workproducts(parsed.get('workproducts'), packet),
         }
         if not any(summary.get(key) for key in ('title', 'overview', 'key_update', 'next_action')):
             raise CanopyLLMError('The LLM returned no useful capsule summary fields.', status_code=502, reason='invalid_capsule_summary')
@@ -1869,6 +1909,7 @@ class CanopyLLMManager:
                 'attention': self._compact_compose_text(summary.get('attention'), limit=200),
                 'source_trail': self._compact_compose_text(summary.get('source_trail'), limit=180),
                 'next_action': self._compact_compose_text(summary.get('next_action'), limit=180),
+                'workproducts': self._normalize_capsule_workproducts(summary.get('workproducts'), {'messages': [], 'artifacts': []}),
             },
             'provider': self._row_value(row, 'provider', 1, ''),
             'model': self._row_value(row, 'model', 2, ''),

@@ -2760,7 +2760,7 @@
     }
     .agent-run-capsule-head {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+        grid-template-columns: minmax(0, 0.92fr) minmax(20rem, 26rem);
         gap: 0.8rem;
         padding: 0.85rem 0.95rem 0.75rem 1rem;
     }
@@ -2883,7 +2883,7 @@
     }
     .agent-run-capsule-artifact-list {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
         gap: 0.44rem;
         padding: 0 0.58rem 0.58rem;
     }
@@ -2893,11 +2893,18 @@
         align-items: center;
         gap: 0.48rem;
         min-width: 0;
+        min-height: 3.35rem;
         border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, var(--canopy-primary) 28%);
         border-radius: 13px;
-        padding: 0.46rem 0.5rem;
+        padding: 0.52rem 0.55rem;
         background: color-mix(in srgb, var(--canopy-bg-card) 76%, var(--canopy-primary) 24%);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    .agent-run-capsule-artifact.is-workproduct {
+        border-color: color-mix(in srgb, var(--canopy-secondary, #60a5fa) 46%, var(--canopy-border));
+        background:
+            radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--canopy-secondary, #60a5fa) 16%, transparent), transparent 46%),
+            color-mix(in srgb, var(--canopy-bg-card) 80%, var(--canopy-secondary, #60a5fa) 20%);
     }
     .agent-run-capsule-artifact-icon {
         width: 2rem;
@@ -2913,29 +2920,44 @@
     }
     .agent-run-capsule-artifact-main {
         min-width: 0;
+        display: grid;
+        gap: 0.08rem;
     }
     .agent-run-capsule-artifact-name,
     .agent-run-capsule-artifact-name:visited {
-        display: inline-flex;
+        display: flex;
         align-items: center;
         gap: 0.28rem;
+        width: 100%;
         max-width: 100%;
         color: var(--canopy-text-primary);
-        font-size: 0.84rem;
+        font-size: 0.89rem;
         font-weight: 900;
         line-height: 1.22;
         text-decoration: none;
+        text-align: left;
     }
-    .agent-run-capsule-artifact-name:hover {
+    button.agent-run-capsule-artifact-name {
+        border: 0;
+        padding: 0;
+        background: transparent;
+        appearance: none;
+        cursor: pointer;
+    }
+    .agent-run-capsule-artifact-name:hover,
+    .agent-run-capsule-artifact-name:focus-visible {
         color: color-mix(in srgb, var(--canopy-primary) 88%, var(--canopy-text-primary) 12%);
         text-decoration: underline;
         text-underline-offset: 0.18rem;
+        outline: none;
     }
     .agent-run-capsule-artifact-name span {
         min-width: 0;
         overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow-wrap: anywhere;
     }
     .agent-run-capsule-artifact-meta {
         margin-top: 0.12rem;
@@ -2943,8 +2965,10 @@
         font-size: 0.72rem;
         line-height: 1.25;
         overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow-wrap: anywhere;
     }
     .agent-run-capsule-artifact-actions {
         display: inline-flex;
@@ -3171,7 +3195,8 @@
             linear-gradient(180deg,
                 color-mix(in srgb, var(--canopy-bg-tertiary) 58%, var(--canopy-primary) 42%),
                 color-mix(in srgb, var(--canopy-bg-secondary) 78%, var(--canopy-primary) 22%));
-        transform: translateX(-2px);
+        transform: translateY(-1px);
+        box-shadow: 0 10px 20px color-mix(in srgb, var(--canopy-shadow) 36%, transparent);
         outline: none;
     }
     .agent-run-capsule-map-avatar {
@@ -3293,6 +3318,10 @@
         border-color: rgba(96, 165, 250, 0.54);
         color: #bfdbfe;
     }
+    .agent-run-capsule-map-node.signal-workproduct {
+        border-color: rgba(56, 189, 248, 0.54);
+        color: #bae6fd;
+    }
     .agent-run-capsule-map-node.signal-complete {
         border-color: rgba(163, 230, 53, 0.5);
         color: #d9f99d;
@@ -3308,12 +3337,26 @@
         margin-top: 0.55rem;
         padding-left: 0.1rem;
     }
-    .agent-run-capsule-map-legend span {
+    .agent-run-capsule-map-legend button,
+    .agent-run-capsule-map-legend > span {
         width: 0.58rem;
         height: 0.58rem;
         border-radius: 999px;
         border: 1px solid rgba(255, 255, 255, 0.18);
         background: var(--map-color, rgba(148, 163, 184, 0.8));
+    }
+    .agent-run-capsule-map-legend button {
+        padding: 0;
+        appearance: none;
+        cursor: pointer;
+        transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+    }
+    .agent-run-capsule-map-legend button:hover,
+    .agent-run-capsule-map-legend button:focus-visible {
+        transform: scale(1.36);
+        border-color: rgba(255, 255, 255, 0.5);
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--map-color, #94a3b8) 24%, transparent);
+        outline: none;
     }
     .agent-run-capsule-map-empty {
         margin-top: 0.42rem;
@@ -3794,6 +3837,9 @@
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-card {
         color: #1d4ed8;
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-workproduct {
+        color: #075985;
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-complete {
         color: #3f6212;
@@ -14580,10 +14626,14 @@ function getAgentRunArtifacts(messages) {
         return count + attachments;
     }, 0);
     const cardCount = (messages || []).reduce((count, message) => count + countAgentRunCards(message), 0);
+    const workProductCount = rawMessages.reduce((count, message, index) => {
+        return count + collectAgentRunWorkProductsFromMessage(message, index).length;
+    }, 0);
     const mentionCount = new Set((text.match(/@[A-Za-z0-9_.-]{2,}/g) || []).map(value => value.toLowerCase())).size;
     return {
         attachments: attachmentCount,
         cards: cardCount,
+        workProducts: workProductCount,
         fileRefs: uniqueFileRefs.size,
         digestionRefs: uniqueDigestionRefs.size,
         mentions: mentionCount,
@@ -14831,9 +14881,111 @@ function extractAgentRunDigestionRefsFromText(text) {
     return refs;
 }
 
+const AGENT_RUN_WORKPRODUCT_FIELDS = [
+    { field: 'inline_tasks', label: 'Task', icon: 'check2-square' },
+    { field: 'requests', label: 'Request', icon: 'question-circle' },
+    { field: 'objectives', label: 'Objective', icon: 'bullseye' },
+    { field: 'signals', label: 'Signal', icon: 'broadcast' },
+    { field: 'handoffs', label: 'Handoff', icon: 'arrow-left-right' },
+    { field: 'collab_cards', label: 'Collaboration card', icon: 'people' },
+    { field: 'contracts', label: 'Contract', icon: 'file-earmark-check' },
+    { field: 'circles', label: 'Circle', icon: 'diagram-2' },
+    { field: 'skills', label: 'Skill', icon: 'tools' },
+    { field: 'poll', label: 'Poll', icon: 'bar-chart' },
+];
+
+function agentRunWorkProductValueList(value) {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.filter(Boolean);
+    if (typeof value === 'object') return [value];
+    if (typeof value === 'string' && value.trim()) return [value];
+    return [];
+}
+
+function agentRunWorkProductTitle(item, fallback) {
+    if (typeof item === 'string') {
+        return truncateAgentRunText(item, 130) || fallback;
+    }
+    if (!item || typeof item !== 'object') return fallback;
+    const candidates = [
+        item.title,
+        item.name,
+        item.label,
+        item.summary,
+        item.question,
+        item.prompt,
+        item.required_output,
+        item.description,
+        item.status,
+        item.value,
+        item.text,
+        item.content,
+    ];
+    const found = candidates
+        .map(value => truncateAgentRunText(value, 130))
+        .find(Boolean);
+    return found || fallback;
+}
+
+function detectAgentRunTextWorkProducts(message, messageIndex) {
+    const raw = getAgentRunRawText(message);
+    if (!raw) return [];
+    const messageId = String((message && message.id) || '');
+    const createdAt = String((message && (message.created_at || message.updated_at)) || '');
+    const firstText = truncateAgentRunText(raw, 120);
+    const patterns = [
+        { type: 'Code output', icon: 'code-slash', test: /```[\s\S]{20,}?```/ },
+        { type: 'Table output', icon: 'table', test: /\n\s*\|[^\n]+\|\s*\n\s*\|[\s:|.-]+\|/ },
+        { type: 'Agent note', icon: 'journal-text', test: /\b(agent note|review note|implementation note|patch note|handoff note)\b/i },
+        { type: 'Recommendation', icon: 'lightbulb', test: /\b(recommendation|recommendations|recommend|suggested approach)\b/i },
+        { type: 'Finding', icon: 'search', test: /\b(finding|findings|evidence|verified|verification|confirmed)\b/i },
+    ];
+    return patterns
+        .filter(pattern => pattern.test.test(raw))
+        .slice(0, 2)
+        .map((pattern, idx) => ({
+            kind: 'workproduct',
+            workproductType: pattern.type,
+            icon: pattern.icon,
+            label: `${pattern.type}: ${firstText || 'Open source post'}`,
+            messageId,
+            createdAt,
+            order: `${messageIndex}:worktext:${idx}`,
+        }));
+}
+
+function collectAgentRunWorkProductsFromMessage(message, messageIndex) {
+    const messageId = String((message && message.id) || '');
+    if (!messageId) return [];
+    const createdAt = String((message && (message.created_at || message.updated_at)) || '');
+    const products = [];
+    AGENT_RUN_WORKPRODUCT_FIELDS.forEach((spec) => {
+        const values = agentRunWorkProductValueList(message && message[spec.field]).slice(0, 3);
+        values.forEach((item, idx) => {
+            const title = agentRunWorkProductTitle(item, spec.label);
+            products.push({
+                kind: 'workproduct',
+                workproductType: spec.label,
+                icon: spec.icon,
+                label: `${spec.label}: ${title}`,
+                messageId,
+                createdAt,
+                order: `${messageIndex}:work:${spec.field}:${idx}`,
+            });
+        });
+    });
+    if (!products.length) {
+        products.push(...detectAgentRunTextWorkProducts(message, messageIndex));
+    }
+    return products;
+}
+
 function agentRunArtifactDedupeKey(artifact) {
     if (!artifact) return '';
     if (artifact.kind === 'digestion-ref') return `digestion:${artifact.digestionId || ''}`;
+    if (artifact.kind === 'workproduct') {
+        return `workproduct:${artifact.messageId || ''}:${artifact.workproductType || ''}:${artifact.label || ''}`;
+    }
     if (artifact.fileId) return `file:${artifact.fileId}`;
     if (artifact.url) return `url:${artifact.url}`;
     return `${artifact.kind || 'artifact'}:${artifact.label || artifact.name || ''}`;
@@ -14876,6 +15028,7 @@ function collectAgentRunDirectArtifacts(messages) {
         extractAgentRunDigestionRefsFromText(rawText).forEach((ref) => {
             add({ ...ref, messageId, createdAt, order: `${messageIndex}:digestion:${ref.digestionId}` });
         });
+        collectAgentRunWorkProductsFromMessage(message, messageIndex).forEach(add);
     });
     return artifacts;
 }
@@ -14896,6 +15049,10 @@ function getAgentRunCompactTimeLabel(value) {
 
 function getAgentRunArtifactMeta(artifact) {
     if (!artifact) return '';
+    if (artifact.kind === 'workproduct') {
+        const created = getAgentRunCompactTimeLabel(artifact.createdAt);
+        return [artifact.workproductType || 'Workproduct', created, 'source-linked'].filter(Boolean).join(' • ');
+    }
     if (artifact.kind === 'digestion-ref') {
         const created = getAgentRunCompactTimeLabel(artifact.createdAt);
         return ['Digestion object', created].filter(Boolean).join(' • ');
@@ -14913,8 +15070,23 @@ function getAgentRunArtifactMeta(artifact) {
 
 function getAgentRunArtifactIcon(artifact) {
     if (artifact && artifact.kind === 'digestion-ref') return 'diagram-3';
+    if (artifact && artifact.kind === 'workproduct') return artifact.icon || 'journal-check';
     const icon = getFileIcon(artifact && artifact.contentType, artifact && artifact.label);
     return icon || 'file-earmark';
+}
+
+function getAgentRunWorkproductIcon(type) {
+    const normalized = String(type || '').toLowerCase();
+    if (/task/.test(normalized)) return 'check2-square';
+    if (/request|question|input/.test(normalized)) return 'question-circle';
+    if (/objective|goal/.test(normalized)) return 'bullseye';
+    if (/telemetry|signal|status/.test(normalized)) return 'broadcast';
+    if (/handoff/.test(normalized)) return 'arrow-left-right';
+    if (/finding|evidence|verification/.test(normalized)) return 'search';
+    if (/code/.test(normalized)) return 'code-slash';
+    if (/table|data/.test(normalized)) return 'table';
+    if (/recommend/.test(normalized)) return 'lightbulb';
+    return 'journal-check';
 }
 
 function getAgentRunDirectArtifactCopySummary(artifacts) {
@@ -14929,6 +15101,14 @@ function getAgentRunDirectArtifactCopySummary(artifacts) {
 
 function renderAgentRunCapsuleArtifactLink(artifact) {
     const label = cleanAgentRunArtifactLabel(artifact && artifact.label, 'Artifact');
+    if (artifact && artifact.kind === 'workproduct') {
+        return `<button type="button"
+                        class="agent-run-capsule-artifact-name"
+                        title="Open source post for ${escapeAttr(label)}"
+                        onclick="focusAgentRunCapsuleSource('${escapeAttr(artifact.capsuleId || '')}', '${escapeAttr(artifact.messageId || '')}')">
+            <span>${escapeHtml(label)}</span>
+        </button>`;
+    }
     if (artifact && artifact.kind === 'digestion-ref' && artifact.digestionId) {
         const href = `/vault?digestion=${encodeURIComponent(artifact.digestionId)}`;
         return `<a class="agent-run-capsule-artifact-name" href="${escapeAttr(href)}" title="Open Digestion ${escapeAttr(artifact.digestionId)}">
@@ -14986,16 +15166,23 @@ function renderAgentRunCapsuleArtifactActions(artifact, capsuleId) {
 function renderAgentRunCapsuleArtifactRail(artifacts, capsuleId) {
     const list = Array.isArray(artifacts) ? artifacts.filter(Boolean) : [];
     if (!list.length) return '';
-    const visible = list.slice(0, AGENT_RUN_CAPSULE_MAX_DIRECT_ARTIFACTS);
+    const visible = list.slice(0, AGENT_RUN_CAPSULE_MAX_DIRECT_ARTIFACTS)
+        .map(artifact => ({ ...artifact, capsuleId }));
     const hidden = Math.max(0, list.length - visible.length);
+    const fileLikeCount = list.filter(artifact => artifact && artifact.kind !== 'workproduct').length;
+    const workProductCount = list.filter(artifact => artifact && artifact.kind === 'workproduct').length;
+    const summaryBits = [
+        fileLikeCount ? `${fileLikeCount} file/reference${fileLikeCount === 1 ? '' : 's'}` : '',
+        workProductCount ? `${workProductCount} workproduct${workProductCount === 1 ? '' : 's'}` : '',
+    ].filter(Boolean);
     return `<div class="agent-run-capsule-artifacts" data-agent-run-capsule-artifacts="${escapeAttr(capsuleId)}">
         <div class="agent-run-capsule-artifacts-head">
-            <strong><i class="bi bi-folder2-open"></i>Files & outputs</strong>
-            <span>${list.length} direct item${list.length === 1 ? '' : 's'} without expanding the trace</span>
+            <strong><i class="bi bi-folder2-open"></i>Files & workproducts</strong>
+            <span>${summaryBits.join(', ') || `${list.length} direct item${list.length === 1 ? '' : 's'}`} without expanding the trace</span>
         </div>
         <div class="agent-run-capsule-artifact-list">
             ${visible.map((artifact) => `
-                <div class="agent-run-capsule-artifact">
+                <div class="agent-run-capsule-artifact${artifact.kind === 'workproduct' ? ' is-workproduct' : ''}">
                     <span class="agent-run-capsule-artifact-icon"><i class="bi bi-${escapeAttr(getAgentRunArtifactIcon(artifact))}"></i></span>
                     <div class="agent-run-capsule-artifact-main">
                         ${renderAgentRunCapsuleArtifactLink(artifact)}
@@ -15030,15 +15217,17 @@ function getAgentRunMapArtifactsByMessage(artifacts) {
 function getAgentRunMapSignal(message, artifactsForMessage) {
     const raw = getAgentRunRawText(message);
     const text = normalizeAgentRunText(raw).toLowerCase();
-    const fileCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind !== 'digestion-ref').length : 0;
+    const fileCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind !== 'digestion-ref' && artifact.kind !== 'workproduct').length : 0;
     const digestionCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind === 'digestion-ref').length : 0;
+    const workProductCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind === 'workproduct').length : 0;
     const mentionCount = (raw.match(/@[A-Za-z0-9_.-]{2,}/g) || []).length;
     const cardCount = countAgentRunCards(message);
     const needsAttention = /\b(blocked|failed|cannot|could not|unable|denied|403|404|permission|approval|required|requires|grant access|owner action|review needed|needs? human|check local storage|not retrievable)\b/i.test(text);
     const complete = /\b(complete|completed|done|ready|uploaded|indexed|added|verified|get 200|success|successfully|built|resolved)\b/i.test(text);
-    if (needsAttention) return { key: 'attention', icon: 'exclamation-triangle', count: Math.max(1, fileCount + digestionCount + cardCount + mentionCount) };
+    if (needsAttention) return { key: 'attention', icon: 'exclamation-triangle', count: Math.max(1, fileCount + digestionCount + workProductCount + cardCount + mentionCount) };
     if (fileCount > 0) return { key: 'file', icon: 'file-earmark-arrow-up', count: fileCount };
     if (digestionCount > 0) return { key: 'digestion', icon: 'diagram-3', count: digestionCount };
+    if (workProductCount > 0) return { key: 'workproduct', icon: 'journal-check', count: workProductCount };
     if (cardCount > 0) return { key: 'card', icon: 'kanban', count: cardCount };
     if (complete) return { key: 'complete', icon: 'check2-circle', count: 0 };
     if (mentionCount > 0) return { key: 'mention', icon: 'at', count: mentionCount };
@@ -15050,6 +15239,7 @@ function getAgentRunMapNodeScore(node, total) {
     if (node.index === 0 || node.index === total - 1) score += 8;
     if (node.signal === 'attention') score += 18;
     if (node.signal === 'file' || node.signal === 'digestion') score += 14;
+    if (node.signal === 'workproduct') score += 12;
     if (node.signal === 'card') score += 11;
     if (node.signal === 'complete') score += 7;
     if (node.signal === 'mention') score += 6;
@@ -15094,6 +15284,7 @@ function buildAgentRunCapsuleMapNodes(messages, artifacts, maxNodes = AGENT_RUN_
             signal.key === 'attention' ? 'Needs attention' : '',
             signal.key === 'file' ? `${signal.count} file${signal.count === 1 ? '' : 's'}` : '',
             signal.key === 'digestion' ? `${signal.count} Digestion ref${signal.count === 1 ? '' : 's'}` : '',
+            signal.key === 'workproduct' ? `${signal.count} workproduct${signal.count === 1 ? '' : 's'}` : '',
             signal.key === 'card' ? `${signal.count} work card${signal.count === 1 ? '' : 's'}` : '',
             signal.key === 'mention' ? `${signal.count} mention${signal.count === 1 ? '' : 's'}` : '',
             signal.key === 'complete' ? 'Completed checkpoint' : '',
@@ -15147,6 +15338,7 @@ function getAgentRunMapSignalLabel(signal) {
         file: 'File output',
         digestion: 'Digestion',
         card: 'Work card',
+        workproduct: 'Workproduct',
         complete: 'Complete',
         mention: 'Mention',
         post: 'Post',
@@ -15163,11 +15355,22 @@ function renderAgentRunCapsuleSignalMap(messages, artifacts, capsuleId, userInfo
         </div>`;
     }
     const legendSignals = Array.from(new Set(nodes.map(node => node.signal))).slice(0, 6);
+    const signalCounts = nodes.reduce((acc, node) => {
+        const key = String(node && node.signal || 'post');
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+    }, {});
+    const firstNodeBySignal = nodes.reduce((acc, node) => {
+        const key = String(node && node.signal || 'post');
+        if (!acc[key]) acc[key] = node;
+        return acc;
+    }, {});
     const colorForSignal = (signal) => ({
         attention: '#fb923c',
         file: '#2dd4bf',
         digestion: '#22d3ee',
         card: '#60a5fa',
+        workproduct: '#38bdf8',
         complete: '#a3e635',
         mention: '#c084fc',
         post: '#94a3b8',
@@ -15203,15 +15406,27 @@ function renderAgentRunCapsuleSignalMap(messages, artifacts, capsuleId, userInfo
                 </button>
             `).join('')}
         </div>
-        <div class="agent-run-capsule-map-legend" aria-hidden="true">
-            ${legendSignals.map(signal => `<span style="--map-color: ${escapeAttr(colorForSignal(signal))}"></span>`).join('')}
+        <div class="agent-run-capsule-map-legend" aria-label="Run map signal legend">
+            ${legendSignals.map(signal => {
+                const label = getAgentRunMapSignalLabel(signal);
+                const count = signalCounts[signal] || 0;
+                const firstNode = firstNodeBySignal[signal] || {};
+                return `<button type="button"
+                                class="agent-run-capsule-map-legend-dot"
+                                style="--map-color: ${escapeAttr(colorForSignal(signal))}"
+                                title="${escapeAttr(`${label}: ${count} stop${count === 1 ? '' : 's'}. Click to open the first ${label.toLowerCase()} source.`)}"
+                                aria-label="${escapeAttr(`${label}: ${count} stop${count === 1 ? '' : 's'}`)}"
+                                onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '${escapeAttr(firstNode.messageId || '')}')">
+                    <span class="visually-hidden">${escapeHtml(label)}</span>
+                </button>`;
+            }).join('')}
         </div>
     </div>`;
 }
 
 function agentRunHasWorkArtifacts(messages) {
     const artifacts = getAgentRunArtifacts(messages);
-    return !!(artifacts.attachments || artifacts.cards || artifacts.fileRefs || artifacts.digestionRefs);
+    return !!(artifacts.attachments || artifacts.cards || artifacts.workProducts || artifacts.fileRefs || artifacts.digestionRefs);
 }
 
 function getAgentRunStatus(messages) {
@@ -15297,6 +15512,7 @@ function getAgentRunArtifactSummary(artifacts, messages) {
     const fileLikeCount = Number((artifacts && artifacts.attachments) || 0) + Number((artifacts && artifacts.fileRefs) || 0);
     if (fileLikeCount > 0) facts.push(`${fileLikeCount} file source${fileLikeCount === 1 ? '' : 's'}`);
     if (artifacts && artifacts.digestionRefs > 0) facts.push(`${artifacts.digestionRefs} Digestion reference${artifacts.digestionRefs === 1 ? '' : 's'}`);
+    if (artifacts && artifacts.workProducts > 0) facts.push(`${artifacts.workProducts} workproduct${artifacts.workProducts === 1 ? '' : 's'}`);
     if (artifacts && artifacts.cards > 0) facts.push(`${artifacts.cards} work card${artifacts.cards === 1 ? '' : 's'}`);
     if (artifacts && artifacts.mentions > 0) facts.push(`${artifacts.mentions} tagged teammate${artifacts.mentions === 1 ? '' : 's'}`);
     if (facts.length) return facts.join(', ');
@@ -15482,6 +15698,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         artifacts.attachments ? openTraceChip('bi-paperclip', `${artifacts.attachments} file${artifacts.attachments === 1 ? '' : 's'}`) : '',
         artifacts.fileRefs ? openTraceChip('bi-file-earmark', `${artifacts.fileRefs} file ref${artifacts.fileRefs === 1 ? '' : 's'}`) : '',
         artifacts.digestionRefs ? openTraceChip('bi-diagram-3', `${artifacts.digestionRefs} Digestion ref${artifacts.digestionRefs === 1 ? '' : 's'}`) : '',
+        artifacts.workProducts ? openTraceChip('bi-journal-check', `${artifacts.workProducts} workproduct${artifacts.workProducts === 1 ? '' : 's'}`) : '',
         artifacts.cards ? openTraceChip('bi-kanban', `${artifacts.cards} card${artifacts.cards === 1 ? '' : 's'}`) : '',
         artifacts.mentions ? openTraceChip('bi-at', `${artifacts.mentions} mention${artifacts.mentions === 1 ? '' : 's'}`) : '',
     ].filter(Boolean).join('');
@@ -15493,7 +15710,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         brief.keyUpdate ? `What changed: ${brief.keyUpdate}` : '',
         brief.attention ? `Needs attention: ${brief.attention}` : '',
         brief.sourceTrail ? `Source trail: ${brief.sourceTrail}` : '',
-        directArtifactCopySummary ? `Files & outputs: ${directArtifactCopySummary}` : '',
+        directArtifactCopySummary ? `Files & workproducts: ${directArtifactCopySummary}` : '',
         brief.nextAction ? `Next action: ${brief.nextAction}` : '',
     ].filter(Boolean).join('\n');
     const rootMessageIds = options.rootMessageIds instanceof Set ? options.rootMessageIds : new Set();
@@ -15608,6 +15825,58 @@ function buildAgentRunCapsuleCopySummaryFromDom(capsule, summary) {
     return rows.join('\n');
 }
 
+function normalizeAgentRunLlmWorkproducts(summary, capsuleId) {
+    const raw = Array.isArray(summary && summary.workproducts) ? summary.workproducts : [];
+    return raw
+        .filter(item => item && typeof item === 'object')
+        .slice(0, 4)
+        .map((item, index) => {
+            const workproductType = truncateAgentRunText(item.type || item.kind || 'Workproduct', 42) || 'Workproduct';
+            const labelText = truncateAgentRunText(item.label || item.title || item.summary || '', 130);
+            if (!labelText) return null;
+            return {
+                kind: 'workproduct',
+                workproductType,
+                icon: getAgentRunWorkproductIcon(workproductType),
+                label: `${workproductType}: ${labelText}`,
+                messageId: String(item.message_id || item.source_message_id || ''),
+                createdAt: '',
+                capsuleId,
+            };
+        })
+        .filter(Boolean);
+}
+
+function applyAgentRunCapsuleWorkproducts(capsule, summary) {
+    if (!capsule || !summary) return;
+    const capsuleId = String(capsule.dataset.agentRunCapsule || '');
+    const artifacts = normalizeAgentRunLlmWorkproducts(summary, capsuleId);
+    if (!artifacts.length) return;
+    capsule.querySelectorAll('[data-agent-run-llm-workproduct="1"]').forEach(node => node.remove());
+    let rail = capsule.querySelector('[data-agent-run-capsule-artifacts]');
+    let list = rail ? rail.querySelector('.agent-run-capsule-artifact-list') : null;
+    if (!rail || !list) {
+        const meta = capsule.querySelector('.agent-run-capsule-meta');
+        if (!meta) return;
+        meta.insertAdjacentHTML('beforebegin', renderAgentRunCapsuleArtifactRail(artifacts, capsuleId));
+        return;
+    }
+    const existingLabels = new Set(Array.from(list.querySelectorAll('.agent-run-capsule-artifact-name')).map(node => normalizeAgentRunText(node.textContent).toLowerCase()).filter(Boolean));
+    const html = artifacts
+        .filter(artifact => !existingLabels.has(normalizeAgentRunText(artifact.label).toLowerCase()))
+        .map((artifact) => `
+            <div class="agent-run-capsule-artifact is-workproduct" data-agent-run-llm-workproduct="1">
+                <span class="agent-run-capsule-artifact-icon"><i class="bi bi-${escapeAttr(getAgentRunArtifactIcon(artifact))}"></i></span>
+                <div class="agent-run-capsule-artifact-main">
+                    ${renderAgentRunCapsuleArtifactLink(artifact)}
+                    <div class="agent-run-capsule-artifact-meta">${escapeHtml(getAgentRunArtifactMeta(artifact))}</div>
+                </div>
+                <div class="agent-run-capsule-artifact-actions">${renderAgentRunCapsuleArtifactActions(artifact, capsuleId)}</div>
+            </div>
+        `).join('');
+    if (html) list.insertAdjacentHTML('beforeend', html);
+}
+
 function applyAgentRunCapsuleEnrichment(capsule, result) {
     if (!capsule || !result || !result.summary) return;
     const summary = result.summary || {};
@@ -15634,6 +15903,7 @@ function applyAgentRunCapsuleEnrichment(capsule, result) {
     if (copyButton && copySummary) {
         copyButton.setAttribute('data-copy-summary', encodeURIComponent(copySummary));
     }
+    applyAgentRunCapsuleWorkproducts(capsule, summary);
     capsule.dataset.agentRunCapsuleEnrichmentState = result.cached ? 'cached' : 'enriched';
 }
 

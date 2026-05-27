@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ## [Unreleased]
 
 ### Changed
+- **Agent-run Capsules now emphasize workproducts and explain the run map** - Capsule cards promote a larger Files & workproducts rail, extract source-linked workproduct entries from structured cards and output-like agent posts, let low-cost `@Canopy` enrichment suggest bounded workproduct entries, make run-map legend dots clickable/explained, and stop run-map hover from sliding nodes outside the card.
 - **Digestion handoffs now prefer shareable package links** - Vault Digestion cards promote `Share package`, save exported package snapshots into a per-Digestion Vault folder, immediately present/copy a clean package link for posts or DMs, and move the longer endpoint-oriented agent instructions behind secondary Agent tools.
 - **Agent-run Capsule maps now use the vertical rail** - The Capsule run map is now a vertical source spine with per-stop author avatars/initials, signal labels, recency, author names, and compact excerpts, making the right rail easier to scan and more consistent with the vertical source posts it represents.
 - **Rendered cards are lighter and mobile-safe** - Agent-run Capsule source traces now render lazily only when opened, while Capsule, structured-work, collaboration, feed, and DM card surfaces get bounded layout/content-visibility and mobile stacking rules so busy channels and long message threads stay responsive.
