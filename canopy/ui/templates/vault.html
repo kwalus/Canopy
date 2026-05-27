@@ -802,6 +802,82 @@
     .vault-digestion-actions .vault-digestion-btn.is-primary {
         box-shadow: 0 10px 24px color-mix(in srgb, var(--canopy-primary) 24%, transparent);
     }
+    .vault-digestion-actions .vault-digestion-btn.is-package {
+        border-color: color-mix(in srgb, var(--canopy-success, #22c55e) 72%, var(--canopy-border));
+        background: linear-gradient(135deg, color-mix(in srgb, var(--canopy-success, #22c55e) 90%, #0f766e), color-mix(in srgb, var(--canopy-primary) 68%, #0f172a));
+        color: #fff;
+        box-shadow: 0 12px 28px color-mix(in srgb, var(--canopy-success, #22c55e) 22%, transparent);
+    }
+    .vault-digestion-agent-tools {
+        position: relative;
+        min-width: 0;
+    }
+    .vault-digestion-agent-tools summary {
+        list-style: none;
+        width: 100%;
+        cursor: pointer;
+    }
+    .vault-digestion-agent-tools summary::-webkit-details-marker {
+        display: none;
+    }
+    .vault-digestion-agent-tools-menu {
+        position: absolute;
+        right: 0;
+        top: calc(100% + 0.34rem);
+        z-index: 18;
+        width: min(17rem, calc(100vw - 2rem));
+        padding: 0.45rem;
+        border: 1px solid var(--canopy-border);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--canopy-bg-card) 96%, var(--canopy-bg-secondary));
+        box-shadow: 0 18px 36px var(--canopy-shadow);
+    }
+    .vault-digestion-agent-tools-menu .vault-digestion-btn {
+        width: 100%;
+    }
+    .vault-digestion-package-handoff {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.7rem;
+        align-items: center;
+        margin-top: 0.72rem;
+        padding: 0.72rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-success, #22c55e) 42%, var(--canopy-border));
+        border-radius: 16px;
+        background:
+            radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--canopy-success, #22c55e) 18%, transparent), transparent 44%),
+            color-mix(in srgb, var(--canopy-bg-card) 92%, transparent);
+    }
+    .vault-digestion-package-handoff-copy {
+        min-width: 0;
+        display: grid;
+        gap: 0.25rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.82rem;
+    }
+    .vault-digestion-package-handoff-copy strong {
+        color: var(--canopy-text-primary);
+        font-weight: 900;
+    }
+    .vault-digestion-package-handoff-copy code {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--canopy-text-primary);
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 82%, transparent);
+        border: 1px solid var(--canopy-border);
+        border-radius: 10px;
+        padding: 0.32rem 0.45rem;
+    }
+    .vault-digestion-package-handoff-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.42rem;
+        justify-content: flex-end;
+    }
     .vault-digestion-actions .vault-digestion-btn.is-danger {
         border-color: color-mix(in srgb, var(--canopy-danger, #ef4444) 58%, var(--canopy-border));
         color: color-mix(in srgb, var(--canopy-danger, #ef4444) 88%, var(--canopy-text-primary));
@@ -3197,6 +3273,15 @@
         .vault-digestion-output-actions .btn {
             flex: 0 0 auto;
             white-space: nowrap;
+        }
+        .vault-digestion-agent-tools {
+            flex: 0 0 auto;
+        }
+        .vault-digestion-package-handoff {
+            grid-template-columns: 1fr;
+        }
+        .vault-digestion-package-handoff-actions {
+            justify-content: flex-start;
         }
         .vault-digestion-create {
             max-height: none;

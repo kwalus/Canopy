@@ -1502,6 +1502,26 @@
                 }
             }
 
+            async function copyTextSilently(text) {
+                try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(text);
+                    } else {
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.style.position = 'fixed';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        ta.remove();
+                    }
+                    return true;
+                } catch (_) {
+                    return false;
+                }
+            }
+
             async function fetchVaultFiles({ q = '', category = '', offset = 0, limit = DEFAULT_LIMIT, folderId = null } = {}) {
                 const urls = vaultUrls();
                 const params = new URLSearchParams();
@@ -2209,6 +2229,7 @@
                     digestionBuilderProfile: 'ask_cite',
                     digestionBuilderUserFilter: 'all',
 		                                digestionProgressTimers: new Map(),
+                    digestionPackageHandoffs: new Map(),
 					                    previewFileId: '',
 		                                selectionDigestionMenuOpen: false,
                                 pendingUrlDigestionId: (() => {
@@ -3492,6 +3513,45 @@
                     ].join('\n');
                 }
 
+                function digestionPackageFileMarkdown(file) {
+                    const id = String(file && (file.id || file.file_id) || '').trim();
+                    if (!/^F[A-Za-z0-9_-]{6,}$/.test(id)) return '';
+                    const label = String(file && (file.original_name || file.name || file.filename) || 'Canopy Digestion package')
+                        .replace(/[\[\]\r\n]/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim() || id;
+                    return `[${label}](/file-ref/${encodeURIComponent(id)})`;
+                }
+
+                function renderDigestionPackageHandoff(digestion) {
+                    const id = String(digestion && digestion.id || '').trim();
+                    const handoff = id ? state.digestionPackageHandoffs.get(id) : null;
+                    if (!handoff) return '';
+                    const file = handoff.file || {};
+                    const fileId = vaultEscape(file.id || file.file_id || '');
+                    const fileName = vaultEscape(file.original_name || file.name || file.filename || 'Canopy Digestion package');
+                    const markdown = vaultEscape(handoff.markdown || digestionPackageFileMarkdown(file));
+                    const folderName = vaultEscape(handoff.folderName || 'this Digestion folder');
+                    return `
+                        <div class="vault-digestion-package-handoff" data-vault-digestion-package-handoff="${vaultEscape(id)}">
+                            <div class="vault-digestion-package-handoff-copy">
+                                <strong><i class="bi bi-box-arrow-up-right"></i> Package ready</strong>
+                                <span>${fileName} was saved in ${folderName}. Paste this link into a post or DM to render the Digestion package card.</span>
+                                <code>${markdown}</code>
+                            </div>
+                            <div class="vault-digestion-package-handoff-actions">
+                                <button class="btn btn-sm btn-success" type="button" data-vault-digestion-action="copy-package-link" data-vault-digestion-id="${vaultEscape(id)}">
+                                    <i class="bi bi-link-45deg"></i> Copy package link
+                                </button>
+                                ${fileId ? `<a class="btn btn-sm btn-outline-secondary" href="/file-ref/${fileId}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open package</a>` : ''}
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="dismiss-package-handoff" data-vault-digestion-id="${vaultEscape(id)}" aria-label="Dismiss package link">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+
                 function digestionOperationProgress(digestion, operation) {
                     const progress = digestion && digestion.operation_progress && typeof digestion.operation_progress === 'object'
                         ? digestion.operation_progress
@@ -3971,8 +4031,8 @@
                                         <i class="bi bi-sliders"></i> Tune
                                     </button>
 	                                ` : ''}
-	                                <button class="btn btn-sm btn-outline-primary vault-digestion-btn" type="button" data-vault-digestion-action="export-package" data-vault-digestion-id="${id}" aria-label="Export package for ${name}" title="Export a static snapshot of this Digestion to your Vault. Use Share access to let a recipient query the live index instead.">
-	                                    <i class="bi bi-box-arrow-up-right"></i> Package
+	                                <button class="btn btn-sm btn-success vault-digestion-btn is-package" type="button" data-vault-digestion-action="export-package" data-vault-digestion-id="${id}" aria-label="Create share package for ${name}" title="Create a static package in this Digestion's Vault folder and copy a clean link you can paste into a post or DM. Use Share access to let a recipient query the live index.">
+	                                    <i class="bi bi-box-arrow-up-right"></i> Share package
 	                                </button>
 	                                ${canManage ? `
                                     <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="rename" data-vault-digestion-id="${id}" aria-label="Rename ${name}" aria-expanded="false" title="Rename this Digestion without changing sources or access grants.">
@@ -3982,15 +4042,23 @@
 	                                    <i class="bi bi-person-check"></i> Share access
 	                                </button>
 	                                ` : ''}
-	                                <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="copy-agent-ref" data-vault-digestion-id="${id}" aria-label="Copy agent reference for ${name}">
-	                                    <i class="bi bi-clipboard"></i> Agent ref
-	                                </button>
+                                    <details class="vault-digestion-agent-tools">
+                                        <summary class="btn btn-sm btn-outline-secondary vault-digestion-btn">
+                                            <i class="bi bi-robot"></i> Agent tools
+                                        </summary>
+                                        <div class="vault-digestion-agent-tools-menu">
+                                            <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="copy-agent-ref" data-vault-digestion-id="${id}" aria-label="Copy compact agent instructions for ${name}" title="Copy endpoint instructions for agents. Most human handoffs should use Share package instead.">
+                                                <i class="bi bi-clipboard"></i> Copy agent instructions
+                                            </button>
+                                        </div>
+                                    </details>
                                     ${canDelete ? `
                                     <button class="btn btn-sm btn-outline-danger vault-digestion-btn is-danger" type="button" data-vault-digestion-action="delete" data-vault-digestion-id="${id}" aria-label="Delete ${name}" aria-expanded="false" title="Delete this Digestion index and generated records. Source Vault files are preserved.">
                                         <i class="bi bi-trash3"></i> Delete
                                     </button>
                                     ` : ''}
 	                            </div>
+                                ${renderDigestionPackageHandoff(digestion)}
                                 ${canManage ? renderDigestionRenamePanel(digestion) : ''}
                                 ${canDelete ? renderDigestionDeletePanel(digestion) : ''}
                                 ${renderDigestionProgress('build', 'Build', buildProgress)}
@@ -5051,17 +5119,33 @@
                     const original = button ? button.innerHTML : '';
                     if (button) {
                         button.disabled = true;
-                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Packaging';
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating package';
                     }
                     try {
                         const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/package/export`, {
                             method: 'POST',
                             body: JSON.stringify({})
                         });
-	                        if (typeof showAlert === 'function') {
-	                            const name = data.file && (data.file.original_name || data.file.id) || 'Digestion package';
-	                            showAlert(`${name} saved to Vault. Use Share access if the recipient should query the live index.`, 'success');
-	                        }
+                        const file = data && data.file ? data.file : {};
+                        const markdown = digestionPackageFileMarkdown(file);
+                        let copied = false;
+                        if (markdown) {
+                            state.digestionPackageHandoffs.set(String(digestionId), {
+                                file,
+                                markdown,
+                                folderName: data.vault_folder_name || 'this Digestion folder',
+                            });
+                            renderDigestions();
+                            copied = await copyTextSilently(markdown);
+                        }
+                        if (typeof showAlert === 'function') {
+                            const name = data.file && (data.file.original_name || data.file.id) || 'Digestion package';
+                            const folderName = data.vault_folder_name || 'the Digestion folder';
+                            const copyHint = copied
+                                ? ' The clean package link was copied; paste it into a post or DM to render the package card.'
+                                : ' Use Copy package link when you are ready to paste it into a post or DM.';
+                            showAlert(`${name} saved in ${folderName}.${copyHint}`, 'success');
+                        }
                         loadFiles({ append: false }).catch((refreshError) => {
                             console.warn('Vault refresh after Digestion package export failed:', refreshError);
                             if (typeof showAlert === 'function') {
@@ -5076,6 +5160,16 @@
                             button.innerHTML = original;
                         }
                     }
+                }
+
+                async function copyDigestionPackageLink(digestionId) {
+                    const handoff = state.digestionPackageHandoffs.get(String(digestionId || ''));
+                    const markdown = handoff && handoff.markdown ? handoff.markdown : '';
+                    if (!markdown) {
+                        if (typeof showAlert === 'function') showAlert('Create a package first, then copy its link.', 'warning');
+                        return;
+                    }
+                    await copyText(markdown, 'Digestion package link');
                 }
 
 	                async function copyDigestionAgentReference(digestionId) {
@@ -7629,6 +7723,11 @@
                             toggleDigestionExtractOptions(digestionId);
 	                        } else if (action === 'export-package') {
 	                            exportDigestionPackage(digestionId, actionBtn);
+                            } else if (action === 'copy-package-link') {
+                                copyDigestionPackageLink(digestionId);
+                            } else if (action === 'dismiss-package-handoff') {
+                                state.digestionPackageHandoffs.delete(String(digestionId || ''));
+                                renderDigestions();
 		                        } else if (action === 'share-access') {
 		                            toggleDigestionShare(digestionId);
 		                        } else if (action === 'update-access') {

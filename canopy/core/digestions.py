@@ -644,6 +644,16 @@ class DigestionManager:
             return None
         return self._find_or_create_vault_folder(owner_id, self._digestion_intake_folder_name(digestion), root_id)
 
+    def _digestion_user_artifact_folder_id(self, digestion: Digestion, user_id: str) -> Optional[str]:
+        """Return a caller-owned Vault folder for exported Digestion handoff artifacts."""
+        actor_id = str(user_id or "").strip()
+        if not actor_id:
+            return None
+        root_id = self._find_or_create_vault_folder(actor_id, "Digestion Intake")
+        if not root_id:
+            return None
+        return self._find_or_create_vault_folder(actor_id, self._digestion_intake_folder_name(digestion), root_id)
+
     def _digestion_generated_figures_folder_id(self, digestion: Digestion) -> Optional[str]:
         intake_folder_id = self._digestion_intake_folder_id(digestion)
         if not intake_folder_id:
@@ -3564,7 +3574,14 @@ class DigestionManager:
         package = self.package_payload(digestion.id, actor_user_id)
         filename = f"{self._slugify(digestion.name or 'digestion')}-canopy-digestion-package.json"
         content = json.dumps(package, indent=2, sort_keys=True).encode("utf-8")
-        file_info = self.file_manager.save_file(content, filename, "application/json", actor_user_id)
+        folder_id = self._digestion_user_artifact_folder_id(digestion, actor_user_id)
+        file_info = self.file_manager.save_file(
+            content,
+            filename,
+            "application/json",
+            actor_user_id,
+            vault_folder_id=folder_id,
+        )
         if not file_info:
             raise DigestionError("Could not export Digestion package to Vault.", status_code=500, reason="package_export_failed")
         return {
@@ -3572,6 +3589,8 @@ class DigestionManager:
             "digestion_id": digestion.id,
             "package": package,
             "file": file_info.to_dict(),
+            "vault_folder_id": folder_id,
+            "vault_folder_name": self._digestion_intake_folder_name(digestion),
             "agent_reference": package.get("agent_reference") or self.agent_reference(digestion.id, actor_user_id),
         }
 
