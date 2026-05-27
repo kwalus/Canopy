@@ -14749,6 +14749,10 @@
             localPeerId: {{ sidebar_local_peer_id|tojson if sidebar_local_peer_id is defined else 'null' }},
             currentMeshspace: {{ current_meshspace_payload|tojson }},
             googleMapsEmbedApiKey: {{ config.get('GOOGLE_MAPS_EMBED_API_KEY', '')|tojson }},
+            uploadLimits: {
+                postMaxBytes: {{ config.get('MAX_FILE_SIZE', 104857600)|tojson }},
+                vaultMaxBytes: {{ config.get('MAX_VAULT_FILE_SIZE', 536870912)|tojson }}
+            },
             urls: {
                 feed: {{ url_for('ui.feed')|tojson }},
                 channels: {{ url_for('ui.channels')|tojson }},

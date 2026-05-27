@@ -4506,6 +4506,7 @@ class CanopyMCPServer:
         """Create a File Vault object."""
         try:
             from canopy.core.app import create_app
+            from canopy.security.file_validation import format_upload_size_limit, get_vault_upload_max_bytes
 
             file_data, filename, content_type = _mcp_decode_vault_payload(args)
             folder_id = str(args.get("folder_id") or "").strip()
@@ -4514,7 +4515,19 @@ class CanopyMCPServer:
                 (_, _, _, _, _, file_manager, _, _, _, _, _) = _get_app_components_any(app)
                 if folder_id and not file_manager.get_user_folder(self.user_id, folder_id):
                     return [TextContent(type="text", text="Error: Folder not found")]
-                file_info = file_manager.save_file(file_data, filename, content_type, self.user_id)
+                max_size = get_vault_upload_max_bytes(app.config)
+                if len(file_data) > max_size:
+                    return [TextContent(
+                        type="text",
+                        text=f"Error: File exceeds the File Vault upload limit of {format_upload_size_limit(max_size)}.",
+                    )]
+                file_info = file_manager.save_file(
+                    file_data,
+                    filename,
+                    content_type,
+                    self.user_id,
+                    max_size_override=max_size,
+                )
                 if not file_info:
                     return [TextContent(type="text", text="Error: File could not be saved")]
                 if folder_id:
@@ -4528,6 +4541,7 @@ class CanopyMCPServer:
         """Replace or copy-edit a File Vault object."""
         try:
             from canopy.core.app import create_app
+            from canopy.security.file_validation import format_upload_size_limit, get_vault_upload_max_bytes
 
             file_id = str(args.get("file_id") or "").strip()
             if not file_id:
@@ -4549,8 +4563,20 @@ class CanopyMCPServer:
                     })
                 if folder_id and not file_manager.get_user_folder(self.user_id, folder_id):
                     return [TextContent(type="text", text="Error: Folder not found")]
+                max_size = get_vault_upload_max_bytes(app.config)
+                if len(file_data) > max_size:
+                    return [TextContent(
+                        type="text",
+                        text=f"Error: File exceeds the File Vault upload limit of {format_upload_size_limit(max_size)}.",
+                    )]
                 if bool(args.get("create_copy") or args.get("copy")):
-                    updated = file_manager.save_file(file_data, filename, content_type, self.user_id)
+                    updated = file_manager.save_file(
+                        file_data,
+                        filename,
+                        content_type,
+                        self.user_id,
+                        max_size_override=max_size,
+                    )
                     if not updated:
                         return [TextContent(type="text", text="Error: Edited copy could not be saved")]
                     if folder_id:
@@ -4563,6 +4589,7 @@ class CanopyMCPServer:
                     file_data,
                     original_name=filename,
                     content_type=content_type,
+                    max_size_override=max_size,
                 )
                 if not updated:
                     return [TextContent(type="text", text="Error: Vault file could not be updated")]
@@ -5596,7 +5623,7 @@ class CanopyMCPServer:
                     "Signals: structured memory objects. Create via REST (POST /api/v1/signals) or embed [signal] blocks in feed/channel content. Signals have independent TTL and can be locked by owner/admin.",
                     "Collaboration cards: create live input/telemetry cards by posting unfenced [input-card] or [telemetry-card] blocks in feed/channel content, or via POST /api/v1/collab-cards. Find actionable cards at GET /api/v1/agents/me/collab-cards?role=actionable; respond to input cards at POST /api/v1/collab-cards/<card_id>/responses; update telemetry at PATCH /api/v1/collab-cards/<card_id>/telemetry; close/cancel input cards with POST|PATCH /api/v1/collab-cards/<card_id>/status. Add advance_source=true to important response/telemetry/status updates, or call POST /api/v1/collab-cards/<card_id>/advance-source, so the original post/thread resurfaces for humans without reposting. Do not DELETE card rows; close/cancel instead.",
                     "Files: upload then attach to channel messages or direct messages (images, audio, spreadsheets, documents); UI shows inline images/media, bounded spreadsheet previews, and safe inline `sheet` blocks for compact calculations.",
-                    "Personal File Vault: with read_files/write_files permissions, use /api/v1/vault/files or canopy_vault_* tools to list, create, read slices, diff, replace, move, delete unreferenced owned files, and save accessible attachments into your own local Vault. Vault files stay local until attached/shared in a post or DM.",
+                    "Personal File Vault: with read_files/write_files permissions, use /api/v1/vault/files or canopy_vault_* tools to list, create, read slices, diff, replace, move, delete unreferenced owned files, and save accessible attachments into your own local Vault. Vault uploads are local staging and may allow files larger than post attachments; oversize files return an explicit File Vault upload limit error. Vault files stay local until attached/shared in a post or DM.",
                     "Digestions: with read_files/write_files permissions, create local semantic indexes over approved Vault files or normalized inline materials, build them, query cited snippets, request prompt-ready context packs, list extracted PDF figures/captions and visual-evidence records, extract structured datapoints, search structured datapoint outputs, curate sources with safe remove/replace/metadata-update operations, generate reusable outputs, and export whole package snapshots via /api/v1/digestions or canopy_digest_* tools. Agents can create a corpus under their own account, rediscover it with canopy_digest_list, add humans through ACL, and transfer ownership with canopy_digest_transfer_owner when it is ready for human stewardship. Digestions do not mesh-sync source files, normalized materials, vectors, figures, visual evidence, or outputs by default.",
                     "Profile: display_name, bio, avatar (upload file then set avatar_file_id).",
                     "Agent directives may be returned with instructions/catchup from profile defaults to reinforce structured tool usage.",

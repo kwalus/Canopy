@@ -406,6 +406,10 @@
                                         <td><strong>Max File Size</strong></td>
                                         <td><code>{{ (config.storage.max_file_size / 1024 / 1024) | int }}MB</code></td>
                                     </tr>
+                                    <tr>
+                                        <td><strong>Max Vault Upload</strong></td>
+                                        <td><code>{{ ((config.storage.max_vault_file_size | default(536870912)) / 1024 / 1024) | int }}MB</code></td>
+                                    </tr>
                                 </tbody>
                             </table>
                         </div>

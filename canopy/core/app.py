@@ -272,6 +272,8 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.config['SECRET_KEY'] = config.secret_key
     app.config['DEBUG'] = config.debug
     app.config['TESTING'] = config.testing
+    app.config['MAX_FILE_SIZE'] = int(getattr(config.storage, 'max_file_size', 100 * 1024 * 1024) or 100 * 1024 * 1024)
+    app.config['MAX_VAULT_FILE_SIZE'] = int(getattr(config.storage, 'max_vault_file_size', 512 * 1024 * 1024) or 512 * 1024 * 1024)
     app.config['GOOGLE_MAPS_EMBED_API_KEY'] = os.getenv('CANOPY_GOOGLE_MAPS_EMBED_API_KEY', '').strip()
     app.config['CANOPY_STARTED_AT'] = time.time()
 
@@ -323,6 +325,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
         logger.info("Initializing file manager...")
         files_dir = str(Path(config.storage.data_dir) / 'files') if config.storage.data_dir else './data/files'
         file_manager = FileManager(db_manager, files_dir)
+        file_manager.max_file_size = int(app.config['MAX_FILE_SIZE'])
         app.config['FILE_MANAGER'] = file_manager
         logger.info("File manager initialized successfully")
 

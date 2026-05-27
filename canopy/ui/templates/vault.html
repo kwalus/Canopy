@@ -101,6 +101,46 @@
     .vault-dropzone.is-uploading .vault-drop-icon {
         animation: vaultUploadPulse 0.95s ease-in-out infinite alternate;
     }
+    .vault-upload-status {
+        display: grid;
+        gap: 0.55rem;
+        padding: 0.9rem 1rem;
+        border-radius: 18px;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 34%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 84%, var(--canopy-primary) 8%);
+        box-shadow: 0 16px 36px color-mix(in srgb, var(--canopy-shadow) 65%, transparent);
+    }
+    .vault-upload-status[hidden] {
+        display: none !important;
+    }
+    .vault-upload-status-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        color: var(--canopy-text-primary);
+        font-weight: 800;
+    }
+    .vault-upload-status-detail {
+        color: var(--canopy-text-secondary);
+        font-size: 0.86rem;
+    }
+    .vault-upload-progress {
+        height: 0.55rem;
+        overflow: hidden;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 84%, transparent);
+        border: 1px solid var(--canopy-border);
+    }
+    .vault-upload-progress > span {
+        display: block;
+        width: var(--vault-upload-progress, 4%);
+        min-width: 4%;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--canopy-gradient-secondary);
+        transition: width 0.18s ease;
+    }
     @keyframes vaultUploadPulse {
         from { transform: translateY(0) scale(1); }
         to { transform: translateY(-2px) scale(1.04); }
@@ -3436,10 +3476,18 @@
         <label class="vault-panel vault-dropzone" id="vault-dropzone" for="vault-upload-input" role="button" tabindex="0" aria-label="Upload files to your vault">
             <span class="vault-drop-icon"><i class="bi bi-cloud-arrow-up"></i></span>
             <span class="vault-drop-title">Drop files here or click to upload</span>
-            <span class="vault-drop-copy">Uses the same validation and file-type support as Canopy attachments.</span>
+            <span class="vault-drop-copy">Local staging for larger files and folders; oversize files are reported before upload.</span>
         </label>
         <input class="vault-file-input" type="file" id="vault-upload-input" multiple
                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.ts,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
+        <div class="vault-upload-status" id="vault-upload-status" hidden role="status" aria-live="polite">
+            <div class="vault-upload-status-head">
+                <span id="vault-upload-status-title">Preparing upload...</span>
+                <span id="vault-upload-status-count"></span>
+            </div>
+            <div class="vault-upload-progress" aria-hidden="true"><span id="vault-upload-progress-bar"></span></div>
+            <div class="vault-upload-status-detail" id="vault-upload-status-detail">Scanning dropped files and folders.</div>
+        </div>
     </section>
 
     <section class="vault-panel vault-toolbar" aria-label="Vault tools">

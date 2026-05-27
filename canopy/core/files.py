@@ -912,6 +912,7 @@ class FileManager:
         uploaded_by: str,
         *,
         vault_folder_id: Optional[str] = None,
+        max_size_override: Optional[int] = None,
     ) -> Optional[FileInfo]:
         """Save an uploaded file to disk and database.
         
@@ -943,7 +944,7 @@ class FileManager:
                 file_data,
                 content_type,
                 original_name,
-                max_size_override=self.max_file_size,
+                max_size_override=max_size_override or self.max_file_size,
             )
             if not is_valid:
                 logger.error("File upload rejected for %s: %s", original_name, error_msg)
@@ -1043,6 +1044,7 @@ class FileManager:
         *,
         original_name: Optional[str] = None,
         content_type: Optional[str] = None,
+        max_size_override: Optional[int] = None,
     ) -> Optional[FileInfo]:
         """Replace the bytes for an existing user-owned Vault file.
 
@@ -1075,7 +1077,7 @@ class FileManager:
                 raw,
                 ctype,
                 name,
-                max_size_override=self.max_file_size,
+                max_size_override=max_size_override or self.max_file_size,
             )
             if not is_valid:
                 logger.error("Vault file replacement rejected for %s: %s", file_id, error_msg)
@@ -2084,6 +2086,43 @@ class FileManager:
         except Exception as e:
             logger.error("Failed to load vault folder %s for user %s: %s", folder_id, user_id, e, exc_info=True)
             return None
+
+    def get_user_folder_by_name(self, user_id: str, name: Any, parent_id: Optional[str] = None) -> Optional[VaultFolder]:
+        """Return an existing user folder with the given normalized name and parent."""
+        try:
+            name_clean = self._normalize_vault_folder_name(name)
+        except ValueError:
+            return None
+        parent_clean = str(parent_id or '').strip() or None
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    """
+                    SELECT id, user_id, name, parent_id, created_at, updated_at
+                    FROM vault_folders
+                    WHERE user_id = ? AND name = ? AND (
+                        (? IS NULL AND (parent_id IS NULL OR parent_id = '')) OR parent_id = ?
+                    )
+                    LIMIT 1
+                    """,
+                    (user_id, name_clean, parent_clean, parent_clean or ''),
+                ).fetchone()
+            return self._vault_folder_from_row(row) if row else None
+        except Exception as e:
+            logger.error("Failed to resolve vault folder %s for user %s: %s", name, user_id, e, exc_info=True)
+            return None
+
+    def ensure_user_folder_path(self, user_id: str, parts: list[Any], parent_id: Optional[str] = None) -> Optional[VaultFolder]:
+        """Create or reuse a nested folder path for a user's Vault."""
+        current_parent = str(parent_id or '').strip() or None
+        current: Optional[VaultFolder] = None
+        for raw_part in parts:
+            name = self._normalize_vault_folder_name(raw_part)
+            current = self.get_user_folder_by_name(user_id, name, current_parent)
+            if current is None:
+                current = self.create_user_folder(user_id, name, current_parent)
+            current_parent = current.id
+        return current
 
     def list_user_folders(self, user_id: str, parent_id: Optional[str] = None) -> List[VaultFolder]:
         parent_clean = str(parent_id or '').strip()

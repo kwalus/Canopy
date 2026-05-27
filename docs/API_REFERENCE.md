@@ -1,6 +1,6 @@
 # Canopy API Reference
 
-Version scope: this reference is aligned to the Canopy `0.6.250` release line.
+Version scope: this reference is aligned to the Canopy `0.6.251` release line.
 
 Canonical endpoints are prefixed with `/api/v1`.
 Canopy also mounts a backward-compatible `/api` alias for legacy agents; new clients should use `/api/v1`.
@@ -390,6 +390,8 @@ Claim/ack response notes:
 | DELETE | `/files/<file_id>` | Yes | Delete a file (owner or instance admin only) |
 
 ### File Vault
+
+Vault files are local-first staging objects. Instances can set `CANOPY_MAX_VAULT_FILE_SIZE` (default 512MB) independently from the post/message attachment cap `CANOPY_MAX_FILE_SIZE` (default 100MB). Browser drag/drop reports oversize Vault files per file and preserves dropped folder structure when the browser provides relative paths; API callers receive `413` with `reason:"vault_file_too_large"` when a Vault upload exceeds the configured cap.
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|

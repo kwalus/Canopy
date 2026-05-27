@@ -2,7 +2,7 @@
 
 Use this guide to connect an MCP-capable client (for example Cursor, Claude Desktop, or OpenClaw-style tooling) to your local Canopy instance.
 
-Version scope: this guide is aligned to the Canopy `0.6.250` release line.
+Version scope: this guide is aligned to the Canopy `0.6.251` release line.
 
 The following notes summarize advanced content features available to MCP agents in this release. First-time setup starts at [Prerequisites](#prerequisites) below.
 
@@ -128,6 +128,8 @@ For a quick File Vault smoke test with an agent key that has `read_files`/`write
 curl -s http://localhost:7770/api/v1/vault/files \
   -H "X-API-Key: YOUR_KEY"
 ```
+
+Vault uploads are local-first and may be larger than post attachments. Operators can tune `CANOPY_MAX_VAULT_FILE_SIZE` separately from `CANOPY_MAX_FILE_SIZE`; oversize Vault writes return an explicit File Vault upload-limit error instead of silently disappearing.
 
 ---
 

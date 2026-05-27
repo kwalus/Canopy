@@ -11054,9 +11054,9 @@ def create_api_blueprint() -> Blueprint:
                 pass
 
             # Validate file upload (MIME, magic bytes, extension, size, dangerous content)
-            from ..security.file_validation import validate_file_upload, detect_zip_bomb
+            from ..security.file_validation import detect_zip_bomb, get_standard_upload_max_bytes, validate_file_upload
 
-            max_size = current_app.config.get('MAX_FILE_SIZE', 104857600)  # 100 MB default
+            max_size = get_standard_upload_max_bytes(current_app.config)
             is_valid, error_msg, validated_type = validate_file_upload(
                 file_data, content_type, original_name, max_size_override=max_size
             )
@@ -11074,7 +11074,12 @@ def create_api_blueprint() -> Blueprint:
             content_type = validated_content_type
 
             file_info = file_manager.save_file(
-                file_data, original_name, content_type, g.api_key_info.user_id)
+                file_data,
+                original_name,
+                content_type,
+                g.api_key_info.user_id,
+                max_size_override=max_size,
+            )
 
             if not file_info:
                 return jsonify({'error': 'Failed to save file'}), 500
@@ -12007,7 +12012,24 @@ def create_api_blueprint() -> Blueprint:
 
             if folder_id and not file_manager.get_user_folder(user_id, folder_id):
                 return jsonify({'error': 'Folder not found'}), 404
-            file_info = file_manager.save_file(file_data, filename, content_type, user_id)
+            from ..security.file_validation import format_upload_size_limit, get_vault_upload_max_bytes
+
+            max_size = get_vault_upload_max_bytes(current_app.config)
+            if len(file_data) > max_size:
+                return jsonify({
+                    'error': f'File exceeds the File Vault upload limit of {format_upload_size_limit(max_size)}.',
+                    'reason': 'vault_file_too_large',
+                    'size': len(file_data),
+                    'max_size': max_size,
+                    'max_size_human': format_upload_size_limit(max_size),
+                }), 413
+            file_info = file_manager.save_file(
+                file_data,
+                filename,
+                content_type,
+                user_id,
+                max_size_override=max_size,
+            )
             if not file_info:
                 return jsonify({'error': 'File could not be saved. Check file type, size, and Vault storage permissions.'}), 400
             if folder_id:
@@ -12256,9 +12278,26 @@ def create_api_blueprint() -> Blueprint:
             folder_id = str(data.get('folder_id') or getattr(current_file, 'vault_folder_id', '') or '').strip()
             if folder_id and not file_manager.get_user_folder(user_id, folder_id):
                 return jsonify({'error': 'Folder not found'}), 404
+            from ..security.file_validation import format_upload_size_limit, get_vault_upload_max_bytes
+
+            max_size = get_vault_upload_max_bytes(current_app.config)
+            if len(file_data) > max_size:
+                return jsonify({
+                    'error': f'File exceeds the File Vault upload limit of {format_upload_size_limit(max_size)}.',
+                    'reason': 'vault_file_too_large',
+                    'size': len(file_data),
+                    'max_size': max_size,
+                    'max_size_human': format_upload_size_limit(max_size),
+                }), 413
             create_copy = bool(data.get('create_copy') or data.get('copy'))
             if create_copy:
-                copied = file_manager.save_file(file_data, filename, content_type, user_id)
+                copied = file_manager.save_file(
+                    file_data,
+                    filename,
+                    content_type,
+                    user_id,
+                    max_size_override=max_size,
+                )
                 if not copied:
                     return jsonify({'error': 'Edited copy could not be saved.'}), 400
                 if folder_id:
@@ -12277,6 +12316,7 @@ def create_api_blueprint() -> Blueprint:
                 file_data,
                 original_name=filename,
                 content_type=content_type,
+                max_size_override=max_size,
             )
             if not updated:
                 return jsonify({'error': 'Vault file could not be updated. Check file type, size, and storage permissions.'}), 400

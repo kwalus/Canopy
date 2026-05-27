@@ -227,6 +227,68 @@ class TestAgentVaultApi(unittest.TestCase):
         self.assertEqual(final_read.status_code, 200)
         self.assertEqual(self._json(final_read)['content'], '# Plan\n\nnew line\n')
 
+    def test_vault_api_uses_dedicated_larger_upload_limit(self) -> None:
+        self.client.application.config['MAX_FILE_SIZE'] = 4
+        self.client.application.config['MAX_VAULT_FILE_SIZE'] = 64
+
+        create_response = self.client.post(
+            '/api/v1/vault/files',
+            json={
+                'filename': 'vault-note.txt',
+                'content_type': 'text/plain',
+                'content': 'larger than post cap',
+            },
+            headers={'X-API-Key': 'write-key'},
+        )
+        self.assertEqual(create_response.status_code, 201)
+        payload = self._json(create_response)
+        self.assertTrue(payload['success'])
+
+    def test_vault_api_reports_oversize_files_explicitly(self) -> None:
+        self.client.application.config['MAX_VAULT_FILE_SIZE'] = 10
+
+        create_response = self.client.post(
+            '/api/v1/vault/files',
+            json={
+                'filename': 'too-large.txt',
+                'content_type': 'text/plain',
+                'content': 'this text is definitely too large',
+            },
+            headers={'X-API-Key': 'write-key'},
+        )
+        self.assertEqual(create_response.status_code, 413)
+        payload = self._json(create_response)
+        self.assertEqual(payload['reason'], 'vault_file_too_large')
+        self.assertEqual(payload['max_size'], 10)
+        self.assertIn('File Vault upload limit', payload['error'])
+
+    def test_file_manager_can_preserve_dropped_folder_paths(self) -> None:
+        nested = self.file_manager.ensure_user_folder_path(
+            'user-test',
+            ['Research drop', 'Round 1 PDFs'],
+        )
+        self.assertIsNotNone(nested)
+        assert nested is not None
+
+        reused = self.file_manager.ensure_user_folder_path(
+            'user-test',
+            ['Research drop', 'Round 1 PDFs'],
+        )
+        self.assertIsNotNone(reused)
+        assert reused is not None
+        self.assertEqual(reused.id, nested.id)
+
+        file_info = self.file_manager.save_file(
+            b'folder-preserved',
+            'paper.txt',
+            'text/plain',
+            'user-test',
+            vault_folder_id=nested.id,
+        )
+        self.assertIsNotNone(file_info)
+        assert file_info is not None
+        self.assertEqual(file_info.vault_folder_id, nested.id)
+
     def test_vault_file_acl_grants_agent_read_content_without_ownership(self) -> None:
         file_info = self.file_manager.save_file(
             b'shared file body',
