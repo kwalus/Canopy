@@ -3001,6 +3001,129 @@
         text-align: center;
         padding: 0.55rem;
     }
+    .agent-run-capsule-deck-items {
+        margin-top: 0.04rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 66%, var(--canopy-accent, #38bdf8) 34%);
+        border-radius: 16px;
+        padding: 0.58rem;
+        background:
+            radial-gradient(circle at 94% 8%, color-mix(in srgb, var(--canopy-accent, #38bdf8) 18%, transparent), transparent 40%),
+            color-mix(in srgb, var(--canopy-bg-card) 78%, var(--canopy-accent, #38bdf8) 22%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+    .agent-run-capsule-deck-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.68rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    .agent-run-capsule-deck-head strong {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.34rem;
+        color: color-mix(in srgb, var(--canopy-accent, #38bdf8) 84%, var(--canopy-text-primary) 16%);
+    }
+    .agent-run-capsule-deck-head span {
+        color: var(--canopy-text-muted);
+        font-size: 0.64rem;
+        letter-spacing: 0.02em;
+        text-transform: none;
+    }
+    .agent-run-capsule-deck-list {
+        display: grid;
+        gap: 0.38rem;
+        margin-top: 0.5rem;
+    }
+    .agent-run-capsule-deck-item {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.45rem;
+        width: 100%;
+        min-width: 0;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 66%, var(--canopy-accent, #38bdf8) 34%);
+        border-radius: 13px;
+        padding: 0.48rem 0.52rem;
+        color: var(--canopy-text-primary);
+        background:
+            linear-gradient(135deg,
+                color-mix(in srgb, var(--canopy-bg-tertiary) 68%, var(--canopy-accent, #38bdf8) 32%),
+                color-mix(in srgb, var(--canopy-bg-secondary) 88%, var(--canopy-primary) 12%));
+        text-align: left;
+        appearance: none;
+        cursor: pointer;
+        transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+    }
+    .agent-run-capsule-deck-item:hover,
+    .agent-run-capsule-deck-item:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-accent, #38bdf8) 72%, var(--canopy-border) 28%);
+        background:
+            linear-gradient(135deg,
+                color-mix(in srgb, var(--canopy-bg-tertiary) 54%, var(--canopy-accent, #38bdf8) 46%),
+                color-mix(in srgb, var(--canopy-bg-secondary) 76%, var(--canopy-primary) 24%));
+        transform: translateY(-1px);
+        outline: none;
+    }
+    .agent-run-capsule-deck-icon {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 11px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: color-mix(in srgb, var(--canopy-accent, #38bdf8) 88%, #fff 12%);
+        background: color-mix(in srgb, var(--canopy-accent, #38bdf8) 15%, var(--canopy-bg-secondary) 85%);
+        border: 1px solid color-mix(in srgb, var(--canopy-accent, #38bdf8) 34%, var(--canopy-border) 66%);
+    }
+    .agent-run-capsule-deck-main {
+        display: grid;
+        gap: 0.1rem;
+        min-width: 0;
+    }
+    .agent-run-capsule-deck-title {
+        display: block;
+        overflow: hidden;
+        color: var(--canopy-text-primary);
+        font-size: 0.82rem;
+        font-weight: 900;
+        line-height: 1.18;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-deck-meta {
+        display: block;
+        overflow: hidden;
+        color: var(--canopy-text-muted);
+        font-size: 0.66rem;
+        font-weight: 760;
+        line-height: 1.16;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-deck-open {
+        color: color-mix(in srgb, var(--canopy-accent, #38bdf8) 82%, var(--canopy-text-primary) 18%);
+        font-size: 1rem;
+        line-height: 1;
+    }
+    .agent-run-capsule-deck-more {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.2rem;
+        border: 1px dashed color-mix(in srgb, var(--canopy-border) 62%, var(--canopy-accent, #38bdf8) 38%);
+        border-radius: 12px;
+        color: var(--canopy-text-secondary);
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 86%, var(--canopy-accent, #38bdf8) 14%);
+        font-size: 0.72rem;
+        font-weight: 850;
+        text-align: center;
+        padding: 0.45rem;
+    }
     .agent-run-capsule-meta {
         display: flex;
         flex-wrap: wrap;
@@ -3309,6 +3432,10 @@
             linear-gradient(180deg, rgba(251, 146, 60, 0.22), rgba(15, 23, 42, 0.18)),
             color-mix(in srgb, var(--canopy-bg-secondary) 82%, rgba(251, 146, 60, 0.18) 18%);
     }
+    .agent-run-capsule-map-node.signal-deck {
+        border-color: rgba(34, 211, 238, 0.56);
+        color: #a5f3fc;
+    }
     .agent-run-capsule-map-node.signal-file,
     .agent-run-capsule-map-node.signal-digestion {
         border-color: rgba(45, 212, 191, 0.56);
@@ -3489,6 +3616,15 @@
         }
         .agent-run-capsule-map {
             width: 100%;
+        }
+        .agent-run-capsule-deck-items {
+            width: 100%;
+        }
+        .agent-run-capsule-deck-item {
+            grid-template-columns: auto minmax(0, 1fr);
+        }
+        .agent-run-capsule-deck-open {
+            display: none;
         }
         .agent-run-capsule-map-strip {
             max-height: min(22rem, 50vh);
@@ -3793,6 +3929,39 @@
         background: rgba(240, 253, 250, 0.72);
         border-color: rgba(15, 118, 110, 0.2);
     }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-deck-items {
+        background:
+            radial-gradient(circle at 94% 8%, rgba(14, 165, 233, 0.1), transparent 40%),
+            rgba(255, 255, 255, 0.8);
+        border-color: rgba(14, 116, 144, 0.18);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-deck-head strong {
+        color: #0369a1;
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-deck-item {
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(224, 242, 254, 0.78));
+        border-color: rgba(14, 116, 144, 0.18);
+        color: #0f172a;
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-deck-item:hover,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-deck-item:focus-visible {
+        background:
+            linear-gradient(135deg, rgba(240, 249, 255, 0.98), rgba(207, 250, 254, 0.9));
+        border-color: rgba(14, 116, 144, 0.34);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-deck-icon {
+        color: #0369a1;
+        background: rgba(14, 165, 233, 0.1);
+        border-color: rgba(14, 116, 144, 0.18);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-deck-more {
+        color: #334155;
+        background: rgba(240, 249, 255, 0.76);
+        border-color: rgba(14, 116, 144, 0.22);
+    }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map {
         background:
             radial-gradient(circle at 85% 12%, rgba(20, 184, 166, 0.12), transparent 38%),
@@ -3830,6 +3999,10 @@
         color: #9a3412;
         border-color: rgba(234, 88, 12, 0.3);
         background: rgba(255, 247, 237, 0.92);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-deck {
+        color: #0369a1;
+        border-color: rgba(14, 116, 144, 0.26);
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-file,
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-map-node.signal-digestion {
@@ -14616,6 +14789,7 @@ function getAgentRunArtifacts(messages) {
     const rawMessages = Array.isArray(messages) ? messages : [];
     const uniqueFileRefs = new Set();
     const uniqueDigestionRefs = new Set((text.match(/\bDg[0-9A-Za-z_-]{8,}\b/g) || []).map(String));
+    const deckItems = collectAgentRunDeckItems(rawMessages);
     rawMessages.forEach((message) => {
         extractAgentRunFileRefsFromText(getAgentRunRawText(message)).forEach((ref) => {
             if (ref && ref.fileId) uniqueFileRefs.add(ref.fileId);
@@ -14636,11 +14810,13 @@ function getAgentRunArtifacts(messages) {
         workProducts: workProductCount,
         fileRefs: uniqueFileRefs.size,
         digestionRefs: uniqueDigestionRefs.size,
+        deckItems: deckItems.length,
         mentions: mentionCount,
     };
 }
 
 const AGENT_RUN_CAPSULE_MAX_DIRECT_ARTIFACTS = 6;
+const AGENT_RUN_CAPSULE_MAX_DECK_ITEMS = 6;
 const AGENT_RUN_CAPSULE_LLM_MAX_MESSAGES = 12;
 const AGENT_RUN_CAPSULE_LLM_MAX_ARTIFACTS = 10;
 const AGENT_RUN_CAPSULE_LLM_TIMEOUT_MS = 8000;
@@ -14730,7 +14906,7 @@ function truncateAgentRunPayloadText(value, maxLength = 520) {
     return `${normalized.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
 }
 
-function buildAgentRunCapsuleSourceHash(run, directArtifacts, deterministic) {
+function buildAgentRunCapsuleSourceHash(run, directArtifacts, deterministic, deckItems = []) {
     const messageBits = (run || []).map((message) => [
         message && message.id,
         message && message.updated_at,
@@ -14743,10 +14919,18 @@ function buildAgentRunCapsuleSourceHash(run, directArtifacts, deterministic) {
         artifact && artifact.digestionId,
         artifact && artifact.label,
     ].join('|')).join('~');
+    const deckBits = (deckItems || []).map((item) => [
+        item && item.deckKind,
+        item && item.fileId,
+        item && item.url,
+        item && item.label,
+        item && item.messageId,
+    ].join('|')).join('~');
     return hashAgentRunCapsuleString(JSON.stringify({
         channelId: currentChannelId || '',
         messages: messageBits,
         artifacts: artifactBits,
+        deckItems: deckBits,
         deterministic: deterministic || {},
     }));
 }
@@ -14767,6 +14951,7 @@ function selectAgentRunCapsuleMessagesForEnrichment(run) {
 
 function buildAgentRunCapsuleEnrichmentPayload(capsuleId, run, participants, directArtifacts, brief, title, summary, status, options = {}) {
     const selectedMessages = selectAgentRunCapsuleMessagesForEnrichment(run);
+    const deckItems = Array.isArray(options.deckItems) ? options.deckItems : [];
     const deterministic = {
         title: title || '',
         overview: summary || '',
@@ -14776,7 +14961,7 @@ function buildAgentRunCapsuleEnrichmentPayload(capsuleId, run, participants, dir
         next_action: (brief && brief.nextAction) || '',
         status: (status && status.label) || '',
     };
-    const sourceHash = buildAgentRunCapsuleSourceHash(run, directArtifacts, deterministic);
+    const sourceHash = buildAgentRunCapsuleSourceHash(run, directArtifacts, deterministic, deckItems);
     return {
         capsule_id: capsuleId,
         source_hash: sourceHash,
@@ -14785,6 +14970,7 @@ function buildAgentRunCapsuleEnrichmentPayload(capsuleId, run, participants, dir
         level: options.levelConfig ? options.levelConfig.shortLabel : '',
         message_count: Array.isArray(run) ? run.length : selectedMessages.length,
         artifact_count: Array.isArray(directArtifacts) ? directArtifacts.length : 0,
+        deck_item_count: deckItems.length,
         deterministic,
         participants: (participants || []).slice(0, 8).map((user) => ({
             user_id: String(user && user.user_id || ''),
@@ -14799,6 +14985,14 @@ function buildAgentRunCapsuleEnrichmentPayload(capsuleId, run, participants, dir
             digestion_id: String(artifact && artifact.digestionId || ''),
             meta: getAgentRunArtifactMeta(artifact),
             message_id: String(artifact && artifact.messageId || ''),
+        })),
+        deck_items: deckItems.slice(0, AGENT_RUN_CAPSULE_MAX_DECK_ITEMS).map((item) => ({
+            kind: String(item && item.deckKind || ''),
+            label: String(item && item.label || ''),
+            provider: String(item && item.provider || ''),
+            file_id: String(item && item.fileId || ''),
+            url: String(item && item.url || ''),
+            message_id: String(item && item.messageId || ''),
         })),
         messages: selectedMessages.map((message) => {
             const userId = String(message && message.user_id || '');
@@ -14879,6 +15073,176 @@ function extractAgentRunDigestionRefsFromText(text) {
         return match;
     });
     return refs;
+}
+
+function cleanAgentRunDeckUrl(rawUrl) {
+    return String(rawUrl || '')
+        .trim()
+        .replace(/[)\]}.,;:!?]+$/g, '');
+}
+
+function getAgentRunAttachmentExtension(att) {
+    const rawName = String((att && (att.name || att.filename || att.title || att.url)) || '').trim();
+    const cleanName = rawName.split(/[?#]/)[0].toLowerCase();
+    const match = cleanName.match(/\.([a-z0-9]{2,8})$/i);
+    return match ? match[1].toLowerCase() : '';
+}
+
+function getAgentRunDeckItemFromAttachment(att, messageId, createdAt, order) {
+    if (!att || typeof att !== 'object' || !messageId) return null;
+    const fileId = getAgentRunAttachmentFileId(att);
+    const url = getAgentRunAttachmentUrl(att, fileId);
+    const name = cleanAgentRunArtifactLabel(att.name || att.title || fileId, fileId ? `file:${shortAgentRunEntityId(fileId)}` : 'Deck item');
+    const type = String(att.type || att.content_type || att.mime_type || '').toLowerCase();
+    const cardType = String(att.card_type || att.kind || att.object_type || att.category || '').toLowerCase();
+    const ext = getAgentRunAttachmentExtension(att);
+    const hasStream = !!(att.stream_id || att.stream || cardType.includes('stream'));
+    const isModule = (type === 'text/html' && /\.canopy-module\.html?$/i.test(String(att.name || ''))) ||
+        /\.canopy-module\.html?$/i.test(String(att.name || '')) ||
+        cardType.includes('module');
+    const isSourceDeck = !!(att.source_layout || att.deck_manifest || att.widget_manifest || att.canopy_widget_manifest || att.queue || att.source_items);
+    const isVideo = /^video\//.test(type) || ['mp4', 'webm', 'ogv', 'mov', 'm4v'].includes(ext);
+    const isAudio = /^audio\//.test(type) || ['mp3', 'wav', 'ogg', 'oga', 'm4a', 'aac', 'flac'].includes(ext);
+    let deckKind = '';
+    let provider = '';
+    let icon = 'grid-1x2';
+    if (hasStream) {
+        deckKind = 'stream';
+        provider = 'Live source';
+        icon = 'broadcast';
+    } else if (isModule) {
+        deckKind = 'module';
+        provider = 'Canopy Module';
+        icon = 'box-fill';
+    } else if (isSourceDeck) {
+        deckKind = 'source-layout';
+        provider = 'Deck layout';
+        icon = 'grid-1x2';
+    } else if (isVideo) {
+        deckKind = 'video';
+        provider = 'Video';
+        icon = 'camera-video';
+    } else if (isAudio) {
+        deckKind = 'audio';
+        provider = 'Audio';
+        icon = 'soundwave';
+    }
+    if (!deckKind) return null;
+    return {
+        kind: 'deck-item',
+        deckKind,
+        provider,
+        icon,
+        label: name,
+        fileId,
+        url,
+        messageId,
+        createdAt,
+        order,
+    };
+}
+
+function getAgentRunDeckItemFromUrl(rawUrl, messageId, createdAt, order) {
+    const url = cleanAgentRunDeckUrl(rawUrl);
+    if (!url || !messageId) return null;
+    const lower = url.toLowerCase();
+    let provider = '';
+    let deckKind = '';
+    let icon = 'grid-1x2';
+    if (/(youtube\.com\/(?:watch\?v=|shorts\/|live\/)|youtu\.be\/)/i.test(url)) {
+        provider = 'YouTube';
+        deckKind = 'video';
+        icon = 'youtube';
+    } else if (/vimeo\.com\//i.test(url)) {
+        provider = 'Vimeo';
+        deckKind = 'video';
+        icon = 'play-btn';
+    } else if (/loom\.com\/(?:share|embed|recording)\//i.test(url)) {
+        provider = 'Loom';
+        deckKind = 'video';
+        icon = 'camera-reels';
+    } else if (/open\.spotify\.com\//i.test(url)) {
+        provider = 'Spotify';
+        deckKind = 'audio';
+        icon = 'spotify';
+    } else if (/soundcloud\.com\//i.test(url)) {
+        provider = 'SoundCloud';
+        deckKind = 'audio';
+        icon = 'soundwave';
+    } else if (/(google\.[^/\s]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(url)) {
+        provider = 'Google Maps';
+        deckKind = 'map';
+        icon = 'geo-alt-fill';
+    } else if (/openstreetmap\.org\//i.test(url)) {
+        provider = 'OpenStreetMap';
+        deckKind = 'map';
+        icon = 'map';
+    } else if (/tradingview\.com\//i.test(url)) {
+        provider = 'TradingView';
+        deckKind = 'chart';
+        icon = 'graph-up-arrow';
+    } else if (/\.(?:mp4|webm|ogv|mov|m4v)(?:[?#].*)?$/i.test(lower)) {
+        provider = 'Video';
+        deckKind = 'video';
+        icon = 'camera-video';
+    } else if (/\.(?:mp3|wav|ogg|oga|m4a|aac|flac)(?:[?#].*)?$/i.test(lower)) {
+        provider = 'Audio';
+        deckKind = 'audio';
+        icon = 'soundwave';
+    }
+    if (!deckKind) return null;
+    return {
+        kind: 'deck-item',
+        deckKind,
+        provider,
+        icon,
+        label: provider,
+        url,
+        messageId,
+        createdAt,
+        order,
+    };
+}
+
+function extractAgentRunDeckItemsFromText(text, messageId, createdAt, messageIndex) {
+    const raw = String(text || '');
+    if (!raw || !/https?:\/\//i.test(raw)) return [];
+    const items = [];
+    raw.replace(/https?:\/\/[^\s<>"']+/gi, function (match, offset) {
+        const item = getAgentRunDeckItemFromUrl(match, messageId, createdAt, `${messageIndex}:deckurl:${offset}`);
+        if (item) items.push(item);
+        return match;
+    });
+    return items;
+}
+
+function agentRunDeckItemDedupeKey(item) {
+    if (!item) return '';
+    if (item.fileId) return `deck-file:${item.fileId}`;
+    if (item.url) return `deck-url:${item.url}`;
+    return `deck:${item.messageId || ''}:${item.deckKind || ''}:${item.label || ''}`;
+}
+
+function collectAgentRunDeckItems(messages) {
+    const seen = new Set();
+    const items = [];
+    const add = (item) => {
+        const key = agentRunDeckItemDedupeKey(item);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        items.push(item);
+    };
+    (messages || []).forEach((message, messageIndex) => {
+        const messageId = String((message && message.id) || '');
+        if (!messageId) return;
+        const createdAt = String((message && (message.created_at || message.updated_at)) || '');
+        const attachments = Array.isArray(message && message.attachments) ? message.attachments : [];
+        attachments.forEach((att, attachmentIndex) => {
+            add(getAgentRunDeckItemFromAttachment(att, messageId, createdAt, `${messageIndex}:deckatt:${attachmentIndex}`));
+        });
+        extractAgentRunDeckItemsFromText(getAgentRunRawText(message), messageId, createdAt, messageIndex).forEach(add);
+    });
+    return items;
 }
 
 const AGENT_RUN_WORKPRODUCT_FIELDS = [
@@ -15200,6 +15564,59 @@ function renderAgentRunCapsuleArtifactRail(artifacts, capsuleId) {
     </div>`;
 }
 
+function getAgentRunDeckItemMeta(item) {
+    if (!item) return '';
+    const provider = String(item.provider || item.deckKind || 'Deck item').trim();
+    const created = getAgentRunCompactTimeLabel(item.createdAt);
+    const id = item.fileId ? `file ${shortAgentRunEntityId(item.fileId)}` : '';
+    return [provider, created, id].filter(Boolean).join(' • ');
+}
+
+function getAgentRunDeckItemCopySummary(items) {
+    const list = Array.isArray(items) ? items : [];
+    if (!list.length) return '';
+    const visible = list.slice(0, AGENT_RUN_CAPSULE_MAX_DECK_ITEMS)
+        .map((item) => `${item.provider || 'Deck'}: ${item.label || item.url || item.fileId || 'item'}`)
+        .filter(Boolean);
+    const suffix = list.length > visible.length ? `, plus ${list.length - visible.length} more` : '';
+    return visible.length ? `${visible.join('; ')}${suffix}` : '';
+}
+
+function renderAgentRunCapsuleDeckRail(deckItems, capsuleId) {
+    const list = Array.isArray(deckItems) ? deckItems.filter(Boolean) : [];
+    if (!list.length) return '';
+    const visible = list.slice(0, AGENT_RUN_CAPSULE_MAX_DECK_ITEMS);
+    const hidden = Math.max(0, list.length - visible.length);
+    return `<div class="agent-run-capsule-deck-items" data-agent-run-capsule-deck-items="${escapeAttr(capsuleId)}">
+        <div class="agent-run-capsule-deck-head">
+            <strong><i class="bi bi-window-stack"></i>Deck-ready</strong>
+            <span>${list.length} item${list.length === 1 ? '' : 's'} can open from source</span>
+        </div>
+        <div class="agent-run-capsule-deck-list">
+            ${visible.map((item) => {
+                const label = cleanAgentRunArtifactLabel(item.label || item.provider || item.url || item.fileId, 'Deck item');
+                const meta = getAgentRunDeckItemMeta(item);
+                return `<button type="button"
+                                class="agent-run-capsule-deck-item"
+                                title="Open ${escapeAttr(label)} from its source post in the Deck"
+                                onclick="openAgentRunCapsuleDeckItem('${escapeAttr(capsuleId)}', '${escapeAttr(item.messageId || '')}')">
+                    <span class="agent-run-capsule-deck-icon"><i class="bi bi-${escapeAttr(item.icon || 'grid-1x2')}"></i></span>
+                    <span class="agent-run-capsule-deck-main">
+                        <span class="agent-run-capsule-deck-title">${escapeHtml(label)}</span>
+                        <span class="agent-run-capsule-deck-meta">${escapeHtml(meta || 'Deck-readable source')}</span>
+                    </span>
+                    <span class="agent-run-capsule-deck-open"><i class="bi bi-box-arrow-up-right"></i></span>
+                </button>`;
+            }).join('')}
+            ${hidden > 0 ? `<button type="button"
+                                     class="agent-run-capsule-deck-more"
+                                     onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '')">
+                +${hidden} more Deck item${hidden === 1 ? '' : 's'} in source trace
+            </button>` : ''}
+        </div>
+    </div>`;
+}
+
 const AGENT_RUN_CAPSULE_MAP_MAX_NODES = 14;
 
 function getAgentRunMapArtifactsByMessage(artifacts) {
@@ -15217,14 +15634,16 @@ function getAgentRunMapArtifactsByMessage(artifacts) {
 function getAgentRunMapSignal(message, artifactsForMessage) {
     const raw = getAgentRunRawText(message);
     const text = normalizeAgentRunText(raw).toLowerCase();
-    const fileCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind !== 'digestion-ref' && artifact.kind !== 'workproduct').length : 0;
+    const deckCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind === 'deck-item').length : 0;
+    const fileCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind !== 'deck-item' && artifact.kind !== 'digestion-ref' && artifact.kind !== 'workproduct').length : 0;
     const digestionCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind === 'digestion-ref').length : 0;
     const workProductCount = Array.isArray(artifactsForMessage) ? artifactsForMessage.filter(artifact => artifact && artifact.kind === 'workproduct').length : 0;
     const mentionCount = (raw.match(/@[A-Za-z0-9_.-]{2,}/g) || []).length;
     const cardCount = countAgentRunCards(message);
     const needsAttention = /\b(blocked|failed|cannot|could not|unable|denied|403|404|permission|approval|required|requires|grant access|owner action|review needed|needs? human|check local storage|not retrievable)\b/i.test(text);
     const complete = /\b(complete|completed|done|ready|uploaded|indexed|added|verified|get 200|success|successfully|built|resolved)\b/i.test(text);
-    if (needsAttention) return { key: 'attention', icon: 'exclamation-triangle', count: Math.max(1, fileCount + digestionCount + workProductCount + cardCount + mentionCount) };
+    if (needsAttention) return { key: 'attention', icon: 'exclamation-triangle', count: Math.max(1, fileCount + digestionCount + workProductCount + deckCount + cardCount + mentionCount) };
+    if (deckCount > 0) return { key: 'deck', icon: 'grid-1x2', count: deckCount };
     if (fileCount > 0) return { key: 'file', icon: 'file-earmark-arrow-up', count: fileCount };
     if (digestionCount > 0) return { key: 'digestion', icon: 'diagram-3', count: digestionCount };
     if (workProductCount > 0) return { key: 'workproduct', icon: 'journal-check', count: workProductCount };
@@ -15238,6 +15657,7 @@ function getAgentRunMapNodeScore(node, total) {
     let score = 0;
     if (node.index === 0 || node.index === total - 1) score += 8;
     if (node.signal === 'attention') score += 18;
+    if (node.signal === 'deck') score += 15;
     if (node.signal === 'file' || node.signal === 'digestion') score += 14;
     if (node.signal === 'workproduct') score += 12;
     if (node.signal === 'card') score += 11;
@@ -15282,6 +15702,7 @@ function buildAgentRunCapsuleMapNodes(messages, artifacts, maxNodes = AGENT_RUN_
         const excerpt = truncateAgentRunText(getAgentRunRawText(message), 88);
         const titleParts = [
             signal.key === 'attention' ? 'Needs attention' : '',
+            signal.key === 'deck' ? `${signal.count} Deck item${signal.count === 1 ? '' : 's'}` : '',
             signal.key === 'file' ? `${signal.count} file${signal.count === 1 ? '' : 's'}` : '',
             signal.key === 'digestion' ? `${signal.count} Digestion ref${signal.count === 1 ? '' : 's'}` : '',
             signal.key === 'workproduct' ? `${signal.count} workproduct${signal.count === 1 ? '' : 's'}` : '',
@@ -15335,6 +15756,7 @@ function renderAgentRunMapAvatar(author) {
 function getAgentRunMapSignalLabel(signal) {
     return ({
         attention: 'Needs attention',
+        deck: 'Deck item',
         file: 'File output',
         digestion: 'Digestion',
         card: 'Work card',
@@ -15367,6 +15789,7 @@ function renderAgentRunCapsuleSignalMap(messages, artifacts, capsuleId, userInfo
     }, {});
     const colorForSignal = (signal) => ({
         attention: '#fb923c',
+        deck: '#22d3ee',
         file: '#2dd4bf',
         digestion: '#22d3ee',
         card: '#60a5fa',
@@ -15426,7 +15849,7 @@ function renderAgentRunCapsuleSignalMap(messages, artifacts, capsuleId, userInfo
 
 function agentRunHasWorkArtifacts(messages) {
     const artifacts = getAgentRunArtifacts(messages);
-    return !!(artifacts.attachments || artifacts.cards || artifacts.workProducts || artifacts.fileRefs || artifacts.digestionRefs);
+    return !!(artifacts.attachments || artifacts.cards || artifacts.workProducts || artifacts.fileRefs || artifacts.digestionRefs || artifacts.deckItems);
 }
 
 function getAgentRunStatus(messages) {
@@ -15442,6 +15865,7 @@ function getAgentRunStatus(messages) {
 
 function getAgentRunTitle(messages, artifacts) {
     const text = (messages || []).map(getAgentRunMessageText).filter(Boolean).join(' ');
+    if (artifacts && artifacts.deckItems > 0) return 'Deck-ready work run';
     if (artifacts && artifacts.digestionRefs > 0) return 'Digestion work run';
     if (artifacts && (artifacts.fileRefs > 0 || artifacts.attachments > 0)) return 'Source and file work run';
     if (artifacts && artifacts.cards > 0) return 'Structured work-card run';
@@ -15512,6 +15936,7 @@ function getAgentRunArtifactSummary(artifacts, messages) {
     const fileLikeCount = Number((artifacts && artifacts.attachments) || 0) + Number((artifacts && artifacts.fileRefs) || 0);
     if (fileLikeCount > 0) facts.push(`${fileLikeCount} file source${fileLikeCount === 1 ? '' : 's'}`);
     if (artifacts && artifacts.digestionRefs > 0) facts.push(`${artifacts.digestionRefs} Digestion reference${artifacts.digestionRefs === 1 ? '' : 's'}`);
+    if (artifacts && artifacts.deckItems > 0) facts.push(`${artifacts.deckItems} Deck-ready item${artifacts.deckItems === 1 ? '' : 's'}`);
     if (artifacts && artifacts.workProducts > 0) facts.push(`${artifacts.workProducts} workproduct${artifacts.workProducts === 1 ? '' : 's'}`);
     if (artifacts && artifacts.cards > 0) facts.push(`${artifacts.cards} work card${artifacts.cards === 1 ? '' : 's'}`);
     if (artifacts && artifacts.mentions > 0) facts.push(`${artifacts.mentions} tagged teammate${artifacts.mentions === 1 ? '' : 's'}`);
@@ -15664,6 +16089,8 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
     const capsuleId = `${rootId}-agent-run-${String(options.runIndex || 0)}`.replace(/[^A-Za-z0-9_-]/g, '-');
     const artifacts = getAgentRunArtifacts(run);
     const directArtifacts = collectAgentRunDirectArtifacts(run);
+    const deckItems = collectAgentRunDeckItems(run);
+    const mapArtifacts = directArtifacts.concat(deckItems);
     const status = getAgentRunStatus(run);
     const participants = getAgentRunParticipants(run, userInfo || {});
     const brief = getAgentRunHumanBrief(run, artifacts, status, participants);
@@ -15680,7 +16107,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         title,
         summary,
         status,
-        { levelConfig, capsuleKind }
+        { levelConfig, capsuleKind, deckItems }
     );
     channelAgentRunCapsuleEnrichmentPayloads[capsuleId] = enrichmentPayload;
     registerAgentRunCapsuleStats(options.statsCollector, run, participants);
@@ -15698,11 +16125,13 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         artifacts.attachments ? openTraceChip('bi-paperclip', `${artifacts.attachments} file${artifacts.attachments === 1 ? '' : 's'}`) : '',
         artifacts.fileRefs ? openTraceChip('bi-file-earmark', `${artifacts.fileRefs} file ref${artifacts.fileRefs === 1 ? '' : 's'}`) : '',
         artifacts.digestionRefs ? openTraceChip('bi-diagram-3', `${artifacts.digestionRefs} Digestion ref${artifacts.digestionRefs === 1 ? '' : 's'}`) : '',
+        artifacts.deckItems ? openTraceChip('bi-window-stack', `${artifacts.deckItems} Deck item${artifacts.deckItems === 1 ? '' : 's'}`) : '',
         artifacts.workProducts ? openTraceChip('bi-journal-check', `${artifacts.workProducts} workproduct${artifacts.workProducts === 1 ? '' : 's'}`) : '',
         artifacts.cards ? openTraceChip('bi-kanban', `${artifacts.cards} card${artifacts.cards === 1 ? '' : 's'}`) : '',
         artifacts.mentions ? openTraceChip('bi-at', `${artifacts.mentions} mention${artifacts.mentions === 1 ? '' : 's'}`) : '',
     ].filter(Boolean).join('');
     const directArtifactCopySummary = getAgentRunDirectArtifactCopySummary(directArtifacts);
+    const deckItemCopySummary = getAgentRunDeckItemCopySummary(deckItems);
     const copySummary = [
         `Agent run capsule: ${title}`,
         `${status.label}. ${run.length} source posts from ${participants.length || 'multiple'} agent${participants.length === 1 ? '' : 's'}.`,
@@ -15711,6 +16140,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         brief.attention ? `Needs attention: ${brief.attention}` : '',
         brief.sourceTrail ? `Source trail: ${brief.sourceTrail}` : '',
         directArtifactCopySummary ? `Files & workproducts: ${directArtifactCopySummary}` : '',
+        deckItemCopySummary ? `Deck-ready: ${deckItemCopySummary}` : '',
         brief.nextAction ? `Next action: ${brief.nextAction}` : '',
     ].filter(Boolean).join('\n');
     const rootMessageIds = options.rootMessageIds instanceof Set ? options.rootMessageIds : new Set();
@@ -15758,7 +16188,8 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
                             </button>
                         </div>
                     </div>
-                    ${renderAgentRunCapsuleSignalMap(run, directArtifacts, capsuleId, userInfo || {})}
+                    ${renderAgentRunCapsuleSignalMap(run, mapArtifacts, capsuleId, userInfo || {})}
+                    ${renderAgentRunCapsuleDeckRail(deckItems, capsuleId)}
                 </div>
             </div>
             <div class="agent-run-capsule-trace"
@@ -16200,6 +16631,18 @@ function focusAgentRunCapsuleSource(capsuleId, messageId) {
     if (trace) {
         scrollMessageIntoContainer(trace, { align: 'nearest', behavior: 'smooth' });
     }
+}
+
+function openAgentRunCapsuleDeckItem(capsuleId, messageId) {
+    focusAgentRunCapsuleSource(capsuleId, messageId);
+    if (!messageId || typeof window.openDeckForChannelAntecedentMessage !== 'function') return;
+    const openFromSource = () => {
+        try {
+            window.openDeckForChannelAntecedentMessage(messageId);
+        } catch (_) {}
+    };
+    setTimeout(openFromSource, 180);
+    setTimeout(openFromSource, 520);
 }
 
 function copyAgentRunCapsuleSummary(button) {
