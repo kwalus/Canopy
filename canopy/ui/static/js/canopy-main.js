@@ -3270,28 +3270,34 @@
                     return state.digestions.find(item => String(item.id || '') === wanted) || null;
                 }
 
-	                function digestionStats(digestion) {
-	                    const item = digestion || {};
-	                    const stats = item.stats && typeof item.stats === 'object' ? item.stats : {};
+                function digestionStats(digestion) {
+                    const item = digestion || {};
+                    const stats = item.stats && typeof item.stats === 'object' ? item.stats : {};
                         const progressDetails = item.operation_progress
                             && item.operation_progress.datapoints
                             && typeof item.operation_progress.datapoints.details === 'object'
                                 ? item.operation_progress.datapoints.details
                                 : {};
-	                    return {
-	                        ...stats,
-	                        chunks: Number(stats.chunks ?? item.chunk_count ?? item.indexed_chunks ?? 0),
-	                        token_estimate: Number(stats.token_estimate ?? item.token_estimate ?? 0),
+                        const recordProgressDetails = item.operation_progress
+                            && item.operation_progress.structured_records
+                            && typeof item.operation_progress.structured_records.details === 'object'
+                                ? item.operation_progress.structured_records.details
+                                : {};
+                    return {
+                        ...stats,
+                        chunks: Number(stats.chunks ?? item.chunk_count ?? item.indexed_chunks ?? 0),
+                        token_estimate: Number(stats.token_estimate ?? item.token_estimate ?? 0),
                             figures: Number(stats.figures ?? item.figure_count ?? 0),
                             outputs: Number(stats.outputs ?? stats.output_count ?? item.output_count ?? 0),
                             source_count: Number(stats.source_count ?? item.source_count ?? 0),
                             datapoint_count: Number(stats.datapoint_count ?? item.datapoint_count ?? progressDetails.datapoint_count ?? 0),
+                            structured_record_count: Number(stats.structured_record_count ?? item.structured_record_count ?? recordProgressDetails.record_count ?? 0),
                             quantitative_result_count: Number(stats.quantitative_result_count ?? item.quantitative_result_count ?? progressDetails.quantitative_result_count ?? 0),
-	                        sources_by_status: stats.sources_by_status || item.sources_by_status || {},
-	                        contribution_count: Number(stats.contribution_count ?? item.contribution_count ?? 0),
-	                        pending_contribution_count: Number(stats.pending_contribution_count ?? item.pending_contribution_count ?? 0),
-	                    };
-	                }
+                        sources_by_status: stats.sources_by_status || item.sources_by_status || {},
+                        contribution_count: Number(stats.contribution_count ?? item.contribution_count ?? 0),
+                        pending_contribution_count: Number(stats.pending_contribution_count ?? item.pending_contribution_count ?? 0),
+                    };
+                }
 
                     function digestionSourceCount(digestion, stats) {
                         if (Array.isArray(digestion && digestion.sources)) return digestion.sources.length;
@@ -3397,6 +3403,7 @@
                             stats && stats.chunks,
                             stats && stats.token_estimate,
                             stats && stats.datapoint_count,
+                            stats && stats.structured_record_count,
                             ...sources,
                         ].filter(value => value !== undefined && value !== null).join(' ').toLowerCase();
                     }
@@ -3411,9 +3418,10 @@
                         const sourceIssues = digestionSourceIssues(digestion);
                         const buildProgress = digestionOperationProgress(digestion, 'build');
                         const datapointProgress = digestionOperationProgress(digestion, 'datapoints');
+                        const recordProgress = digestionOperationProgress(digestion, 'structured_records');
                         if (filter === 'ready') return chunks > 0 || status === 'ready' || status === 'built' || status === 'completed';
                         if (filter === 'needs_build') return sourceCount > 0 && !digestionProgressActive(buildProgress) && (status === 'draft' || chunks <= 0);
-                        if (filter === 'running') return digestionProgressActive(buildProgress) || digestionProgressActive(datapointProgress);
+                        if (filter === 'running') return digestionProgressActive(buildProgress) || digestionProgressActive(datapointProgress) || digestionProgressActive(recordProgress);
                         if (filter === 'owned') return String(access.role || '').toLowerCase() === 'owner';
                         if (filter === 'shared') return !!String(access.role || '').trim() && String(access.role || '').toLowerCase() !== 'owner';
                         if (filter === 'issues') return sourceIssues.length > 0 || status === 'error' || status === 'failed';
@@ -3963,6 +3971,7 @@
 		                    const chunks = Number(stats.chunks || 0);
 		                    const tokens = Number(stats.token_estimate || 0);
                             const datapointCount = Number(stats.datapoint_count || 0);
+                            const structuredRecordCount = Number(stats.structured_record_count || 0);
                             const quantitativeCount = Number(stats.quantitative_result_count || 0);
                             const figureCount = Number(stats.figures || 0);
 		                    const sourceCount = digestionSourceCount(digestion, stats);
@@ -3995,6 +4004,7 @@
                         : 'Index sources and create embedded chunks for querying.';
                     const buildProgress = digestionOperationProgress(digestion, 'build');
                     const datapointProgress = digestionOperationProgress(digestion, 'datapoints');
+                    const structuredRecordProgress = digestionOperationProgress(digestion, 'structured_records');
                     const maxChunksDefault = defaultDatapointMaxChunks(digestion);
                     const maxDatapointsDefault = Math.min(400, Math.max(50, maxChunksDefault * 4));
                     return `
@@ -4007,6 +4017,7 @@
 		                                <span class="vault-digestion-pill"><i class="bi bi-files"></i><span>${sourceCount} src</span></span>
 		                                <span class="vault-digestion-pill"><i class="bi bi-braces"></i><span>${chunks.toLocaleString()} chunks</span></span>
 		                                ${datapointCount ? `<span class="vault-digestion-pill is-primary" title="${datapointCount.toLocaleString()} structured datapoints extracted${quantitativeCount ? `; ${quantitativeCount.toLocaleString()} quantitative value${quantitativeCount === 1 ? '' : 's'}` : ''}."><i class="bi bi-grid-3x3-gap"></i><span>${datapointCount.toLocaleString()} point${datapointCount === 1 ? '' : 's'}</span></span>` : ''}
+                                        ${structuredRecordCount ? `<span class="vault-digestion-pill is-primary" title="${structuredRecordCount.toLocaleString()} profile-specific structured record${structuredRecordCount === 1 ? '' : 's'} available for source-of-truth searches."><i class="bi bi-card-checklist"></i><span>${structuredRecordCount.toLocaleString()} record${structuredRecordCount === 1 ? '' : 's'}</span></span>` : ''}
                                         ${figureCount ? `<span class="vault-digestion-pill" title="${figureCount.toLocaleString()} extracted PDF figure preview${figureCount === 1 ? '' : 's'}."><i class="bi bi-images"></i><span>${figureCount.toLocaleString()} fig${figureCount === 1 ? '' : 's'}</span></span>` : ''}
 		                                <span class="vault-digestion-pill"><i class="bi bi-file-earmark-text"></i><span>${tokens.toLocaleString()} tok</span></span>
 		                                <span class="vault-digestion-pill"><i class="bi bi-cpu"></i><span>${provider}</span></span>
@@ -4074,6 +4085,7 @@
                                 ${canDelete ? renderDigestionDeletePanel(digestion) : ''}
                                 ${renderDigestionProgress('build', 'Build', buildProgress)}
                                 ${renderDigestionProgress('datapoints', 'Datapoint extraction', datapointProgress)}
+                                ${renderDigestionProgress('structured_records', 'Structured records', structuredRecordProgress)}
                                 ${renderDigestionContributionsPanel(digestion)}
 	                            ${canManage ? `
                                     <div class="vault-digestion-options" data-vault-digestion-extract-options="${id}" hidden>
@@ -4179,10 +4191,11 @@
                                         <select class="form-select form-select-sm" data-vault-digestion-search-mode="${id}" title="Choose whether this search uses embedded chunks or extracted structured datapoints.">
                                             <option value="rag">Semantic RAG chunks</option>
                                             <option value="datapoints">Structured datapoints</option>
+                                            <option value="records">Structured records</option>
                                         </select>
                                     </label>
                                     <div class="vault-digestion-search-help">
-                                        RAG searches indexed source chunks. Datapoints searches the LLM-normalized extraction output.
+                                        RAG searches indexed chunks. Datapoints searches extraction outputs. Records search source-of-truth fields such as aviation chart facts.
                                     </div>
                                 </div>
 	                            <form class="vault-digestion-query" data-vault-digestion-query-form="${id}">
@@ -4242,17 +4255,23 @@
                         if (digestionProgressActive(digestionOperationProgress(digestion, 'datapoints'))) {
                             watchDigestionProgress(digestionId, 'datapoints');
                         }
+                        if (digestionProgressActive(digestionOperationProgress(digestion, 'structured_records'))) {
+                            watchDigestionProgress(digestionId, 'structured_records');
+                        }
                     });
                 }
 
                 function updateDigestionProgressNodes(digestionId, operations) {
                     const card = digestionList && digestionList.querySelector(`[data-vault-digestion-id="${vaultCssEscape(digestionId)}"]`);
                     if (!card) return;
-                    ['build', 'datapoints'].forEach((operation) => {
+                    [
+                        ['build', 'Build'],
+                        ['datapoints', 'Datapoint extraction'],
+                        ['structured_records', 'Structured records'],
+                    ].forEach(([operation, label]) => {
                         const progressEl = card.querySelector(`[data-vault-digestion-progress="${operation}"]`);
                         if (!progressEl) return;
                         const progress = operations && operations[operation] ? operations[operation] : { operation, status: 'idle' };
-                        const label = operation === 'build' ? 'Build' : 'Datapoint extraction';
                         progressEl.outerHTML = renderDigestionProgress(operation, label, progress);
                     });
                 }
@@ -4529,7 +4548,7 @@
                             if (status && status !== 'running' && pollCount > 1) {
                                 stopDigestionProgressWatch(digestionId, operation);
                                 loadDigestions().catch((error) => console.warn('Digestion refresh after progress failed:', error));
-                                if (operation === 'datapoints' && status === 'completed') {
+                                if ((operation === 'datapoints' || operation === 'structured_records') && status === 'completed') {
                                     loadDigestionOutputs(digestionId, null, { force: true }).catch((error) => console.warn('Digestion outputs refresh failed:', error));
                                 }
                             }
@@ -6430,7 +6449,9 @@
 	                function digestionSearchMode(digestionId) {
                     const select = document.querySelector(`[data-vault-digestion-search-mode="${vaultCssEscape(digestionId)}"]`);
                     const mode = String(select && select.value || 'rag').trim().toLowerCase();
-                    return mode === 'datapoints' ? 'datapoints' : 'rag';
+                    if (mode === 'datapoints') return 'datapoints';
+                    if (mode === 'records' || mode === 'structured_records') return 'records';
+                    return 'rag';
                 }
 
                 function renderDigestionResultHeader(data, mode) {
@@ -6439,12 +6460,17 @@
                     const tokens = Number(stats.token_estimate || 0);
                     const resultCount = Number(data.result_count || 0);
                     const datapointCount = Number(data.datapoint_count || 0);
+                    const recordCount = Number(data.record_count || stats.structured_record_count || 0);
                     const provider = vaultEscape(data.provider || '');
                     const model = vaultEscape(data.embedding_model || '');
-                    const title = mode === 'datapoints' ? 'Structured datapoint search' : 'Semantic RAG search';
-                    const subtitle = mode === 'datapoints'
-                        ? `${resultCount} match${resultCount === 1 ? '' : 'es'} across ${datapointCount} extracted datapoint${datapointCount === 1 ? '' : 's'}`
-                        : `${resultCount} cited chunk${resultCount === 1 ? '' : 's'} from ${chunks} indexed chunk${chunks === 1 ? '' : 's'}`;
+                    const title = mode === 'records'
+                        ? 'Structured record search'
+                        : (mode === 'datapoints' ? 'Structured datapoint search' : 'Semantic RAG search');
+                    const subtitle = mode === 'records'
+                        ? `${resultCount} profile record match${resultCount === 1 ? '' : 'es'} across ${recordCount} stored record${recordCount === 1 ? '' : 's'}`
+                        : (mode === 'datapoints'
+                            ? `${resultCount} match${resultCount === 1 ? '' : 'es'} across ${datapointCount} extracted datapoint${datapointCount === 1 ? '' : 's'}`
+                            : `${resultCount} cited chunk${resultCount === 1 ? '' : 's'} from ${chunks} indexed chunk${chunks === 1 ? '' : 's'}`);
                     return `
                         <div class="vault-digestion-result-head">
                             <div>
@@ -6454,7 +6480,7 @@
                             <div class="vault-digestion-result-badges">
                                 ${tokens ? `<span>${tokens.toLocaleString()} token est.</span>` : ''}
                                 ${provider ? `<span>${provider}${model ? ` / ${model}` : ''}</span>` : ''}
-                                ${mode === 'datapoints' ? '<span>source-gated output</span>' : '<span>embedding retrieval</span>'}
+                                ${mode === 'records' ? '<span>source-gated records</span>' : (mode === 'datapoints' ? '<span>source-gated output</span>' : '<span>embedding retrieval</span>')}
                             </div>
                         </div>
                     `;
@@ -6789,6 +6815,58 @@
                     `;
                 }
 
+                function renderStructuredRecordDigestionResults(data, options = {}) {
+                    const results = Array.isArray(data.results) ? data.results : [];
+                    const warning = String(data.warning || '').trim();
+                    const query = String(data.query || '');
+                    if (!results.length) {
+                        return `${renderDigestionResultHeader(data || {}, 'records')}<div class="small ${warning ? 'text-warning' : 'text-muted'}">${vaultEscape(warning || 'No matching structured records found. Try an airport, runway, procedure, fix, frequency, or chart identifier.')}</div>`;
+                    }
+                    return `
+                        ${renderDigestionResultHeader(data || {}, 'records')}
+                        ${warning ? `<div class="small text-warning mb-2">${vaultEscape(warning)}</div>` : ''}
+                        ${results.map((item) => {
+                            const source = item && item.source && typeof item.source === 'object' ? item.source : {};
+                            const sourceInfo = digestionResultSource({ source, content_type: source.content_type });
+                            const fields = item && item.fields && typeof item.fields === 'object' ? item.fields : {};
+                            const verification = item && item.verification && typeof item.verification === 'object' ? item.verification : {};
+                            const provenance = Array.isArray(item && item.provenance) ? item.provenance : [];
+                            const fieldRows = Object.entries(fields).slice(0, 10).map(([key, value]) => `
+                                <span title="${vaultEscape(String(value || ''))}">
+                                    <strong>${vaultEscape(String(key).replace(/_/g, ' '))}</strong>
+                                    ${highlightDigestionMatches(String(value || '').slice(0, 220), query)}
+                                </span>
+                            `).join('');
+                            const recordText = [
+                                item.title || 'Structured record',
+                                item.summary || '',
+                                Object.entries(fields).map(([key, value]) => `${key}: ${value}`).join('\n'),
+                                provenance.map(entry => `${entry.field || 'evidence'}: ${entry.text || entry.source_ref || ''}`).join('\n'),
+                            ].filter(Boolean).join('\n\n');
+                            return `
+                                <div class="vault-digestion-result is-datapoint is-structured-record">
+                                    <div class="vault-digestion-result-source">
+                                        <strong>${vaultEscape(item.title || item.procedure_name || item.record_type || 'Structured record')}</strong>
+                                        ${Number(item.score || 0) ? `<span>score ${Number(item.score || 0).toFixed(3)}</span>` : ''}
+                                        ${item.profile ? `<span>${vaultEscape(String(item.profile).replace(/_/g, ' '))}</span>` : ''}
+                                        ${item.airport_icao ? `<span>${vaultEscape(item.airport_icao)}</span>` : ''}
+                                        ${item.runway ? `<span>RWY ${vaultEscape(item.runway)}</span>` : ''}
+                                        ${verification.status ? `<span>${vaultEscape(String(verification.status).replace(/_/g, ' '))}</span>` : ''}
+                                    </div>
+                                    ${item.summary ? `<div class="vault-digestion-result-snippet">${highlightDigestionMatches(String(item.summary || '').slice(0, 900), query)}</div>` : ''}
+                                    ${fieldRows ? `<div class="vault-digestion-quant-list">${fieldRows}</div>` : ''}
+                                    ${provenance.length ? `
+                                        <div class="vault-digestion-evidence">
+                                            ${provenance.slice(0, 3).map(entry => `<blockquote>${highlightDigestionMatches(String(entry.text || entry.source_ref || entry.page_label || ''), query)}</blockquote>`).join('')}
+                                        </div>
+                                    ` : ''}
+                                    ${renderDigestionResultActions(sourceInfo, recordText, '', options)}
+                                </div>
+                            `;
+                        }).join('')}
+                    `;
+                }
+
                 function buildDigestionDeckManifest(digestion) {
                     const item = digestion && typeof digestion === 'object' ? digestion : {};
                     const stats = item.stats && typeof item.stats === 'object' ? item.stats : {};
@@ -6804,6 +6882,7 @@
                     const tokens = Number(stats.token_estimate || 0);
                     const figures = Number(stats.figures ?? item.figure_count ?? 0);
                     const datapointCount = Number(stats.datapoint_count ?? item.datapoint_count ?? 0);
+                    const structuredRecordCount = Number(stats.structured_record_count ?? item.structured_record_count ?? 0);
                     const quantitativeResultCount = Number(stats.quantitative_result_count ?? item.quantitative_result_count ?? 0);
                     const status = String(item.status || 'draft');
                     const name = String(item.name || item.title || item.id || 'Digestion');
@@ -6821,6 +6900,7 @@
                             `${sourceCount} source${sourceCount === 1 ? '' : 's'}`,
                             `${chunks} chunk${chunks === 1 ? '' : 's'}`,
                             figures ? `${figures} figure${figures === 1 ? '' : 's'}` : '',
+                            structuredRecordCount ? `${structuredRecordCount} record${structuredRecordCount === 1 ? '' : 's'}` : '',
                             tokens ? `${tokens.toLocaleString()} token est.` : '',
                         ].filter(Boolean),
                         details: [
@@ -6828,6 +6908,7 @@
                             { label: 'Sources', value: String(sourceCount) },
                             { label: 'Chunks', value: String(chunks) },
                             { label: 'Figures', value: String(figures) },
+                            { label: 'Records', value: String(structuredRecordCount) },
                             { label: 'Provider', value: String(item.provider || stats.provider || 'local') },
                             { label: 'Access', value: access.can_manage ? 'Manage/build' : (access.can_query ? 'Query' : 'Local') },
                         ],
@@ -6933,21 +7014,31 @@
                     const resultsEl = document.querySelector(`[data-vault-digestion-results="${vaultCssEscape(digestionId)}"]`);
                     if (resultsEl) {
                         resultsEl.classList.add('is-visible');
-                        resultsEl.innerHTML = `<div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Searching ${mode === 'datapoints' ? 'structured datapoints' : 'semantic chunks'}...</div>`;
+                        const searchingLabel = mode === 'records'
+                            ? 'structured records'
+                            : (mode === 'datapoints' ? 'structured datapoints' : 'semantic chunks');
+                        resultsEl.innerHTML = `<div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Searching ${searchingLabel}...</div>`;
                     }
                     try {
-                        const endpoint = mode === 'datapoints'
-                            ? `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/search`
-                            : `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/query`;
+                        const endpoint = mode === 'records'
+                            ? `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/structured-records/search`
+                            : (mode === 'datapoints'
+                                ? `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/search`
+                                : `${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/query`);
+                        const body = mode === 'records'
+                            ? { query: query.trim(), profile: 'aviation_chart', limit: 25 }
+                            : { query: query.trim(), top_k: mode === 'datapoints' ? 25 : 5, limit: 25 };
                         const data = await apiCall(endpoint, {
                             method: 'POST',
-                            body: JSON.stringify({ query: query.trim(), top_k: mode === 'datapoints' ? 25 : 5, limit: 25 })
+                            body: JSON.stringify(body)
                         });
                         if (resultsEl) {
                             resultsEl.classList.add('is-visible');
-                            resultsEl.innerHTML = mode === 'datapoints'
-                                ? renderDatapointDigestionResults(data || {}, renderOptions)
-                                : renderRagDigestionResults(data || {}, renderOptions);
+                            resultsEl.innerHTML = mode === 'records'
+                                ? renderStructuredRecordDigestionResults(data || {}, renderOptions)
+                                : (mode === 'datapoints'
+                                    ? renderDatapointDigestionResults(data || {}, renderOptions)
+                                    : renderRagDigestionResults(data || {}, renderOptions));
                         }
                     } catch (error) {
                         if (resultsEl) {
@@ -22044,7 +22135,10 @@
             }
 
             function deckDigestionMode(value) {
-                return String(value || 'rag').trim().toLowerCase() === 'datapoints' ? 'datapoints' : 'rag';
+                const mode = String(value || 'rag').trim().toLowerCase();
+                if (mode === 'datapoints') return 'datapoints';
+                if (mode === 'records' || mode === 'structured_records') return 'records';
+                return 'rag';
             }
 
             function deckDigestionUrls() {
@@ -22457,22 +22551,28 @@
                 const results = Array.isArray(data && data.results) ? data.results : [];
                 const query = String(data && data.query || '');
                 if (!results.length) {
-                    resultsEl.innerHTML = `<div class="deck-digestion-empty">${escapeEmbedHtml(data && data.warning || (mode === 'datapoints' ? 'No structured datapoints matched this query.' : 'No source chunks matched this query.'))}</div>`;
+                    const emptyMessage = mode === 'records'
+                        ? 'No structured records matched this query. Try an airport, runway, procedure, fix, frequency, or chart identifier.'
+                        : (mode === 'datapoints' ? 'No structured datapoints matched this query.' : 'No source chunks matched this query.');
+                    resultsEl.innerHTML = `<div class="deck-digestion-empty">${escapeEmbedHtml(data && data.warning || emptyMessage)}</div>`;
                     renderDeckDigestionChart(host);
                     return;
                 }
                 resultsEl.innerHTML = results.map((item) => {
                     const source = deckDigestionResultSource(item || {});
                     const sourceHref = deckDigestionSourceHref(source);
-                    const title = String(item.claim || item.subject || item.file_name || 'Result');
-                    const snippet = String(item.snippet || '').slice(0, 900);
+                    const fields = mode === 'records' && item.fields && typeof item.fields === 'object'
+                        ? item.fields
+                        : (item.structured_fields && typeof item.structured_fields === 'object' ? item.structured_fields : {});
+                    const title = String(item.title || item.claim || item.subject || item.procedure_name || item.file_name || 'Result');
+                    const snippet = String(item.summary || item.snippet || '').slice(0, 900);
                     const quantitative = Array.isArray(item.quantitative_results) ? item.quantitative_results : [];
-                    const fields = item.structured_fields && typeof item.structured_fields === 'object' ? item.structured_fields : {};
                     const fieldBadges = Object.entries(fields)
-                        .filter(([, values]) => Array.isArray(values) && values.length)
+                        .filter(([, values]) => mode === 'records' ? String(values || '').trim() : (Array.isArray(values) && values.length))
                         .slice(0, 5)
-                        .map(([key, values]) => `<span>${escapeEmbedHtml(key.replace(/_/g, ' '))}: ${values.length}</span>`)
+                        .map(([key, values]) => `<span>${escapeEmbedHtml(key.replace(/_/g, ' '))}${mode === 'records' ? `: ${escapeEmbedHtml(String(values).slice(0, 80))}` : `: ${values.length}`}</span>`)
                         .join('');
+                    const verification = item && item.verification && typeof item.verification === 'object' ? item.verification : {};
                     return `
                         <article class="deck-digestion-result">
                             <div class="deck-digestion-result-head">
@@ -22480,6 +22580,10 @@
                                 <span>${Number(item.score || 0) ? `score ${Number(item.score || 0).toFixed(3)}` : ''}</span>
                             </div>
                             <div class="deck-digestion-result-meta">
+                                ${mode === 'records' && item.profile ? `<span>${escapeEmbedHtml(String(item.profile).replace(/_/g, ' '))}</span>` : ''}
+                                ${mode === 'records' && item.airport_icao ? `<span>${escapeEmbedHtml(item.airport_icao)}</span>` : ''}
+                                ${mode === 'records' && item.runway ? `<span>RWY ${escapeEmbedHtml(item.runway)}</span>` : ''}
+                                ${mode === 'records' && verification.status ? `<span>${escapeEmbedHtml(String(verification.status).replace(/_/g, ' '))}</span>` : ''}
                                 ${source.file_name ? `<span>${escapeEmbedHtml(source.file_name)}</span>` : ''}
                                 ${source.page_label ? `<span>${escapeEmbedHtml(source.page_label)}</span>` : ''}
                                 ${sourceHref ? `<a href="${escapeEmbedAttr(sourceHref)}" target="_blank" rel="noopener">Open source</a>` : ''}
@@ -22669,18 +22773,26 @@
                     setDeckDigestionResultSummary(host, 'Waiting for a search query');
                     return;
                 }
-                setDeckDigestionResultSummary(host, `Searching ${mode === 'datapoints' ? 'structured datapoints' : 'semantic chunks'}...`);
+                const searchSurfaceLabel = mode === 'records'
+                    ? 'structured records'
+                    : (mode === 'datapoints' ? 'structured datapoints' : 'semantic chunks');
+                setDeckDigestionResultSummary(host, `Searching ${searchSurfaceLabel}...`);
                 if (resultsEl) {
-                    resultsEl.innerHTML = `<div class="deck-digestion-empty"><span class="spinner-border spinner-border-sm me-1"></span>Searching ${mode === 'datapoints' ? 'structured datapoints' : 'semantic chunks'}...</div>`;
+                    resultsEl.innerHTML = `<div class="deck-digestion-empty"><span class="spinner-border spinner-border-sm me-1"></span>Searching ${searchSurfaceLabel}...</div>`;
                 }
                 try {
                     const urls = deckDigestionUrls();
-                    const endpoint = mode === 'datapoints'
-                        ? `${urls.digestions}/${encodeURIComponent(digestionId)}/datapoints/search`
-                        : `${urls.digestions}/${encodeURIComponent(digestionId)}/query`;
+                    const endpoint = mode === 'records'
+                        ? `${urls.digestions}/${encodeURIComponent(digestionId)}/structured-records/search`
+                        : (mode === 'datapoints'
+                            ? `${urls.digestions}/${encodeURIComponent(digestionId)}/datapoints/search`
+                            : `${urls.digestions}/${encodeURIComponent(digestionId)}/query`);
+                    const body = mode === 'records'
+                        ? { query, profile: 'aviation_chart', limit: 80 }
+                        : { query, top_k: mode === 'datapoints' ? 80 : 8, limit: mode === 'datapoints' ? 80 : 8 };
                     const data = await apiCall(endpoint, {
                         method: 'POST',
-                        body: JSON.stringify({ query, top_k: mode === 'datapoints' ? 80 : 8, limit: mode === 'datapoints' ? 80 : 8 }),
+                        body: JSON.stringify(body),
                     });
                     host.__canopyDeckDigestionData = data || {};
                     host.__canopyDeckDigestionHiddenPoints = new Set();
@@ -22688,9 +22800,11 @@
                     const count = Number(data.result_count || 0);
                     setDeckDigestionResultSummary(
                         host,
-                        mode === 'datapoints'
+                        mode === 'records'
+                            ? `${count} structured record${count === 1 ? '' : 's'} found`
+                            : (mode === 'datapoints'
                             ? `${count} structured result${count === 1 ? '' : 's'} ready to chart`
-                            : `${count} semantic chunk${count === 1 ? '' : 's'} found`
+                                : `${count} semantic chunk${count === 1 ? '' : 's'} found`)
                     );
                 } catch (error) {
                     host.__canopyDeckDigestionData = {};
@@ -22791,6 +22905,7 @@
                 const chunkCount = Number(stats.chunks || 0);
                 const tokenCount = Number(stats.token_estimate || 0);
                 const figureCount = Number(stats.figures || 0);
+                const structuredRecordCount = Number(stats.structured_record_count || 0);
                 const initialMode = deckDigestionMode(digestion.initial_mode || 'rag');
                 const initialQuery = String(digestion.initial_query || '');
                 host.classList.add('is-digestion-workspace');
@@ -22809,6 +22924,7 @@
 	                                <span><strong>${sourceCount}</strong><small>Sources</small></span>
 	                                <span><strong>${chunkCount}</strong><small>Chunks</small></span>
 	                                <span><strong data-deck-digestion-stat-figures>${figureCount}</strong><small>Figures</small></span>
+	                                <span><strong>${structuredRecordCount}</strong><small>Records</small></span>
 	                                <span><strong>${tokenCount ? tokenCount.toLocaleString() : '0'}</strong><small>Token est.</small></span>
                             </div>
                         </section>
@@ -22819,6 +22935,7 @@
                                     <select data-deck-digestion-mode aria-label="Digestion search surface">
                                         <option value="rag"${initialMode === 'rag' ? ' selected' : ''}>Semantic chunks</option>
                                         <option value="datapoints"${initialMode === 'datapoints' ? ' selected' : ''}>Structured datapoints</option>
+                                        <option value="records"${initialMode === 'records' ? ' selected' : ''}>Structured records</option>
                                     </select>
                                     <button type="submit" class="deck-digestion-primary-btn"><i class="bi bi-search"></i> Search</button>
                                 </form>
@@ -22827,7 +22944,7 @@
                                     <span data-deck-digestion-results-summary>Results appear here without switching to maximum view.</span>
                                 </div>
                                 <section class="deck-digestion-results" data-deck-digestion-results>
-                                    <div class="deck-digestion-empty">This Deck surface uses the same Digestion query endpoints as the Vault UI. Semantic search is the default; switch to structured datapoints when you want charts.</div>
+                                    <div class="deck-digestion-empty">This Deck surface uses the same Digestion query endpoints as the Vault UI. Use structured records for normalized source-of-truth fields such as aviation chart facts.</div>
                                 </section>
                             </section>
 		                            <aside class="deck-digestion-insight-rail ${canManage ? 'has-management' : 'is-query-only'} ${canReadSources ? 'has-figures' : ''}">

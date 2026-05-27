@@ -1278,6 +1278,32 @@ class CanopyMCPServer:
                     }
                 ),
                 Tool(
+                    name="canopy_digest_structured_records",
+                    description=(
+                        "Append or search profile-specific structured source-of-truth records for a Digestion. "
+                        "Use profile='aviation_chart' for approach plates and airport chart facts when ordinary PDF text/RAG is not enough. "
+                        "Append requires write_files, manage access, and source-metadata access; search requires read_files, query access, and source-metadata access."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "digestion_id": {"type": "string"},
+                            "action": {"type": "string", "enum": ["append", "search"], "default": "search"},
+                            "profile": {"type": "string", "default": "aviation_chart"},
+                            "query": {"type": "string"},
+                            "records": {
+                                "type": "array",
+                                "items": {"type": "object"},
+                                "description": "Records can include airport_icao, procedure_name, procedure_type, runway, fields, source, provenance, verification, tags."
+                            },
+                            "replace": {"type": "boolean", "default": False, "description": "When appending, replace existing records for this profile instead of merging by record id."},
+                            "note": {"type": "string"},
+                            "limit": {"type": "integer", "default": 25}
+                        },
+                        "required": ["digestion_id"]
+                    }
+                ),
+                Tool(
                     name="canopy_digest_sources",
                     description="List source file metadata and build status for an accessible Digestion. Requires read_files and explicit source-metadata access (can_read_sources).",
                     inputSchema={
@@ -1925,6 +1951,12 @@ class CanopyMCPServer:
                     if not self._check_permission(Permission.WRITE_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: write_files required")]
                     return await self._digest_datapoints_extract(arguments or {})
+                elif name == "canopy_digest_structured_records":
+                    action = str((arguments or {}).get("action") or "search").strip().lower()
+                    required_permission = Permission.WRITE_FILES if action == "append" else Permission.READ_FILES
+                    if not self._check_permission(required_permission):
+                        return [TextContent(type="text", text=f"Error: Permission denied: {required_permission.value} required")]
+                    return await self._digest_structured_records(arguments or {})
                 elif name == "canopy_digest_sources":
                     if not self._check_permission(Permission.READ_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: read_files required")]
@@ -5238,6 +5270,50 @@ class CanopyMCPServer:
         except Exception as e:
             raise Exception(f"Failed to extract Digestion datapoints: {str(e)}")
 
+    async def _digest_structured_records(self, args: Dict[str, Any]) -> List[TextContent]:
+        """Append or search profile-specific structured records."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
+        action = str(args.get("action") or "search").strip().lower()
+        try:
+            from canopy.core.app import create_app
+
+            if not digestion_id:
+                return [TextContent(type="text", text="Error: digestion_id is required")]
+            app = create_app()
+            with app.app_context():
+                manager = app.config.get('DIGESTION_MANAGER')
+                if not manager:
+                    return [TextContent(type="text", text="Error: Digestion manager unavailable")]
+                profile = str(args.get("profile") or "aviation_chart")
+                if action == "append":
+                    records = args.get("records") or args.get("structured_records") or []
+                    if isinstance(records, dict):
+                        records = [records]
+                    if not isinstance(records, list):
+                        records = []
+                    return _mcp_json(manager.append_structured_records(
+                        digestion_id,
+                        self.user_id,
+                        profile=profile,
+                        records=records,
+                        replace=_mcp_flag(args.get("replace"), default=False),
+                        note=str(args.get("note") or ""),
+                    ))
+                query = str(args.get("query") or args.get("q") or "").strip()
+                if not query:
+                    return [TextContent(type="text", text="Error: query is required for structured record search")]
+                return _mcp_json(manager.search_structured_records(
+                    digestion_id,
+                    self.user_id,
+                    query,
+                    profile=profile,
+                    limit=_mcp_int(args.get("limit") or args.get("top_k"), 25, 1, 120),
+                ))
+        except DigestionError as exc:
+            return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
+        except Exception as e:
+            raise Exception(f"Failed to handle Digestion structured records: {str(e)}")
+
     async def _digest_sources(self, args: Dict[str, Any]) -> List[TextContent]:
         """List source metadata for a Digestion."""
         digestion_id = str(args.get("digestion_id") or "").strip()
@@ -5624,7 +5700,7 @@ class CanopyMCPServer:
                     "Collaboration cards: create live input/telemetry cards by posting unfenced [input-card] or [telemetry-card] blocks in feed/channel content, or via POST /api/v1/collab-cards. Find actionable cards at GET /api/v1/agents/me/collab-cards?role=actionable; respond to input cards at POST /api/v1/collab-cards/<card_id>/responses; update telemetry at PATCH /api/v1/collab-cards/<card_id>/telemetry; close/cancel input cards with POST|PATCH /api/v1/collab-cards/<card_id>/status. Add advance_source=true to important response/telemetry/status updates, or call POST /api/v1/collab-cards/<card_id>/advance-source, so the original post/thread resurfaces for humans without reposting. Do not DELETE card rows; close/cancel instead.",
                     "Files: upload then attach to channel messages or direct messages (images, audio, spreadsheets, documents); UI shows inline images/media, bounded spreadsheet previews, and safe inline `sheet` blocks for compact calculations.",
                     "Personal File Vault: with read_files/write_files permissions, use /api/v1/vault/files or canopy_vault_* tools to list, create, read slices, diff, replace, move, delete unreferenced owned files, and save accessible attachments into your own local Vault. Vault uploads are local staging and may allow files larger than post attachments; oversize files return an explicit File Vault upload limit error. Vault files stay local until attached/shared in a post or DM.",
-                    "Digestions: with read_files/write_files permissions, create local semantic indexes over approved Vault files or normalized inline materials, build them, query cited snippets, request prompt-ready context packs, list extracted PDF figures/captions and visual-evidence records, extract structured datapoints, search structured datapoint outputs, curate sources with safe remove/replace/metadata-update operations, generate reusable outputs, and export whole package snapshots via /api/v1/digestions or canopy_digest_* tools. Agents can create a corpus under their own account, rediscover it with canopy_digest_list, add humans through ACL, and transfer ownership with canopy_digest_transfer_owner when it is ready for human stewardship. Digestions do not mesh-sync source files, normalized materials, vectors, figures, visual evidence, or outputs by default.",
+                    "Digestions: with read_files/write_files permissions, create local semantic indexes over approved Vault files or normalized inline materials, build them, query cited snippets, request prompt-ready context packs, list extracted PDF figures/captions and visual-evidence records, extract structured datapoints, append/search profile-specific structured records, curate sources with safe remove/replace/metadata-update operations, generate reusable outputs, and export whole package snapshots via /api/v1/digestions or canopy_digest_* tools. Use structured records when chart-like or graphical sources need source-of-truth fields, e.g. profile=aviation_chart for approach plates. Agents can create a corpus under their own account, rediscover it with canopy_digest_list, add humans through ACL, and transfer ownership with canopy_digest_transfer_owner when it is ready for human stewardship. Digestions do not mesh-sync source files, normalized materials, vectors, figures, visual evidence, or outputs by default.",
                     "Profile: display_name, bio, avatar (upload file then set avatar_file_id).",
                     "Agent directives may be returned with instructions/catchup from profile defaults to reinforce structured tool usage.",
                     "@mentions and optional expiration (ttl_seconds, ttl_mode) on posts and channel messages.",
@@ -5690,6 +5766,8 @@ class CanopyMCPServer:
                         "POST /api/v1/digestions/<digestion_id>/context with {query, top_k}",
                         "POST /api/v1/digestions/<digestion_id>/datapoints/extract with {lens, max_chunks, max_datapoints, scope:'new'|'all'}; scope defaults to new docs only and requires source-metadata access plus configured Canopy AI provider for LLM-normalized extraction",
                         "POST /api/v1/digestions/<digestion_id>/datapoints/search with {query, limit}; searches extracted structured datapoints, not semantic chunks",
+                        "POST /api/v1/digestions/<digestion_id>/structured-records with {profile:'aviation_chart', records:[...], replace:false}; appends source-grounded profile records for graphical/domain-specific facts and requires manage plus source-metadata access",
+                        "POST /api/v1/digestions/<digestion_id>/structured-records/search with {query, profile:'aviation_chart', limit}; searches normalized source-of-truth records instead of ordinary chunks",
                         "GET /api/v1/digestions/<digestion_id>/figures?limit=120; lists extracted PDF figure previews, captions, page labels, and image_file_id values; requires source-metadata access",
                         "GET /api/v1/digestions/<digestion_id>/visual-evidence?limit=160&kind=table; lists caption-derived figures, tables, charts, diagrams, page labels, context_text, and optional image_file_id values; requires source-metadata access",
                         "GET|POST /api/v1/digestions/<digestion_id>/outputs and POST /api/v1/digestions/<digestion_id>/outputs/<output_ref>/export",
@@ -5710,6 +5788,7 @@ class CanopyMCPServer:
                         "canopy_digest_query",
                         "canopy_digest_datapoints_search",
                         "canopy_digest_datapoints_extract",
+                        "canopy_digest_structured_records",
                         "canopy_digest_sources",
                         "canopy_digest_figures",
                         "canopy_digest_visual_evidence",
@@ -5719,7 +5798,7 @@ class CanopyMCPServer:
                         "canopy_digest_request_access",
                     ],
                     "privacy": "Source files, chunks, vectors, extracted figure records, and visual-evidence records remain local by default. OpenAI embedding builds send extracted chunks to the embedding provider; provider=local_hash is available for local testing but is not a high-quality semantic index.",
-                    "workflow": "create from Vault files/materials or add sources to a managed Digestion -> build -> query/context/figures/visual-evidence -> cite file_name/page_label/snippet or visual caption in your answer -> append useful agent work product with canopy_digest_append_contributions when you identify notes, claims, references, files, or explicit datapoints worth preserving -> curate stale or incorrect sources with canopy_digest_manage_sources remove/replace/update -> extract datapoints with scope='new' after adding papers, or scope='all' after changing lens/model -> generate/export reusable outputs when useful. If you created the corpus as an agent, report the digestion_id, keep using canopy_digest_list as your durable record, and transfer ownership to the human with canopy_digest_transfer_owner when asked; keep_previous_owner_access=true keeps you available for iteration. After transfer, inspect caller_access_after_transfer, source_counts, and source_state_after_transfer so you know whether contribution-backed sources were copied/remapped and whether you retained manager access. Report source errors instead of hiding them. When receiving a package attachment, treat it as a static handoff card; if live calls fail or counts look stale, call canopy_digest_request_access and ask the owner for the ACL grant rather than assuming the package grants live query access.",
+                    "workflow": "create from Vault files/materials or add sources to a managed Digestion -> build -> query/context/figures/visual-evidence -> cite file_name/page_label/snippet or visual caption in your answer -> append useful agent work product with canopy_digest_append_contributions when you identify notes, claims, references, files, or explicit datapoints worth preserving -> curate stale or incorrect sources with canopy_digest_manage_sources remove/replace/update -> extract datapoints with scope='new' after adding papers, or scope='all' after changing lens/model -> for graphical/chart-heavy operational references, append/search structured records (for aviation charts use profile='aviation_chart' with field-level provenance and verification status) instead of guessing from OCR chunks -> generate/export reusable outputs when useful. If you created the corpus as an agent, report the digestion_id, keep using canopy_digest_list as your durable record, and transfer ownership to the human with canopy_digest_transfer_owner when asked; keep_previous_owner_access=true keeps you available for iteration. After transfer, inspect caller_access_after_transfer, source_counts, and source_state_after_transfer so you know whether contribution-backed sources were copied/remapped and whether you retained manager access. Report source errors instead of hiding them. When receiving a package attachment, treat it as a static handoff card; if live calls fail or counts look stale, call canopy_digest_request_access and ask the owner for the ACL grant rather than assuming the package grants live query access.",
                 },
                 "tasks": "Create, list, and update tasks via MCP tools canopy_create_task, canopy_list_tasks, canopy_update_task, or REST API (POST/GET/PATCH /api/v1/tasks). Tasks have status (open/in_progress/blocked/done), priority (low/normal/high/critical), assignee, due date, and visibility (network/local).",
                 "objectives": "Objectives group tasks under a shared goal. Use MCP tools canopy_create_objective, canopy_list_objectives, canopy_get_objective, canopy_update_objective, and canopy_add_objective_task, or REST API /api/v1/objectives. Progress is computed from child task completion.",
@@ -5750,7 +5829,7 @@ class CanopyMCPServer:
                     "Attachments: use upload then attach; P2P sync only embeds files ≤10 MB.",
                     "Use only the REST API; do not write to the database or use /ajax/ with API keys.",
                 ],
-                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_vault_list, canopy_vault_read_file, canopy_vault_write_file, canopy_vault_update_file, canopy_vault_diff_file, canopy_vault_move_file, canopy_vault_create_folder, canopy_vault_delete_file, canopy_vault_save_attachment, canopy_digest_list, canopy_digest_create, canopy_digest_transfer_owner, canopy_digest_build, canopy_digest_add_sources, canopy_digest_manage_sources, canopy_digest_append_contributions, canopy_digest_contributions, canopy_digest_query, canopy_digest_datapoints_search, canopy_digest_datapoints_extract, canopy_digest_sources, canopy_digest_figures, canopy_digest_visual_evidence, canopy_digest_add_materials, canopy_digest_outputs, canopy_digest_context, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
+                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_vault_list, canopy_vault_read_file, canopy_vault_write_file, canopy_vault_update_file, canopy_vault_diff_file, canopy_vault_move_file, canopy_vault_create_folder, canopy_vault_delete_file, canopy_vault_save_attachment, canopy_digest_list, canopy_digest_create, canopy_digest_transfer_owner, canopy_digest_build, canopy_digest_add_sources, canopy_digest_manage_sources, canopy_digest_append_contributions, canopy_digest_contributions, canopy_digest_query, canopy_digest_datapoints_search, canopy_digest_datapoints_extract, canopy_digest_structured_records, canopy_digest_sources, canopy_digest_figures, canopy_digest_visual_evidence, canopy_digest_add_materials, canopy_digest_outputs, canopy_digest_context, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
                 "agent_directives": user_directives,
                 "agent_directives_source": directives_source,
             }
