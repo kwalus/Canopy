@@ -478,6 +478,144 @@ class DigestionManager:
                     return
                 conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {table_name}({column_name})")
 
+            def _table_info(table_name: str) -> list[Any]:
+                return list(conn.execute(f"PRAGMA table_info({table_name})").fetchall())
+
+            def _table_needs_canonical_rebuild(table_name: str, canonical_columns: set[str]) -> bool:
+                info = _table_info(table_name)
+                by_name = {str(row["name"] if hasattr(row, "keys") else row[1]): row for row in info}
+                id_row = by_name.get("id")
+                if not id_row:
+                    return True
+                try:
+                    id_pk = int(id_row["pk"] if hasattr(id_row, "keys") else id_row[5])
+                except Exception:
+                    id_pk = 0
+                if id_pk <= 0:
+                    return True
+                for row in info:
+                    name = str(row["name"] if hasattr(row, "keys") else row[1])
+                    if name in canonical_columns:
+                        continue
+                    try:
+                        not_null = int(row["notnull"] if hasattr(row, "keys") else row[3])
+                        default_value = row["dflt_value"] if hasattr(row, "keys") else row[4]
+                    except Exception:
+                        not_null = 0
+                        default_value = None
+                    if not_null and default_value is None:
+                        return True
+                return False
+
+            def _rebuild_evidence_records_table() -> None:
+                logger.warning("Rebuilding legacy digestion_evidence_records table into canonical schema.")
+                conn.executescript(
+                    """
+                    DROP TABLE IF EXISTS digestion_evidence_records__repair;
+                    CREATE TABLE digestion_evidence_records__repair (
+                        id TEXT PRIMARY KEY,
+                        digestion_id TEXT NOT NULL,
+                        created_by_user_id TEXT,
+                        record_kind TEXT NOT NULL DEFAULT 'finding',
+                        statement TEXT NOT NULL,
+                        summary TEXT,
+                        scope TEXT,
+                        status TEXT NOT NULL DEFAULT 'candidate',
+                        priority TEXT NOT NULL DEFAULT 'normal',
+                        confidence REAL,
+                        tags_json TEXT,
+                        evidence_refs_json TEXT,
+                        source_refs_json TEXT,
+                        related_ids_json TEXT,
+                        metadata_json TEXT,
+                        superseded_by_id TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (digestion_id) REFERENCES digestions(id) ON DELETE CASCADE,
+                        FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+                        FOREIGN KEY (superseded_by_id) REFERENCES digestion_evidence_records(id) ON DELETE SET NULL
+                    );
+                    INSERT OR IGNORE INTO digestion_evidence_records__repair (
+                        id, digestion_id, created_by_user_id, record_kind, statement,
+                        summary, scope, status, priority, confidence, tags_json,
+                        evidence_refs_json, source_refs_json, related_ids_json,
+                        metadata_json, superseded_by_id, created_at, updated_at
+                    )
+                    SELECT
+                        CASE
+                            WHEN id IS NOT NULL AND TRIM(id) != '' THEN id
+                            ELSE 'ErLegacy' || lower(hex(randomblob(12)))
+                        END,
+                        digestion_id,
+                        created_by_user_id,
+                        COALESCE(NULLIF(record_kind, ''), 'finding'),
+                        COALESCE(NULLIF(statement, ''), NULLIF(summary, ''), 'Legacy evidence record'),
+                        summary,
+                        scope,
+                        COALESCE(NULLIF(status, ''), 'candidate'),
+                        COALESCE(NULLIF(priority, ''), 'normal'),
+                        confidence,
+                        COALESCE(tags_json, '[]'),
+                        COALESCE(evidence_refs_json, '[]'),
+                        COALESCE(source_refs_json, '[]'),
+                        COALESCE(related_ids_json, '[]'),
+                        COALESCE(metadata_json, '{}'),
+                        superseded_by_id,
+                        COALESCE(created_at, CURRENT_TIMESTAMP),
+                        COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+                    FROM digestion_evidence_records
+                    WHERE digestion_id IS NOT NULL AND TRIM(digestion_id) != '';
+                    DROP TABLE digestion_evidence_records;
+                    ALTER TABLE digestion_evidence_records__repair RENAME TO digestion_evidence_records;
+                    """
+                )
+
+            def _rebuild_evidence_reviews_table() -> None:
+                logger.warning("Rebuilding legacy digestion_evidence_reviews table into canonical schema.")
+                conn.executescript(
+                    """
+                    DROP TABLE IF EXISTS digestion_evidence_reviews__repair;
+                    CREATE TABLE digestion_evidence_reviews__repair (
+                        id TEXT PRIMARY KEY,
+                        digestion_id TEXT NOT NULL,
+                        evidence_id TEXT NOT NULL,
+                        reviewer_user_id TEXT,
+                        action TEXT NOT NULL,
+                        note TEXT,
+                        confidence REAL,
+                        evidence_refs_json TEXT,
+                        metadata_json TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (digestion_id) REFERENCES digestions(id) ON DELETE CASCADE,
+                        FOREIGN KEY (evidence_id) REFERENCES digestion_evidence_records(id) ON DELETE CASCADE,
+                        FOREIGN KEY (reviewer_user_id) REFERENCES users(id) ON DELETE SET NULL
+                    );
+                    INSERT OR IGNORE INTO digestion_evidence_reviews__repair (
+                        id, digestion_id, evidence_id, reviewer_user_id, action,
+                        note, confidence, evidence_refs_json, metadata_json, created_at
+                    )
+                    SELECT
+                        CASE
+                            WHEN id IS NOT NULL AND TRIM(id) != '' THEN id
+                            ELSE 'ErvLegacy' || lower(hex(randomblob(12)))
+                        END,
+                        digestion_id,
+                        evidence_id,
+                        reviewer_user_id,
+                        COALESCE(NULLIF(action, ''), 'support'),
+                        note,
+                        confidence,
+                        COALESCE(evidence_refs_json, '[]'),
+                        COALESCE(metadata_json, '{}'),
+                        COALESCE(created_at, CURRENT_TIMESTAMP)
+                    FROM digestion_evidence_reviews
+                    WHERE digestion_id IS NOT NULL AND TRIM(digestion_id) != ''
+                      AND evidence_id IS NOT NULL AND TRIM(evidence_id) != '';
+                    DROP TABLE digestion_evidence_reviews;
+                    ALTER TABLE digestion_evidence_reviews__repair RENAME TO digestion_evidence_reviews;
+                    """
+                )
+
             _add_missing_columns("digestion_sources", {
                 "source_kind": "ALTER TABLE digestion_sources ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'vault_file'",
                 "source_label": "ALTER TABLE digestion_sources ADD COLUMN source_label TEXT",
@@ -516,6 +654,54 @@ class DigestionManager:
                 "metadata_json": "ALTER TABLE digestion_evidence_reviews ADD COLUMN metadata_json TEXT",
                 "created_at": "ALTER TABLE digestion_evidence_reviews ADD COLUMN created_at TIMESTAMP",
             })
+            canonical_evidence_record_columns = {
+                "id",
+                "digestion_id",
+                "created_by_user_id",
+                "record_kind",
+                "statement",
+                "summary",
+                "scope",
+                "status",
+                "priority",
+                "confidence",
+                "tags_json",
+                "evidence_refs_json",
+                "source_refs_json",
+                "related_ids_json",
+                "metadata_json",
+                "superseded_by_id",
+                "created_at",
+                "updated_at",
+            }
+            canonical_evidence_review_columns = {
+                "id",
+                "digestion_id",
+                "evidence_id",
+                "reviewer_user_id",
+                "action",
+                "note",
+                "confidence",
+                "evidence_refs_json",
+                "metadata_json",
+                "created_at",
+            }
+            foreign_keys_enabled = 0
+            try:
+                fk_row = conn.execute("PRAGMA foreign_keys").fetchone()
+                foreign_keys_enabled = int((fk_row[0] if fk_row else 0) or 0)
+            except Exception:
+                foreign_keys_enabled = 0
+            if (
+                _table_needs_canonical_rebuild("digestion_evidence_records", canonical_evidence_record_columns)
+                or _table_needs_canonical_rebuild("digestion_evidence_reviews", canonical_evidence_review_columns)
+            ):
+                conn.execute("PRAGMA foreign_keys=OFF")
+                if _table_needs_canonical_rebuild("digestion_evidence_records", canonical_evidence_record_columns):
+                    _rebuild_evidence_records_table()
+                if _table_needs_canonical_rebuild("digestion_evidence_reviews", canonical_evidence_review_columns):
+                    _rebuild_evidence_reviews_table()
+                conn.execute(f"PRAGMA foreign_keys={1 if foreign_keys_enabled else 0}")
             _ensure_unique_text_index(
                 "digestion_evidence_records",
                 "id",
