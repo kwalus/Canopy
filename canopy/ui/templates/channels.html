@@ -1155,6 +1155,114 @@
         max-width: 12rem;
     }
 
+    .channel-quick-mention-rail {
+        display: none;
+        align-items: center;
+        gap: 0.35rem;
+        flex: 1 1 20rem;
+        min-width: 14rem;
+        max-width: min(44rem, 58vw);
+        overflow-x: auto;
+        scrollbar-width: thin;
+        padding: 0.18rem 0.42rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, var(--canopy-primary) 24%);
+        border-radius: 999px;
+        background:
+            radial-gradient(circle at left, color-mix(in srgb, var(--canopy-primary) 16%, transparent), transparent 40%),
+            color-mix(in srgb, var(--canopy-bg-card) 78%, transparent);
+        box-shadow: inset 0 1px 0 color-mix(in srgb, var(--canopy-text-primary) 8%, transparent);
+    }
+    .channel-quick-mention-rail.is-visible {
+        display: flex;
+    }
+    .channel-quick-mention-rail::-webkit-scrollbar {
+        height: 4px;
+    }
+    .channel-quick-mention-rail::-webkit-scrollbar-thumb {
+        background: color-mix(in srgb, var(--canopy-primary) 52%, transparent);
+        border-radius: 999px;
+    }
+    .channel-quick-mention-kicker {
+        flex: 0 0 auto;
+        color: var(--canopy-text-secondary);
+        font-size: 0.62rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 0 0.2rem;
+        white-space: nowrap;
+    }
+    .channel-quick-mention-chip {
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 80%, transparent);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+        color: var(--canopy-text-primary);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        min-width: 0;
+        height: 2rem;
+        padding: 0.17rem 0.52rem 0.17rem 0.2rem;
+        cursor: grab;
+        flex: 0 0 auto;
+        transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+    }
+    .channel-quick-mention-chip:hover,
+    .channel-quick-mention-chip:focus-visible {
+        transform: translateY(-1px);
+        border-color: color-mix(in srgb, var(--canopy-primary) 62%, var(--canopy-border) 38%);
+        background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-tertiary) 82%);
+        box-shadow: 0 10px 22px color-mix(in srgb, var(--canopy-primary) 18%, transparent);
+        outline: none;
+    }
+    .channel-quick-mention-chip:active,
+    .channel-quick-mention-chip.is-dragging {
+        cursor: grabbing;
+        transform: scale(0.97);
+    }
+    .channel-quick-mention-chip.is-agent {
+        border-color: color-mix(in srgb, #38bdf8 38%, var(--canopy-border) 62%);
+    }
+    .channel-quick-mention-avatar {
+        width: 1.55rem;
+        height: 1.55rem;
+        border-radius: 999px;
+        overflow: hidden;
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--canopy-primary) 20%, var(--canopy-bg-tertiary) 80%);
+        color: var(--canopy-text-primary);
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 70%, transparent);
+        font-size: 0.68rem;
+        font-weight: 900;
+    }
+    .channel-quick-mention-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .channel-quick-mention-name {
+        display: inline-block;
+        max-width: 7.8rem;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.78rem;
+        font-weight: 800;
+    }
+    .channel-quick-mention-chip .bi {
+        color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-text-primary) 28%);
+        font-size: 0.85rem;
+    }
+    .file-dropzone.is-mention-drop-target {
+        border-color: var(--canopy-primary);
+        background: color-mix(in srgb, var(--canopy-primary) 9%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--canopy-primary) 16%, transparent);
+    }
+
     .task-inline-toggle {
         display: flex;
         align-items: center;
@@ -5376,6 +5484,16 @@
             margin-bottom: 0.28rem !important;
             gap: 0.28rem;
         }
+        .channel-quick-mention-rail {
+            order: 5;
+            flex-basis: 100%;
+            max-width: 100%;
+            min-width: 0;
+            padding: 0.14rem 0.26rem;
+        }
+        .channel-quick-mention-name {
+            max-width: 5.8rem;
+        }
         .channel-lifespan-label {
             font-size: 0.64rem;
         }
@@ -5507,6 +5625,20 @@
             margin-bottom: 0.18rem !important;
             gap: 0.22rem;
         }
+        .channel-quick-mention-rail {
+            order: 5;
+            flex-basis: 100%;
+            max-width: 100%;
+            min-width: 0;
+            height: 1.95rem;
+        }
+        .channel-quick-mention-kicker {
+            display: none;
+        }
+        .channel-quick-mention-name {
+            max-width: 5.2rem;
+            font-size: 0.72rem;
+        }
         .channel-lifespan-label {
             display: none;
         }
@@ -5559,6 +5691,19 @@
         }
         .channel-lifespan-row {
             margin-bottom: 0.24rem !important;
+        }
+        .channel-quick-mention-rail {
+            flex-basis: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+        .channel-quick-mention-chip {
+            height: 1.9rem;
+            padding-right: 0.45rem;
+        }
+        .channel-quick-mention-avatar {
+            width: 1.42rem;
+            height: 1.42rem;
         }
         #message-input {
             min-height: 31px !important;
@@ -7159,6 +7304,9 @@
                                 <option value="months">Months</option>
                             </select>
                         </div>
+                        <div id="channel-quick-mention-rail"
+                             class="channel-quick-mention-rail"
+                             aria-label="Quick mention commonly referenced channel members"></div>
                     </div>
                     <div id="channel-task-toggle" class="task-inline-toggle mb-2" style="display: none;">
                         <div class="task-inline-info">
@@ -17046,6 +17194,7 @@ function displayMessages(messages, options = {}) {
     const prevScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const preservedAgentRunCapsuleTraceIds = snapshotAgentRunCapsuleTraceState(messagesContainer);
     replaceChannelMessagesSnapshot(messages);
+    renderChannelQuickMentionRail();
     channelAgentRunCapsuleEnrichmentPayloads = {};
     channelAgentRunCapsuleTracePayloads = {};
     
@@ -17059,6 +17208,7 @@ function displayMessages(messages, options = {}) {
         updateChannelHumanThreadFilterBanner();
         messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet</div>';
         messagesContainer.dataset.renderedChannelId = String(currentChannelId || '');
+        renderChannelQuickMentionRail();
         return;
     }
 
@@ -17290,6 +17440,7 @@ function displayMessages(messages, options = {}) {
             }
             syncAgentRunArtifactOverflowStates(messagesContainer);
             scheduleAgentRunCapsuleEnrichments(messagesContainer);
+            renderChannelQuickMentionRail();
 
             const container = document.getElementById('messages-container');
             applyUserAvatarStacks(userInfo, messagesContainer);
@@ -19204,6 +19355,7 @@ function fetchChannelMentionCandidates(channelId, options) {
             channelMentionCacheFetchedAt[channelId] = Date.now();
             if (channelId === currentChannelId) {
                 renderChannelMentionMacroButtons();
+                renderChannelQuickMentionRail();
                 updateChannelMentionThreadFilterUI(channelMentionCache[channelId]);
                 renderChannelMentionFilterPicker();
             }
@@ -19216,6 +19368,7 @@ function fetchChannelMentionCandidates(channelId, options) {
             channelMentionCacheFetchedAt[channelId] = Date.now();
             if (channelId === currentChannelId) {
                 renderChannelMentionMacroButtons();
+                renderChannelQuickMentionRail();
                 updateChannelMentionThreadFilterUI(channelMentionCache[channelId]);
                 renderChannelMentionFilterPicker();
             }
@@ -19394,6 +19547,205 @@ function renderChannelMentionMacroButtons() {
     container.style.display = '';
 }
 
+function normalizeChannelQuickMentionHandle(value) {
+    return String(value || '')
+        .trim()
+        .replace(/^@+/, '')
+        .replace(/\s+/g, '_')
+        .replace(/[^A-Za-z0-9_.-]/g, '');
+}
+
+function getChannelQuickMentionAvatar(user, label) {
+    const avatarUrl = String(user && user.avatar_url || '').trim();
+    if (avatarUrl) {
+        return `<span class="channel-quick-mention-avatar"><img src="${escapeAttr(avatarUrl)}" alt="${escapeAttr(label)}"></span>`;
+    }
+    const initials = String(label || '?')
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map(part => part.slice(0, 1).toUpperCase())
+        .join('') || '?';
+    return `<span class="channel-quick-mention-avatar">${escapeHtml(initials)}</span>`;
+}
+
+function getChannelQuickMentionMessageText(message) {
+    if (!message) return '';
+    const parts = [
+        message.display_content,
+        message.content,
+        message.title,
+        message.source_title,
+        message.preview_text,
+    ];
+    if (Array.isArray(message.attachments)) {
+        message.attachments.forEach((attachment) => {
+            if (!attachment) return;
+            parts.push(attachment.name, attachment.filename, attachment.title);
+        });
+    }
+    return parts.map(value => String(value || '')).filter(Boolean).join(' ');
+}
+
+function channelQuickMentionAlreadyPresent(content, handle) {
+    const clean = normalizeChannelQuickMentionHandle(handle);
+    if (!clean) return true;
+    const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(^|[^A-Za-z0-9_.\\-@])@${escaped}($|[^A-Za-z0-9_.\\-])`, 'i');
+    return pattern.test(String(content || ''));
+}
+
+function scoreChannelQuickMentionUser(user, recentMessages) {
+    if (!user || !user.user_id || user.user_id === currentUserId) return null;
+    const handle = normalizeChannelQuickMentionHandle(getChannelMentionBuilderHandle(user));
+    if (!handle) return null;
+    const handles = Array.from(new Set([
+        handle,
+        ...getMentionFilterHandlesForUser(user),
+    ].map(normalizeChannelQuickMentionHandle).filter(Boolean)));
+    const label = getChannelMentionBuilderLabel(user) || handle;
+    const accountType = normalizeMentionAccountType(user.account_type);
+    let mentionScore = 0;
+    let authorScore = 0;
+    const messages = Array.isArray(recentMessages) ? recentMessages : [];
+    const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    messages.forEach((message, index) => {
+        const recency = messages.length ? (index + 1) / messages.length : 0;
+        if (message && String(message.user_id || '') === String(user.user_id || '')) {
+            authorScore += 0.7 + recency;
+        }
+        const text = getChannelQuickMentionMessageText(message);
+        if (!text) return;
+        handles.forEach(candidateHandle => {
+            const pattern = new RegExp(`(^|[^A-Za-z0-9_.\\-@])@${escapeRegex(candidateHandle)}(?=$|[^A-Za-z0-9_.\\-])`, 'gi');
+            const matches = text.match(pattern);
+            if (matches && matches.length) {
+                mentionScore += matches.length * (8 + (4 * recency));
+            }
+        });
+    });
+
+    const typeBoost = accountType === 'agent' ? 0.45 : 0.25;
+    const presenceBoost = Math.max(0, 5 - getAgentPresenceSortRank(user)) * 0.18;
+    const score = mentionScore + authorScore + typeBoost + presenceBoost;
+    return {
+        user,
+        handle,
+        label,
+        accountType,
+        score,
+        mentionScore,
+        authorScore,
+        presenceRank: getAgentPresenceSortRank(user),
+    };
+}
+
+function getChannelQuickMentionUsers(limit = 10) {
+    const candidates = Array.isArray(channelMentionCache[currentChannelId])
+        ? channelMentionCache[currentChannelId]
+        : [];
+    if (!candidates.length) return [];
+    const recentMessages = (Array.isArray(currentChannelMessagesSnapshot) ? currentChannelMessagesSnapshot : []).slice(-160);
+    const scored = candidates
+        .map(user => scoreChannelQuickMentionUser(user, recentMessages))
+        .filter(Boolean);
+    scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.mentionScore !== a.mentionScore) return b.mentionScore - a.mentionScore;
+        if (a.presenceRank !== b.presenceRank) return a.presenceRank - b.presenceRank;
+        if (a.accountType !== b.accountType) return a.accountType === 'agent' ? -1 : 1;
+        return a.label.localeCompare(b.label);
+    });
+    return scored.slice(0, limit);
+}
+
+function insertChannelQuickMention(handle) {
+    const textarea = document.getElementById('message-input');
+    if (!textarea) return false;
+    const clean = normalizeChannelQuickMentionHandle(handle);
+    if (!clean) return false;
+    const value = textarea.value || '';
+    if (channelQuickMentionAlreadyPresent(value, clean)) {
+        textarea.focus();
+        return false;
+    }
+    const start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : value.length;
+    const end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : start;
+    const before = value.slice(0, start);
+    const after = value.slice(end);
+    const prefix = before && !/\s$/.test(before) ? ' ' : '';
+    const suffix = after && !/^\s/.test(after) ? ' ' : '';
+    const mentionText = `${prefix}@${clean} ${suffix}`;
+    textarea.value = before + mentionText + after;
+    const cursor = before.length + mentionText.length;
+    textarea.focus();
+    textarea.setSelectionRange(cursor, cursor);
+    hideChannelMentionSuggestions();
+    updateChannelTaskToggle();
+    notifyComposerUpdate();
+    return true;
+}
+
+function bindChannelQuickMentionRail(rail) {
+    if (!rail) return;
+    rail.querySelectorAll('.channel-quick-mention-chip').forEach(chip => {
+        const handle = chip.getAttribute('data-mention-handle') || '';
+        chip.addEventListener('click', () => insertChannelQuickMention(handle));
+        chip.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            insertChannelQuickMention(handle);
+        });
+        chip.addEventListener('dragstart', (event) => {
+            chip.classList.add('is-dragging');
+            if (!event.dataTransfer) return;
+            event.dataTransfer.effectAllowed = 'copy';
+            event.dataTransfer.setData('application/x-canopy-mention', handle);
+            event.dataTransfer.setData('text/plain', `@${handle} `);
+        });
+        chip.addEventListener('dragend', () => {
+            chip.classList.remove('is-dragging');
+        });
+    });
+}
+
+function renderChannelQuickMentionRail() {
+    const rail = document.getElementById('channel-quick-mention-rail');
+    if (!rail) return;
+    if (!currentChannelId || !Array.isArray(channelMentionCache[currentChannelId])) {
+        rail.classList.remove('is-visible');
+        rail.innerHTML = '';
+        return;
+    }
+    const entries = getChannelQuickMentionUsers(10);
+    if (!entries.length) {
+        rail.classList.remove('is-visible');
+        rail.innerHTML = '';
+        return;
+    }
+    const chips = entries.map(entry => {
+        const { user, handle, label, accountType, mentionScore } = entry;
+        const title = mentionScore > 0
+            ? `Mention ${label}; commonly referenced in this channel`
+            : `Mention ${label}`;
+        return `<button type="button"
+                    class="channel-quick-mention-chip ${accountType === 'agent' ? 'is-agent' : ''}"
+                    draggable="true"
+                    data-mention-handle="${escapeAttr(handle)}"
+                    data-mention-user-id="${escapeAttr(user.user_id || '')}"
+                    title="${escapeAttr(title)}"
+                    aria-label="Mention ${escapeAttr(label)}">
+            ${getChannelQuickMentionAvatar(user, label)}
+            <span class="channel-quick-mention-name">${escapeHtml(label)}</span>
+            <i class="bi bi-grip-vertical" aria-hidden="true"></i>
+        </button>`;
+    }).join('');
+    rail.innerHTML = `<span class="channel-quick-mention-kicker">Mention</span>${chips}`;
+    rail.classList.add('is-visible');
+    bindChannelQuickMentionRail(rail);
+}
+
 function insertChannelMentionHandles(handles) {
     const textarea = document.getElementById('message-input');
     if (!textarea) return 0;
@@ -19415,6 +19767,7 @@ function insertChannelMentionHandles(handles) {
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     hideChannelMentionSuggestions();
     updateChannelTaskToggle();
+    notifyComposerUpdate();
     return missingHandles.length;
 }
 
@@ -19671,6 +20024,7 @@ function refreshChannelMentionBuilderForChannel(channelId) {
     channelStructuredBuilderFieldsTouched = false;
     renderChannelStructuredBuilderRecipients();
     renderChannelMentionMacroButtons();
+    renderChannelQuickMentionRail();
     updateChannelMentionThreadFilterUI(channelMentionCache[channelId] || []);
     renderChannelMentionFilterPicker();
     fetchChannelMentionCandidates(channelId).then(() => {
@@ -19678,6 +20032,7 @@ function refreshChannelMentionBuilderForChannel(channelId) {
             renderChannelMentionBuilder();
         }
         renderChannelStructuredBuilderRecipients();
+        renderChannelQuickMentionRail();
         updateChannelMentionThreadFilterUI(channelMentionCache[channelId] || []);
         renderChannelMentionFilterPicker();
     });
@@ -20147,6 +20502,7 @@ function appendNewMessages(allMessages) {
     const scrollContainer = document.getElementById('messages-container');
     if (!messagesContainer || !allMessages || allMessages.length === 0) return false;
     mergeChannelMessagesSnapshot(allMessages);
+    renderChannelQuickMentionRail();
 
     // Update message cache
     allMessages.forEach(m => {
@@ -20371,6 +20727,7 @@ function applyChannelMessagesDelta(messages, options = {}) {
     }
     if (incoming.length) {
         mergeChannelMessagesSnapshot(incoming);
+        renderChannelQuickMentionRail();
         incoming.forEach((message) => {
             if (message && message.id) channelMessageCache[message.id] = message;
         });
@@ -20564,6 +20921,7 @@ function loadOlderMessages() {
 
             const messages = data.messages;
             mergeChannelMessagesSnapshot(messages);
+            renderChannelQuickMentionRail();
             // Update page boundary cursor from API order.
             oldestLoadedMessageId = messages[0].id;
 
@@ -26520,6 +26878,22 @@ function handleMessageKeydown(event) {
     }
 }
 
+function isChannelQuickMentionDrag(event) {
+    const types = event && event.dataTransfer && event.dataTransfer.types
+        ? Array.from(event.dataTransfer.types)
+        : [];
+    return types.includes('application/x-canopy-mention');
+}
+
+function getChannelQuickMentionFromDataTransfer(dataTransfer) {
+    if (!dataTransfer) return '';
+    const direct = normalizeChannelQuickMentionHandle(dataTransfer.getData('application/x-canopy-mention'));
+    if (direct) return direct;
+    const plain = String(dataTransfer.getData('text/plain') || '').trim();
+    const match = /^@?([A-Za-z0-9_.-]{2,80})\s*$/.exec(plain);
+    return match ? normalizeChannelQuickMentionHandle(match[1]) : '';
+}
+
 // File upload functionality
 function setupFileUpload() {
     const dropzone = document.getElementById('file-dropzone');
@@ -26528,17 +26902,30 @@ function setupFileUpload() {
     // Drag and drop
     dropzone.addEventListener('dragover', (e) => {
         e.preventDefault();
+        if (isChannelQuickMentionDrag(e)) {
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+            dropzone.classList.add('is-mention-drop-target');
+            dropzone.classList.remove('dragover');
+            return;
+        }
         dropzone.classList.add('dragover');
     });
     
     dropzone.addEventListener('dragleave', (e) => {
         e.preventDefault();
         dropzone.classList.remove('dragover');
+        dropzone.classList.remove('is-mention-drop-target');
     });
     
     dropzone.addEventListener('drop', (e) => {
         e.preventDefault();
         dropzone.classList.remove('dragover');
+        dropzone.classList.remove('is-mention-drop-target');
+        const mentionHandle = getChannelQuickMentionFromDataTransfer(e.dataTransfer);
+        if (mentionHandle) {
+            insertChannelQuickMention(mentionHandle);
+            return;
+        }
         
         const files = Array.from(e.dataTransfer.files);
         addFiles(files);
@@ -28939,6 +29326,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         refreshChannelMentionListOptions();
         renderChannelMentionMacroButtons();
+        renderChannelQuickMentionRail();
 
         if (typeof ensureChannelIndex === 'function') {
             ensureChannelIndex();
