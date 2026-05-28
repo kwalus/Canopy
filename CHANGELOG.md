@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.266] - 2026-05-28
+
+### Added
+- **Channel quick mention chips can be reordered** - users can drag chips within the composer quick mention rail to set a per-channel local order, while drag-to-composer still inserts a mention.
+
+### Changed
+- **Quick mention order stays local and lightweight** - reordered rails are persisted in user-local storage and applied after the existing cache-backed relevance scoring, without adding server requests to channel load.
+
 ## [0.6.265] - 2026-05-28
 
 ### Changed

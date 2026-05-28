@@ -1220,6 +1220,16 @@
         cursor: grabbing;
         transform: scale(0.97);
     }
+    .channel-quick-mention-chip.is-dragging {
+        opacity: 0.72;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--canopy-primary) 34%, transparent);
+    }
+    .channel-quick-mention-rail.is-reordering {
+        border-color: color-mix(in srgb, var(--canopy-primary) 64%, var(--canopy-border) 36%);
+        background:
+            linear-gradient(90deg, color-mix(in srgb, var(--canopy-primary) 18%, transparent), transparent 42%),
+            color-mix(in srgb, var(--canopy-bg-card) 84%, transparent);
+    }
     .channel-quick-mention-chip.is-agent {
         border-color: color-mix(in srgb, #38bdf8 38%, var(--canopy-border) 62%);
     }
@@ -10376,7 +10386,9 @@ const CHANNEL_THREAD_EVENT_TYPES = [
 const channelMentionCache = {};
 const channelMentionCacheFetchedAt = {};
 const CHANNEL_MENTION_CACHE_TTL_MS = 30000;
+const CHANNEL_QUICK_MENTION_ORDER_STORAGE_KEY = `canopy.channel_quick_mentions_order.v1.${currentUserId || 'anon'}`;
 let channelQuickMentionRailSignature = '';
+let channelQuickMentionSuppressClickUntil = 0;
 let channelHashCache = null;
 let channelMentionContext = null;
 let channelMentionBuilderFilter = 'all';
@@ -19643,6 +19655,72 @@ function scoreChannelQuickMentionUser(user, recentMessages) {
     };
 }
 
+function getChannelQuickMentionStorageKey(userOrEntry) {
+    const user = userOrEntry && userOrEntry.user ? userOrEntry.user : userOrEntry;
+    const userId = user && user.user_id ? String(user.user_id) : '';
+    if (userId) return `user:${userId}`;
+    const handle = userOrEntry && userOrEntry.handle
+        ? String(userOrEntry.handle)
+        : normalizeChannelQuickMentionHandle(getChannelMentionBuilderHandle(user));
+    return handle ? `handle:${handle}` : '';
+}
+
+function getStoredChannelQuickMentionOrders() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(CHANNEL_QUICK_MENTION_ORDER_STORAGE_KEY) || '{}');
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function getChannelQuickMentionOrder(channelId = currentChannelId) {
+    const id = String(channelId || '');
+    if (!id) return [];
+    const orders = getStoredChannelQuickMentionOrders();
+    return Array.isArray(orders[id]) ? orders[id].map(value => String(value || '')).filter(Boolean) : [];
+}
+
+function setChannelQuickMentionOrder(keys, channelId = currentChannelId) {
+    const id = String(channelId || '');
+    if (!id) return;
+    const cleanKeys = Array.from(new Set((keys || []).map(value => String(value || '')).filter(Boolean)));
+    const orders = getStoredChannelQuickMentionOrders();
+    if (cleanKeys.length) {
+        orders[id] = cleanKeys;
+    } else {
+        delete orders[id];
+    }
+    try {
+        localStorage.setItem(CHANNEL_QUICK_MENTION_ORDER_STORAGE_KEY, JSON.stringify(orders));
+    } catch (_) {}
+}
+
+function applyChannelQuickMentionOrder(scored) {
+    const entries = Array.isArray(scored) ? scored : [];
+    const order = getChannelQuickMentionOrder();
+    if (!order.length) return entries;
+    const orderMap = new Map(order.map((key, index) => [key, index]));
+    return entries
+        .map((entry, index) => ({ entry, index, key: getChannelQuickMentionStorageKey(entry) }))
+        .sort((a, b) => {
+            const aRank = orderMap.has(a.key) ? orderMap.get(a.key) : Number.POSITIVE_INFINITY;
+            const bRank = orderMap.has(b.key) ? orderMap.get(b.key) : Number.POSITIVE_INFINITY;
+            if (aRank !== bRank) return aRank - bRank;
+            return a.index - b.index;
+        })
+        .map(item => item.entry);
+}
+
+function persistChannelQuickMentionOrderFromRail(rail) {
+    if (!rail || !rail.querySelectorAll) return;
+    const keys = Array.from(rail.querySelectorAll('.channel-quick-mention-chip'))
+        .map(chip => chip.getAttribute('data-mention-order-key') || '')
+        .filter(Boolean);
+    setChannelQuickMentionOrder(keys);
+    channelQuickMentionRailSignature = '';
+}
+
 function getChannelQuickMentionUsers(limit = 10) {
     const candidates = Array.isArray(channelMentionCache[currentChannelId])
         ? channelMentionCache[currentChannelId]
@@ -19659,7 +19737,7 @@ function getChannelQuickMentionUsers(limit = 10) {
         if (a.accountType !== b.accountType) return a.accountType === 'agent' ? -1 : 1;
         return a.label.localeCompare(b.label);
     });
-    return scored.slice(0, limit);
+    return applyChannelQuickMentionOrder(scored).slice(0, limit);
 }
 
 function insertChannelQuickMention(handle) {
@@ -19694,6 +19772,10 @@ function bindChannelQuickMentionRail(rail) {
     if (rail.dataset.quickMentionBound === '1') return;
     rail.dataset.quickMentionBound = '1';
     rail.addEventListener('click', (event) => {
+        if (Date.now() < channelQuickMentionSuppressClickUntil) {
+            event.preventDefault();
+            return;
+        }
         const chip = event.target && event.target.closest ? event.target.closest('.channel-quick-mention-chip') : null;
         if (!chip || !rail.contains(chip)) return;
         const handle = chip.getAttribute('data-mention-handle') || '';
@@ -19711,14 +19793,40 @@ function bindChannelQuickMentionRail(rail) {
         if (!chip || !rail.contains(chip)) return;
         const handle = chip.getAttribute('data-mention-handle') || '';
         chip.classList.add('is-dragging');
+        rail.classList.add('is-reordering');
         if (!event.dataTransfer) return;
-        event.dataTransfer.effectAllowed = 'copy';
+        event.dataTransfer.effectAllowed = 'copyMove';
         event.dataTransfer.setData('application/x-canopy-mention', handle);
+        event.dataTransfer.setData('application/x-canopy-mention-order-key', chip.getAttribute('data-mention-order-key') || '');
         event.dataTransfer.setData('text/plain', `@${handle} `);
+    });
+    rail.addEventListener('dragover', (event) => {
+        if (!isChannelQuickMentionDrag(event)) return;
+        const dragged = rail.querySelector('.channel-quick-mention-chip.is-dragging');
+        if (!dragged) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+        const overChip = event.target && event.target.closest ? event.target.closest('.channel-quick-mention-chip') : null;
+        if (!overChip || overChip === dragged || !rail.contains(overChip)) return;
+        const rect = overChip.getBoundingClientRect();
+        const before = event.clientX < (rect.left + rect.width / 2);
+        rail.insertBefore(dragged, before ? overChip : overChip.nextSibling);
+    });
+    rail.addEventListener('drop', (event) => {
+        if (!isChannelQuickMentionDrag(event)) return;
+        const dragged = rail.querySelector('.channel-quick-mention-chip.is-dragging');
+        if (!dragged) return;
+        event.preventDefault();
+        rail.classList.remove('is-reordering');
+        dragged.classList.remove('is-dragging');
+        channelQuickMentionSuppressClickUntil = Date.now() + 450;
+        persistChannelQuickMentionOrderFromRail(rail);
+        renderChannelQuickMentionRail();
     });
     rail.addEventListener('dragend', (event) => {
         const chip = event.target && event.target.closest ? event.target.closest('.channel-quick-mention-chip') : null;
         if (chip) chip.classList.remove('is-dragging');
+        rail.classList.remove('is-reordering');
     });
 }
 
@@ -19751,6 +19859,7 @@ function renderChannelQuickMentionRail() {
     }
     const chips = entries.map(entry => {
         const { user, handle, label, accountType, mentionScore } = entry;
+        const orderKey = getChannelQuickMentionStorageKey(entry);
         const title = mentionScore > 0
             ? `Mention ${label}; commonly referenced in this channel`
             : `Mention ${label}`;
@@ -19758,6 +19867,7 @@ function renderChannelQuickMentionRail() {
                     class="channel-quick-mention-chip ${accountType === 'agent' ? 'is-agent' : ''}"
                     draggable="true"
                     data-mention-handle="${escapeAttr(handle)}"
+                    data-mention-order-key="${escapeAttr(orderKey)}"
                     data-mention-user-id="${escapeAttr(user.user_id || '')}"
                     title="${escapeAttr(title)}"
                     aria-label="Mention ${escapeAttr(label)}">
