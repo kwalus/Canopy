@@ -14854,13 +14854,98 @@ const AGENT_RUN_CAPSULE_LLM_MAX_MESSAGES = 12;
 const AGENT_RUN_CAPSULE_LLM_MAX_ARTIFACTS = 10;
 const AGENT_RUN_CAPSULE_LLM_TIMEOUT_MS = 8000;
 const AGENT_RUN_CAPSULE_LLM_MAX_VISIBLE_PER_BATCH = 4;
+const CHANNEL_AGENT_RUN_CAPSULE_TRACE_STATE_LIMIT = 200;
 let channelAgentRunCapsuleEnrichmentPayloads = {};
 let channelAgentRunCapsuleTracePayloads = {};
+let channelAgentRunCapsuleTraceStateByChannel = new Map();
 let channelAgentRunCapsuleEnrichmentCache = new Map();
 let channelAgentRunCapsuleEnrichmentQueue = [];
 let channelAgentRunCapsuleEnrichmentActive = 0;
 let channelAgentRunCapsuleEnrichmentScheduled = false;
 let channelAgentRunCapsuleLlmUnavailableUntil = 0;
+
+function getChannelAgentRunCapsuleTraceStateKey(channelId = currentChannelId) {
+    return String(channelId || '').trim();
+}
+
+function getChannelAgentRunCapsuleTraceState(channelId = currentChannelId) {
+    const key = getChannelAgentRunCapsuleTraceStateKey(channelId);
+    if (!key) return new Set();
+    let openIds = channelAgentRunCapsuleTraceStateByChannel.get(key);
+    if (!(openIds instanceof Set)) {
+        openIds = new Set(Array.isArray(openIds) ? openIds : []);
+        channelAgentRunCapsuleTraceStateByChannel.set(key, openIds);
+    }
+    return openIds;
+}
+
+function rememberAgentRunCapsuleTraceState(capsuleId, expanded, channelId = currentChannelId) {
+    const id = String(capsuleId || '').trim();
+    if (!id) return;
+    const openIds = getChannelAgentRunCapsuleTraceState(channelId);
+    if (expanded) {
+        openIds.add(id);
+        while (openIds.size > CHANNEL_AGENT_RUN_CAPSULE_TRACE_STATE_LIMIT) {
+            const first = openIds.values().next().value;
+            openIds.delete(first);
+        }
+    } else {
+        openIds.delete(id);
+    }
+}
+
+function getOpenAgentRunCapsuleTraceIds(root = document) {
+    const openIds = new Set();
+    if (!root || !root.querySelectorAll) return openIds;
+    root.querySelectorAll('.agent-run-capsule.is-expanded[data-agent-run-capsule]').forEach((capsule) => {
+        const id = String(capsule.dataset.agentRunCapsule || '').trim();
+        if (id) openIds.add(id);
+    });
+    return openIds;
+}
+
+function snapshotAgentRunCapsuleTraceState(root = document, channelId = currentChannelId) {
+    const remembered = getChannelAgentRunCapsuleTraceState(channelId);
+    const renderedChannelId = root && root.dataset ? String(root.dataset.renderedChannelId || '') : '';
+    const targetChannelId = String(channelId || '');
+    if (!renderedChannelId || renderedChannelId === targetChannelId) {
+        getOpenAgentRunCapsuleTraceIds(root).forEach((id) => remembered.add(id));
+    }
+    return new Set(remembered);
+}
+
+function setAgentRunCapsuleTraceExpanded(capsule, expanded) {
+    if (!capsule) return;
+    const isExpanded = !!expanded;
+    capsule.classList.toggle('is-expanded', isExpanded);
+    const button = capsule.querySelector('.agent-run-capsule-actions button[aria-expanded]');
+    if (button) {
+        button.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+        button.innerHTML = isExpanded
+            ? '<i class="bi bi-arrows-collapse me-1"></i><span>Hide trace</span>'
+            : '<i class="bi bi-arrows-expand me-1"></i><span>Show trace</span>';
+    }
+    if (isExpanded) {
+        const trace = capsule.querySelector('.agent-run-capsule-trace');
+        renderAgentRunCapsuleTrace(capsule);
+        scheduleChannelSourceLayouts(trace);
+        hydrateChannelReactionControls();
+        if (typeof applyCanopyFileReferenceLabels === 'function') {
+            applyCanopyFileReferenceLabels(trace);
+        }
+        syncAgentRunArtifactOverflowStates(capsule);
+    }
+}
+
+function restoreAgentRunCapsuleTraceState(root, openIds) {
+    if (!root || !root.querySelectorAll || !(openIds instanceof Set) || openIds.size === 0) return;
+    root.querySelectorAll('.agent-run-capsule[data-agent-run-capsule]').forEach((capsule) => {
+        const id = String(capsule.dataset.agentRunCapsule || '').trim();
+        if (id && openIds.has(id)) {
+            setAgentRunCapsuleTraceExpanded(capsule, true);
+        }
+    });
+}
 
 function shortAgentRunEntityId(id) {
     const value = String(id || '').trim();
@@ -16715,21 +16800,8 @@ function toggleAgentRunCapsuleTrace(button) {
     const capsule = button ? button.closest('.agent-run-capsule') : null;
     if (!capsule) return;
     const expanded = !capsule.classList.contains('is-expanded');
-    capsule.classList.toggle('is-expanded', expanded);
-    button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-    button.innerHTML = expanded
-        ? '<i class="bi bi-arrows-collapse me-1"></i><span>Hide trace</span>'
-        : '<i class="bi bi-arrows-expand me-1"></i><span>Show trace</span>';
-    if (expanded) {
-        const trace = capsule.querySelector('.agent-run-capsule-trace');
-        renderAgentRunCapsuleTrace(capsule);
-        scheduleChannelSourceLayouts(trace);
-        hydrateChannelReactionControls();
-        if (typeof applyCanopyFileReferenceLabels === 'function') {
-            applyCanopyFileReferenceLabels(trace);
-        }
-        syncAgentRunArtifactOverflowStates(capsule);
-    }
+    rememberAgentRunCapsuleTraceState(capsule.dataset.agentRunCapsule || '', expanded);
+    setAgentRunCapsuleTraceExpanded(capsule, expanded);
 }
 
 function focusAgentRunCapsuleSource(capsuleId, messageId) {
@@ -16972,6 +17044,7 @@ function displayMessages(messages, options = {}) {
     const scrollContainer = document.getElementById('messages-container');
     const wasNearBottom = isNearBottom(scrollContainer);
     const prevScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+    const preservedAgentRunCapsuleTraceIds = snapshotAgentRunCapsuleTraceState(messagesContainer);
     replaceChannelMessagesSnapshot(messages);
     channelAgentRunCapsuleEnrichmentPayloads = {};
     channelAgentRunCapsuleTracePayloads = {};
@@ -16985,6 +17058,7 @@ function displayMessages(messages, options = {}) {
         currentChannelAgentRunCapsuleStats = { capsules: 0, compressedMessages: 0, agents: 0, level: getChannelAgentRunCapsuleLevel() };
         updateChannelHumanThreadFilterBanner();
         messagesContainer.innerHTML = '<div class="text-center text-muted p-4">No messages yet</div>';
+        messagesContainer.dataset.renderedChannelId = String(currentChannelId || '');
         return;
     }
 
@@ -17193,6 +17267,8 @@ function displayMessages(messages, options = {}) {
                 </div>`;
             }
             messagesContainer.innerHTML = latestFirstThreads ? (html + olderBanner) : (olderBanner + html);
+            messagesContainer.dataset.renderedChannelId = String(currentChannelId || '');
+            restoreAgentRunCapsuleTraceState(messagesContainer, preservedAgentRunCapsuleTraceIds);
             applyChannelThreadViewPresentation(messagesContainer, visibleRootMessages, repliesByRoot);
 
             formatTimestamps(messagesContainer);
