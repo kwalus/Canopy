@@ -15579,6 +15579,7 @@ function selectAgentRunCapsuleMessagesForEnrichment(run) {
 function buildAgentRunCapsuleEnrichmentPayload(capsuleId, run, participants, directArtifacts, brief, title, summary, status, options = {}) {
     const selectedMessages = selectAgentRunCapsuleMessagesForEnrichment(run);
     const deckItems = Array.isArray(options.deckItems) ? options.deckItems : [];
+    const workEffort = options.workEffort && typeof options.workEffort === 'object' ? options.workEffort : null;
     const deterministic = {
         title: title || '',
         overview: summary || '',
@@ -15599,6 +15600,16 @@ function buildAgentRunCapsuleEnrichmentPayload(capsuleId, run, participants, dir
         artifact_count: Array.isArray(directArtifacts) ? directArtifacts.length : 0,
         deck_item_count: deckItems.length,
         deterministic,
+        work_effort: workEffort ? {
+            tag: String(workEffort.tag || ''),
+            lede: String(workEffort.lede || ''),
+            phases: (Array.isArray(workEffort.phases) ? workEffort.phases : []).slice(0, 6).map((phase) => ({
+                key: String(phase && phase.key || ''),
+                label: String(phase && phase.label || ''),
+                count: Number(phase && phase.count || 0) || 0,
+                message_id: String(phase && phase.messageId || ''),
+            })),
+        } : {},
         participants: (participants || []).slice(0, 8).map((user) => ({
             user_id: String(user && user.user_id || ''),
             username: String(user && user.username || ''),
@@ -16768,7 +16779,7 @@ function buildAgentRunWorkEffort(messages, brief, status, directArtifacts, deckI
 function renderAgentRunWorkEffortPhaseRail(workEffort, capsuleId) {
     const phases = Array.isArray(workEffort && workEffort.phases) ? workEffort.phases : [];
     if (!phases.length) return '';
-    return `<div class="agent-run-capsule-work-effort-arc" aria-label="Work effort phases">
+    return `<div class="agent-run-capsule-work-effort-arc" data-agent-run-work-effort-arc="1" aria-label="Work effort phases">
         ${phases.map((phase) => `
             <button type="button"
                     class="agent-run-capsule-work-effort-phase"
@@ -16783,8 +16794,10 @@ function renderAgentRunWorkEffortPhaseRail(workEffort, capsuleId) {
     </div>`;
 }
 
-function renderAgentRunWorkEffortPanel(messages, brief, status, directArtifacts, deckItems, participants, capsuleId, userInfo = {}) {
-    const workEffort = buildAgentRunWorkEffort(messages, brief, status, directArtifacts, deckItems, participants, userInfo);
+function renderAgentRunWorkEffortPanel(messages, brief, status, directArtifacts, deckItems, participants, capsuleId, userInfo = {}, workEffortOverride = null) {
+    const workEffort = workEffortOverride && typeof workEffortOverride === 'object'
+        ? workEffortOverride
+        : buildAgentRunWorkEffort(messages, brief, status, directArtifacts, deckItems, participants, userInfo);
     const rows = [
         { key: 'key_update', label: 'What changed', value: brief && brief.keyUpdate, messageId: brief && brief.keyUpdateMessageId, icon: 'bi-check2-circle', className: ' is-primary' },
         { key: 'attention', label: 'Needs attention', value: brief && brief.attention, messageId: brief && brief.attentionMessageId, icon: 'bi-person-raised-hand', className: ' needs-human' },
@@ -16795,11 +16808,11 @@ function renderAgentRunWorkEffortPanel(messages, brief, status, directArtifacts,
     return `<div class="agent-run-capsule-work-effort" data-agent-run-capsule-work-effort="${escapeAttr(capsuleId)}">
         <div class="agent-run-capsule-work-effort-head">
             <div class="agent-run-capsule-work-effort-kicker"><i class="bi bi-bezier2"></i>Work effort</div>
-            <span class="agent-run-capsule-work-effort-tag" title="${escapeAttr(workEffort.tag || '')}">
+            <span class="agent-run-capsule-work-effort-tag" data-agent-run-work-effort-field="tag" title="${escapeAttr(workEffort.tag || '')}">
                 <i class="bi ${escapeAttr(status && status.icon || 'bi-activity')}"></i>${escapeHtml(workEffort.tag || 'Compressed run')}
             </span>
         </div>
-        <div class="agent-run-capsule-work-effort-lede">${escapeHtml(workEffort.lede || '')}</div>
+        <div class="agent-run-capsule-work-effort-lede" data-agent-run-work-effort-field="lede">${escapeHtml(workEffort.lede || '')}</div>
         ${renderAgentRunWorkEffortPhaseRail(workEffort, capsuleId)}
         <div class="agent-run-capsule-work-effort-grid agent-run-capsule-brief">
             ${visibleRows.map(row => `
@@ -16926,6 +16939,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
     const summary = brief.overview || getAgentRunSummary(run);
     const levelConfig = options.levelConfig || getChannelAgentRunCapsuleLevelConfig();
     const capsuleKind = options.capsuleKind || 'reply';
+    const workEffort = buildAgentRunWorkEffort(run, brief, status, directArtifacts, deckItems, participants, userInfo || {});
     const enrichmentPayload = buildAgentRunCapsuleEnrichmentPayload(
         capsuleId,
         run,
@@ -16935,7 +16949,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
         title,
         summary,
         status,
-        { levelConfig, capsuleKind, deckItems }
+        { levelConfig, capsuleKind, deckItems, workEffort }
     );
     channelAgentRunCapsuleEnrichmentPayloads[capsuleId] = enrichmentPayload;
     registerAgentRunCapsuleStats(options.statsCollector, run, participants);
@@ -16989,7 +17003,7 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
                     <div class="agent-run-capsule-eyebrow"><i class="bi bi-layers-fill"></i> Agent run capsule</div>
                     <div class="agent-run-capsule-title" data-agent-run-capsule-field="title">${escapeHtml(title)}</div>
                     <div class="agent-run-capsule-summary" data-agent-run-capsule-field="overview">${escapeHtml(summary)}</div>
-                    ${renderAgentRunWorkEffortPanel(run, brief, status, directArtifacts, deckItems, participants, capsuleId, userInfo || {})}
+                    ${renderAgentRunWorkEffortPanel(run, brief, status, directArtifacts, deckItems, participants, capsuleId, userInfo || {}, workEffort)}
                     ${renderAgentRunCapsuleArtifactRail(directArtifacts, capsuleId)}
                     <div class="agent-run-capsule-meta">
                         <span class="agent-run-capsule-status status-${escapeAttr(status.key)}">
@@ -17137,6 +17151,60 @@ function applyAgentRunCapsuleWorkproducts(capsule, summary) {
     syncAgentRunArtifactOverflowStates(capsule);
 }
 
+function normalizeAgentRunLlmWorkEffort(summary) {
+    const raw = summary && summary.work_effort && typeof summary.work_effort === 'object' ? summary.work_effort : null;
+    if (!raw) return null;
+    const phases = Array.isArray(raw.phases)
+        ? raw.phases
+            .filter(item => item && typeof item === 'object')
+            .slice(0, 6)
+            .map((item) => {
+                const key = String(item.key || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+                const spec = AGENT_RUN_WORK_EFFORT_PHASE_SPECS[key] || {};
+                const label = truncateAgentRunText(item.label || spec.label || 'Phase', 42);
+                if (!label) return null;
+                return {
+                    key: key || label.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+                    label,
+                    icon: item.icon || spec.icon || 'circle',
+                    color: item.color || spec.color || '#34d399',
+                    count: Math.max(1, Math.min(99, Number(item.count || 1) || 1)),
+                    messageId: String(item.message_id || item.messageId || ''),
+                    title: truncateAgentRunText(item.title || `Open ${label} source`, 120),
+                };
+            })
+            .filter(Boolean)
+        : [];
+    return {
+        tag: truncateAgentRunText(raw.tag || raw.label || '', 90),
+        lede: truncateAgentRunText(raw.lede || raw.summary || '', 220),
+        phases,
+    };
+}
+
+function applyAgentRunCapsuleWorkEffort(capsule, summary) {
+    if (!capsule || !summary) return;
+    const capsuleId = String(capsule.dataset.agentRunCapsule || '');
+    const workEffort = normalizeAgentRunLlmWorkEffort(summary);
+    if (!workEffort) return;
+    const tagNode = capsule.querySelector('[data-agent-run-work-effort-field="tag"]');
+    if (tagNode && workEffort.tag) {
+        const iconHtml = tagNode.querySelector('i') ? tagNode.querySelector('i').outerHTML : '<i class="bi bi-stars"></i>';
+        tagNode.innerHTML = `${iconHtml}${escapeHtml(workEffort.tag)}`;
+        tagNode.setAttribute('title', workEffort.tag);
+    }
+    const ledeNode = capsule.querySelector('[data-agent-run-work-effort-field="lede"]');
+    if (ledeNode && workEffort.lede) {
+        ledeNode.textContent = workEffort.lede;
+    }
+    if (workEffort.phases.length) {
+        const arc = capsule.querySelector('[data-agent-run-work-effort-arc="1"]');
+        if (arc) {
+            arc.outerHTML = renderAgentRunWorkEffortPhaseRail(workEffort, capsuleId);
+        }
+    }
+}
+
 function applyAgentRunCapsuleEnrichment(capsule, result) {
     if (!capsule || !result || !result.summary) return;
     const summary = result.summary || {};
@@ -17164,6 +17232,7 @@ function applyAgentRunCapsuleEnrichment(capsule, result) {
         copyButton.setAttribute('data-copy-summary', encodeURIComponent(copySummary));
     }
     applyAgentRunCapsuleWorkproducts(capsule, summary);
+    applyAgentRunCapsuleWorkEffort(capsule, summary);
     capsule.dataset.agentRunCapsuleEnrichmentState = result.cached ? 'cached' : 'enriched';
 }
 

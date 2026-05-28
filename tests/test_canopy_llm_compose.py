@@ -228,6 +228,11 @@ class _FakeLLMManager:
                 'attention': '',
                 'source_trail': '1 file source, 2 source posts',
                 'next_action': 'Open the file or reply with review instructions.',
+                'work_effort': {
+                    'tag': 'Complete • 1 file',
+                    'lede': 'Forge produced one source-linked output for review.',
+                    'phases': [{'key': 'output', 'label': 'Output', 'count': 1, 'message_id': 'M1'}],
+                },
             },
             'provider': 'openai',
             'model': 'gpt-5-mini',
@@ -1088,6 +1093,14 @@ class TestCanopyLLMManager(unittest.TestCase):
                 'attention': 'Owner access is needed before indexing.',
                 'source_trail': '2 file sources, 3 source posts',
                 'next_action': 'Grant access or open the trace to inspect the files.',
+                'work_effort': {
+                    'tag': 'Needs review • 2 files',
+                    'lede': 'New files were found, but owner access is still required.',
+                    'phases': [
+                        {'key': 'output', 'label': 'Files gathered', 'count': 2, 'message_id': 'M19'},
+                        {'key': 'review', 'label': 'Owner review', 'count': 1, 'message_id': 'M19'},
+                    ],
+                },
                 'workproducts': [
                     {'type': 'Finding', 'label': 'Open-access source list verified', 'message_id': 'M19'},
                 ],
@@ -1101,6 +1114,11 @@ class TestCanopyLLMManager(unittest.TestCase):
                 'channel_id': 'general',
                 'capsule_kind': 'reply',
                 'level': 'Max',
+                'work_effort': {
+                    'tag': 'Fallback • 2 files',
+                    'lede': 'Fallback work effort lede.',
+                    'phases': [{'key': 'output', 'label': 'Output', 'count': 2, 'message_id': 'M19'}],
+                },
                 'deterministic': {
                     'title': 'Source and file work run',
                     'overview': 'Gene reached a checkpoint.',
@@ -1125,7 +1143,11 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertIn('Prefer short operational checkpoints.', captured['prompt'])
         self.assertIn('fleetops-teleops', captured['prompt'])
         self.assertIn('workproducts', captured['system_prompt'])
+        self.assertIn('work_effort', captured['system_prompt'])
+        self.assertIn('Fallback work effort lede.', captured['prompt'])
         self.assertEqual(result['summary']['title'], 'Files ready for review')
+        self.assertEqual(result['summary']['work_effort']['tag'], 'Needs review • 2 files')
+        self.assertEqual(result['summary']['work_effort']['phases'][0]['message_id'], 'M19')
         self.assertEqual(result['summary']['workproducts'][0]['label'], 'Open-access source list verified')
         self.assertEqual(result['summary']['workproducts'][0]['message_id'], 'M19')
         self.assertEqual(result['credential_source'], 'user')

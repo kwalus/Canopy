@@ -184,12 +184,13 @@ _OPENAI_WEB_SEARCH_TOOL_STATUSES = {
 CANOPY_CAPSULE_LLM_SYSTEM_PROMPT = """
 You are Canopy's agent-run capsule summarizer. Rewrite a deterministic channel capsule into a concise,
 human-actionable checkpoint for a busy collaborator. Output strict JSON only, with keys:
-title, overview, key_update, attention, source_trail, next_action, workproducts.
+title, overview, key_update, attention, source_trail, next_action, work_effort, workproducts.
 
 Rules:
 - Use only the supplied capsule packet. Do not invent files, teammates, conclusions, or permissions.
 - Make the summary useful at a glance: surface concrete outputs, blockers, access requests, files, Digestions, or decisions.
 - Keep each value short. Empty string is allowed for attention when no blocker or human decision is visible.
+- work_effort must be an object with optional tag, lede, and phases. Phases should be up to 6 short source-linked work stages using keys from context, coordinate, structure, output, validate, review when possible.
 - workproducts must be an array of up to 4 source-linked items with type, label, and message_id when the packet contains a concrete work product that is not already obvious as a file.
 - Prefer plain operational language over chatbot narration.
 - Do not include markdown fences, bullets, HTML, or commentary outside the JSON object.
@@ -1741,6 +1742,27 @@ class CanopyLLMManager:
                 'message_id': self._compact_compose_text(item.get('message_id'), limit=80),
             })
 
+        work_effort_raw = payload.get('work_effort') if isinstance(payload.get('work_effort'), dict) else {}
+        work_effort_phases: list[dict[str, Any]] = []
+        for item in (work_effort_raw.get('phases') if isinstance(work_effort_raw.get('phases'), list) else [])[:6]:
+            if not isinstance(item, dict):
+                continue
+            label = self._compact_compose_text(item.get('label'), limit=48)
+            key = self._compact_compose_text(item.get('key'), limit=28).lower()
+            message_id = self._compact_compose_text(item.get('message_id') or item.get('messageId'), limit=80)
+            if not label and not key:
+                continue
+            try:
+                count = max(0, min(int(item.get('count') or 0), 99))
+            except (TypeError, ValueError):
+                count = 0
+            work_effort_phases.append({
+                'key': key,
+                'label': label,
+                'count': count,
+                'message_id': message_id,
+            })
+
         packet = {
             'capsule_id': self._compact_compose_text(payload.get('capsule_id'), limit=160),
             'channel_id': self._compact_compose_text(payload.get('channel_id'), limit=160),
@@ -1749,6 +1771,11 @@ class CanopyLLMManager:
             'message_count': bounded_count(payload.get('message_count'), len(messages)),
             'artifact_count': bounded_count(payload.get('artifact_count'), len(artifacts)),
             'deterministic': deterministic,
+            'work_effort': {
+                'tag': self._compact_compose_text(work_effort_raw.get('tag'), limit=100),
+                'lede': self._compact_compose_text(work_effort_raw.get('lede'), limit=240),
+                'phases': work_effort_phases,
+            },
             'participants': participants,
             'artifacts': artifacts,
             'messages': messages,
@@ -1765,6 +1792,7 @@ class CanopyLLMManager:
             'message_count': packet.get('message_count') or 0,
             'artifact_count': packet.get('artifact_count') or 0,
             'deterministic': packet.get('deterministic') or {},
+            'work_effort': packet.get('work_effort') or {},
             'participants': packet.get('participants') or [],
             'artifacts': packet.get('artifacts') or [],
             'messages': packet.get('messages') or [],
@@ -1837,6 +1865,52 @@ class CanopyLLMManager:
                 break
         return normalized
 
+    def _normalize_capsule_work_effort(self, raw: Any, packet: dict[str, Any]) -> dict[str, Any]:
+        fallback = packet.get('work_effort') if isinstance(packet.get('work_effort'), dict) else {}
+        source_message_ids = {
+            str(item.get('id') or '').strip()
+            for item in (packet.get('messages') if isinstance(packet.get('messages'), list) else [])
+            if isinstance(item, dict) and str(item.get('id') or '').strip()
+        }
+        allowed_phase_keys = {'context', 'coordinate', 'structure', 'output', 'validate', 'review'}
+        source = raw if isinstance(raw, dict) else {}
+        phases_raw = source.get('phases') if isinstance(source.get('phases'), list) else fallback.get('phases')
+        phases: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for item in (phases_raw if isinstance(phases_raw, list) else [])[:8]:
+            if not isinstance(item, dict):
+                continue
+            key = re.sub(r'[^a-z0-9_-]+', '', str(item.get('key') or '').lower()).strip()
+            if key not in allowed_phase_keys:
+                key = ''
+            label = self._compact_compose_text(item.get('label') or key.replace('_', ' ').title(), limit=44)
+            if not label:
+                continue
+            message_id = self._compact_compose_text(item.get('message_id') or item.get('source_message_id'), limit=80)
+            if message_id and source_message_ids and message_id not in source_message_ids:
+                message_id = ''
+            try:
+                count = max(1, min(int(item.get('count') or 1), 99))
+            except (TypeError, ValueError):
+                count = 1
+            phase_key = (key or label.lower(), label.lower(), message_id)
+            if phase_key in seen:
+                continue
+            seen.add(phase_key)
+            phases.append({
+                'key': key,
+                'label': label,
+                'count': count,
+                'message_id': message_id,
+            })
+            if len(phases) >= 6:
+                break
+        return {
+            'tag': self._compact_compose_text(source.get('tag') or source.get('label') or fallback.get('tag'), limit=90),
+            'lede': self._compact_compose_text(source.get('lede') or source.get('summary') or fallback.get('lede'), limit=220),
+            'phases': phases,
+        }
+
     def _parse_capsule_summary_output(self, output: Any, packet: dict[str, Any]) -> dict[str, Any]:
         text = str(output or '').strip()
         if not text:
@@ -1867,6 +1941,7 @@ class CanopyLLMManager:
             'attention': self._compact_compose_text(parsed.get('attention') or '', limit=200),
             'source_trail': self._compact_compose_text(parsed.get('source_trail') or deterministic.get('source_trail'), limit=180),
             'next_action': self._compact_compose_text(parsed.get('next_action') or deterministic.get('next_action'), limit=180),
+            'work_effort': self._normalize_capsule_work_effort(parsed.get('work_effort'), packet),
             'workproducts': self._normalize_capsule_workproducts(parsed.get('workproducts'), packet),
         }
         if not any(summary.get(key) for key in ('title', 'overview', 'key_update', 'next_action')):
@@ -1909,6 +1984,7 @@ class CanopyLLMManager:
                 'attention': self._compact_compose_text(summary.get('attention'), limit=200),
                 'source_trail': self._compact_compose_text(summary.get('source_trail'), limit=180),
                 'next_action': self._compact_compose_text(summary.get('next_action'), limit=180),
+                'work_effort': self._normalize_capsule_work_effort(summary.get('work_effort'), {'messages': [], 'artifacts': []}),
                 'workproducts': self._normalize_capsule_workproducts(summary.get('workproducts'), {'messages': [], 'artifacts': []}),
             },
             'provider': self._row_value(row, 'provider', 1, ''),
