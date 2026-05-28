@@ -602,6 +602,69 @@ class TestDigestions(unittest.TestCase):
         )
         self.assertEqual(review['record']['status'], 'stable')
 
+    def test_evidence_schema_backfills_legacy_non_unique_ids(self) -> None:
+        legacy_conn = sqlite3.connect(':memory:')
+        legacy_conn.row_factory = sqlite3.Row
+        self.addCleanup(legacy_conn.close)
+        legacy_conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, avatar_file_id TEXT, origin_peer TEXT, username TEXT)")
+        legacy_conn.execute("INSERT INTO users (id, username) VALUES (?, ?)", ('owner-user', 'owner-user'))
+        legacy_conn.execute(
+            """
+            CREATE TABLE digestion_evidence_records (
+                id TEXT,
+                digestion_id TEXT,
+                created_by_user_id TEXT,
+                statement TEXT,
+                status TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        legacy_conn.execute(
+            """
+            CREATE TABLE digestion_evidence_reviews (
+                id TEXT,
+                digestion_id TEXT,
+                evidence_id TEXT,
+                reviewer_user_id TEXT,
+                action TEXT,
+                created_at TIMESTAMP
+            )
+            """
+        )
+        legacy_conn.commit()
+
+        legacy_db = _FakeDbManager(legacy_conn)
+        legacy_files = FileManager(legacy_db, str(Path(self.tempdir.name) / 'legacy-nonunique-files'))
+        legacy_manager = DigestionManager(legacy_db, legacy_files)
+        unique_indexes = {
+            str(row['name'])
+            for row in legacy_conn.execute("PRAGMA index_list(digestion_evidence_records)").fetchall()
+            if int(row['unique'] or 0)
+        }
+        self.assertIn('idx_digestion_evidence_records_id_unique', unique_indexes)
+
+        digestion = legacy_manager.create_digestion('owner-user', name='Legacy evidence uniqueness', provider='local_hash')
+        append_result = legacy_manager.append_evidence_records(
+            digestion['id'],
+            'owner-user',
+            records=[{'id': 'ErLegacyFixed', 'statement': 'Legacy non-unique schemas still accept evidence appends.'}],
+        )
+        self.assertTrue(append_result['success'])
+        update_result = legacy_manager.append_evidence_records(
+            digestion['id'],
+            'owner-user',
+            records=[{'id': 'ErLegacyFixed', 'statement': 'Legacy non-unique schemas update an existing evidence id.'}],
+        )
+        self.assertTrue(update_result['success'])
+        row_count = legacy_conn.execute(
+            "SELECT COUNT(*) AS count FROM digestion_evidence_records WHERE id = ?",
+            ('ErLegacyFixed',),
+        ).fetchone()['count']
+        self.assertEqual(row_count, 1)
+        self.assertEqual(update_result['records'][0]['statement'], 'Legacy non-unique schemas update an existing evidence id.')
+
     def test_digestion_indexes_common_business_documents(self) -> None:
         docx = self._save_bytes(
             'planning-memo.docx',
@@ -2504,6 +2567,14 @@ class TestDigestions(unittest.TestCase):
             append_payload = append_response.get_json() or {}
             self.assertTrue(append_payload['success'])
             evidence_id = append_payload['records'][0]['id']
+            self.digestion_manager.grant_access(
+                digestion['id'],
+                'owner-user',
+                'reader-user',
+                can_query=True,
+                can_manage=False,
+                can_read_sources=False,
+            )
 
             search_response = client.post(
                 f'/api/v1/digestions/{digestion["id"]}/evidence',
@@ -2531,6 +2602,36 @@ class TestDigestions(unittest.TestCase):
             )
             self.assertEqual(list_response.status_code, 200)
             self.assertEqual((list_response.get_json() or {})['count'], 1)
+
+            reader_search_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'search', 'query': 'truth-maintenance'},
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(reader_search_response.status_code, 200)
+            self.assertEqual((reader_search_response.get_json() or {})['count'], 1)
+
+            reader_list_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'list'},
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(reader_list_response.status_code, 200)
+            self.assertEqual((reader_list_response.get_json() or {})['count'], 1)
+
+            reader_append_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'append', 'records': [{'statement': 'Reader should not append.'}]},
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(reader_append_response.status_code, 403)
+
+            reader_review_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'confirm', 'evidence_id': evidence_id},
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(reader_review_response.status_code, 403)
 
     def test_digestion_rest_manager_can_add_vault_sources(self) -> None:
         manager_source = self._save_text(

@@ -11580,7 +11580,7 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/digestions/<digestion_id>/evidence', methods=['POST'])
-    @require_auth(Permission.WRITE_FILES)
+    @require_auth()
     def append_digestion_evidence_api(digestion_id: str):
         """Append durable evidence records to a managed Digestion.
 
@@ -11594,6 +11594,11 @@ def create_api_blueprint() -> Blueprint:
         data = request.get_json(silent=True) or {}
         try:
             action = str(data.get('action') or data.get('mode') or 'append').strip().lower().replace('-', '_')
+            review_actions = {'support', 'challenge', 'refine', 'supersede', 'mark_stale', 'request_source', 'confirm'}
+            required_permission = Permission.READ_FILES if action in {'search', 'query', 'find', 'list', 'read', 'get'} else Permission.WRITE_FILES
+            key_info = getattr(g, 'api_key_info', None)
+            if not key_info or not key_info.has_permission(required_permission):
+                return jsonify({'error': 'Invalid or insufficient permissions'}), 403
             if action in {'search', 'query', 'find'}:
                 return jsonify(manager.search_evidence_records(
                     digestion_id,
@@ -11613,7 +11618,6 @@ def create_api_blueprint() -> Blueprint:
                     limit=_api_int_param(data.get('limit') or data.get('top_k'), default=100, minimum=1, maximum=250),
                     include_reviews=not _as_bool(data.get('metadata_only')),
                 ))
-            review_actions = {'support', 'challenge', 'refine', 'supersede', 'mark_stale', 'request_source', 'confirm'}
             if action in {'review', *review_actions}:
                 evidence_id = str(
                     data.get('evidence_id')
