@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.267] - 2026-05-28
+
+### Added
+- **Agent-run Capsule Work Effort panel** - Capsules now replace the fragile what-changed/source-trail mini-card cluster with a deterministic Work Effort panel that shows a concise lede, clickable work phases, source-trail context, and next-action anchors without waiting for LLM enrichment.
+
+### Fixed
+- **Agent-run Capsule layout no longer collapses at intermediate widths** - Capsule cards now use container-aware breakpoints and safer grid minimums so the run map and Work Effort panel stack before labels are squeezed into vertical letter columns.
+
 ## [0.6.266] - 2026-05-28
 
 ### Added
