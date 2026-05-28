@@ -121,10 +121,108 @@ logger = logging.getLogger(__name__)
 _CUSTOM_EMOJI_LOCK = threading.Lock()
 _VIEWER_ATTENTION_BASE_TTL: float = 5.0
 _VIEWER_ATTENTION_MAX_BACKOFF: float = 60.0
+_CHANNEL_LOAD_MAINTENANCE_LOCK = threading.Lock()
+_CHANNEL_LOAD_LAST_PURGE_BY_MANAGER: dict[int, float] = {}
+_CHANNEL_LOAD_PURGE_INTERVAL_SECONDS: float = 45.0
 
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
     return cast(tuple[Any, ...], get_app_components(app))
+
+
+def _purge_expired_channel_messages_for_ui(
+    channel_manager: Any,
+    file_manager: Any,
+    p2p_manager: Any,
+    *,
+    viewer_user_id: str,
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Run channel TTL cleanup at most occasionally during UI reads.
+
+    Channel message queries already exclude expired rows, so doing the full
+    destructive cleanup on every channel switch only adds latency. This keeps
+    cleanup timely without putting the common channel-open path through a full
+    database scan and attachment cleanup every time.
+    """
+    if not channel_manager:
+        return []
+    manager_key = id(channel_manager)
+    now = time.monotonic()
+    with _CHANNEL_LOAD_MAINTENANCE_LOCK:
+        last = _CHANNEL_LOAD_LAST_PURGE_BY_MANAGER.get(manager_key, 0.0)
+        if not force and last and (now - last) < _CHANNEL_LOAD_PURGE_INTERVAL_SECONDS:
+            return []
+        _CHANNEL_LOAD_LAST_PURGE_BY_MANAGER[manager_key] = now
+
+    expired = channel_manager.purge_expired_channel_messages()
+    if expired and file_manager:
+        for msg in expired:
+            owner_id = msg.get('user_id')
+            msg_id = msg.get('id')
+            for file_id in msg.get('attachment_ids') or []:
+                try:
+                    file_info = file_manager.get_file(file_id)
+                    if not file_info or file_info.uploaded_by != owner_id:
+                        continue
+                    if file_manager.is_file_referenced(file_id, exclude_channel_message_id=msg_id):
+                        continue
+                    file_manager.delete_file(file_id, owner_id)
+                except Exception:
+                    continue
+    if expired and p2p_manager and p2p_manager.is_running():
+        import secrets as _sec
+        for msg in expired:
+            if msg.get('user_id') != viewer_user_id:
+                continue
+            try:
+                signal_id = f"DS{_sec.token_hex(8)}"
+                p2p_manager.broadcast_delete_signal(
+                    signal_id=signal_id,
+                    data_type='channel_message',
+                    data_id=msg.get('id'),
+                    reason='expired_ttl',
+                )
+            except Exception as p2p_err:
+                logger.warning(f"Failed to broadcast TTL delete for channel message {msg.get('id')}: {p2p_err}")
+    return cast(list[dict[str, Any]], expired or [])
+
+
+def _local_file_ids_for_channel_attachments(db_manager: Any, messages: list[Any]) -> set[str]:
+    """Batch-resolve attachment file presence for channel-message payloads."""
+    if not db_manager or not messages:
+        return set()
+    file_ids: list[str] = []
+    seen: set[str] = set()
+    for message in messages:
+        attachments = getattr(message, 'attachments', None)
+        if not isinstance(attachments, list):
+            continue
+        for attachment in attachments:
+            if not isinstance(attachment, dict) or attachment.get('url'):
+                continue
+            file_id = str(attachment.get('id') or attachment.get('file_id') or '').strip()
+            if not file_id or file_id in seen:
+                continue
+            seen.add(file_id)
+            file_ids.append(file_id)
+    if not file_ids:
+        return set()
+    available: set[str] = set()
+    try:
+        with db_manager.get_connection() as conn:
+            for i in range(0, len(file_ids), 300):
+                chunk = file_ids[i : i + 300]
+                placeholders = ','.join('?' for _ in chunk)
+                rows = conn.execute(
+                    f"SELECT id FROM files WHERE id IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                for row in rows:
+                    available.add(str(row['id'] if hasattr(row, 'keys') else row[0]))
+    except Exception as err:
+        logger.debug("Batch file presence lookup skipped for channel messages: %s", err)
+    return available
 
 
 def _get_meshspace_registry_manager() -> Any:
@@ -19124,37 +19222,14 @@ def create_ui_blueprint() -> Blueprint:
 
             logger.debug(f"Get channel messages request: user_id={user_id}, channel_id={channel_id}, limit={limit}")
 
-            # Purge expired messages locally before returning results
-            expired = channel_manager.purge_expired_channel_messages()
-            if expired and file_manager:
-                for msg in expired:
-                    owner_id = msg.get('user_id')
-                    msg_id = msg.get('id')
-                    for file_id in msg.get('attachment_ids') or []:
-                        try:
-                            file_info = file_manager.get_file(file_id)
-                            if not file_info or file_info.uploaded_by != owner_id:
-                                continue
-                            if file_manager.is_file_referenced(file_id, exclude_channel_message_id=msg_id):
-                                continue
-                            file_manager.delete_file(file_id, owner_id)
-                        except Exception:
-                            continue
-            if expired and p2p_manager and p2p_manager.is_running():
-                import secrets as _sec
-                for msg in expired:
-                    if msg.get('user_id') != user_id:
-                        continue
-                    try:
-                        signal_id = f"DS{_sec.token_hex(8)}"
-                        p2p_manager.broadcast_delete_signal(
-                            signal_id=signal_id,
-                            data_type='channel_message',
-                            data_id=msg.get('id'),
-                            reason='expired_ttl',
-                        )
-                    except Exception as p2p_err:
-                        logger.warning(f"Failed to broadcast TTL delete for channel message {msg.get('id')}: {p2p_err}")
+            # TTL cleanup is throttled; the message query itself still excludes
+            # expired rows immediately, so channel switches avoid a full cleanup scan.
+            _purge_expired_channel_messages_for_ui(
+                channel_manager,
+                file_manager,
+                p2p_manager,
+                viewer_user_id=user_id,
+            )
             if signal_manager:
                 try:
                     signal_manager.purge_expired_signals()
@@ -19243,6 +19318,7 @@ def create_ui_blueprint() -> Blueprint:
             user_liked_ids = set()
             user_reactions_by_message: dict[str, str] = {}
             interactions_by_message: dict[str, dict[str, Any]] = {}
+            local_attachment_file_ids = _local_file_ids_for_channel_attachments(db_manager, messages)
             stream_manager = current_app.config.get('STREAM_MANAGER')
             stream_status_cache: dict[str, str] = {}
             bookmark_manager = _get_bookmark_manager()
@@ -19277,14 +19353,20 @@ def create_ui_blueprint() -> Blueprint:
                     msg_dict = message.to_dict()
                     repost_reference = None
                     variant_reference = None
-                    try:
-                        repost_reference = channel_manager.resolve_repost_reference(message, user_id)
-                    except Exception:
-                        repost_reference = None
-                    try:
-                        variant_reference = channel_manager.resolve_variant_reference(message, user_id)
-                    except Exception:
-                        variant_reference = None
+                    source_reference = getattr(message, 'source_reference', None)
+                    source_reference_kind = ''
+                    if isinstance(source_reference, dict):
+                        source_reference_kind = str(source_reference.get('kind') or '').strip().lower()
+                    if source_reference_kind == 'repost_v1':
+                        try:
+                            repost_reference = channel_manager.resolve_repost_reference(message, user_id)
+                        except Exception:
+                            repost_reference = None
+                    elif source_reference_kind == 'variant_v1':
+                        try:
+                            variant_reference = channel_manager.resolve_variant_reference(message, user_id)
+                        except Exception:
+                            variant_reference = None
                     msg_dict['is_repost'] = bool(repost_reference)
                     msg_dict['is_variant'] = bool(variant_reference)
                     try:
@@ -19330,7 +19412,7 @@ def create_ui_blueprint() -> Blueprint:
                         if not isinstance(att, dict):
                             continue
                         if att.get('id') and not att.get('url'):
-                            if file_manager and file_manager.get_file(att['id']):
+                            if str(att['id']) in local_attachment_file_ids:
                                 att['url'] = f"/files/{att['id']}"
                             else:
                                 att['not_on_device'] = True  # so UI can show "Not on this device yet"
@@ -19959,36 +20041,12 @@ def create_ui_blueprint() -> Blueprint:
             if not query:
                 return jsonify({'messages': [], 'count': 0, 'query': ''})
 
-            expired = channel_manager.purge_expired_channel_messages()
-            if expired and file_manager:
-                for msg in expired:
-                    owner_id = msg.get('user_id')
-                    msg_id = msg.get('id')
-                    for file_id in msg.get('attachment_ids') or []:
-                        try:
-                            file_info = file_manager.get_file(file_id)
-                            if not file_info or file_info.uploaded_by != owner_id:
-                                continue
-                            if file_manager.is_file_referenced(file_id, exclude_channel_message_id=msg_id):
-                                continue
-                            file_manager.delete_file(file_id, owner_id)
-                        except Exception:
-                            continue
-            if expired and p2p_manager and p2p_manager.is_running():
-                import secrets as _sec
-                for msg in expired:
-                    if msg.get('user_id') != user_id:
-                        continue
-                    try:
-                        signal_id = f"DS{_sec.token_hex(8)}"
-                        p2p_manager.broadcast_delete_signal(
-                            signal_id=signal_id,
-                            data_type='channel_message',
-                            data_id=msg.get('id'),
-                            reason='expired_ttl',
-                        )
-                    except Exception as p2p_err:
-                        logger.warning(f"Failed to broadcast TTL delete for channel message {msg.get('id')}: {p2p_err}")
+            _purge_expired_channel_messages_for_ui(
+                channel_manager,
+                file_manager,
+                p2p_manager,
+                viewer_user_id=user_id,
+            )
 
             results = channel_manager.search_channel_messages(
                 channel_id, query, user_id, limit)
