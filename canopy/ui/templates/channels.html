@@ -2858,6 +2858,7 @@
     .agent-run-capsule {
         position: relative;
         margin: 0.45rem 0 0.65rem 3.1rem;
+        max-width: 100%;
         border: 1px solid color-mix(in srgb, var(--canopy-primary) 40%, var(--canopy-border) 60%);
         border-radius: 18px;
         background:
@@ -2870,6 +2871,10 @@
         overflow-wrap: anywhere;
         contain: layout style;
         container-type: inline-size;
+    }
+    .agent-run-capsule button,
+    .agent-run-capsule a {
+        touch-action: manipulation;
     }
     .agent-run-capsule::before {
         content: "";
@@ -2904,12 +2909,16 @@
         font-weight: 900;
         font-size: clamp(0.98rem, 1.2vw, 1.12rem);
         line-height: 1.2;
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
     .agent-run-capsule-summary {
         margin-top: 0.35rem;
         color: var(--canopy-text-secondary);
         font-size: 0.9rem;
         line-height: 1.42;
+        min-width: 0;
+        overflow-wrap: anywhere;
     }
     .agent-run-capsule-work-effort {
         margin-top: 0.7rem;
@@ -2967,6 +2976,7 @@
         font-size: 0.88rem;
         font-weight: 850;
         line-height: 1.34;
+        min-width: 0;
         overflow-wrap: break-word;
     }
     .agent-run-capsule-work-effort-arc {
@@ -3211,6 +3221,7 @@
             radial-gradient(circle at top right, color-mix(in srgb, var(--canopy-primary) 14%, transparent), transparent 44%),
             color-mix(in srgb, var(--canopy-bg-tertiary) 82%, var(--canopy-primary) 18%);
         overflow: hidden;
+        min-width: 0;
     }
     .agent-run-capsule-artifacts-head {
         display: flex;
@@ -3378,6 +3389,7 @@
             radial-gradient(circle at 94% 8%, color-mix(in srgb, var(--canopy-accent, #38bdf8) 18%, transparent), transparent 40%),
             color-mix(in srgb, var(--canopy-bg-card) 78%, var(--canopy-accent, #38bdf8) 22%);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        min-width: 0;
     }
     .agent-run-capsule-deck-head {
         display: flex;
@@ -3598,6 +3610,7 @@
             color-mix(in srgb, var(--canopy-bg-card) 76%, var(--canopy-primary) 24%);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
         overflow: hidden;
+        min-width: 0;
     }
     .agent-run-capsule-map::before {
         content: "";
@@ -3939,6 +3952,239 @@
             min-width: min(100%, 8rem);
         }
     }
+    @container (max-width: 32rem) {
+        .agent-run-capsule {
+            margin-left: 0.12rem;
+            margin-right: 0.12rem;
+            border-radius: 14px;
+        }
+        .agent-run-capsule::before {
+            width: 3px;
+        }
+        .agent-run-capsule-head {
+            gap: 0.56rem;
+            padding: 0.62rem 0.58rem 0.62rem 0.72rem;
+        }
+        .agent-run-capsule-eyebrow {
+            font-size: 0.65rem;
+            letter-spacing: 0.065em;
+        }
+        .agent-run-capsule-title {
+            font-size: 0.98rem;
+        }
+        .agent-run-capsule-summary {
+            display: -webkit-box;
+            font-size: 0.82rem;
+            line-height: 1.35;
+            overflow: hidden;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+        }
+        .agent-run-capsule-work-effort {
+            border-radius: 14px;
+            padding: 0.5rem;
+        }
+        .agent-run-capsule-work-effort-kicker,
+        .agent-run-capsule-work-effort-card-label,
+        .agent-run-capsule-brief-label {
+            white-space: normal;
+        }
+        .agent-run-capsule-work-effort-tag {
+            font-size: 0.64rem;
+            padding: 0.2rem 0.44rem;
+        }
+        .agent-run-capsule-work-effort-lede {
+            font-size: 0.8rem;
+            line-height: 1.28;
+        }
+        .agent-run-capsule-work-effort-arc {
+            gap: 0.28rem;
+            margin-top: 0.46rem;
+        }
+        .agent-run-capsule-work-effort-phase {
+            gap: 0.28rem;
+            min-height: 2.7rem;
+            border-radius: 11px;
+            padding: 0.34rem 0.38rem;
+        }
+        .agent-run-capsule-work-effort-phase-icon {
+            width: 1.28rem;
+            height: 1.28rem;
+            border-radius: 8px;
+            font-size: 0.74rem;
+        }
+        .agent-run-capsule-work-effort-phase-label {
+            font-size: 0.68rem;
+        }
+        .agent-run-capsule-work-effort-card {
+            border-radius: 11px;
+            padding: 0.44rem 0.48rem;
+        }
+        .agent-run-capsule-work-effort-card-value {
+            font-size: 0.76rem;
+            line-height: 1.28;
+        }
+        .agent-run-capsule-artifacts {
+            border-radius: 13px;
+        }
+        .agent-run-capsule-artifacts-head {
+            padding: 0.46rem 0.5rem 0.32rem;
+        }
+        .agent-run-capsule-artifacts-head span:last-child {
+            white-space: normal;
+        }
+        .agent-run-capsule-artifact-list {
+            gap: 0.36rem;
+            padding: 0 0.44rem 0.46rem;
+        }
+        .agent-run-capsule-artifact {
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 0.38rem;
+            min-height: 0;
+            border-radius: 11px;
+            padding: 0.44rem;
+        }
+        .agent-run-capsule-artifact-icon,
+        .agent-run-capsule-deck-icon {
+            width: 1.8rem;
+            height: 1.8rem;
+            border-radius: 10px;
+        }
+        .agent-run-capsule-artifact-actions {
+            grid-column: 1 / -1;
+            justify-content: flex-start;
+            padding-left: 2.2rem;
+        }
+        .agent-run-capsule-artifact-name,
+        .agent-run-capsule-artifact-name:visited {
+            font-size: 0.8rem;
+        }
+        .agent-run-capsule-artifact-meta {
+            font-size: 0.64rem;
+        }
+        .agent-run-capsule-deck-items {
+            border-radius: 13px;
+            padding: 0.46rem;
+        }
+        .agent-run-capsule-deck-head {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 0.18rem;
+        }
+        .agent-run-capsule-deck-item {
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 0.36rem;
+            padding: 0.42rem 0.44rem;
+        }
+        .agent-run-capsule-deck-open {
+            display: none;
+        }
+        .agent-run-capsule-meta {
+            gap: 0.26rem;
+            margin-top: 0.42rem;
+        }
+        .agent-run-capsule-chip,
+        .agent-run-capsule-status {
+            padding: 0.14rem 0.38rem;
+            font-size: 0.66rem;
+        }
+        .agent-run-capsule-side-top {
+            gap: 0.36rem;
+        }
+        .agent-run-capsule-actions .btn {
+            flex: 1 1 calc(50% - 0.28rem);
+            min-width: 0;
+            padding-left: 0.45rem;
+            padding-right: 0.45rem;
+        }
+        .agent-run-capsule-map {
+            border-radius: 13px;
+            padding: 0.48rem;
+        }
+        .agent-run-capsule-map::before {
+            left: 1.38rem;
+            top: 2.84rem;
+            bottom: 0.92rem;
+        }
+        .agent-run-capsule-map-head {
+            font-size: 0.62rem;
+            letter-spacing: 0.06em;
+        }
+        .agent-run-capsule-map-strip {
+            gap: 0.32rem;
+            max-height: min(18rem, 48vh);
+            margin-top: 0.42rem;
+        }
+        .agent-run-capsule-map-node {
+            min-height: 3.2rem;
+            border-radius: 12px;
+            gap: 0.36rem;
+            padding: 0.38rem 0.42rem;
+        }
+        .agent-run-capsule-map-avatar {
+            width: 1.8rem;
+            height: 1.8rem;
+        }
+        .agent-run-capsule-map-signal {
+            font-size: 0.57rem;
+            letter-spacing: 0.05em;
+        }
+        .agent-run-capsule-map-author {
+            font-size: 0.7rem;
+        }
+        .agent-run-capsule-map-excerpt {
+            font-size: 0.62rem;
+            -webkit-line-clamp: 1;
+        }
+        .agent-run-capsule-trace {
+            padding: 0.5rem 0.44rem 0.18rem 0;
+        }
+        .agent-run-capsule-trace .message-card {
+            margin-left: 0.32rem;
+        }
+    }
+    @container (max-width: 28rem) {
+        .agent-run-capsule-work-effort-card-action {
+            display: none;
+        }
+        .agent-run-capsule-work-effort-phase {
+            grid-template-columns: auto minmax(0, 1fr);
+        }
+        .agent-run-capsule-work-effort-phase-count {
+            grid-column: 2;
+            justify-self: start;
+            margin-top: -0.1rem;
+        }
+        .agent-run-capsule-map-head {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 0.2rem;
+        }
+        .agent-run-capsule-map-node-head {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 0.16rem;
+        }
+        .agent-run-capsule-map-node-meta {
+            align-self: flex-start;
+        }
+    }
+    @supports not (container-type: inline-size) {
+        @media (max-width: 980px) {
+            .agent-run-capsule-head {
+                grid-template-columns: minmax(0, 1fr);
+            }
+            .agent-run-capsule-side {
+                min-width: 0;
+                width: 100%;
+            }
+            .agent-run-capsule-work-effort-arc,
+            .agent-run-capsule-work-effort-grid,
+            .agent-run-capsule-brief {
+                grid-template-columns: 1fr;
+            }
+        }
+    }
     .channel-agent-capsule-level-panel {
         margin: 0.2rem 0.55rem 0.45rem;
         padding: 0.72rem 0.78rem;
@@ -4035,8 +4281,10 @@
             width: 100%;
         }
         .agent-run-capsule-actions .btn {
-            flex: 1 1 8rem;
-            min-width: min(100%, 8rem);
+            flex: 1 1 calc(50% - 0.28rem);
+            min-width: 0;
+            padding-left: 0.45rem;
+            padding-right: 0.45rem;
         }
         .agent-run-capsule-map {
             width: 100%;
@@ -4051,15 +4299,15 @@
             display: none;
         }
         .agent-run-capsule-map-strip {
-            max-height: min(22rem, 50vh);
+            max-height: min(18rem, 48vh);
         }
         .agent-run-capsule-map-node {
-            min-height: 3.7rem;
-            padding: 0.44rem 0.5rem;
+            min-height: 3.25rem;
+            padding: 0.4rem 0.44rem;
         }
         .agent-run-capsule-map-avatar {
-            width: 2rem;
-            height: 2rem;
+            width: 1.85rem;
+            height: 1.85rem;
         }
         .agent-run-capsule-trace {
             padding: 0.58rem 0.54rem 0.2rem 0;

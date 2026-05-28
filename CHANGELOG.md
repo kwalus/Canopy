@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.269] - 2026-05-28
+
+### Fixed
+- **Agent-run Capsules are safer on narrow panes and mobile** - Capsule cards now progressively reduce gutters, wrap labels, compact files/workproducts, and preserve usable tap targets before text can collapse or controls can overflow.
+
+### Changed
+- **Capsule responsive behavior is container-aware at smaller breakpoints** - Work Effort, Run Map, Deck-ready items, Files & workproducts, and trace views now have staged 32rem/28rem layouts plus a fallback for browsers without container queries.
+
 ## [0.6.268] - 2026-05-28
 
 ### Added
