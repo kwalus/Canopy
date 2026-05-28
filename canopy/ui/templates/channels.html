@@ -1127,6 +1127,7 @@
         flex-wrap: wrap;
         align-items: center;
         gap: 0.5rem;
+        width: 100%;
     }
     .channel-lifespan-label {
         font-size: 0.75rem;
@@ -1159,9 +1160,9 @@
         display: none;
         align-items: center;
         gap: 0.28rem;
-        flex: 1 1 20rem;
+        flex: 1 1 auto;
         min-width: 14rem;
-        max-width: min(44rem, 58vw);
+        max-width: none;
         overflow-x: auto;
         scrollbar-width: thin;
         padding: 0.14rem 0.34rem;
@@ -11079,6 +11080,7 @@ const CHANNEL_MENTION_CACHE_TTL_MS = 30000;
 const CHANNEL_QUICK_MENTION_ORDER_STORAGE_KEY = `canopy.channel_quick_mentions_order.v1.${currentUserId || 'anon'}`;
 let channelQuickMentionRailSignature = '';
 let channelQuickMentionSuppressClickUntil = 0;
+let channelQuickMentionMeasureCanvas = null;
 let channelHashCache = null;
 let channelMentionContext = null;
 let channelMentionBuilderFilter = 'all';
@@ -20641,7 +20643,122 @@ function getChannelQuickMentionUsers(limit = 10) {
     return applyChannelQuickMentionOrder(scored).slice(0, limit);
 }
 
-function insertChannelQuickMention(handle) {
+function getChannelQuickMentionMeasureContext(font) {
+    if (!channelQuickMentionMeasureCanvas) {
+        channelQuickMentionMeasureCanvas = document.createElement('canvas');
+    }
+    const context = channelQuickMentionMeasureCanvas && channelQuickMentionMeasureCanvas.getContext
+        ? channelQuickMentionMeasureCanvas.getContext('2d')
+        : null;
+    if (context && font) context.font = font;
+    return context;
+}
+
+function measureChannelQuickMentionText(context, text) {
+    const value = String(text || '');
+    if (context && context.measureText) {
+        return context.measureText(value).width;
+    }
+    return value.length * 8;
+}
+
+function getChannelTextareaStyleMetrics(textarea) {
+    const style = window.getComputedStyle ? window.getComputedStyle(textarea) : {};
+    const fontSize = parseFloat(style.fontSize) || 15;
+    const lineHeight = parseFloat(style.lineHeight) || (fontSize * 1.35);
+    const paddingLeft = parseFloat(style.paddingLeft) || 0;
+    const paddingRight = parseFloat(style.paddingRight) || 0;
+    const paddingTop = parseFloat(style.paddingTop) || 0;
+    const font = [
+        style.fontStyle,
+        style.fontVariant,
+        style.fontWeight,
+        style.fontSize,
+        style.fontFamily,
+    ].filter(Boolean).join(' ');
+    return {
+        context: getChannelQuickMentionMeasureContext(font),
+        lineHeight,
+        paddingLeft,
+        paddingRight,
+        paddingTop,
+        usableWidth: Math.max(24, textarea.clientWidth - paddingLeft - paddingRight),
+    };
+}
+
+function findChannelTextareaWrapEnd(text, start, end, maxWidth, context) {
+    if (start >= end) return start;
+    let low = start + 1;
+    let high = end;
+    let best = start + 1;
+    while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const width = measureChannelQuickMentionText(context, text.slice(start, mid));
+        if (width <= maxWidth || mid === start + 1) {
+            best = mid;
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    return Math.max(start + 1, Math.min(best, end));
+}
+
+function getChannelTextareaVisualRows(textarea, metrics) {
+    const text = textarea.value || '';
+    const rows = [];
+    let lineStart = 0;
+    while (lineStart <= text.length) {
+        const newlineIndex = text.indexOf('\n', lineStart);
+        const lineEnd = newlineIndex === -1 ? text.length : newlineIndex;
+        if (lineStart === lineEnd) {
+            rows.push({ start: lineStart, end: lineEnd });
+        } else {
+            let rowStart = lineStart;
+            while (rowStart < lineEnd) {
+                const rowEnd = findChannelTextareaWrapEnd(text, rowStart, lineEnd, metrics.usableWidth, metrics.context);
+                rows.push({ start: rowStart, end: rowEnd });
+                rowStart = rowEnd;
+            }
+        }
+        if (newlineIndex === -1) break;
+        lineStart = newlineIndex + 1;
+        if (lineStart === text.length) {
+            rows.push({ start: lineStart, end: lineStart });
+            break;
+        }
+    }
+    return rows.length ? rows : [{ start: 0, end: 0 }];
+}
+
+function getChannelTextareaCaretIndexInRow(text, row, x, context) {
+    if (!row || row.start >= row.end || x <= 0) return row ? row.start : 0;
+    const rowText = text.slice(row.start, row.end);
+    const rowWidth = measureChannelQuickMentionText(context, rowText);
+    if (x >= rowWidth) return row.end;
+    let previousWidth = 0;
+    for (let index = row.start + 1; index <= row.end; index += 1) {
+        const width = measureChannelQuickMentionText(context, text.slice(row.start, index));
+        if (width >= x) {
+            return (x - previousWidth) < (width - x) ? index - 1 : index;
+        }
+        previousWidth = width;
+    }
+    return row.end;
+}
+
+function getChannelTextareaDropCaretIndex(textarea, event) {
+    if (!textarea || !event) return null;
+    const rect = textarea.getBoundingClientRect();
+    const metrics = getChannelTextareaStyleMetrics(textarea);
+    const x = Math.max(0, event.clientX - rect.left - metrics.paddingLeft + textarea.scrollLeft);
+    const y = Math.max(0, event.clientY - rect.top - metrics.paddingTop + textarea.scrollTop);
+    const rows = getChannelTextareaVisualRows(textarea, metrics);
+    const rowIndex = Math.max(0, Math.min(rows.length - 1, Math.floor(y / metrics.lineHeight)));
+    return getChannelTextareaCaretIndexInRow(textarea.value || '', rows[rowIndex], x, metrics.context);
+}
+
+function insertChannelQuickMentionAtIndex(handle, index, options = {}) {
     const textarea = document.getElementById('message-input');
     if (!textarea) return false;
     const clean = normalizeChannelQuickMentionHandle(handle);
@@ -20651,13 +20768,18 @@ function insertChannelQuickMention(handle) {
         textarea.focus();
         return false;
     }
-    const start = typeof textarea.selectionStart === 'number' ? textarea.selectionStart : value.length;
-    const end = typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : start;
+    const hasExplicitIndex = Number.isFinite(index);
+    const start = hasExplicitIndex
+        ? Math.max(0, Math.min(value.length, Math.floor(index)))
+        : (typeof textarea.selectionStart === 'number' ? textarea.selectionStart : value.length);
+    const end = hasExplicitIndex && options.replaceSelection === false
+        ? start
+        : (typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : start);
     const before = value.slice(0, start);
     const after = value.slice(end);
     const prefix = before && !/\s$/.test(before) ? ' ' : '';
-    const suffix = after && !/^\s/.test(after) ? ' ' : '';
-    const mentionText = `${prefix}@${clean} ${suffix}`;
+    const suffix = after && /^\s/.test(after) ? '' : ' ';
+    const mentionText = `${prefix}@${clean}${suffix}`;
     textarea.value = before + mentionText + after;
     const cursor = before.length + mentionText.length;
     textarea.focus();
@@ -20666,6 +20788,10 @@ function insertChannelQuickMention(handle) {
     updateChannelTaskToggle();
     notifyComposerUpdate();
     return true;
+}
+
+function insertChannelQuickMention(handle) {
+    return insertChannelQuickMentionAtIndex(handle, null, { replaceSelection: true });
 }
 
 function bindChannelQuickMentionRail(rail) {
@@ -27959,7 +28085,9 @@ function setupFileUpload() {
         dropzone.classList.remove('is-mention-drop-target');
         const mentionHandle = getChannelQuickMentionFromDataTransfer(e.dataTransfer);
         if (mentionHandle) {
-            insertChannelQuickMention(mentionHandle);
+            const textarea = document.getElementById('message-input');
+            const dropIndex = getChannelTextareaDropCaretIndex(textarea, e);
+            insertChannelQuickMentionAtIndex(mentionHandle, dropIndex, { replaceSelection: false });
             return;
         }
         

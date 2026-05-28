@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.271] - 2026-05-28
+
+### Fixed
+- **Quick mention chips now drop where the user releases them in the composer** - dragged mention chips resolve a textarea caret position from the drop coordinates instead of falling back to the stale cursor/start position.
+- **The quick mention rail uses the available composer width** - the rail now expands across the lifespan row on desktop while preserving compact full-width wrapping on mobile.
+
 ## [0.6.270] - 2026-05-28
 
 ### Fixed
