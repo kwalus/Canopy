@@ -4051,6 +4051,9 @@
     function applyDmRichContentInScope(scope) {
         const root = scope && scope.querySelectorAll ? scope : document;
         root.querySelectorAll('.dm-message-text').forEach(el => {
+            if (el.getAttribute('data-dm-rich-processed') === '1' && el.hasAttribute('data-dm-rich-source')) {
+                return;
+            }
             const raw = el.textContent || '';
             const tmp = document.createElement('div');
             tmp.textContent = raw;
@@ -4059,6 +4062,8 @@
             if (typeof linkifyChannels === 'function') html = linkifyChannels(html);
             if (typeof linkifyCanopyEntityRefs === 'function') html = linkifyCanopyEntityRefs(html);
             el.innerHTML = html;
+            el.setAttribute('data-dm-rich-source', raw);
+            el.setAttribute('data-dm-rich-processed', '1');
             if (typeof renderMathInElementSafe === 'function') renderMathInElementSafe(el);
         });
         if (typeof processRichEmbeds === 'function') {
@@ -5071,6 +5076,9 @@
         }
         if (textEl) {
             textEl.textContent = content || '';
+            ['data-dm-rich-source', 'data-dm-rich-processed', 'data-canopy-rich-source', 'data-canopy-rich-rendered'].forEach(attr => {
+                textEl.removeAttribute(attr);
+            });
             applyDmRichContentInScope(msgEl);
         }
         const footer = msgEl.querySelector('.dm-bubble-footer');

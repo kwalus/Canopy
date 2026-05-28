@@ -4277,6 +4277,24 @@ console.log(JSON.stringify({{
         self.assertIn('canopyEmbedLastHumanViewport', main_js)
         self.assertIn('installCanopyEmbedScrollGuards(document);', main_js)
 
+    def test_dm_x_embeds_are_stable_across_repeated_rich_content_passes(self) -> None:
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+        messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
+        base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
+
+        self.assertIn("data-canopy-rich-source", main_js)
+        self.assertIn("data-canopy-rich-rendered", main_js)
+        self.assertIn("data-canopy-x-rendering", main_js)
+        self.assertIn(".x-embed[data-x-status-id]:not([data-canopy-x-processed]):not([data-canopy-x-rendering])", main_js)
+        self.assertIn(".x-embed iframe:not([data-canopy-scroll-guard])", main_js)
+        self.assertIn(".embed-preview.iframe-embed, .x-embed", main_js)
+        self.assertIn("installCanopyEmbedScrollGuards(container);", main_js)
+        self.assertIn("data-dm-rich-source", messages_template)
+        self.assertIn("data-dm-rich-processed", messages_template)
+        self.assertIn("'data-canopy-rich-rendered'", messages_template)
+        self.assertIn("textEl.removeAttribute(attr);", messages_template)
+        self.assertIn(".x-embed.is-rendering:not(.is-rendered) .x-embed-render", base_template)
+
     def test_feed_author_and_phone_image_rendering_are_defensive(self) -> None:
         feed_template = read_feed_surface()
         feed_fragment = (ROOT / 'canopy' / 'ui' / 'templates' / '_feed_posts_fragment.html').read_text(encoding='utf-8')

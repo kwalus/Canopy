@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.264] - 2026-05-28
+
+### Fixed
+- **DM X/Twitter embeds no longer flicker from redundant rich-content passes** - DM message rich-content hydration and shared embed rendering now cache the original source text and skip already-rendered nodes, preserving live X embeds during snapshot refreshes, older-message loads, and incidental reprocessing.
+- **X/Twitter embeds now use the same scroll/focus guard as iframe embeds** - injected X iframes are covered by Canopy’s embed scroll guard, with a stable loading footprint while widgets render, reducing surprise scroll jumps and flicker in DMs and other rich surfaces.
+
 ## [0.6.263] - 2026-05-28
 
 ### Added
