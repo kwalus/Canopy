@@ -8,10 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
-## [0.6.257] - 2026-05-28
+## [0.6.258] - 2026-05-28
 
 ### Fixed
 - **Generic Digestion evidence actions honor read-only API keys** - `POST /api/v1/digestions/<id>/evidence` now applies action-aware permissions so `search`/`list` only require `read_files`, while append and review actions still require `write_files` plus Digestion management access.
+- **Digestion evidence appends tolerate upgraded legacy tables** - Evidence table startup repair now adds missing unique ID indexes when safe, and append uses an explicit update-or-insert path instead of relying only on SQLite `ON CONFLICT(id)`, preventing 500s on older VPS databases whose evidence IDs were backfilled without a primary-key constraint.
 
 ## [0.6.256] - 2026-05-27
 

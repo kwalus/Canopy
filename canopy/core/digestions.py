@@ -457,6 +457,27 @@ class DigestionManager:
                         conn.execute(ddl)
                         columns.add(column)
 
+            def _ensure_unique_text_index(table_name: str, column_name: str, index_name: str) -> None:
+                duplicate = conn.execute(
+                    f"""
+                    SELECT {column_name}, COUNT(*) AS count
+                    FROM {table_name}
+                    WHERE {column_name} IS NOT NULL AND TRIM({column_name}) != ''
+                    GROUP BY {column_name}
+                    HAVING COUNT(*) > 1
+                    LIMIT 1
+                    """
+                ).fetchone()
+                if duplicate:
+                    logger.warning(
+                        "Skipping unique index %s on %s.%s because duplicate legacy values exist.",
+                        index_name,
+                        table_name,
+                        column_name,
+                    )
+                    return
+                conn.execute(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {table_name}({column_name})")
+
             _add_missing_columns("digestion_sources", {
                 "source_kind": "ALTER TABLE digestion_sources ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'vault_file'",
                 "source_label": "ALTER TABLE digestion_sources ADD COLUMN source_label TEXT",
@@ -495,6 +516,16 @@ class DigestionManager:
                 "metadata_json": "ALTER TABLE digestion_evidence_reviews ADD COLUMN metadata_json TEXT",
                 "created_at": "ALTER TABLE digestion_evidence_reviews ADD COLUMN created_at TIMESTAMP",
             })
+            _ensure_unique_text_index(
+                "digestion_evidence_records",
+                "id",
+                "idx_digestion_evidence_records_id_unique",
+            )
+            _ensure_unique_text_index(
+                "digestion_evidence_reviews",
+                "id",
+                "idx_digestion_evidence_reviews_id_unique",
+            )
             conn.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_digestion_evidence_records ON digestion_evidence_records(digestion_id, status, priority, updated_at);
@@ -1632,6 +1663,70 @@ class DigestionManager:
         now = self._now()
         with self.db.get_connection() as conn:
             for record in normalized:
+                record_id = record["id"]
+                insert_params = (
+                    record_id,
+                    digestion.id,
+                    actor_user_id,
+                    record["record_kind"],
+                    record["statement"],
+                    record["summary"],
+                    record["scope"],
+                    record["status"],
+                    record["priority"],
+                    record["confidence"],
+                    self._json_dumps(record["tags"]),
+                    self._json_dumps(record["evidence_refs"]),
+                    self._json_dumps(record["source_refs"]),
+                    self._json_dumps(record["related_ids"]),
+                    self._json_dumps(record["metadata"]),
+                    self._clean_id(record.get("superseded_by_id")),
+                    now,
+                    now,
+                )
+                existing = conn.execute(
+                    "SELECT id FROM digestion_evidence_records WHERE id = ? LIMIT 1",
+                    (record_id,),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        """
+                        UPDATE digestion_evidence_records
+                        SET record_kind = ?,
+                            statement = ?,
+                            summary = ?,
+                            scope = ?,
+                            status = ?,
+                            priority = ?,
+                            confidence = ?,
+                            tags_json = ?,
+                            evidence_refs_json = ?,
+                            source_refs_json = ?,
+                            related_ids_json = ?,
+                            metadata_json = ?,
+                            superseded_by_id = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            record["record_kind"],
+                            record["statement"],
+                            record["summary"],
+                            record["scope"],
+                            record["status"],
+                            record["priority"],
+                            record["confidence"],
+                            self._json_dumps(record["tags"]),
+                            self._json_dumps(record["evidence_refs"]),
+                            self._json_dumps(record["source_refs"]),
+                            self._json_dumps(record["related_ids"]),
+                            self._json_dumps(record["metadata"]),
+                            self._clean_id(record.get("superseded_by_id")),
+                            now,
+                            record_id,
+                        ),
+                    )
+                    continue
                 conn.execute(
                     """
                     INSERT INTO digestion_evidence_records (
@@ -1640,42 +1735,8 @@ class DigestionManager:
                         evidence_refs_json, source_refs_json, related_ids_json,
                         metadata_json, superseded_by_id, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        record_kind = excluded.record_kind,
-                        statement = excluded.statement,
-                        summary = excluded.summary,
-                        scope = excluded.scope,
-                        status = excluded.status,
-                        priority = excluded.priority,
-                        confidence = excluded.confidence,
-                        tags_json = excluded.tags_json,
-                        evidence_refs_json = excluded.evidence_refs_json,
-                        source_refs_json = excluded.source_refs_json,
-                        related_ids_json = excluded.related_ids_json,
-                        metadata_json = excluded.metadata_json,
-                        superseded_by_id = excluded.superseded_by_id,
-                        updated_at = excluded.updated_at
                     """,
-                    (
-                        record["id"],
-                        digestion.id,
-                        actor_user_id,
-                        record["record_kind"],
-                        record["statement"],
-                        record["summary"],
-                        record["scope"],
-                        record["status"],
-                        record["priority"],
-                        record["confidence"],
-                        self._json_dumps(record["tags"]),
-                        self._json_dumps(record["evidence_refs"]),
-                        self._json_dumps(record["source_refs"]),
-                        self._json_dumps(record["related_ids"]),
-                        self._json_dumps(record["metadata"]),
-                        self._clean_id(record.get("superseded_by_id")),
-                        now,
-                        now,
-                    ),
+                    insert_params,
                 )
             conn.execute("UPDATE digestions SET updated_at = ? WHERE id = ?", (now, digestion.id))
             conn.commit()
