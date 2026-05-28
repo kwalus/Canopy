@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.268] - 2026-05-28
+
+### Added
+- **LLM-enriched Capsule Work Effort summaries** - Capsule LLM refinement can now return a bounded `work_effort` object with a human-readable tag, lede, and source-linked work phases while keeping the deterministic Work Effort panel as the instant fallback.
+
+### Changed
+- **Capsule enrichment payloads include deterministic work-effort context** - visible Capsule packets now provide the model with the local Work Effort arc so low-cost enrichment can improve wording and phase labels without inventing files, permissions, or source facts.
+
 ## [0.6.267] - 2026-05-28
 
 ### Added
