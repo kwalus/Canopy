@@ -2504,6 +2504,14 @@ class TestDigestions(unittest.TestCase):
             append_payload = append_response.get_json() or {}
             self.assertTrue(append_payload['success'])
             evidence_id = append_payload['records'][0]['id']
+            self.digestion_manager.grant_access(
+                digestion['id'],
+                'owner-user',
+                'reader-user',
+                can_query=True,
+                can_manage=False,
+                can_read_sources=False,
+            )
 
             search_response = client.post(
                 f'/api/v1/digestions/{digestion["id"]}/evidence',
@@ -2531,6 +2539,36 @@ class TestDigestions(unittest.TestCase):
             )
             self.assertEqual(list_response.status_code, 200)
             self.assertEqual((list_response.get_json() or {})['count'], 1)
+
+            reader_search_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'search', 'query': 'truth-maintenance'},
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(reader_search_response.status_code, 200)
+            self.assertEqual((reader_search_response.get_json() or {})['count'], 1)
+
+            reader_list_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'list'},
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(reader_list_response.status_code, 200)
+            self.assertEqual((reader_list_response.get_json() or {})['count'], 1)
+
+            reader_append_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'append', 'records': [{'statement': 'Reader should not append.'}]},
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(reader_append_response.status_code, 403)
+
+            reader_review_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'confirm', 'evidence_id': evidence_id},
+                headers={'X-API-Key': 'reader-key'},
+            )
+            self.assertEqual(reader_review_response.status_code, 403)
 
     def test_digestion_rest_manager_can_add_vault_sources(self) -> None:
         manager_source = self._save_text(

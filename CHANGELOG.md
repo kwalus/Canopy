@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.257] - 2026-05-28
+
+### Fixed
+- **Generic Digestion evidence actions honor read-only API keys** - `POST /api/v1/digestions/<id>/evidence` now applies action-aware permissions so `search`/`list` only require `read_files`, while append and review actions still require `write_files` plus Digestion management access.
+
+## [0.6.256] - 2026-05-27
+
 ### Changed
 - **File Vault uploads now behave like local corpus staging** - Vault uploads use a separate configurable cap (`CANOPY_MAX_VAULT_FILE_SIZE`, default 512MB), report every oversize blocked file instead of silently dropping it, show browser upload progress for large drops, and preserve dropped folder structure when the browser exposes directory paths.
 - **Agent-run Capsules now emphasize workproducts and explain the run map** - Capsule cards promote a larger Files & workproducts rail, extract source-linked workproduct entries from structured cards and output-like agent posts, let low-cost `@Canopy` enrichment suggest bounded workproduct entries, make run-map legend dots clickable/explained, and stop run-map hover from sliding nodes outside the card.
