@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.261] - 2026-05-28
+
+### Fixed
+- **Digestion contribution source previews no longer lose their source metadata** - Vault-side Digestion contribution cards now escape JSON-bearing source-preview attributes correctly, so Preview source can open the referenced owner-bound source file instead of falling through to the “no source file” warning.
+
 ## [0.6.260] - 2026-05-28
 
 ### Fixed
