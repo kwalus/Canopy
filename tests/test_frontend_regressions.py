@@ -895,6 +895,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('allowManagerContributions: true', main_js)
         self.assertIn('function digestionContributionPreviewSource', main_js)
         self.assertIn('data-vault-digestion-action="open-result-source"', main_js)
+        self.assertIn('.replace(/"/g, \'&quot;\')', main_js)
+        self.assertIn(".replace(/'/g, '&#39;')", main_js)
         self.assertIn('Manage access is required to add selected Vault files to this Digestion.', main_js)
         self.assertIn('function vaultMaxUploadBytes()', main_js)
         self.assertIn('File exceeds the File Vault upload limit', main_js)

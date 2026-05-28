@@ -1204,7 +1204,10 @@
 	            }
 
             function vaultEscape(value) {
-                return typeof canopyEscapeHtml === 'function' ? canopyEscapeHtml(value) : String(value == null ? '' : value)
+                // This helper is used for both text nodes and HTML attributes. Do
+                // not delegate to canopyEscapeHtml(), because it intentionally
+                // leaves quotes alone and JSON-bearing data attributes break.
+                return String(value == null ? '' : value)
                     .replace(/&/g, '&amp;')
                     .replace(/</g, '&lt;')
                     .replace(/>/g, '&gt;')
