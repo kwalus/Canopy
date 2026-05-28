@@ -1158,17 +1158,17 @@
     .channel-quick-mention-rail {
         display: none;
         align-items: center;
-        gap: 0.35rem;
+        gap: 0.28rem;
         flex: 1 1 20rem;
         min-width: 14rem;
         max-width: min(44rem, 58vw);
         overflow-x: auto;
         scrollbar-width: thin;
-        padding: 0.18rem 0.42rem;
+        padding: 0.14rem 0.34rem;
         border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, var(--canopy-primary) 24%);
-        border-radius: 999px;
+        border-radius: 14px;
         background:
-            radial-gradient(circle at left, color-mix(in srgb, var(--canopy-primary) 16%, transparent), transparent 40%),
+            linear-gradient(90deg, color-mix(in srgb, var(--canopy-primary) 12%, transparent), transparent 36%),
             color-mix(in srgb, var(--canopy-bg-card) 78%, transparent);
         box-shadow: inset 0 1px 0 color-mix(in srgb, var(--canopy-text-primary) 8%, transparent);
     }
@@ -1184,25 +1184,25 @@
     }
     .channel-quick-mention-kicker {
         flex: 0 0 auto;
-        color: var(--canopy-text-secondary);
-        font-size: 0.62rem;
+        color: color-mix(in srgb, var(--canopy-primary) 78%, var(--canopy-text-secondary) 22%);
+        font-size: 0.74rem;
         font-weight: 800;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        padding: 0 0.2rem;
+        letter-spacing: 0.02em;
+        padding: 0 0.14rem;
         white-space: nowrap;
     }
     .channel-quick-mention-chip {
         border: 1px solid color-mix(in srgb, var(--canopy-border) 80%, transparent);
-        border-radius: 999px;
+        border-radius: 10px;
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
         color: var(--canopy-text-primary);
         display: inline-flex;
         align-items: center;
-        gap: 0.35rem;
+        gap: 0.26rem;
         min-width: 0;
-        height: 2rem;
-        padding: 0.17rem 0.52rem 0.17rem 0.2rem;
+        max-width: 8.3rem;
+        height: 1.74rem;
+        padding: 0.12rem 0.38rem 0.12rem 0.16rem;
         cursor: grab;
         flex: 0 0 auto;
         transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
@@ -1224,9 +1224,9 @@
         border-color: color-mix(in srgb, #38bdf8 38%, var(--canopy-border) 62%);
     }
     .channel-quick-mention-avatar {
-        width: 1.55rem;
-        height: 1.55rem;
-        border-radius: 999px;
+        width: 1.34rem;
+        height: 1.34rem;
+        border-radius: 7px;
         overflow: hidden;
         flex: 0 0 auto;
         display: inline-flex;
@@ -1235,7 +1235,7 @@
         background: color-mix(in srgb, var(--canopy-primary) 20%, var(--canopy-bg-tertiary) 80%);
         color: var(--canopy-text-primary);
         border: 1px solid color-mix(in srgb, var(--canopy-border) 70%, transparent);
-        font-size: 0.68rem;
+        font-size: 0.6rem;
         font-weight: 900;
     }
     .channel-quick-mention-avatar img {
@@ -1245,17 +1245,18 @@
     }
     .channel-quick-mention-name {
         display: inline-block;
-        max-width: 7.8rem;
+        max-width: 6.35rem;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 0.78rem;
+        font-size: 0.735rem;
         font-weight: 800;
+        line-height: 1.05;
     }
     .channel-quick-mention-chip .bi {
         color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-text-primary) 28%);
-        font-size: 0.85rem;
+        font-size: 0.76rem;
     }
     .file-dropzone.is-mention-drop-target {
         border-color: var(--canopy-primary);
@@ -5489,10 +5490,10 @@
             flex-basis: 100%;
             max-width: 100%;
             min-width: 0;
-            padding: 0.14rem 0.26rem;
+            padding: 0.12rem 0.22rem;
         }
         .channel-quick-mention-name {
-            max-width: 5.8rem;
+            max-width: 5.1rem;
         }
         .channel-lifespan-label {
             font-size: 0.64rem;
@@ -5630,14 +5631,14 @@
             flex-basis: 100%;
             max-width: 100%;
             min-width: 0;
-            height: 1.95rem;
+            min-height: 1.72rem;
         }
         .channel-quick-mention-kicker {
             display: none;
         }
         .channel-quick-mention-name {
-            max-width: 5.2rem;
-            font-size: 0.72rem;
+            max-width: 4.8rem;
+            font-size: 0.7rem;
         }
         .channel-lifespan-label {
             display: none;
@@ -5698,12 +5699,12 @@
             min-width: 0;
         }
         .channel-quick-mention-chip {
-            height: 1.9rem;
-            padding-right: 0.45rem;
+            height: 1.68rem;
+            padding-right: 0.34rem;
         }
         .channel-quick-mention-avatar {
-            width: 1.42rem;
-            height: 1.42rem;
+            width: 1.26rem;
+            height: 1.26rem;
         }
         #message-input {
             min-height: 31px !important;
@@ -10375,6 +10376,7 @@ const CHANNEL_THREAD_EVENT_TYPES = [
 const channelMentionCache = {};
 const channelMentionCacheFetchedAt = {};
 const CHANNEL_MENTION_CACHE_TTL_MS = 30000;
+let channelQuickMentionRailSignature = '';
 let channelHashCache = null;
 let channelMentionContext = null;
 let channelMentionBuilderFilter = 'all';
@@ -19689,24 +19691,34 @@ function insertChannelQuickMention(handle) {
 
 function bindChannelQuickMentionRail(rail) {
     if (!rail) return;
-    rail.querySelectorAll('.channel-quick-mention-chip').forEach(chip => {
+    if (rail.dataset.quickMentionBound === '1') return;
+    rail.dataset.quickMentionBound = '1';
+    rail.addEventListener('click', (event) => {
+        const chip = event.target && event.target.closest ? event.target.closest('.channel-quick-mention-chip') : null;
+        if (!chip || !rail.contains(chip)) return;
         const handle = chip.getAttribute('data-mention-handle') || '';
-        chip.addEventListener('click', () => insertChannelQuickMention(handle));
-        chip.addEventListener('keydown', (event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return;
-            event.preventDefault();
-            insertChannelQuickMention(handle);
-        });
-        chip.addEventListener('dragstart', (event) => {
-            chip.classList.add('is-dragging');
-            if (!event.dataTransfer) return;
-            event.dataTransfer.effectAllowed = 'copy';
-            event.dataTransfer.setData('application/x-canopy-mention', handle);
-            event.dataTransfer.setData('text/plain', `@${handle} `);
-        });
-        chip.addEventListener('dragend', () => {
-            chip.classList.remove('is-dragging');
-        });
+        insertChannelQuickMention(handle);
+    });
+    rail.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const chip = event.target && event.target.closest ? event.target.closest('.channel-quick-mention-chip') : null;
+        if (!chip || !rail.contains(chip)) return;
+        event.preventDefault();
+        insertChannelQuickMention(chip.getAttribute('data-mention-handle') || '');
+    });
+    rail.addEventListener('dragstart', (event) => {
+        const chip = event.target && event.target.closest ? event.target.closest('.channel-quick-mention-chip') : null;
+        if (!chip || !rail.contains(chip)) return;
+        const handle = chip.getAttribute('data-mention-handle') || '';
+        chip.classList.add('is-dragging');
+        if (!event.dataTransfer) return;
+        event.dataTransfer.effectAllowed = 'copy';
+        event.dataTransfer.setData('application/x-canopy-mention', handle);
+        event.dataTransfer.setData('text/plain', `@${handle} `);
+    });
+    rail.addEventListener('dragend', (event) => {
+        const chip = event.target && event.target.closest ? event.target.closest('.channel-quick-mention-chip') : null;
+        if (chip) chip.classList.remove('is-dragging');
     });
 }
 
@@ -19716,12 +19728,25 @@ function renderChannelQuickMentionRail() {
     if (!currentChannelId || !Array.isArray(channelMentionCache[currentChannelId])) {
         rail.classList.remove('is-visible');
         rail.innerHTML = '';
+        channelQuickMentionRailSignature = '';
         return;
     }
     const entries = getChannelQuickMentionUsers(10);
     if (!entries.length) {
         rail.classList.remove('is-visible');
         rail.innerHTML = '';
+        channelQuickMentionRailSignature = '';
+        return;
+    }
+    const signature = `${currentChannelId}|${entries.map(entry => [
+        entry.user && entry.user.user_id || '',
+        entry.handle || '',
+        entry.label || '',
+        entry.accountType || '',
+        Number(entry.score || 0).toFixed(3),
+    ].join(':')).join('|')}`;
+    if (channelQuickMentionRailSignature === signature && rail.dataset.quickMentionBound === '1') {
+        rail.classList.add('is-visible');
         return;
     }
     const chips = entries.map(entry => {
@@ -19738,10 +19763,10 @@ function renderChannelQuickMentionRail() {
                     aria-label="Mention ${escapeAttr(label)}">
             ${getChannelQuickMentionAvatar(user, label)}
             <span class="channel-quick-mention-name">${escapeHtml(label)}</span>
-            <i class="bi bi-grip-vertical" aria-hidden="true"></i>
         </button>`;
     }).join('');
-    rail.innerHTML = `<span class="channel-quick-mention-kicker">Mention</span>${chips}`;
+    rail.innerHTML = `<span class="channel-quick-mention-kicker" title="Quick mentions">@</span>${chips}`;
+    channelQuickMentionRailSignature = signature;
     rail.classList.add('is-visible');
     bindChannelQuickMentionRail(rail);
 }
