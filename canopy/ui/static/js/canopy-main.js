@@ -10796,21 +10796,39 @@
 	            // Upgrade fallback cards into real embedded posts (best-effort).
 	            try {
 	                const scope = (root instanceof Element || root instanceof Document) ? root : document;
-	                const embeds = scope.querySelectorAll('.x-embed[data-x-status-id]:not([data-canopy-x-processed])');
+	                const embeds = scope.querySelectorAll('.x-embed[data-x-status-id]:not([data-canopy-x-processed]):not([data-canopy-x-rendering])');
 	                if (!embeds.length) return;
 
-	                embeds.forEach(el => el.setAttribute('data-canopy-x-processed', '1'));
+	                embeds.forEach(el => {
+	                    el.setAttribute('data-canopy-x-rendering', '1');
+	                    el.classList.add('is-rendering');
+	                });
 
 	                ensureTwitterWidgetsLoaded()
 	                    .then(() => {
 	                        if (!(window.twttr && window.twttr.widgets && typeof window.twttr.widgets.createTweet === 'function')) {
+	                            embeds.forEach(el => {
+	                                el.setAttribute('data-canopy-x-processed', '1');
+	                                el.removeAttribute('data-canopy-x-rendering');
+	                                el.classList.remove('is-rendering');
+	                            });
 	                            return;
 	                        }
 	                        embeds.forEach(container => {
 	                            const statusId = container.getAttribute('data-x-status-id');
 	                            const renderTarget = container.querySelector('.x-embed-render');
-	                            if (!statusId || !renderTarget) return;
-	                            if (container.classList.contains('is-rendered')) return;
+	                            if (!statusId || !renderTarget) {
+	                                container.setAttribute('data-canopy-x-processed', '1');
+	                                container.removeAttribute('data-canopy-x-rendering');
+	                                container.classList.remove('is-rendering');
+	                                return;
+	                            }
+	                            if (container.classList.contains('is-rendered')) {
+	                                container.setAttribute('data-canopy-x-processed', '1');
+	                                container.removeAttribute('data-canopy-x-rendering');
+	                                container.classList.remove('is-rendering');
+	                                return;
+	                            }
 
 	                            const theme = container.getAttribute('data-x-theme') || canopyEmbedTheme();
 	                            renderTarget.innerHTML = '';
@@ -10820,13 +10838,27 @@
 	                                conversation: 'none',
 	                            }).then(() => {
 	                                container.classList.add('is-rendered');
+	                                container.setAttribute('data-canopy-x-processed', '1');
+	                                container.removeAttribute('data-canopy-x-rendering');
+	                                container.classList.remove('is-rendering');
+	                                if (typeof installCanopyEmbedScrollGuards === 'function') {
+	                                    installCanopyEmbedScrollGuards(container);
+	                                }
 	                            }).catch(() => {
-	                                // Leave the fallback card visible
+	                                container.setAttribute('data-canopy-x-processed', '1');
+	                                container.removeAttribute('data-canopy-x-rendering');
+	                                container.classList.remove('is-rendering');
+	                                // Leave the fallback card visible.
 	                            });
 	                        });
 	                    })
 	                    .catch(() => {
-	                        // Leave the fallback cards visible
+	                        embeds.forEach(el => {
+	                            el.setAttribute('data-canopy-x-processed', '1');
+	                            el.removeAttribute('data-canopy-x-rendering');
+	                            el.classList.remove('is-rendering');
+	                        });
+	                        // Leave the fallback cards visible.
 	                    });
 	            } catch (e) {
 	                // no-op
@@ -11575,10 +11607,10 @@
                 ? document.querySelector(scope)
                 : (scope || document);
             if (!root || !root.querySelectorAll) return;
-            root.querySelectorAll('.embed-preview.iframe-embed iframe:not([data-canopy-scroll-guard])').forEach((iframe) => {
+            root.querySelectorAll('.embed-preview.iframe-embed iframe:not([data-canopy-scroll-guard]), .x-embed iframe:not([data-canopy-scroll-guard])').forEach((iframe) => {
                 iframe.setAttribute('data-canopy-scroll-guard', '1');
                 if (!iframe.hasAttribute('tabindex')) iframe.setAttribute('tabindex', '-1');
-                const wrapper = iframe.closest ? iframe.closest('.embed-preview.iframe-embed') : null;
+                const wrapper = iframe.closest ? iframe.closest('.embed-preview.iframe-embed, .x-embed') : null;
                 const markEmbedInteraction = () => {
                     iframe.dataset.canopyUserInteractionAt = String(Date.now());
                 };
@@ -15120,7 +15152,11 @@
 	        // Helper to process all elements matching a selector through renderRichContent
 		        function processRichEmbeds(selector) {
 		            document.querySelectorAll(selector).forEach(function(el) {
-		                const rawText = el.textContent.trim();
+		                const storedRawText = el.getAttribute('data-canopy-rich-source') || '';
+		                if (el.getAttribute('data-canopy-rich-rendered') === '1' && storedRawText) {
+		                    return;
+		                }
+		                const rawText = (storedRawText || el.textContent || '').trim();
 		                if (!rawText) return;
 		                // Process if it contains a URL worth embedding, markdown image, or code blocks
 		                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText) || hasCanopyMarkdownSyntax(rawText) || containsMathDelimiters(rawText) || isCanopyDigestionAgentReferenceText(rawText);
@@ -15130,10 +15166,14 @@
 	                        // Avoid invalid <p><div>... nesting once we add embeds.
 	                        const repl = document.createElement('div');
 	                        repl.className = el.className;
+	                        repl.setAttribute('data-canopy-rich-source', rawText);
+	                        repl.setAttribute('data-canopy-rich-rendered', '1');
 	                        repl.innerHTML = rendered;
 	                        el.replaceWith(repl);
 	                    } else {
 	                        el.innerHTML = rendered;
+	                        el.setAttribute('data-canopy-rich-source', rawText);
+	                        el.setAttribute('data-canopy-rich-rendered', '1');
 	                    }
 	                }
 	            });
