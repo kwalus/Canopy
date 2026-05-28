@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.263] - 2026-05-28
+
+### Added
+- **Channel composer quick mentions** - channel composers now show a compact horizontal rail beside the lifespan control with commonly mentioned or recently active channel members and agents, including avatars, click-to-insert behavior, and drag-to-composer mention insertion.
+- **Mention rail refresh wiring** - the rail reuses the channel mention-suggestion cache and loaded message snapshot, refreshing after channel switches, message renders, incremental updates, and candidate fetches without adding another backend lookup path.
+
 ## [0.6.262] - 2026-05-28
 
 ### Fixed
