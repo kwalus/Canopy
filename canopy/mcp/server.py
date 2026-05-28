@@ -1236,6 +1236,43 @@ class CanopyMCPServer:
                     }
                 ),
                 Tool(
+                    name="canopy_digest_evidence",
+                    description=(
+                        "List, search, append, or critically review generic Digestion evidence records. "
+                        "Use this for durable findings, claims, decisions, risks, requirements, source-backed facts, and challenge/supersession history. "
+                        "List/search require read_files plus Digestion query access; append/review require write_files plus Digestion manage access."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "digestion_id": {"type": "string"},
+                            "action": {"type": "string", "enum": ["list", "search", "append", "review"], "default": "list"},
+                            "evidence_id": {"type": "string"},
+                            "query": {"type": "string"},
+                            "status": {"type": "string", "description": "candidate, stable, contested, needs_source, stale, superseded"},
+                            "tag": {"type": "string"},
+                            "limit": {"type": "integer", "default": 100},
+                            "records": {
+                                "type": "array",
+                                "items": {"type": "object"},
+                                "description": "Evidence records with statement, summary, record_kind, status, priority, confidence, tags, evidence_refs, source_refs, related_ids, and metadata."
+                            },
+                            "review_action": {
+                                "type": "string",
+                                "enum": ["support", "challenge", "refine", "supersede", "mark_stale", "request_source", "confirm"],
+                                "description": "Critical-review action when action=review."
+                            },
+                            "note": {"type": "string"},
+                            "confidence": {"type": "number"},
+                            "evidence_refs": {"type": "array", "items": {"type": "object"}},
+                            "new_status": {"type": "string"},
+                            "superseded_by_id": {"type": "string"},
+                            "metadata": {"type": "object"}
+                        },
+                        "required": ["digestion_id"]
+                    }
+                ),
+                Tool(
                     name="canopy_digest_query",
                     description="Query a Digestion and receive cited snippets from approved Vault sources. Requires read_files and Digestion query access. If this returns 403/query_denied, use canopy_digest_request_access for a formatted owner request.",
                     inputSchema={
@@ -1939,6 +1976,12 @@ class CanopyMCPServer:
                     if not self._check_permission(required_permission):
                         return [TextContent(type="text", text=f"Error: Permission denied: {required_permission.value} required")]
                     return await self._digest_contributions(arguments or {})
+                elif name == "canopy_digest_evidence":
+                    action = str((arguments or {}).get("action") or "list").strip().lower()
+                    required_permission = Permission.READ_FILES if action in {"", "list", "search"} else Permission.WRITE_FILES
+                    if not self._check_permission(required_permission):
+                        return [TextContent(type="text", text=f"Error: Permission denied: {required_permission.value} required")]
+                    return await self._digest_evidence(arguments or {})
                 elif name == "canopy_digest_query":
                     if not self._check_permission(Permission.READ_FILES):
                         return [TextContent(type="text", text="Error: Permission denied: read_files required")]
@@ -5186,6 +5229,81 @@ class CanopyMCPServer:
         except Exception as e:
             raise Exception(f"Failed to process Digestion contributions: {str(e)}")
 
+    async def _digest_evidence(self, args: Dict[str, Any]) -> List[TextContent]:
+        """List, search, append, or review Digestion evidence records."""
+        digestion_id = str(args.get("digestion_id") or "").strip()
+        evidence_id = str(args.get("evidence_id") or "").strip()
+        action = str(args.get("action") or "list").strip().lower()
+        try:
+            from canopy.core.app import create_app
+
+            if not digestion_id:
+                return [TextContent(type="text", text="Error: digestion_id is required")]
+            app = create_app()
+            with app.app_context():
+                manager = app.config.get('DIGESTION_MANAGER')
+                if not manager:
+                    return [TextContent(type="text", text="Error: Digestion manager unavailable")]
+                if action in {"", "list"}:
+                    result = manager.list_evidence_records(
+                        digestion_id,
+                        self.user_id,
+                        status=str(args.get("status") or ""),
+                        query=str(args.get("query") or args.get("q") or ""),
+                        tag=str(args.get("tag") or ""),
+                        limit=_mcp_int(args.get("limit"), 100, 1, 250),
+                        include_reviews=not _mcp_flag(args.get("metadata_only"), default=False),
+                    )
+                    return _mcp_json(result)
+                if action == "search":
+                    result = manager.search_evidence_records(
+                        digestion_id,
+                        self.user_id,
+                        str(args.get("query") or args.get("q") or ""),
+                        status=str(args.get("status") or ""),
+                        tag=str(args.get("tag") or ""),
+                        limit=_mcp_int(args.get("limit"), 100, 1, 250),
+                    )
+                    return _mcp_json(result)
+                if action == "append":
+                    records = args.get("records") or args.get("evidence") or args.get("items") or args.get("record") or []
+                    if isinstance(records, dict):
+                        records = [records]
+                    if not isinstance(records, list):
+                        records = []
+                    result = manager.append_evidence_records(
+                        digestion_id,
+                        self.user_id,
+                        records=records,
+                    )
+                    return _mcp_json(result)
+                if action == "review":
+                    if not evidence_id:
+                        return [TextContent(type="text", text="Error: evidence_id is required for review")]
+                    evidence_refs = args.get("evidence_refs") or args.get("evidence") or args.get("citations") or []
+                    if isinstance(evidence_refs, (dict, str)):
+                        evidence_refs = [evidence_refs]
+                    if not isinstance(evidence_refs, list):
+                        evidence_refs = []
+                    result = manager.review_evidence_record(
+                        digestion_id,
+                        evidence_id,
+                        self.user_id,
+                        action=str(args.get("review_action") or args.get("decision") or ""),
+                        note=str(args.get("note") or args.get("review_note") or ""),
+                        confidence=args.get("confidence"),
+                        evidence_refs=evidence_refs,
+                        status=str(args.get("new_status") or args.get("status") or ""),
+                        superseded_by_id=str(args.get("superseded_by_id") or args.get("replacement_evidence_id") or ""),
+                        metadata=args.get("metadata") if isinstance(args.get("metadata"), dict) else {},
+                    )
+                    return _mcp_json(result)
+                return [TextContent(type="text", text=f"Error: unsupported action '{action}'")]
+        except DigestionError as exc:
+            return _mcp_json(_digest_access_error(exc, digestion_id, self.user_id))
+        except Exception as e:
+            raise Exception(f"Failed to process Digestion evidence: {str(e)}")
+
     async def _digest_query(self, args: Dict[str, Any]) -> List[TextContent]:
         """Query a Digestion."""
         digestion_id = str(args.get("digestion_id") or "").strip()
@@ -5761,6 +5879,10 @@ class CanopyMCPServer:
                         "PATCH /api/v1/digestions/<digestion_id>/sources/<file_id> with {source_label, source_uri, source_metadata, merge_metadata}; edit source-facing metadata without touching file bytes",
                         "POST /api/v1/digestions/<digestion_id>/materials with {materials:[{title, kind, source_uri, content}]}",
                         "POST /api/v1/digestions/<digestion_id>/contributions with {contributions, source_file_ids, datapoints, build_after}; append agent work product, references, files, and optional structured datapoints to a managed Digestion",
+                        "GET /api/v1/digestions/<digestion_id>/evidence?status=candidate&tag=...; list durable evidence records, review state, and challenge/support history for an accessible Digestion",
+                        "POST /api/v1/digestions/<digestion_id>/evidence with {records:[{statement, summary, record_kind, status, priority, confidence, tags, evidence_refs}]}; append generic source-backed findings, decisions, risks, requirements, or claims to a managed Digestion",
+                        "POST /api/v1/digestions/<digestion_id>/evidence/search with {query, status, tag, limit}; search the Digestion truth-maintenance layer instead of ordinary chunks",
+                        "POST /api/v1/digestions/<digestion_id>/evidence/<evidence_id>/reviews with {action:'support|challenge|refine|supersede|mark_stale|request_source|confirm', note, evidence_refs}; critically review an evidence record",
                         "POST /api/v1/digestions/<digestion_id>/build",
                         "POST /api/v1/digestions/<digestion_id>/query with {query, top_k}",
                         "POST /api/v1/digestions/<digestion_id>/context with {query, top_k}",
@@ -5785,6 +5907,7 @@ class CanopyMCPServer:
                         "canopy_digest_add_sources",
                         "canopy_digest_manage_sources",
                         "canopy_digest_append_contributions",
+                        "canopy_digest_evidence",
                         "canopy_digest_query",
                         "canopy_digest_datapoints_search",
                         "canopy_digest_datapoints_extract",
@@ -5798,7 +5921,7 @@ class CanopyMCPServer:
                         "canopy_digest_request_access",
                     ],
                     "privacy": "Source files, chunks, vectors, extracted figure records, and visual-evidence records remain local by default. OpenAI embedding builds send extracted chunks to the embedding provider; provider=local_hash is available for local testing but is not a high-quality semantic index.",
-                    "workflow": "create from Vault files/materials or add sources to a managed Digestion -> build -> query/context/figures/visual-evidence -> cite file_name/page_label/snippet or visual caption in your answer -> append useful agent work product with canopy_digest_append_contributions when you identify notes, claims, references, files, or explicit datapoints worth preserving -> curate stale or incorrect sources with canopy_digest_manage_sources remove/replace/update -> extract datapoints with scope='new' after adding papers, or scope='all' after changing lens/model -> for graphical/chart-heavy operational references, append/search structured records (for aviation charts use profile='aviation_chart' with field-level provenance and verification status) instead of guessing from OCR chunks -> generate/export reusable outputs when useful. If you created the corpus as an agent, report the digestion_id, keep using canopy_digest_list as your durable record, and transfer ownership to the human with canopy_digest_transfer_owner when asked; keep_previous_owner_access=true keeps you available for iteration. After transfer, inspect caller_access_after_transfer, source_counts, and source_state_after_transfer so you know whether contribution-backed sources were copied/remapped and whether you retained manager access. Report source errors instead of hiding them. When receiving a package attachment, treat it as a static handoff card; if live calls fail or counts look stale, call canopy_digest_request_access and ask the owner for the ACL grant rather than assuming the package grants live query access.",
+                    "workflow": "create from Vault files/materials or add sources to a managed Digestion -> build -> query/context/figures/visual-evidence -> cite file_name/page_label/snippet or visual caption in your answer -> append useful agent work product with canopy_digest_append_contributions when you identify notes, claims, references, files, or explicit datapoints worth preserving -> use canopy_digest_evidence to preserve the most important truth-maintenance items as durable source-backed findings, decisions, risks, requirements, challenges, and confirmations -> curate stale or incorrect sources with canopy_digest_manage_sources remove/replace/update -> extract datapoints with scope='new' after adding papers, or scope='all' after changing lens/model -> for graphical/chart-heavy operational references, append/search structured records (for aviation charts use profile='aviation_chart' with field-level provenance and verification status) instead of guessing from OCR chunks -> generate/export reusable outputs when useful. If you created the corpus as an agent, report the digestion_id, keep using canopy_digest_list as your durable record, and transfer ownership to the human with canopy_digest_transfer_owner when asked; keep_previous_owner_access=true keeps you available for iteration. After transfer, inspect caller_access_after_transfer, source_counts, and source_state_after_transfer so you know whether contribution-backed sources were copied/remapped and whether you retained manager access. Report source errors instead of hiding them. When receiving a package attachment, treat it as a static handoff card; if live calls fail or counts look stale, call canopy_digest_request_access and ask the owner for the ACL grant rather than assuming the package grants live query access.",
                 },
                 "tasks": "Create, list, and update tasks via MCP tools canopy_create_task, canopy_list_tasks, canopy_update_task, or REST API (POST/GET/PATCH /api/v1/tasks). Tasks have status (open/in_progress/blocked/done), priority (low/normal/high/critical), assignee, due date, and visibility (network/local).",
                 "objectives": "Objectives group tasks under a shared goal. Use MCP tools canopy_create_objective, canopy_list_objectives, canopy_get_objective, canopy_update_objective, and canopy_add_objective_task, or REST API /api/v1/objectives. Progress is computed from child task completion.",
@@ -5829,7 +5952,7 @@ class CanopyMCPServer:
                     "Attachments: use upload then attach; P2P sync only embeds files ≤10 MB.",
                     "Use only the REST API; do not write to the database or use /ajax/ with API keys.",
                 ],
-                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_vault_list, canopy_vault_read_file, canopy_vault_write_file, canopy_vault_update_file, canopy_vault_diff_file, canopy_vault_move_file, canopy_vault_create_folder, canopy_vault_delete_file, canopy_vault_save_attachment, canopy_digest_list, canopy_digest_create, canopy_digest_transfer_owner, canopy_digest_build, canopy_digest_add_sources, canopy_digest_manage_sources, canopy_digest_append_contributions, canopy_digest_contributions, canopy_digest_query, canopy_digest_datapoints_search, canopy_digest_datapoints_extract, canopy_digest_structured_records, canopy_digest_sources, canopy_digest_figures, canopy_digest_visual_evidence, canopy_digest_add_materials, canopy_digest_outputs, canopy_digest_context, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
+                "mcp_tools": "canopy_get_instructions (this), canopy_check_auth_status, canopy_post_to_feed, canopy_update_feed_post, canopy_get_poll, canopy_vote_poll, canopy_upload_avatar, canopy_delete_feed_post, canopy_search, canopy_send_message, canopy_get_messages, canopy_update_message, canopy_mark_message_read, canopy_delete_message, canopy_send_channel_message, canopy_update_channel_message, canopy_get_channel_messages, canopy_get_mentions, canopy_ack_mentions, canopy_get_inbox, canopy_get_inbox_count, canopy_get_inbox_stats, canopy_get_inbox_audit, canopy_rebuild_inbox, canopy_ack_inbox, canopy_get_inbox_config, canopy_set_inbox_config, canopy_get_catchup, canopy_get_session_catchup, canopy_get_handoffs, canopy_vault_list, canopy_vault_read_file, canopy_vault_write_file, canopy_vault_update_file, canopy_vault_diff_file, canopy_vault_move_file, canopy_vault_create_folder, canopy_vault_delete_file, canopy_vault_save_attachment, canopy_digest_list, canopy_digest_create, canopy_digest_transfer_owner, canopy_digest_build, canopy_digest_add_sources, canopy_digest_manage_sources, canopy_digest_append_contributions, canopy_digest_contributions, canopy_digest_evidence, canopy_digest_query, canopy_digest_datapoints_search, canopy_digest_datapoints_extract, canopy_digest_structured_records, canopy_digest_sources, canopy_digest_figures, canopy_digest_visual_evidence, canopy_digest_add_materials, canopy_digest_outputs, canopy_digest_context, canopy_list_tasks, canopy_create_task, canopy_update_task, canopy_list_objectives, canopy_get_objective, canopy_create_objective, canopy_update_objective, canopy_add_objective_task, canopy_list_requests, canopy_get_request, canopy_create_request, canopy_update_request, canopy_list_signals, canopy_get_signal, canopy_create_signal, canopy_update_signal, canopy_lock_signal, canopy_list_channels, get_profile, update_profile, etc.",
                 "agent_directives": user_directives,
                 "agent_directives_source": directives_source,
             }

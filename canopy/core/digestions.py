@@ -55,6 +55,7 @@ STRUCTURED_RECORD_OUTPUT_KIND = "structured_records"
 STRUCTURED_RECORD_SCHEMA_VERSION = "canopy_structured_records_v1"
 AGENT_CONTRIBUTION_SCHEMA_VERSION = "canopy_agent_digestion_contribution_v1"
 DIGESTION_CONTRIBUTION_LEDGER_SCHEMA_VERSION = "canopy_digestion_contribution_ledger_v1"
+DIGESTION_EVIDENCE_SCHEMA_VERSION = "canopy_digestion_evidence_v1"
 CONTRIBUTION_STATUS_PENDING = "pending"
 CONTRIBUTION_STATUS_ACCEPTED = "accepted"
 CONTRIBUTION_STATUS_REVIEWED = "reviewed"
@@ -65,12 +66,37 @@ CONTRIBUTION_STATUSES = {
     CONTRIBUTION_STATUS_REVIEWED,
     CONTRIBUTION_STATUS_REJECTED,
 }
+EVIDENCE_STATUS_CANDIDATE = "candidate"
+EVIDENCE_STATUS_STABLE = "stable"
+EVIDENCE_STATUS_CONTESTED = "contested"
+EVIDENCE_STATUS_NEEDS_SOURCE = "needs_source"
+EVIDENCE_STATUS_STALE = "stale"
+EVIDENCE_STATUS_SUPERSEDED = "superseded"
+EVIDENCE_STATUSES = {
+    EVIDENCE_STATUS_CANDIDATE,
+    EVIDENCE_STATUS_STABLE,
+    EVIDENCE_STATUS_CONTESTED,
+    EVIDENCE_STATUS_NEEDS_SOURCE,
+    EVIDENCE_STATUS_STALE,
+    EVIDENCE_STATUS_SUPERSEDED,
+}
+EVIDENCE_PRIORITIES = {"low", "normal", "high", "critical"}
+EVIDENCE_REVIEW_ACTIONS = {
+    "support",
+    "challenge",
+    "refine",
+    "supersede",
+    "mark_stale",
+    "request_source",
+    "confirm",
+}
 DEFAULT_STRUCTURED_DATAPOINT_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_DEFAULT_CHUNKS", "80"))
 MAX_STRUCTURED_DATAPOINT_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_MAX_CHUNKS", "240"))
 DEFAULT_STRUCTURED_DATAPOINTS_PER_RUN = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_DEFAULT_RECORDS", "400"))
 MAX_STRUCTURED_DATAPOINTS_PER_RUN = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_MAX_RECORDS", "1200"))
 MAX_AGENT_CONTRIBUTIONS_PER_APPEND = int(os.getenv("CANOPY_DIGESTION_MAX_AGENT_CONTRIBUTIONS_PER_APPEND", "50"))
 MAX_AGENT_DATAPOINTS_PER_APPEND = int(os.getenv("CANOPY_DIGESTION_MAX_AGENT_DATAPOINTS_PER_APPEND", "500"))
+MAX_DIGESTION_EVIDENCE_RECORDS_PER_APPEND = int(os.getenv("CANOPY_DIGESTION_MAX_EVIDENCE_RECORDS_PER_APPEND", "100"))
 MAX_STRUCTURED_DATAPOINT_LLM_BATCH_CHUNKS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_BATCH_CHUNKS", "6"))
 MAX_STRUCTURED_DATAPOINT_LLM_BATCH_CHARS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_BATCH_CHARS", "18000"))
 MAX_STRUCTURED_DATAPOINT_LLM_CHUNK_CHARS = int(os.getenv("CANOPY_DIGESTION_DATAPOINT_LLM_CHUNK_CHARS", "2800"))
@@ -368,6 +394,46 @@ class DigestionManager:
                     FOREIGN KEY (contributor_user_id) REFERENCES users(id) ON DELETE SET NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS digestion_evidence_records (
+                    id TEXT PRIMARY KEY,
+                    digestion_id TEXT NOT NULL,
+                    created_by_user_id TEXT,
+                    record_kind TEXT NOT NULL DEFAULT 'finding',
+                    statement TEXT NOT NULL,
+                    summary TEXT,
+                    scope TEXT,
+                    status TEXT NOT NULL DEFAULT 'candidate',
+                    priority TEXT NOT NULL DEFAULT 'normal',
+                    confidence REAL,
+                    tags_json TEXT,
+                    evidence_refs_json TEXT,
+                    source_refs_json TEXT,
+                    related_ids_json TEXT,
+                    metadata_json TEXT,
+                    superseded_by_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (digestion_id) REFERENCES digestions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+                    FOREIGN KEY (superseded_by_id) REFERENCES digestion_evidence_records(id) ON DELETE SET NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS digestion_evidence_reviews (
+                    id TEXT PRIMARY KEY,
+                    digestion_id TEXT NOT NULL,
+                    evidence_id TEXT NOT NULL,
+                    reviewer_user_id TEXT,
+                    action TEXT NOT NULL,
+                    note TEXT,
+                    confidence REAL,
+                    evidence_refs_json TEXT,
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (digestion_id) REFERENCES digestions(id) ON DELETE CASCADE,
+                    FOREIGN KEY (evidence_id) REFERENCES digestion_evidence_records(id) ON DELETE CASCADE,
+                    FOREIGN KEY (reviewer_user_id) REFERENCES users(id) ON DELETE SET NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_digestions_owner ON digestions(owner_user_id, updated_at);
                 CREATE INDEX IF NOT EXISTS idx_digestion_acl_grantee ON digestion_acl(grantee_user_id, can_query, can_manage);
                 CREATE INDEX IF NOT EXISTS idx_digestion_chunks_digestion ON digestion_chunks(digestion_id, file_id, chunk_index);
@@ -378,6 +444,9 @@ class DigestionManager:
                 CREATE INDEX IF NOT EXISTS idx_digestion_visual_evidence ON digestion_visual_evidence(digestion_id, source_file_id, page_number, evidence_kind);
                 CREATE INDEX IF NOT EXISTS idx_digestion_contributions_digestion ON digestion_contributions(digestion_id, status, created_at);
                 CREATE INDEX IF NOT EXISTS idx_digestion_contributions_contributor ON digestion_contributions(contributor_user_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_digestion_evidence_records ON digestion_evidence_records(digestion_id, status, priority, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_digestion_evidence_author ON digestion_evidence_records(created_by_user_id, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_digestion_evidence_reviews ON digestion_evidence_reviews(digestion_id, evidence_id, created_at);
                 """
             )
             source_columns = {
@@ -1478,6 +1547,314 @@ class DigestionManager:
             "action": action_clean,
             "contribution": self._contribution_row_to_dict(updated, include_payload=True) if updated else {},
             "apply_result": apply_result,
+            "stats": self.stats(digestion.id),
+        }
+
+    def append_evidence_records(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        records: Optional[Iterable[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
+        """Append durable, reviewable evidence records to a managed Digestion.
+
+        Evidence records are a generic truth-maintenance layer. Agents and
+        humans can turn query results, figures, datapoints, uploaded files, or
+        discussion outcomes into citable findings without granting raw Vault
+        access to every later consumer.
+        """
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        if isinstance(records, dict):
+            raw_all = [records]
+        else:
+            raw_all = list(records or [])
+        if not raw_all:
+            raise DigestionError("Provide at least one evidence record to append.", status_code=400, reason="missing_evidence_records")
+        raw_items = raw_all[:MAX_DIGESTION_EVIDENCE_RECORDS_PER_APPEND]
+        skipped: list[dict[str, str]] = []
+        normalized: list[dict[str, Any]] = []
+        for index, item in enumerate(raw_items, start=1):
+            if not isinstance(item, dict):
+                skipped.append({"index": str(index), "reason": "record_not_object"})
+                continue
+            record = self._normalize_evidence_record(digestion, actor_user_id, item, index=index)
+            if not record:
+                skipped.append({"index": str(index), "reason": "empty_record"})
+                continue
+            normalized.append(record)
+        extra_count = max(0, len(raw_all) - len(raw_items))
+        if extra_count:
+            skipped.append({"reason": "evidence_record_limit_reached", "count": str(extra_count)})
+        if not normalized:
+            raise DigestionError("No valid evidence records were provided.", status_code=400, reason="invalid_evidence_records")
+
+        now = self._now()
+        with self.db.get_connection() as conn:
+            for record in normalized:
+                conn.execute(
+                    """
+                    INSERT INTO digestion_evidence_records (
+                        id, digestion_id, created_by_user_id, record_kind, statement,
+                        summary, scope, status, priority, confidence, tags_json,
+                        evidence_refs_json, source_refs_json, related_ids_json,
+                        metadata_json, superseded_by_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        record_kind = excluded.record_kind,
+                        statement = excluded.statement,
+                        summary = excluded.summary,
+                        scope = excluded.scope,
+                        status = excluded.status,
+                        priority = excluded.priority,
+                        confidence = excluded.confidence,
+                        tags_json = excluded.tags_json,
+                        evidence_refs_json = excluded.evidence_refs_json,
+                        source_refs_json = excluded.source_refs_json,
+                        related_ids_json = excluded.related_ids_json,
+                        metadata_json = excluded.metadata_json,
+                        superseded_by_id = excluded.superseded_by_id,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        record["id"],
+                        digestion.id,
+                        actor_user_id,
+                        record["record_kind"],
+                        record["statement"],
+                        record["summary"],
+                        record["scope"],
+                        record["status"],
+                        record["priority"],
+                        record["confidence"],
+                        self._json_dumps(record["tags"]),
+                        self._json_dumps(record["evidence_refs"]),
+                        self._json_dumps(record["source_refs"]),
+                        self._json_dumps(record["related_ids"]),
+                        self._json_dumps(record["metadata"]),
+                        self._clean_id(record.get("superseded_by_id")),
+                        now,
+                        now,
+                    ),
+                )
+            conn.execute("UPDATE digestions SET updated_at = ? WHERE id = ?", (now, digestion.id))
+            conn.commit()
+        records_out = self._evidence_records_by_ids(
+            digestion.id,
+            [record["id"] for record in normalized],
+            include_reviews=True,
+        )
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "schema_version": DIGESTION_EVIDENCE_SCHEMA_VERSION,
+            "added": len(normalized),
+            "records": records_out,
+            "skipped": skipped,
+            "access": self._access_for(digestion, actor_user_id),
+            "stats": self.stats(digestion.id),
+        }
+
+    def list_evidence_records(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        status: str = "",
+        query: str = "",
+        tag: str = "",
+        limit: int = 100,
+        include_reviews: bool = True,
+    ) -> dict[str, Any]:
+        """List reviewable evidence records for an accessible Digestion."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
+        max_rows = max(1, min(int(limit or 100), 250))
+        requested_status = self._normalize_evidence_status(status, allow_empty=True)
+        query_text = str(query or "").strip()
+        tag_filter = str(tag or "").strip().lower()
+        params: list[Any] = [digestion.id]
+        status_clause = ""
+        if requested_status:
+            status_clause = "AND e.status = ?"
+            params.append(requested_status)
+        params.append(max_rows * 4 if (query_text or tag_filter) else max_rows)
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    e.*,
+                    u.username AS created_by_username,
+                    u.avatar_file_id AS created_by_avatar_file_id
+                FROM digestion_evidence_records e
+                LEFT JOIN users u ON u.id = e.created_by_user_id
+                WHERE e.digestion_id = ?
+                {status_clause}
+                ORDER BY
+                    CASE e.priority
+                        WHEN 'critical' THEN 0
+                        WHEN 'high' THEN 1
+                        WHEN 'normal' THEN 2
+                        ELSE 3
+                    END,
+                    CASE e.status
+                        WHEN 'contested' THEN 0
+                        WHEN 'needs_source' THEN 1
+                        WHEN 'candidate' THEN 2
+                        WHEN 'stable' THEN 3
+                        WHEN 'stale' THEN 4
+                        ELSE 5
+                    END,
+                    e.updated_at DESC,
+                    e.created_at DESC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
+        records = [self._evidence_row_to_dict(row, include_reviews=False) for row in rows]
+        if query_text:
+            records = [
+                item for item in records
+                if self._evidence_record_matches_query(item, query_text)
+            ]
+        if tag_filter:
+            records = [
+                item for item in records
+                if tag_filter in {str(value or "").strip().lower() for value in item.get("tags") or []}
+            ]
+        records = records[:max_rows]
+        if include_reviews and records:
+            self._attach_evidence_reviews(digestion.id, records)
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "schema_version": DIGESTION_EVIDENCE_SCHEMA_VERSION,
+            "evidence": records,
+            "records": records,
+            "count": len(records),
+            "status_counts": self._evidence_status_counts(digestion.id),
+            "query": query_text,
+            "tag": tag_filter,
+            "access": self._access_for(digestion, actor_user_id),
+            "stats": self.stats(digestion.id),
+        }
+
+    def search_evidence_records(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        query: str,
+        *,
+        status: str = "",
+        tag: str = "",
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Search evidence records by statement, summary, tags, refs, or metadata."""
+        query_text = str(query or "").strip()
+        if not query_text and not str(tag or "").strip() and not str(status or "").strip():
+            raise DigestionError("query, status, or tag is required", status_code=400, reason="missing_evidence_search")
+        result = self.list_evidence_records(
+            digestion_id,
+            actor_user_id,
+            status=status,
+            query=query_text,
+            tag=tag,
+            limit=limit,
+            include_reviews=True,
+        )
+        result["mode"] = "evidence_records"
+        return result
+
+    def review_evidence_record(
+        self,
+        digestion_id: str,
+        evidence_id: str,
+        actor_user_id: str,
+        *,
+        action: str,
+        note: str = "",
+        confidence: Optional[float] = None,
+        evidence_refs: Optional[Iterable[Any]] = None,
+        status: str = "",
+        superseded_by_id: str = "",
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Append a review event and update the evidence record state."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        evidence_id = self._clean_id(evidence_id)
+        if not evidence_id:
+            raise DigestionError("evidence_id is required", status_code=400, reason="missing_evidence_id")
+        action_clean = self._normalize_evidence_review_action(action)
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT id, status FROM digestion_evidence_records WHERE digestion_id = ? AND id = ?",
+                (digestion.id, evidence_id),
+            ).fetchone()
+        if not row:
+            raise DigestionError("Evidence record not found.", status_code=404, reason="evidence_not_found")
+        explicit_status = self._normalize_evidence_status(status, allow_empty=True)
+        next_status = explicit_status or str(row["status"] or EVIDENCE_STATUS_CANDIDATE)
+        if not explicit_status:
+            if action_clean == "challenge":
+                next_status = EVIDENCE_STATUS_CONTESTED
+            elif action_clean == "request_source":
+                next_status = EVIDENCE_STATUS_NEEDS_SOURCE
+            elif action_clean == "mark_stale":
+                next_status = EVIDENCE_STATUS_STALE
+            elif action_clean == "supersede":
+                next_status = EVIDENCE_STATUS_SUPERSEDED
+            elif action_clean == "confirm":
+                next_status = EVIDENCE_STATUS_STABLE
+        evidence_refs_norm = self._normalize_evidence_refs(evidence_refs or [])
+        review_id = f"Evr{secrets.token_hex(12)}"
+        now = self._now()
+        with self.db.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO digestion_evidence_reviews (
+                    id, digestion_id, evidence_id, reviewer_user_id, action,
+                    note, confidence, evidence_refs_json, metadata_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    review_id,
+                    digestion.id,
+                    evidence_id,
+                    actor_user_id,
+                    action_clean,
+                    str(note or "").strip()[:4000],
+                    self._normalize_confidence(confidence),
+                    self._json_dumps(evidence_refs_norm),
+                    self._json_dumps(metadata if isinstance(metadata, dict) else {}),
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE digestion_evidence_records
+                SET status = ?, superseded_by_id = COALESCE(?, superseded_by_id), updated_at = ?
+                WHERE digestion_id = ? AND id = ?
+                """,
+                (
+                    next_status,
+                    self._clean_id(superseded_by_id),
+                    now,
+                    digestion.id,
+                    evidence_id,
+                ),
+            )
+            conn.execute("UPDATE digestions SET updated_at = ? WHERE id = ?", (now, digestion.id))
+            conn.commit()
+        record = self._evidence_records_by_ids(digestion.id, [evidence_id], include_reviews=True)
+        review = record[0]["reviews"][-1] if record and record[0].get("reviews") else {}
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "schema_version": DIGESTION_EVIDENCE_SCHEMA_VERSION,
+            "evidence_id": evidence_id,
+            "action": action_clean,
+            "status": next_status,
+            "review": review,
+            "record": record[0] if record else {},
             "stats": self.stats(digestion.id),
         }
 
@@ -3254,11 +3631,16 @@ class DigestionManager:
             "structured_record_count": 0,
             "contribution_count": 0,
             "pending_contribution_count": 0,
+            "evidence_record_count": 0,
+            "contested_evidence_count": 0,
+            "needs_source_evidence_count": 0,
+            "stable_evidence_count": 0,
             "retrieval_ready": False,
             "needs_build": False,
             "outputs_stale": False,
             "build_state": "empty",
             "sources_by_status": {},
+            "evidence_by_status": {},
         }
 
     def stats_many(self, digestion_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
@@ -3328,6 +3710,15 @@ class DigestionManager:
                 """,
                 ids,
             ).fetchall()
+            evidence_rows = conn.execute(
+                f"""
+                SELECT digestion_id, status, COUNT(*) AS count
+                FROM digestion_evidence_records
+                WHERE digestion_id IN ({placeholders})
+                GROUP BY digestion_id, status
+                """,
+                ids,
+            ).fetchall()
         for row in chunk_rows:
             digestion_id = str(row["digestion_id"] or "")
             if digestion_id not in stats_by_id:
@@ -3390,6 +3781,22 @@ class DigestionManager:
             ) + count
             if str(row["status"] or "").strip().lower() == CONTRIBUTION_STATUS_PENDING:
                 stats_by_id[digestion_id]["pending_contribution_count"] = count
+        for row in evidence_rows:
+            digestion_id = str(row["digestion_id"] or "")
+            if digestion_id not in stats_by_id:
+                continue
+            status = str(row["status"] or "").strip().lower() or "unknown"
+            count = int(row["count"] or 0)
+            stats_by_id[digestion_id]["evidence_by_status"][status] = count
+            stats_by_id[digestion_id]["evidence_record_count"] = int(
+                stats_by_id[digestion_id].get("evidence_record_count") or 0
+            ) + count
+            if status == EVIDENCE_STATUS_CONTESTED:
+                stats_by_id[digestion_id]["contested_evidence_count"] = count
+            elif status == EVIDENCE_STATUS_NEEDS_SOURCE:
+                stats_by_id[digestion_id]["needs_source_evidence_count"] = count
+            elif status == EVIDENCE_STATUS_STABLE:
+                stats_by_id[digestion_id]["stable_evidence_count"] = count
         for digestion_id, stats in stats_by_id.items():
             statuses = stats.get("sources_by_status") if isinstance(stats.get("sources_by_status"), dict) else {}
             indexed = int(statuses.get("indexed") or 0)
@@ -3905,6 +4312,10 @@ class DigestionManager:
             "list_contributions": f"GET {api_base}/contributions",
             "append_contributions": f"POST {api_base}/contributions",
             "review_contribution": f"POST {api_base}/contributions/<contribution_id>",
+            "evidence_list": f"GET {api_base}/evidence",
+            "evidence_append": f"POST {api_base}/evidence",
+            "evidence_search": f"POST {api_base}/evidence/search",
+            "evidence_review": f"POST {api_base}/evidence/<evidence_id>/reviews",
             "build": f"POST {api_base}/build",
             "progress": f"GET {api_base}/progress",
             "query": f"POST {api_base}/query",
@@ -3936,6 +4347,7 @@ class DigestionManager:
             "add_materials": "canopy_digest_add_materials",
             "append_contributions": "canopy_digest_append_contributions",
             "contributions": "canopy_digest_contributions",
+            "evidence": "canopy_digest_evidence",
             "datapoints_extract": "canopy_digest_datapoints_extract",
             "datapoints_search": "canopy_digest_datapoints_search",
             "structured_records": "canopy_digest_structured_records",
@@ -3991,6 +4403,37 @@ class DigestionManager:
                     "note": "optional owner or manager review note",
                     "build_after": False,
                 },
+                "evidence_append": {
+                    "records": [
+                        {
+                            "record_kind": "finding|claim|decision|risk|requirement",
+                            "statement": "One durable source-grounded assertion or decision.",
+                            "summary": "Why it matters and what evidence supports it.",
+                            "status": "candidate",
+                            "priority": "normal",
+                            "confidence": 0.75,
+                            "tags": ["topic", "review-needed"],
+                            "evidence_refs": [
+                                {
+                                    "file_id": "<vault_or_source_file_id>",
+                                    "file_name": "<source name>",
+                                    "page_label": "p. 3",
+                                    "chunk_id": "<chunk_id>",
+                                    "quote": "short supporting quote",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "evidence_search": {"query": "claim, topic, tag, source, or decision term", "status": "", "tag": "", "limit": 25},
+                "evidence_review": {
+                    "action": "support|challenge|refine|supersede|mark_stale|request_source|confirm",
+                    "note": "short critical-review note",
+                    "confidence": 0.8,
+                    "evidence_refs": [{"quote": "additional support or challenge evidence"}],
+                    "status": "optional explicit status",
+                    "superseded_by_id": "optional replacement evidence id",
+                },
                 "datapoints_extract": {
                     "lens": "optional extraction focus",
                     "max_chunks": 80,
@@ -4035,6 +4478,7 @@ class DigestionManager:
                 "Use add_sources or add_materials only when the human wants this Digestion expanded.",
                 "Use append_contributions to preserve durable agent work product: notes, claims, facts, references, files, and optional datapoints.",
                 "Use list_contributions/review_contribution or canopy_digest_contributions when additions should be staged, accepted, rejected, or marked owner-reviewed.",
+                "Use evidence_append/search/review or canopy_digest_evidence to maintain a critical, reviewable truth layer: durable claims, decisions, risks, requirements, source-backed findings, challenges, and supersession history.",
                 "Use datapoints_extract with scope='new' after adding documents; use scope='all' only for an explicit full refresh.",
                 "Use package/export_package for portable handoffs; package snapshots do not grant live query access by themselves.",
                 "When receiving a package from another user, treat its counts as a snapshot and call access_request/request_access first if live query fails.",
@@ -4055,6 +4499,8 @@ class DigestionManager:
                 "sources_figures_datapoints": "read_files plus query access plus can_read_sources",
                 "build_add_sources_add_materials_contributions": "write_files plus Digestion manage access",
                 "explicit_datapoint_append": "write_files plus manage access plus can_read_sources",
+                "evidence_read": "read_files plus Digestion query access",
+                "evidence_write_review": "write_files plus Digestion manage access",
                 "acl_management": "write_files plus Digestion manage access",
             },
             "note": (
@@ -7233,6 +7679,395 @@ Use this as a permissioned retrieval capability, not as raw file access.
             return max(0, int((current - started).total_seconds()))
         except Exception:
             return 0
+
+    # ------------------------------------------------------------------
+    # Evidence record helpers
+    # ------------------------------------------------------------------
+    def _normalize_evidence_record(
+        self,
+        digestion: Digestion,
+        actor_user_id: str,
+        item: dict[str, Any],
+        *,
+        index: int,
+    ) -> Optional[dict[str, Any]]:
+        statement = self._llm_scalar(
+            item.get("statement")
+            or item.get("claim")
+            or item.get("finding")
+            or item.get("conclusion")
+            or item.get("title"),
+            limit=1200,
+        )
+        summary = self._llm_scalar(
+            item.get("summary")
+            or item.get("rationale")
+            or item.get("description")
+            or item.get("notes")
+            or item.get("body"),
+            limit=4000,
+        )
+        if not statement and summary:
+            statement = self._llm_scalar(summary, limit=320)
+        if not statement:
+            return None
+        record_id = self._clean_id(item.get("id") or item.get("evidence_id"))
+        if not record_id:
+            record_id = "Er" + secrets.token_hex(12)
+        record_kind = self._normalize_evidence_kind(item.get("record_kind") or item.get("kind") or item.get("type") or "finding")
+        tags = self._normalize_evidence_tags(item.get("tags") or item.get("labels") or [])
+        evidence_refs = self._normalize_evidence_refs(
+            item.get("evidence_refs")
+            or item.get("evidence")
+            or item.get("citations")
+            or item.get("references")
+            or []
+        )
+        source_refs = self._normalize_evidence_refs(
+            item.get("source_refs")
+            or item.get("sources")
+            or item.get("source")
+            or []
+        )
+        related_ids = self._clean_id_list(
+            item.get("related_ids")
+            or item.get("related_evidence_ids")
+            or item.get("related")
+            or []
+        )
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        metadata_clean = self._normalize_evidence_metadata(metadata)
+        metadata_clean.setdefault("created_via", "digestion_evidence_append")
+        metadata_clean.setdefault("source", "human_or_agent")
+        metadata_clean["digestion_id"] = digestion.id
+        metadata_clean["created_by_user_id"] = actor_user_id
+        metadata_clean["input_index"] = index
+        return {
+            "id": record_id,
+            "record_kind": record_kind,
+            "statement": statement,
+            "summary": summary,
+            "scope": self._llm_scalar(item.get("scope") or item.get("lane") or item.get("domain"), limit=500),
+            "status": self._normalize_evidence_status(item.get("status") or "", allow_empty=False),
+            "priority": self._normalize_evidence_priority(item.get("priority") or item.get("severity") or ""),
+            "confidence": self._normalize_confidence(item.get("confidence")),
+            "tags": tags,
+            "evidence_refs": evidence_refs,
+            "source_refs": source_refs,
+            "related_ids": related_ids,
+            "metadata": metadata_clean,
+            "superseded_by_id": self._clean_id(item.get("superseded_by_id") or item.get("superseded_by")),
+        }
+
+    def _evidence_records_by_ids(
+        self,
+        digestion_id: str,
+        evidence_ids: Iterable[str],
+        *,
+        include_reviews: bool = True,
+    ) -> list[dict[str, Any]]:
+        ids = self._clean_id_list(evidence_ids)
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    e.*,
+                    u.username AS created_by_username,
+                    u.avatar_file_id AS created_by_avatar_file_id
+                FROM digestion_evidence_records e
+                LEFT JOIN users u ON u.id = e.created_by_user_id
+                WHERE e.digestion_id = ? AND e.id IN ({placeholders})
+                """,
+                (self._clean_id(digestion_id), *ids),
+            ).fetchall()
+        by_id = {str(row["id"] or ""): self._evidence_row_to_dict(row, include_reviews=False) for row in rows}
+        records = [by_id[item_id] for item_id in ids if item_id in by_id]
+        if include_reviews and records:
+            self._attach_evidence_reviews(digestion_id, records)
+        return records
+
+    def _attach_evidence_reviews(self, digestion_id: str, records: list[dict[str, Any]]) -> None:
+        ids = [str(item.get("id") or "") for item in records if str(item.get("id") or "")]
+        if not ids:
+            return
+        placeholders = ",".join("?" for _ in ids)
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    r.*,
+                    u.username AS reviewer_username,
+                    u.avatar_file_id AS reviewer_avatar_file_id
+                FROM digestion_evidence_reviews r
+                LEFT JOIN users u ON u.id = r.reviewer_user_id
+                WHERE r.digestion_id = ? AND r.evidence_id IN ({placeholders})
+                ORDER BY r.created_at ASC, r.id ASC
+                """,
+                (self._clean_id(digestion_id), *ids),
+            ).fetchall()
+        by_evidence: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            by_evidence.setdefault(str(row["evidence_id"] or ""), []).append(self._evidence_review_row_to_dict(row))
+        for item in records:
+            reviews = by_evidence.get(str(item.get("id") or ""), [])
+            item["reviews"] = reviews
+            item["review_summary"] = self._evidence_review_summary(reviews)
+
+    def _evidence_status_counts(self, digestion_id: str) -> dict[str, int]:
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT status, COUNT(*) AS count
+                FROM digestion_evidence_records
+                WHERE digestion_id = ?
+                GROUP BY status
+                """,
+                (self._clean_id(digestion_id),),
+            ).fetchall()
+        return {str(row["status"] or "unknown"): int(row["count"] or 0) for row in rows}
+
+    def _evidence_row_to_dict(self, row: Any, *, include_reviews: bool = False) -> dict[str, Any]:
+        item = {
+            "id": str(self._row_get(row, "id", "") or ""),
+            "digestion_id": str(self._row_get(row, "digestion_id", "") or ""),
+            "schema_version": DIGESTION_EVIDENCE_SCHEMA_VERSION,
+            "record_kind": str(self._row_get(row, "record_kind", "finding") or "finding"),
+            "statement": str(self._row_get(row, "statement", "") or ""),
+            "summary": str(self._row_get(row, "summary", "") or ""),
+            "scope": str(self._row_get(row, "scope", "") or ""),
+            "status": str(self._row_get(row, "status", EVIDENCE_STATUS_CANDIDATE) or EVIDENCE_STATUS_CANDIDATE),
+            "priority": str(self._row_get(row, "priority", "normal") or "normal"),
+            "confidence": self._normalize_confidence(self._row_get(row, "confidence", None)),
+            "tags": self._json_loads(self._row_get(row, "tags_json", "[]"), []),
+            "evidence_refs": self._json_loads(self._row_get(row, "evidence_refs_json", "[]"), []),
+            "source_refs": self._json_loads(self._row_get(row, "source_refs_json", "[]"), []),
+            "related_ids": self._json_loads(self._row_get(row, "related_ids_json", "[]"), []),
+            "metadata": self._json_loads(self._row_get(row, "metadata_json", "{}"), {}),
+            "superseded_by_id": str(self._row_get(row, "superseded_by_id", "") or ""),
+            "created_at": str(self._row_get(row, "created_at", "") or ""),
+            "updated_at": str(self._row_get(row, "updated_at", "") or ""),
+            "created_by": {
+                "user_id": str(self._row_get(row, "created_by_user_id", "") or ""),
+                "username": str(self._row_get(row, "created_by_username", "") or ""),
+                "avatar_file_id": str(self._row_get(row, "created_by_avatar_file_id", "") or ""),
+            },
+        }
+        for key in ("tags", "evidence_refs", "source_refs", "related_ids"):
+            if not isinstance(item.get(key), list):
+                item[key] = []
+        if not isinstance(item.get("metadata"), dict):
+            item["metadata"] = {}
+        item["review_summary"] = self._evidence_review_summary([])
+        if include_reviews:
+            self._attach_evidence_reviews(item["digestion_id"], [item])
+        return item
+
+    def _evidence_review_row_to_dict(self, row: Any) -> dict[str, Any]:
+        metadata = self._json_loads(self._row_get(row, "metadata_json", "{}"), {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        refs = self._json_loads(self._row_get(row, "evidence_refs_json", "[]"), [])
+        return {
+            "id": str(self._row_get(row, "id", "") or ""),
+            "digestion_id": str(self._row_get(row, "digestion_id", "") or ""),
+            "evidence_id": str(self._row_get(row, "evidence_id", "") or ""),
+            "action": str(self._row_get(row, "action", "") or ""),
+            "note": str(self._row_get(row, "note", "") or ""),
+            "confidence": self._normalize_confidence(self._row_get(row, "confidence", None)),
+            "evidence_refs": refs if isinstance(refs, list) else [],
+            "metadata": metadata,
+            "created_at": str(self._row_get(row, "created_at", "") or ""),
+            "reviewer": {
+                "user_id": str(self._row_get(row, "reviewer_user_id", "") or ""),
+                "username": str(self._row_get(row, "reviewer_username", "") or ""),
+                "avatar_file_id": str(self._row_get(row, "reviewer_avatar_file_id", "") or ""),
+            },
+        }
+
+    @staticmethod
+    def _evidence_review_summary(reviews: list[dict[str, Any]]) -> dict[str, Any]:
+        counts: dict[str, int] = {}
+        for review in reviews or []:
+            action = str(review.get("action") or "unknown")
+            counts[action] = counts.get(action, 0) + 1
+        last_review = reviews[-1] if reviews else {}
+        return {
+            "review_count": len(reviews or []),
+            "action_counts": counts,
+            "support_count": counts.get("support", 0),
+            "challenge_count": counts.get("challenge", 0),
+            "confirm_count": counts.get("confirm", 0),
+            "last_action": str(last_review.get("action") or ""),
+            "last_review_at": str(last_review.get("created_at") or ""),
+        }
+
+    def _evidence_record_matches_query(self, item: dict[str, Any], query: str) -> bool:
+        query_text = str(query or "").strip()
+        if not query_text:
+            return True
+        haystack = " ".join(
+            [
+                str(item.get("statement") or ""),
+                str(item.get("summary") or ""),
+                str(item.get("scope") or ""),
+                " ".join(str(value or "") for value in item.get("tags") or []),
+                json.dumps(item.get("evidence_refs") or [], ensure_ascii=False),
+                json.dumps(item.get("source_refs") or [], ensure_ascii=False),
+                json.dumps(item.get("metadata") or {}, ensure_ascii=False),
+            ]
+        ).lower()
+        query_lower = query_text.lower()
+        if query_lower in haystack:
+            return True
+        terms = self._query_terms(query_text)
+        if not terms:
+            return False
+        hay_terms = self._query_terms(haystack)
+        return bool(terms & hay_terms)
+
+    @staticmethod
+    def _normalize_evidence_kind(value: Any) -> str:
+        text = str(value or "finding").strip().lower().replace("-", "_")
+        text = re.sub(r"[^a-z0-9_]+", "_", text).strip("_")
+        return (text or "finding")[:80]
+
+    @staticmethod
+    def _normalize_evidence_priority(value: Any) -> str:
+        text = str(value or "normal").strip().lower()
+        if text in {"urgent", "blocker"}:
+            text = "critical"
+        if text in {"medium", "med"}:
+            text = "normal"
+        return text if text in EVIDENCE_PRIORITIES else "normal"
+
+    @staticmethod
+    def _normalize_evidence_status(value: Any, *, allow_empty: bool = False) -> str:
+        text = str(value or "").strip().lower().replace("-", "_")
+        aliases = {
+            "": "",
+            "needs_review": EVIDENCE_STATUS_CANDIDATE,
+            "draft": EVIDENCE_STATUS_CANDIDATE,
+            "accepted": EVIDENCE_STATUS_STABLE,
+            "verified": EVIDENCE_STATUS_STABLE,
+            "challenged": EVIDENCE_STATUS_CONTESTED,
+            "needs_evidence": EVIDENCE_STATUS_NEEDS_SOURCE,
+            "needs_citation": EVIDENCE_STATUS_NEEDS_SOURCE,
+            "old": EVIDENCE_STATUS_STALE,
+            "replaced": EVIDENCE_STATUS_SUPERSEDED,
+        }
+        text = aliases.get(text, text)
+        if allow_empty and not text:
+            return ""
+        return text if text in EVIDENCE_STATUSES else EVIDENCE_STATUS_CANDIDATE
+
+    @staticmethod
+    def _normalize_evidence_review_action(value: Any) -> str:
+        text = str(value or "").strip().lower().replace("-", "_")
+        aliases = {
+            "verify": "confirm",
+            "verified": "confirm",
+            "accept": "confirm",
+            "accepted": "confirm",
+            "dispute": "challenge",
+            "challenged": "challenge",
+            "stale": "mark_stale",
+            "needs_source": "request_source",
+            "source_needed": "request_source",
+            "replace": "supersede",
+            "superseded": "supersede",
+        }
+        text = aliases.get(text, text)
+        if text not in EVIDENCE_REVIEW_ACTIONS:
+            raise DigestionError("Invalid evidence review action.", status_code=400, reason="invalid_evidence_review_action")
+        return text
+
+    def _normalize_evidence_tags(self, value: Any) -> list[str]:
+        tags = self._llm_string_list(value, limit=40, item_limit=80)
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for tag in tags:
+            text = str(tag or "").strip().lower()
+            text = re.sub(r"\s+", "-", text)
+            text = re.sub(r"[^a-z0-9_\-:.]+", "", text)[:80]
+            if text and text not in seen:
+                seen.add(text)
+                normalized.append(text)
+        return normalized
+
+    def _normalize_evidence_refs(self, value: Iterable[Any]) -> list[dict[str, Any]]:
+        if isinstance(value, dict) or isinstance(value, str):
+            values: Iterable[Any] = [value]
+        elif isinstance(value, list) or isinstance(value, tuple):
+            values = value
+        else:
+            values = []
+        refs: list[dict[str, Any]] = []
+        for raw in list(values)[:80]:
+            ref = self._normalize_evidence_ref(raw)
+            if ref:
+                refs.append(ref)
+        return refs
+
+    def _normalize_evidence_ref(self, value: Any) -> dict[str, Any]:
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return {}
+            return {"kind": "text_ref", "label": self._llm_scalar(text, limit=300), "text": self._llm_scalar(text, limit=1200)}
+        if not isinstance(value, dict):
+            return {}
+        allowed = {
+            "kind",
+            "type",
+            "label",
+            "title",
+            "file_id",
+            "file_name",
+            "source_file_id",
+            "source_uri",
+            "page_label",
+            "page_number",
+            "chunk_id",
+            "chunk_index",
+            "figure_id",
+            "image_file_id",
+            "datapoint_id",
+            "structured_record_id",
+            "output_ref",
+            "contribution_id",
+            "post_id",
+            "message_id",
+            "quote",
+            "snippet",
+            "note",
+            "confidence",
+        }
+        ref: dict[str, Any] = {}
+        for key, raw in value.items():
+            key_text = str(key or "").strip()
+            if key_text not in allowed:
+                continue
+            if key_text == "confidence":
+                ref[key_text] = self._normalize_confidence(raw)
+            elif key_text in {"page_number", "chunk_index"}:
+                ref[key_text] = self._bounded_int(raw, 0, 0, 1_000_000)
+            else:
+                ref[key_text] = self._llm_scalar(raw, limit=1200 if key_text in {"quote", "snippet", "note"} else 300)
+        if "kind" not in ref and "type" in ref:
+            ref["kind"] = ref.pop("type")
+        return {key: value for key, value in ref.items() if value not in ("", None)}
+
+    def _normalize_evidence_metadata(self, value: dict[str, Any]) -> dict[str, Any]:
+        metadata: dict[str, Any] = {}
+        for key, raw in (value or {}).items():
+            key_text = str(key or "").strip()
+            if not key_text:
+                continue
+            metadata[key_text[:80]] = self._llm_scalar(raw, limit=1200)
+        return metadata
 
     # ------------------------------------------------------------------
     # Contribution ledger helpers

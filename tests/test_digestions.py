@@ -390,6 +390,135 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(unrelated['result_count'], 0)
         self.assertTrue(unrelated['retrieval_ready'])
 
+    def test_evidence_records_can_be_appended_searched_and_reviewed(self) -> None:
+        source = self._save_text(
+            'evidence-source.txt',
+            'The simulator reduced setup time by 42 percent after three agent handoffs.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Evidence test',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+
+        append_result = self.digestion_manager.append_evidence_records(
+            digestion['id'],
+            'owner-user',
+            records=[
+                {
+                    'record_kind': 'finding',
+                    'statement': 'The simulator setup flow was materially faster after agent handoff.',
+                    'summary': 'Source notes report a 42 percent reduction after three handoffs.',
+                    'priority': 'high',
+                    'confidence': 0.82,
+                    'tags': ['setup-time', 'handoff'],
+                    'evidence_refs': [
+                        {
+                            'file_id': source.id,
+                            'file_name': source.original_name,
+                            'quote': 'reduced setup time by 42 percent',
+                        }
+                    ],
+                }
+            ],
+        )
+        self.assertTrue(append_result['success'])
+        self.assertEqual(append_result['added'], 1)
+        evidence_id = append_result['records'][0]['id']
+        self.assertEqual(append_result['records'][0]['status'], 'candidate')
+        self.assertEqual(append_result['stats']['evidence_record_count'], 1)
+
+        search = self.digestion_manager.search_evidence_records(
+            digestion['id'],
+            'owner-user',
+            'setup handoff',
+        )
+        self.assertEqual(search['count'], 1)
+        self.assertEqual(search['records'][0]['id'], evidence_id)
+        self.assertEqual(search['records'][0]['evidence_refs'][0]['file_id'], source.id)
+
+        challenge = self.digestion_manager.review_evidence_record(
+            digestion['id'],
+            evidence_id,
+            'owner-user',
+            action='challenge',
+            note='Needs the baseline definition before we call it stable.',
+            evidence_refs=[{'quote': 'baseline not stated'}],
+        )
+        self.assertTrue(challenge['success'])
+        self.assertEqual(challenge['record']['status'], 'contested')
+        self.assertEqual(challenge['record']['review_summary']['challenge_count'], 1)
+        self.assertEqual(challenge['stats']['contested_evidence_count'], 1)
+
+        confirm = self.digestion_manager.review_evidence_record(
+            digestion['id'],
+            evidence_id,
+            'owner-user',
+            action='confirm',
+            note='Baseline found in the source notes.',
+            confidence=0.9,
+        )
+        self.assertEqual(confirm['record']['status'], 'stable')
+        self.assertEqual(confirm['record']['review_summary']['confirm_count'], 1)
+        self.assertEqual(confirm['stats']['stable_evidence_count'], 1)
+
+    def test_evidence_records_respect_query_and_manage_access(self) -> None:
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Evidence ACL test',
+            provider='local_hash',
+        )
+        append_result = self.digestion_manager.append_evidence_records(
+            digestion['id'],
+            'owner-user',
+            records=[{'statement': 'Owner-authored candidate evidence.', 'tags': ['acl']}],
+        )
+        evidence_id = append_result['records'][0]['id']
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=False,
+            can_read_sources=False,
+        )
+
+        listed = self.digestion_manager.list_evidence_records(digestion['id'], 'reader-user', query='candidate')
+        self.assertEqual(listed['count'], 1)
+        with self.assertRaises(DigestionError) as append_ctx:
+            self.digestion_manager.append_evidence_records(
+                digestion['id'],
+                'reader-user',
+                records=[{'statement': 'Reader should not mutate evidence.'}],
+            )
+        self.assertEqual(append_ctx.exception.reason, 'manage_denied')
+        with self.assertRaises(DigestionError) as review_ctx:
+            self.digestion_manager.review_evidence_record(
+                digestion['id'],
+                evidence_id,
+                'reader-user',
+                action='support',
+            )
+        self.assertEqual(review_ctx.exception.reason, 'manage_denied')
+
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=True,
+            can_read_sources=False,
+        )
+        support = self.digestion_manager.review_evidence_record(
+            digestion['id'],
+            evidence_id,
+            'reader-user',
+            action='support',
+            note='Looks supported.',
+        )
+        self.assertEqual(support['record']['review_summary']['support_count'], 1)
+
     def test_digestion_indexes_common_business_documents(self) -> None:
         docx = self._save_bytes(
             'planning-memo.docx',
