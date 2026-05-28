@@ -665,6 +665,79 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(row_count, 1)
         self.assertEqual(update_result['records'][0]['statement'], 'Legacy non-unique schemas update an existing evidence id.')
 
+    def test_evidence_schema_rebuilds_legacy_required_columns(self) -> None:
+        legacy_conn = sqlite3.connect(':memory:')
+        legacy_conn.row_factory = sqlite3.Row
+        self.addCleanup(legacy_conn.close)
+        legacy_conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, avatar_file_id TEXT, origin_peer TEXT, username TEXT)")
+        legacy_conn.execute("INSERT INTO users (id, username) VALUES (?, ?)", ('owner-user', 'owner-user'))
+        legacy_conn.execute(
+            """
+            CREATE TABLE digestion_evidence_records (
+                id TEXT PRIMARY KEY,
+                digestion_id TEXT NOT NULL,
+                created_by_user_id TEXT,
+                record_kind TEXT DEFAULT 'finding',
+                statement TEXT NOT NULL,
+                status TEXT DEFAULT 'candidate',
+                legacy_required TEXT NOT NULL,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        legacy_conn.execute(
+            """
+            CREATE TABLE digestion_evidence_reviews (
+                id TEXT PRIMARY KEY,
+                digestion_id TEXT NOT NULL,
+                evidence_id TEXT NOT NULL,
+                reviewer_user_id TEXT,
+                action TEXT NOT NULL,
+                legacy_required TEXT NOT NULL,
+                created_at TIMESTAMP
+            )
+            """
+        )
+        legacy_conn.execute(
+            """
+            INSERT INTO digestion_evidence_records (
+                id, digestion_id, created_by_user_id, statement, legacy_required
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            ('ErLegacyRequired', 'DgLegacyMissing', 'owner-user', 'Legacy record survives repair.', 'required'),
+        )
+        legacy_conn.commit()
+
+        legacy_db = _FakeDbManager(legacy_conn)
+        legacy_files = FileManager(legacy_db, str(Path(self.tempdir.name) / 'legacy-required-files'))
+        legacy_manager = DigestionManager(legacy_db, legacy_files)
+        record_columns = {
+            str(row['name'])
+            for row in legacy_conn.execute("PRAGMA table_info(digestion_evidence_records)").fetchall()
+        }
+        review_columns = {
+            str(row['name'])
+            for row in legacy_conn.execute("PRAGMA table_info(digestion_evidence_reviews)").fetchall()
+        }
+        self.assertNotIn('legacy_required', record_columns)
+        self.assertNotIn('legacy_required', review_columns)
+
+        digestion = legacy_manager.create_digestion('owner-user', name='Legacy required evidence repair', provider='local_hash')
+        append_result = legacy_manager.append_evidence_records(
+            digestion['id'],
+            'owner-user',
+            records=[{'statement': 'Canonical repaired schemas accept new evidence rows.'}],
+        )
+        self.assertTrue(append_result['success'])
+        review = legacy_manager.review_evidence_record(
+            digestion['id'],
+            append_result['records'][0]['id'],
+            'owner-user',
+            action='confirm',
+        )
+        self.assertEqual(review['record']['status'], 'stable')
+
     def test_digestion_indexes_common_business_documents(self) -> None:
         docx = self._save_bytes(
             'planning-memo.docx',

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.259] - 2026-05-28
+
+### Fixed
+- **Digestion evidence schema repair now handles incompatible legacy constraints** - startup repair rebuilds older evidence/review tables into the canonical schema when their `id` columns are not primary keys or when stale required columns could break inserts, preserving compatible rows and preventing append actions from 500ing after upgrades.
+
 ## [0.6.258] - 2026-05-28
 
 ### Fixed
