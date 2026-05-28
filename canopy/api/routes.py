@@ -11556,6 +11556,105 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API review contribution failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/evidence', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def list_digestion_evidence_api(digestion_id: str):
+        """List durable evidence records for an accessible Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.list_evidence_records(
+                digestion_id,
+                g.api_key_info.user_id,
+                status=request.args.get('status') or '',
+                query=request.args.get('query') or request.args.get('q') or '',
+                tag=request.args.get('tag') or '',
+                limit=_api_int_param(request.args.get('limit'), default=100, minimum=1, maximum=250),
+                include_reviews=not _as_bool(request.args.get('metadata_only')),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API list evidence failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/evidence', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def append_digestion_evidence_api(digestion_id: str):
+        """Append durable evidence records to a managed Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        records = data.get('records') or data.get('evidence') or data.get('items') or data.get('record') or []
+        if isinstance(records, dict):
+            records = [records]
+        try:
+            return jsonify(manager.append_evidence_records(
+                digestion_id,
+                g.api_key_info.user_id,
+                records=records if isinstance(records, list) else [],
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API append evidence failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/evidence/search', methods=['POST'])
+    @require_auth(Permission.READ_FILES)
+    def search_digestion_evidence_api(digestion_id: str):
+        """Search durable evidence records for an accessible Digestion."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.search_evidence_records(
+                digestion_id,
+                g.api_key_info.user_id,
+                str(data.get('query') or data.get('q') or ''),
+                status=str(data.get('status') or ''),
+                tag=str(data.get('tag') or ''),
+                limit=_api_int_param(data.get('limit') or data.get('top_k'), default=100, minimum=1, maximum=250),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API search evidence failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
+    @api.route('/digestions/<digestion_id>/evidence/<evidence_id>/reviews', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def review_digestion_evidence_api(digestion_id: str, evidence_id: str):
+        """Append a critical review event to a Digestion evidence record."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        evidence_refs = data.get('evidence_refs') or data.get('evidence') or data.get('citations') or []
+        if isinstance(evidence_refs, dict) or isinstance(evidence_refs, str):
+            evidence_refs = [evidence_refs]
+        try:
+            return jsonify(manager.review_evidence_record(
+                digestion_id,
+                evidence_id,
+                g.api_key_info.user_id,
+                action=str(data.get('action') or data.get('decision') or ''),
+                note=str(data.get('note') or data.get('review_note') or ''),
+                confidence=data.get('confidence'),
+                evidence_refs=evidence_refs if isinstance(evidence_refs, list) else [],
+                status=str(data.get('status') or data.get('new_status') or ''),
+                superseded_by_id=str(data.get('superseded_by_id') or data.get('replacement_evidence_id') or ''),
+                metadata=data.get('metadata') if isinstance(data.get('metadata'), dict) else {},
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API review evidence failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/build', methods=['POST'])
     @require_auth(Permission.WRITE_FILES)
     def build_digestion_api(digestion_id: str):
