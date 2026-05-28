@@ -10659,6 +10659,23 @@
     min-width: 0;
     overflow-wrap: anywhere;
     contain: layout style;
+    container-type: inline-size;
+}
+
+:is(.inline-task-card, .poll-card, .circle-card, .skill-card, .handoff-card, .community-note-card, .objective-card, .request-card, .signal-card, .collab-card, .contract-card)
+:is(button, .btn, a) {
+    touch-action: manipulation;
+}
+
+:is(.inline-task-card, .poll-card, .circle-card, .skill-card, .handoff-card, .community-note-card, .objective-card, .request-card, .signal-card, .collab-card, .contract-card)
+:is(.inline-task-header, .poll-header, .circle-header, .skill-header, .handoff-header, .community-note-head, .objective-header, .request-header, .signal-header, .collab-card-head, .collab-card-meta, .contract-header, .contract-meta, .request-meta, .signal-meta, .handoff-footer, .poll-footer) {
+    min-width: 0;
+}
+
+:is(.inline-task-card, .poll-card, .circle-card, .skill-card, .handoff-card, .community-note-card, .objective-card, .request-card, .signal-card, .collab-card, .contract-card)
+:is(.poll-question, .circle-topic, .circle-desc, .skill-name, .skill-desc, .handoff-title, .handoff-summary, .objective-title, .objective-desc, .request-title, .request-body, .request-output-body, .signal-title, .signal-summary, .collab-card-title, .collab-card-summary, .collab-card-prompt, .contract-title, .contract-summary) {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 @supports (content-visibility: auto) {
@@ -10675,6 +10692,108 @@
     .contract-card {
         content-visibility: auto;
         contain-intrinsic-size: 240px;
+    }
+}
+
+@container (max-width: 36rem) {
+    .inline-task-header,
+    .poll-header,
+    .circle-header,
+    .skill-header,
+    .handoff-header,
+    .community-note-head,
+    .objective-header,
+    .request-header,
+    .signal-header,
+    .collab-card-head,
+    .collab-card-meta,
+    .contract-header,
+    .contract-meta {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.42rem;
+    }
+
+    .objective-progress,
+    .signal-confidence,
+    .collab-card-answer-head {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .request-actions,
+    .signal-actions,
+    .skill-actions,
+    .circle-actions,
+    .contract-actions,
+    .community-note-actions,
+    .collab-card-options {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        width: 100%;
+    }
+
+    .request-actions .btn,
+    .request-actions button,
+    .signal-actions .btn,
+    .skill-actions .btn,
+    .circle-actions .btn,
+    .contract-actions .btn,
+    .community-note-actions .btn,
+    .collab-card-options .btn,
+    .collab-card-options button {
+        width: 100%;
+        min-height: 2.35rem;
+        justify-content: center;
+    }
+
+    .request-members,
+    .objective-members,
+    .collab-card-head-actions,
+    .request-chips,
+    .signal-tags,
+    .skill-tags,
+    .handoff-tags {
+        max-width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .collab-card-head-actions {
+        width: 100%;
+        justify-content: space-between;
+        margin-left: 0;
+    }
+
+    .collab-telemetry-meta,
+    .collab-telemetry-metrics,
+    .skill-fields,
+    .signal-data-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .collab-card-prompt,
+    .collab-card-answer,
+    .request-output,
+    .signal-data {
+        padding: 0.58rem 0.64rem;
+    }
+}
+
+@container (max-width: 28rem) {
+    .collab-card-status,
+    .request-status,
+    .request-priority,
+    .signal-status,
+    .objective-status,
+    .contract-status {
+        max-width: 100%;
+        white-space: normal;
+    }
+
+    .request-member,
+    .objective-member,
+    .handoff-owner {
+        min-width: 0;
     }
 }
 

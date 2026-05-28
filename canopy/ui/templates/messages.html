@@ -1179,6 +1179,12 @@
         min-width: 0;
         overflow-wrap: anywhere;
         contain: layout style;
+        container-type: inline-size;
+    }
+
+    :is(.dm-conversation-card, .dm-message-row, .dm-attachment-card, .dm-empty-card, .dm-search-result-card)
+    :is(button, .btn, a) {
+        touch-action: manipulation;
     }
 
     @supports (content-visibility: auto) {
@@ -1188,6 +1194,34 @@
         .dm-search-result-card {
             content-visibility: auto;
             contain-intrinsic-size: 180px;
+        }
+    }
+
+    @container (max-width: 32rem) {
+        .dm-attachment-meta,
+        .dm-attachment-title-row,
+        .dm-bubble-footer {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+
+        .dm-attachment-actions,
+        .dm-attachment-badges {
+            width: 100%;
+        }
+
+        .dm-attachment-actions .btn,
+        .dm-attachment-actions button {
+            flex: 1 1 min(100%, 9rem);
+            min-height: 2.35rem;
+            justify-content: center;
+        }
+
+        .dm-reaction-strip {
+            max-width: 100%;
+            overflow-x: auto;
+            scrollbar-width: thin;
         }
     }
 
