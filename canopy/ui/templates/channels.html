@@ -17011,10 +17011,37 @@ function displayMessages(messages, options = {}) {
     // Get unique user IDs for avatar fetching (authors + structured-card participants).
     const userIds = collectChannelDisplayUserIds(messages);
     
-    // Fetch user display info and mention candidates in parallel; build handle->display_name map
+    // Fetch user display info and mention candidates in parallel; build handle->display_name map.
+    // Mention candidates are useful for rendering pretty @names and mention filters, but the
+    // suggestion endpoint should not block ordinary channel switches when the filter is off.
+    const renderChannelId = currentChannelId;
+    const cachedMentionCandidates = Array.isArray(channelMentionCache[renderChannelId])
+        ? channelMentionCache[renderChannelId]
+        : null;
+    const mentionCandidatesFetch = fetchChannelMentionCandidates(renderChannelId);
+    if (!cachedMentionCandidates && !isChannelMentionThreadFilterEnabled()) {
+        mentionCandidatesFetch.then((users) => {
+            if (!Array.isArray(users) || String(currentChannelId || '') !== String(renderChannelId || '')) return;
+            const map = window.mentionDisplayMap || {};
+            users.forEach(u => {
+                const dn = u.display_name || u.username || u.user_id;
+                if (u.user_id) map[u.user_id] = dn;
+                if (u.username && u.username !== u.user_id) map[u.username] = dn;
+            });
+            window.mentionDisplayMap = map;
+        }).catch(() => {});
+    }
+    const mentionCandidatesForRender = cachedMentionCandidates
+        ? Promise.resolve(cachedMentionCandidates)
+        : (isChannelMentionThreadFilterEnabled()
+            ? mentionCandidatesFetch
+            : Promise.race([
+                mentionCandidatesFetch,
+                new Promise(resolve => setTimeout(() => resolve(channelMentionCache[renderChannelId] || []), 140))
+            ]));
     return Promise.all([
         fetchUserDisplayInfo(userIds),
-        fetchChannelMentionCandidates(currentChannelId)
+        mentionCandidatesForRender
     ]).then(([userInfo, candidates]) => {
         try {
             if (!messagesContainer) {

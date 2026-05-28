@@ -1348,6 +1348,8 @@ class ChannelManager:
                     CREATE INDEX IF NOT EXISTS idx_channel_messages_channel ON channel_messages(channel_id);
                     CREATE INDEX IF NOT EXISTS idx_channel_messages_created_at ON channel_messages(created_at);
                     CREATE INDEX IF NOT EXISTS idx_channel_messages_thread ON channel_messages(thread_id);
+                    CREATE INDEX IF NOT EXISTS idx_channel_messages_parent ON channel_messages(parent_message_id);
+                    CREATE INDEX IF NOT EXISTS idx_channel_messages_channel_parent ON channel_messages(channel_id, parent_message_id);
                     -- Unique constraint for public channel names
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_public_name ON channels(name) WHERE channel_type = 'public';
 
@@ -1622,6 +1624,21 @@ class ChannelManager:
                     conn.execute("ALTER TABLE channel_messages ADD COLUMN last_activity_at TIMESTAMP")
                     conn.execute("CREATE INDEX IF NOT EXISTS idx_channel_messages_last_activity ON channel_messages(last_activity_at)")
                     logger.info("Added last_activity_at column to channel_messages table")
+                try:
+                    conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_channel_messages_parent
+                        ON channel_messages(parent_message_id)
+                    """)
+                    conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_channel_messages_channel_parent
+                        ON channel_messages(channel_id, parent_message_id)
+                    """)
+                    conn.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_channel_messages_channel_activity
+                        ON channel_messages(channel_id, last_activity_at, created_at)
+                    """)
+                except Exception as idx_err:
+                    logger.debug(f"Could not create channel message read indexes: {idx_err}")
 
                 # Add notifications_enabled to channel_members for per-user mute
                 try:
@@ -7969,29 +7986,52 @@ class ChannelManager:
                     CASE
                         WHEN m.parent_message_id IS NOT NULL THEN
                             COALESCE(
-                                (SELECT p.last_activity_at FROM channel_messages p WHERE p.id = m.parent_message_id),
-                                (SELECT p.created_at FROM channel_messages p WHERE p.id = m.parent_message_id)
+                                p.last_activity_at,
+                                p.created_at,
+                                m.last_activity_at,
+                                m.created_at
                             )
                         ELSE COALESCE(m.last_activity_at, m.created_at)
                     END
                 """
 
-                before_sort_expr = """
-                    CASE
-                        WHEN b.parent_message_id IS NOT NULL THEN
-                            COALESCE(
-                                (SELECT p.last_activity_at FROM channel_messages p WHERE p.id = b.parent_message_id),
-                                (SELECT p.created_at FROM channel_messages p WHERE p.id = b.parent_message_id)
-                            )
-                        ELSE COALESCE(b.last_activity_at, b.created_at)
-                    END
-                """
+                before_sort_time = None
+                before_created_at = None
+                if before_message_id:
+                    before_row = conn.execute(
+                        """
+                        SELECT b.created_at AS before_created_at,
+                               CASE
+                                   WHEN b.parent_message_id IS NOT NULL THEN
+                                       COALESCE(
+                                           p.last_activity_at,
+                                           p.created_at,
+                                           b.last_activity_at,
+                                           b.created_at
+                                       )
+                                   ELSE COALESCE(b.last_activity_at, b.created_at)
+                               END AS before_sort_time
+                        FROM channel_messages b
+                        LEFT JOIN channel_messages p
+                          ON p.id = b.parent_message_id
+                         AND p.channel_id = b.channel_id
+                        WHERE b.channel_id = ? AND b.id = ?
+                        """,
+                        (channel_id, before_message_id),
+                    ).fetchone()
+                    if not before_row:
+                        return []
+                    before_sort_time = before_row['before_sort_time']
+                    before_created_at = before_row['before_created_at']
 
                 query = f"""
                     SELECT m.*, u.username as author_username,
                            {sort_expr} AS sort_time
                     FROM channel_messages m
                     LEFT JOIN users u ON m.user_id = u.id
+                    LEFT JOIN channel_messages p
+                      ON p.id = m.parent_message_id
+                     AND p.channel_id = m.channel_id
                     WHERE m.channel_id = ?
                       AND (m.expires_at IS NULL OR m.expires_at > CURRENT_TIMESTAMP)
                 """
@@ -8000,29 +8040,17 @@ class ChannelManager:
                 if before_message_id:
                     query += f"""
                         AND (
-                            {sort_expr} < (
-                                SELECT {before_sort_expr}
-                                FROM channel_messages b
-                                WHERE b.id = ?
-                            )
+                            {sort_expr} < ?
                             OR (
-                                {sort_expr} = (
-                                    SELECT {before_sort_expr}
-                                    FROM channel_messages b
-                                    WHERE b.id = ?
-                                )
-                                AND m.created_at < (
-                                    SELECT b.created_at
-                                    FROM channel_messages b
-                                    WHERE b.id = ?
-                                )
+                                {sort_expr} = ?
+                                AND m.created_at < ?
                             )
                         )
                     """
                     params.extend([
-                        before_message_id,
-                        before_message_id,
-                        before_message_id,
+                        before_sort_time,
+                        before_sort_time,
+                        before_created_at,
                     ])
 
                 query += " ORDER BY sort_time DESC, m.created_at DESC LIMIT ?"
