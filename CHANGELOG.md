@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.262] - 2026-05-28
+
+### Fixed
+- **Agent-run Capsule traces stay open across channel refreshes** - channel re-renders now remember explicitly opened Capsule traces per channel and restore them after new posts or structural refreshes, so a live update does not collapse the user’s current source trace.
+
 ## [0.6.261] - 2026-05-28
 
 ### Fixed
