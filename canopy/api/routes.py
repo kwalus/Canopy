@@ -11582,15 +11582,63 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/digestions/<digestion_id>/evidence', methods=['POST'])
     @require_auth(Permission.WRITE_FILES)
     def append_digestion_evidence_api(digestion_id: str):
-        """Append durable evidence records to a managed Digestion."""
+        """Append durable evidence records to a managed Digestion.
+
+        Agents sometimes call the generic evidence endpoint with an action
+        field from the MCP-style interface. Keep that path compatible instead
+        of treating search/review requests as empty appends.
+        """
         manager = _api_get_digestion_manager()
         if not manager:
             return jsonify({'error': 'Digestion manager unavailable'}), 503
         data = request.get_json(silent=True) or {}
-        records = data.get('records') or data.get('evidence') or data.get('items') or data.get('record') or []
-        if isinstance(records, dict):
-            records = [records]
         try:
+            action = str(data.get('action') or data.get('mode') or 'append').strip().lower().replace('-', '_')
+            if action in {'search', 'query', 'find'}:
+                return jsonify(manager.search_evidence_records(
+                    digestion_id,
+                    g.api_key_info.user_id,
+                    str(data.get('query') or data.get('q') or ''),
+                    status=str(data.get('status') or ''),
+                    tag=str(data.get('tag') or ''),
+                    limit=_api_int_param(data.get('limit') or data.get('top_k'), default=100, minimum=1, maximum=250),
+                ))
+            if action in {'list', 'read', 'get'}:
+                return jsonify(manager.list_evidence_records(
+                    digestion_id,
+                    g.api_key_info.user_id,
+                    status=str(data.get('status') or ''),
+                    query=str(data.get('query') or data.get('q') or ''),
+                    tag=str(data.get('tag') or ''),
+                    limit=_api_int_param(data.get('limit') or data.get('top_k'), default=100, minimum=1, maximum=250),
+                    include_reviews=not _as_bool(data.get('metadata_only')),
+                ))
+            review_actions = {'support', 'challenge', 'refine', 'supersede', 'mark_stale', 'request_source', 'confirm'}
+            if action in {'review', *review_actions}:
+                evidence_id = str(
+                    data.get('evidence_id')
+                    or data.get('record_id')
+                    or data.get('id')
+                    or ''
+                )
+                evidence_refs = data.get('evidence_refs') or data.get('evidence') or data.get('citations') or []
+                if isinstance(evidence_refs, dict) or isinstance(evidence_refs, str):
+                    evidence_refs = [evidence_refs]
+                return jsonify(manager.review_evidence_record(
+                    digestion_id,
+                    evidence_id,
+                    g.api_key_info.user_id,
+                    action=str(data.get('review_action') or data.get('decision') or (action if action != 'review' else '')),
+                    note=str(data.get('note') or data.get('review_note') or ''),
+                    confidence=data.get('confidence'),
+                    evidence_refs=evidence_refs if isinstance(evidence_refs, list) else [],
+                    status=str(data.get('status') or data.get('new_status') or ''),
+                    superseded_by_id=str(data.get('superseded_by_id') or data.get('replacement_evidence_id') or ''),
+                    metadata=data.get('metadata') if isinstance(data.get('metadata'), dict) else {},
+                ))
+            records = data.get('records') or data.get('evidence') or data.get('items') or data.get('record') or []
+            if isinstance(records, dict):
+                records = [records]
             return jsonify(manager.append_evidence_records(
                 digestion_id,
                 g.api_key_info.user_id,

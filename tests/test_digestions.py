@@ -519,6 +519,89 @@ class TestDigestions(unittest.TestCase):
         )
         self.assertEqual(support['record']['review_summary']['support_count'], 1)
 
+    def test_evidence_schema_backfills_legacy_columns(self) -> None:
+        legacy_conn = sqlite3.connect(':memory:')
+        legacy_conn.row_factory = sqlite3.Row
+        self.addCleanup(legacy_conn.close)
+        legacy_conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, avatar_file_id TEXT, origin_peer TEXT, username TEXT)")
+        legacy_conn.execute("INSERT INTO users (id, username) VALUES (?, ?)", ('owner-user', 'owner-user'))
+        legacy_conn.execute(
+            """
+            CREATE TABLE digestion_evidence_records (
+                id TEXT PRIMARY KEY,
+                digestion_id TEXT NOT NULL,
+                created_by_user_id TEXT,
+                record_kind TEXT DEFAULT 'finding',
+                statement TEXT NOT NULL,
+                summary TEXT,
+                scope TEXT,
+                status TEXT DEFAULT 'candidate',
+                priority TEXT DEFAULT 'normal',
+                confidence REAL,
+                tags_json TEXT,
+                evidence_refs_json TEXT,
+                metadata_json TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+            """
+        )
+        legacy_conn.execute(
+            """
+            CREATE TABLE digestion_evidence_reviews (
+                id TEXT PRIMARY KEY,
+                digestion_id TEXT NOT NULL,
+                evidence_id TEXT NOT NULL,
+                reviewer_user_id TEXT,
+                action TEXT NOT NULL,
+                note TEXT,
+                confidence REAL,
+                evidence_refs_json TEXT,
+                created_at TIMESTAMP
+            )
+            """
+        )
+        legacy_conn.commit()
+
+        legacy_db = _FakeDbManager(legacy_conn)
+        legacy_files = FileManager(legacy_db, str(Path(self.tempdir.name) / 'legacy-files'))
+        legacy_manager = DigestionManager(legacy_db, legacy_files)
+        record_columns = {
+            str(row['name'])
+            for row in legacy_conn.execute("PRAGMA table_info(digestion_evidence_records)").fetchall()
+        }
+        review_columns = {
+            str(row['name'])
+            for row in legacy_conn.execute("PRAGMA table_info(digestion_evidence_reviews)").fetchall()
+        }
+        self.assertIn('source_refs_json', record_columns)
+        self.assertIn('related_ids_json', record_columns)
+        self.assertIn('superseded_by_id', record_columns)
+        self.assertIn('metadata_json', review_columns)
+
+        digestion = legacy_manager.create_digestion('owner-user', name='Legacy evidence migration', provider='local_hash')
+        append_result = legacy_manager.append_evidence_records(
+            digestion['id'],
+            'owner-user',
+            records=[
+                {
+                    'statement': 'Legacy schemas accept the current evidence payload.',
+                    'source_refs': [{'file_name': 'legacy.pdf', 'page_label': 'p. 1'}],
+                    'related_ids': ['Er-existing'],
+                }
+            ],
+        )
+        self.assertTrue(append_result['success'])
+        evidence_id = append_result['records'][0]['id']
+        review = legacy_manager.review_evidence_record(
+            digestion['id'],
+            evidence_id,
+            'owner-user',
+            action='confirm',
+            metadata={'migration': 'verified'},
+        )
+        self.assertEqual(review['record']['status'], 'stable')
+
     def test_digestion_indexes_common_business_documents(self) -> None:
         docx = self._save_bytes(
             'planning-memo.docx',
@@ -2375,6 +2458,79 @@ class TestDigestions(unittest.TestCase):
                 headers={'X-API-Key': 'owner-key'},
             )
             self.assertEqual(deleted_get.status_code, 404)
+
+    def test_digestion_rest_evidence_action_dispatch(self) -> None:
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='API evidence dispatch',
+            provider='local_hash',
+        )
+        components = (
+            self.db_manager,
+            _FakeApiKeyManager(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            self.file_manager,
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        )
+        with patch('canopy.api.routes.get_app_components', return_value=components), \
+             patch('canopy.api.routes._get_app_components_any', return_value=components):
+            app = Flask(__name__)
+            app.config['TESTING'] = True
+            app.secret_key = 'digestion-api-evidence'
+            app.config['DIGESTION_MANAGER'] = self.digestion_manager
+            app.register_blueprint(create_api_blueprint(), url_prefix='/api/v1')
+            client = app.test_client()
+
+            append_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={
+                    'action': 'append',
+                    'records': [
+                        {
+                            'statement': 'API evidence dispatch preserves truth-maintenance records.',
+                            'tags': ['dispatch'],
+                        }
+                    ],
+                },
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(append_response.status_code, 200)
+            append_payload = append_response.get_json() or {}
+            self.assertTrue(append_payload['success'])
+            evidence_id = append_payload['records'][0]['id']
+
+            search_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'search', 'query': 'truth-maintenance'},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(search_response.status_code, 200)
+            search_payload = search_response.get_json() or {}
+            self.assertEqual(search_payload['count'], 1)
+            self.assertEqual(search_payload['records'][0]['id'], evidence_id)
+
+            review_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'challenge', 'evidence_id': evidence_id, 'note': 'Check against live VPS reports.'},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(review_response.status_code, 200)
+            review_payload = review_response.get_json() or {}
+            self.assertEqual(review_payload['record']['status'], 'contested')
+
+            list_response = client.post(
+                f'/api/v1/digestions/{digestion["id"]}/evidence',
+                json={'action': 'list', 'status': 'contested'},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(list_response.status_code, 200)
+            self.assertEqual((list_response.get_json() or {})['count'], 1)
 
     def test_digestion_rest_manager_can_add_vault_sources(self) -> None:
         manager_source = self._save_text(

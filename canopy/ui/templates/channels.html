@@ -2862,6 +2862,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 0.7rem;
+        min-width: 0;
         padding: 0.54rem 0.68rem 0.38rem;
         color: var(--canopy-text-secondary);
         font-size: 0.74rem;
@@ -2873,9 +2874,15 @@
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
+        min-width: 0;
+        flex: 0 0 auto;
         color: color-mix(in srgb, var(--canopy-primary) 82%, var(--canopy-text-primary) 18%);
     }
     .agent-run-capsule-artifacts-head span:last-child {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         color: var(--canopy-text-muted);
         font-size: 0.68rem;
         letter-spacing: 0.02em;
@@ -2883,9 +2890,10 @@
     }
     .agent-run-capsule-artifact-list {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
         gap: 0.44rem;
         padding: 0 0.58rem 0.58rem;
+        min-width: 0;
     }
     .agent-run-capsule-artifact {
         display: grid;
@@ -2928,8 +2936,10 @@
         display: flex;
         align-items: center;
         gap: 0.28rem;
+        min-width: 0;
         width: 100%;
         max-width: 100%;
+        overflow: hidden;
         color: var(--canopy-text-primary);
         font-size: 0.89rem;
         font-weight: 900;
@@ -2953,11 +2963,16 @@
     }
     .agent-run-capsule-artifact-name span {
         min-width: 0;
+        max-width: 100%;
+        display: inline-block;
         overflow: hidden;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow-wrap: anywhere;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        vertical-align: top;
+        will-change: transform;
+    }
+    .agent-run-capsule-artifact-name.agent-run-artifact-overflow {
+        cursor: pointer;
     }
     .agent-run-capsule-artifact-meta {
         margin-top: 0.12rem;
@@ -2965,10 +2980,8 @@
         font-size: 0.72rem;
         line-height: 1.25;
         overflow: hidden;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow-wrap: anywhere;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     .agent-run-capsule-artifact-actions {
         display: inline-flex;
@@ -3644,6 +3657,26 @@
             margin: 0.25rem 0.4rem 0.5rem;
             min-width: 0;
             width: calc(100% - 0.8rem);
+        }
+    }
+    @media (hover: hover) and (pointer: fine) {
+        .agent-run-capsule-artifact-name.agent-run-artifact-overflow:hover span,
+        .agent-run-capsule-artifact-name.agent-run-artifact-overflow:focus-visible span {
+            animation: agentRunArtifactMarquee 4.6s cubic-bezier(0.22, 0.61, 0.36, 1) 0.12s infinite alternate;
+        }
+    }
+    @keyframes agentRunArtifactMarquee {
+        0%, 18% {
+            transform: translateX(0);
+        }
+        82%, 100% {
+            transform: translateX(calc(var(--agent-run-artifact-shift, 0px) * -1));
+        }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .agent-run-capsule-artifact-name span {
+            animation: none !important;
+            transform: none !important;
         }
     }
     .channel-recent-filter-menu {
@@ -14857,6 +14890,30 @@ function cleanAgentRunArtifactLabel(value, fallback = 'File') {
     return (clean || fallback).slice(0, 180);
 }
 
+function isAgentRunBadArtifactLabel(value, fileId = '') {
+    const label = String(value || '').trim();
+    if (!label) return true;
+    const id = String(fileId || '').trim();
+    const compact = label.replace(/\s+/g, ' ').trim();
+    const lower = compact.toLowerCase();
+    if (id && (compact === id || compact.includes(id))) return true;
+    if (/^(file|source|attachment|id|file_id|source_file_id|vault_file_id|origin_file_id|image_file_id)\s*[:=]?\s*$/i.test(compact)) return true;
+    if (/[{}]/.test(compact) && /\b(id|attachments?|files?|metadata)\b/i.test(compact)) return true;
+    if (/(^|[^a-z])attache?m(?:ent|ents)?s?\s*[:=]\s*\{?/i.test(compact)) return true;
+    if (/"(?:id|file_id|source_file_id|attachments?)"\s*[:=]?/i.test(compact)) return true;
+    if (/^(?:id|name|type|size|url|attachments?)\s*[:=]/i.test(compact) && compact.length < 80) return true;
+    if (/^[\[{(,:"'\s]+$/.test(compact)) return true;
+    return false;
+}
+
+function normalizeAgentRunArtifactLabel(value, fallback, fileId = '') {
+    const label = cleanAgentRunArtifactLabel(value, '');
+    if (!label || isAgentRunBadArtifactLabel(label, fileId)) {
+        return fallback || 'File';
+    }
+    return label;
+}
+
 function deriveAgentRunFileRefLabelFromPrefix(prefix, fileId) {
     const line = String(prefix || '')
         .split(/\r?\n/)
@@ -14865,7 +14922,7 @@ function deriveAgentRunFileRefLabelFromPrefix(prefix, fileId) {
         .replace(/\s*(?:file|source|attachment|id)\s*[:=]?\s*$/i, '')
         .replace(/\s*(?:—|->|:|-)\s*$/g, '')
         .trim();
-    if (!line || line.length < 5 || line.includes(fileId)) return '';
+    if (!line || line.length < 5 || line.includes(fileId) || isAgentRunBadArtifactLabel(line, fileId)) return '';
     return cleanAgentRunArtifactLabel(line, '');
 }
 
@@ -15016,10 +15073,11 @@ function extractAgentRunFileRefsFromText(text) {
         const fileId = String(id || '').trim();
         if (!/^F[A-Za-z0-9_-]{6,}$/.test(fileId) || seen.has(fileId)) return;
         seen.add(fileId);
+        const fallback = `file:${shortAgentRunEntityId(fileId)}`;
         refs.push({
             kind: 'file-ref',
             fileId,
-            label: cleanAgentRunArtifactLabel(label, `file:${shortAgentRunEntityId(fileId)}`),
+            label: normalizeAgentRunArtifactLabel(label, fallback, fileId),
         });
     };
     raw.replace(/(^|[\s>])([^()\s<>]{1,140}\.(?:pdf|docx?|xlsx?|csv|tsv|json|md|txt|py|ipynb|js|ts|tsx|jsx|html?|css|tex|bib|ya?ml|png|jpe?g|gif|webp|svg|tiff?|zip|tar|gz|mp4|mov|m4v|mp3|wav|wasm))\s*\(\s*(F[A-Za-z0-9_-]{6,})\s*\)/gi, function (_match, _prefix, label, id) {
@@ -15092,7 +15150,11 @@ function getAgentRunDeckItemFromAttachment(att, messageId, createdAt, order) {
     if (!att || typeof att !== 'object' || !messageId) return null;
     const fileId = getAgentRunAttachmentFileId(att);
     const url = getAgentRunAttachmentUrl(att, fileId);
-    const name = cleanAgentRunArtifactLabel(att.name || att.title || fileId, fileId ? `file:${shortAgentRunEntityId(fileId)}` : 'Deck item');
+    const name = normalizeAgentRunArtifactLabel(
+        att.name || att.filename || att.original_name || att.title || fileId,
+        fileId ? `file:${shortAgentRunEntityId(fileId)}` : 'Deck item',
+        fileId
+    );
     const type = String(att.type || att.content_type || att.mime_type || '').toLowerCase();
     const cardType = String(att.card_type || att.kind || att.object_type || att.category || '').toLowerCase();
     const ext = getAgentRunAttachmentExtension(att);
@@ -15371,7 +15433,11 @@ function collectAgentRunDirectArtifacts(messages) {
         attachments.forEach((att, attachmentIndex) => {
             if (!att || typeof att !== 'object') return;
             const fileId = getAgentRunAttachmentFileId(att);
-            const label = cleanAgentRunArtifactLabel(att.name || att.title || fileId, fileId ? `file:${shortAgentRunEntityId(fileId)}` : 'Attachment');
+            const label = normalizeAgentRunArtifactLabel(
+                att.name || att.filename || att.original_name || att.title || fileId,
+                fileId ? `file:${shortAgentRunEntityId(fileId)}` : 'Attachment',
+                fileId
+            );
             add({
                 kind: 'attachment',
                 fileId,
@@ -15464,39 +15530,54 @@ function getAgentRunDirectArtifactCopySummary(artifacts) {
 }
 
 function renderAgentRunCapsuleArtifactLink(artifact) {
-    const label = cleanAgentRunArtifactLabel(artifact && artifact.label, 'Artifact');
+    const label = normalizeAgentRunArtifactLabel(
+        artifact && artifact.label,
+        artifact && artifact.fileId ? `file:${shortAgentRunEntityId(artifact.fileId)}` : 'Artifact',
+        artifact && artifact.fileId
+    );
     if (artifact && artifact.kind === 'workproduct') {
         return `<button type="button"
                         class="agent-run-capsule-artifact-name"
+                        data-agent-run-artifact-name="1"
                         title="Open source post for ${escapeAttr(label)}"
                         onclick="focusAgentRunCapsuleSource('${escapeAttr(artifact.capsuleId || '')}', '${escapeAttr(artifact.messageId || '')}')">
-            <span>${escapeHtml(label)}</span>
+            <span data-agent-run-artifact-label="1">${escapeHtml(label)}</span>
         </button>`;
     }
     if (artifact && artifact.kind === 'digestion-ref' && artifact.digestionId) {
         const href = `/vault?digestion=${encodeURIComponent(artifact.digestionId)}`;
-        return `<a class="agent-run-capsule-artifact-name" href="${escapeAttr(href)}" title="Open Digestion ${escapeAttr(artifact.digestionId)}">
-            <span>${escapeHtml(label)}</span>
+        return `<a class="agent-run-capsule-artifact-name"
+                   href="${escapeAttr(href)}"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   data-agent-run-artifact-name="1"
+                   title="Open Digestion ${escapeAttr(artifact.digestionId)}">
+            <span data-agent-run-artifact-label="1">${escapeHtml(label)}</span>
         </a>`;
     }
     if (artifact && artifact.fileId) {
         const fileId = String(artifact.fileId || '').trim();
-        const fallback = !artifact.label || String(artifact.label || '').includes(shortAgentRunEntityId(fileId)) || String(artifact.label || '') === fileId;
+        const rawLabel = String(artifact.label || '').trim();
+        const fallback = !rawLabel || isAgentRunBadArtifactLabel(rawLabel, fileId) || rawLabel.includes(shortAgentRunEntityId(fileId)) || rawLabel === fileId;
         return `<a class="agent-run-capsule-artifact-name canopy-entity-link canopy-file-ref"
                    href="/file-ref/${encodeURIComponent(fileId)}"
+                   target="_blank"
+                   rel="noopener noreferrer"
                    data-canopy-file-id="${escapeAttr(fileId)}"
                    data-canopy-file-ref="1"
+                   data-canopy-open-target="blank"
+                   data-agent-run-artifact-name="1"
                    data-canopy-file-label-fallback="${fallback ? '1' : '0'}"
                    title="Open ${escapeAttr(label)}">
-            <span data-canopy-file-ref-label="1">${escapeHtml(label)}</span>
+            <span data-canopy-file-ref-label="1" data-agent-run-artifact-label="1">${escapeHtml(label)}</span>
         </a>`;
     }
     if (artifact && artifact.url) {
-        return `<a class="agent-run-capsule-artifact-name" href="${escapeAttr(artifact.url)}" target="_blank" rel="noopener noreferrer">
-            <span>${escapeHtml(label)}</span>
+        return `<a class="agent-run-capsule-artifact-name" href="${escapeAttr(artifact.url)}" target="_blank" rel="noopener noreferrer" data-agent-run-artifact-name="1">
+            <span data-agent-run-artifact-label="1">${escapeHtml(label)}</span>
         </a>`;
     }
-    return `<span class="agent-run-capsule-artifact-name"><span>${escapeHtml(label)}</span></span>`;
+    return `<span class="agent-run-capsule-artifact-name" data-agent-run-artifact-name="1"><span data-agent-run-artifact-label="1">${escapeHtml(label)}</span></span>`;
 }
 
 function renderAgentRunCapsuleArtifactActions(artifact, capsuleId) {
@@ -15562,6 +15643,41 @@ function renderAgentRunCapsuleArtifactRail(artifacts, capsuleId) {
             </button>` : ''}
         </div>
     </div>`;
+}
+
+function syncAgentRunArtifactOverflowState(nameEl) {
+    if (!nameEl || !nameEl.querySelector) return;
+    const labelEl = nameEl.querySelector('[data-agent-run-artifact-label="1"]') || nameEl.querySelector('span');
+    if (!labelEl) return;
+    const fullLabel = (labelEl.textContent || '').replace(/\s+/g, ' ').trim();
+    nameEl.setAttribute('title', nameEl.getAttribute('title') || fullLabel);
+    nameEl.classList.remove('agent-run-artifact-overflow');
+    nameEl.style.removeProperty('--agent-run-artifact-shift');
+    if (!fullLabel) return;
+    const outerWidth = Math.ceil(nameEl.clientWidth || 0);
+    const innerWidth = Math.ceil(labelEl.scrollWidth || 0);
+    const overflow = innerWidth - outerWidth;
+    if (overflow > 10) {
+        nameEl.classList.add('agent-run-artifact-overflow');
+        nameEl.style.setProperty('--agent-run-artifact-shift', `${overflow + 18}px`);
+        nameEl.setAttribute('aria-label', fullLabel);
+    }
+}
+
+function syncAgentRunArtifactOverflowStates(root = document) {
+    const scope = root && root.querySelectorAll ? root : document;
+    const run = () => {
+        scope.querySelectorAll('[data-agent-run-artifact-name="1"]').forEach(syncAgentRunArtifactOverflowState);
+    };
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(run);
+    } else {
+        run();
+    }
+}
+
+if (typeof window !== 'undefined') {
+    window.syncAgentRunArtifactOverflowStates = syncAgentRunArtifactOverflowStates;
 }
 
 function getAgentRunDeckItemMeta(item) {
@@ -16306,6 +16422,7 @@ function applyAgentRunCapsuleWorkproducts(capsule, summary) {
             </div>
         `).join('');
     if (html) list.insertAdjacentHTML('beforeend', html);
+    syncAgentRunArtifactOverflowStates(capsule);
 }
 
 function applyAgentRunCapsuleEnrichment(capsule, result) {
@@ -16608,6 +16725,10 @@ function toggleAgentRunCapsuleTrace(button) {
         renderAgentRunCapsuleTrace(capsule);
         scheduleChannelSourceLayouts(trace);
         hydrateChannelReactionControls();
+        if (typeof applyCanopyFileReferenceLabels === 'function') {
+            applyCanopyFileReferenceLabels(trace);
+        }
+        syncAgentRunArtifactOverflowStates(capsule);
     }
 }
 
@@ -17064,6 +17185,7 @@ function displayMessages(messages, options = {}) {
             if (typeof applyCanopyFileReferenceLabels === 'function') {
                 applyCanopyFileReferenceLabels(messagesContainer);
             }
+            syncAgentRunArtifactOverflowStates(messagesContainer);
             scheduleAgentRunCapsuleEnrichments(messagesContainer);
 
             const container = document.getElementById('messages-container');
@@ -20084,6 +20206,10 @@ function appendNewMessages(allMessages) {
         }
         hydrateChannelReactionControls();
         scheduleChannelSourceLayouts(messagesContainer);
+        if (typeof applyCanopyFileReferenceLabels === 'function') {
+            applyCanopyFileReferenceLabels(messagesContainer);
+        }
+        syncAgentRunArtifactOverflowStates(messagesContainer);
 
         // Scroll to bottom if user was near bottom
         const container = document.getElementById('messages-container');
@@ -20586,6 +20712,10 @@ function loadOlderMessages() {
                     hydrateXEmbeds(messagesContainer);
                 }
                 scheduleChannelSourceLayouts(messagesContainer);
+                if (typeof applyCanopyFileReferenceLabels === 'function') {
+                    applyCanopyFileReferenceLabels(messagesContainer);
+                }
+                syncAgentRunArtifactOverflowStates(messagesContainer);
             });
         })
         .catch(err => {

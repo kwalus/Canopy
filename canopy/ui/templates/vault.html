@@ -1250,6 +1250,16 @@
             linear-gradient(135deg, color-mix(in srgb, var(--canopy-secondary) 8%, transparent), transparent),
             color-mix(in srgb, var(--canopy-bg-secondary) 78%, transparent);
     }
+    .vault-digestion-result.is-contribution-source {
+        padding: 0.46rem 0.58rem 0.52rem 0.62rem;
+        border-left-width: 3px;
+        border-radius: 0 14px 14px 0;
+    }
+    .vault-digestion-contribution-compact-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.32rem;
+    }
     .vault-digestion-contribution-title {
         display: grid;
         gap: 0.1rem;
@@ -1264,6 +1274,30 @@
         color: var(--canopy-text-muted);
         font-size: 0.74rem;
         overflow-wrap: anywhere;
+    }
+    .vault-digestion-contribution-mini-stats {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.26rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.68rem;
+        line-height: 1.2;
+    }
+    .vault-digestion-contribution-mini-stats span {
+        display: inline-flex;
+        align-items: center;
+        min-height: 1.25rem;
+        max-width: 100%;
+        border: 1px solid color-mix(in srgb, var(--canopy-secondary) 18%, var(--canopy-border));
+        border-radius: 999px;
+        padding: 0.05rem 0.34rem;
+        background: color-mix(in srgb, var(--canopy-bg-card) 56%, transparent);
+        white-space: nowrap;
+    }
+    .vault-digestion-contribution-tags {
+        justify-content: flex-start;
+        margin-top: 0.35rem;
     }
     .vault-digestion-contribution-review {
         border-top: 1px solid color-mix(in srgb, var(--canopy-border) 65%, transparent);
