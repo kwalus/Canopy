@@ -4653,6 +4653,7 @@
             box-shadow:
                 var(--deck-inbox-shadow),
                 inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent);
+            container-type: inline-size;
         }
 
         .deck-inbox-sidebar {
@@ -5358,6 +5359,68 @@
         .deck-inbox-surface .structured-builder-footer {
             min-width: 0;
             flex-wrap: wrap;
+        }
+
+        @container (max-width: 34rem) {
+            .deck-inbox-thread .dm-thread-header {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .deck-inbox-surface .dm-thread-header-main,
+            .deck-inbox-surface .dm-thread-actions,
+            .deck-inbox-surface .dm-composer-actions-left,
+            .deck-inbox-surface .dm-composer-actions-right {
+                width: 100%;
+            }
+
+            .deck-inbox-surface .dm-thread-actions {
+                justify-content: flex-start;
+            }
+
+            .deck-inbox-surface .dm-message-main {
+                max-width: 100%;
+            }
+
+            .deck-inbox-surface .dm-message-row {
+                gap: 6px;
+            }
+
+            .deck-inbox-surface .dm-message-avatar-wrap {
+                width: 30px;
+                flex-basis: 30px;
+            }
+
+            .deck-inbox-surface .dm-composer-actions {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .deck-inbox-surface .dm-composer-actions-right {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.45rem;
+            }
+
+            .deck-inbox-surface .dm-composer-actions-right .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+
+        @container (max-width: 26rem) {
+            .deck-inbox-surface .dm-thread-actions .dm-btn-label {
+                display: none;
+            }
+
+            .deck-inbox-surface .dm-composer-actions-right {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .deck-inbox-surface .dm-bubble {
+                padding: 8px 9px 6px;
+            }
         }
 
         @media (max-width: 900px) {

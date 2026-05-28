@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.270] - 2026-05-28
+
+### Fixed
+- **Rendered cards now adapt to narrow panes, not just phone viewports** - channel and Feed structured cards use container-aware rules so tasks, requests, signals, telemetry/input cards, contracts, and related action rows stack before they overflow inside split panes or Deck-constrained layouts.
+- **DM and Deck Inbox narrow-width handling is more robust** - DM attachments, bubble footers, reactions, Deck Inbox headers, and composer controls now compact based on their available panel width while preserving touch targets.
+
 ## [0.6.269] - 2026-05-28
 
 ### Fixed
