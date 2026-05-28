@@ -5233,7 +5233,7 @@ class CanopyMCPServer:
         """List, search, append, or review Digestion evidence records."""
         digestion_id = str(args.get("digestion_id") or "").strip()
         evidence_id = str(args.get("evidence_id") or "").strip()
-        action = str(args.get("action") or "list").strip().lower()
+        action = str(args.get("action") or "list").strip().lower().replace("-", "_")
         try:
             from canopy.core.app import create_app
 
@@ -5277,7 +5277,8 @@ class CanopyMCPServer:
                         records=records,
                     )
                     return _mcp_json(result)
-                if action == "review":
+                review_actions = {"support", "challenge", "refine", "supersede", "mark_stale", "request_source", "confirm"}
+                if action == "review" or action in review_actions:
                     if not evidence_id:
                         return [TextContent(type="text", text="Error: evidence_id is required for review")]
                     evidence_refs = args.get("evidence_refs") or args.get("evidence") or args.get("citations") or []
@@ -5289,7 +5290,7 @@ class CanopyMCPServer:
                         digestion_id,
                         evidence_id,
                         self.user_id,
-                        action=str(args.get("review_action") or args.get("decision") or ""),
+                        action=str(args.get("review_action") or args.get("decision") or (action if action != "review" else "")),
                         note=str(args.get("note") or args.get("review_note") or ""),
                         confidence=args.get("confidence"),
                         evidence_refs=evidence_refs,

@@ -444,24 +444,64 @@ class DigestionManager:
                 CREATE INDEX IF NOT EXISTS idx_digestion_visual_evidence ON digestion_visual_evidence(digestion_id, source_file_id, page_number, evidence_kind);
                 CREATE INDEX IF NOT EXISTS idx_digestion_contributions_digestion ON digestion_contributions(digestion_id, status, created_at);
                 CREATE INDEX IF NOT EXISTS idx_digestion_contributions_contributor ON digestion_contributions(contributor_user_id, created_at);
+                """
+            )
+
+            def _add_missing_columns(table_name: str, additions: dict[str, str]) -> None:
+                columns = {
+                    str(row["name"] if hasattr(row, "keys") else row[1])
+                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                }
+                for column, ddl in additions.items():
+                    if column not in columns:
+                        conn.execute(ddl)
+                        columns.add(column)
+
+            _add_missing_columns("digestion_sources", {
+                "source_kind": "ALTER TABLE digestion_sources ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'vault_file'",
+                "source_label": "ALTER TABLE digestion_sources ADD COLUMN source_label TEXT",
+                "source_uri": "ALTER TABLE digestion_sources ADD COLUMN source_uri TEXT",
+                "source_metadata_json": "ALTER TABLE digestion_sources ADD COLUMN source_metadata_json TEXT",
+            })
+            _add_missing_columns("digestion_evidence_records", {
+                "id": "ALTER TABLE digestion_evidence_records ADD COLUMN id TEXT",
+                "digestion_id": "ALTER TABLE digestion_evidence_records ADD COLUMN digestion_id TEXT",
+                "created_by_user_id": "ALTER TABLE digestion_evidence_records ADD COLUMN created_by_user_id TEXT",
+                "record_kind": "ALTER TABLE digestion_evidence_records ADD COLUMN record_kind TEXT DEFAULT 'finding'",
+                "statement": "ALTER TABLE digestion_evidence_records ADD COLUMN statement TEXT DEFAULT ''",
+                "summary": "ALTER TABLE digestion_evidence_records ADD COLUMN summary TEXT",
+                "scope": "ALTER TABLE digestion_evidence_records ADD COLUMN scope TEXT",
+                "status": "ALTER TABLE digestion_evidence_records ADD COLUMN status TEXT DEFAULT 'candidate'",
+                "priority": "ALTER TABLE digestion_evidence_records ADD COLUMN priority TEXT DEFAULT 'normal'",
+                "confidence": "ALTER TABLE digestion_evidence_records ADD COLUMN confidence REAL",
+                "tags_json": "ALTER TABLE digestion_evidence_records ADD COLUMN tags_json TEXT",
+                "evidence_refs_json": "ALTER TABLE digestion_evidence_records ADD COLUMN evidence_refs_json TEXT",
+                "source_refs_json": "ALTER TABLE digestion_evidence_records ADD COLUMN source_refs_json TEXT",
+                "related_ids_json": "ALTER TABLE digestion_evidence_records ADD COLUMN related_ids_json TEXT",
+                "metadata_json": "ALTER TABLE digestion_evidence_records ADD COLUMN metadata_json TEXT",
+                "superseded_by_id": "ALTER TABLE digestion_evidence_records ADD COLUMN superseded_by_id TEXT",
+                "created_at": "ALTER TABLE digestion_evidence_records ADD COLUMN created_at TIMESTAMP",
+                "updated_at": "ALTER TABLE digestion_evidence_records ADD COLUMN updated_at TIMESTAMP",
+            })
+            _add_missing_columns("digestion_evidence_reviews", {
+                "id": "ALTER TABLE digestion_evidence_reviews ADD COLUMN id TEXT",
+                "digestion_id": "ALTER TABLE digestion_evidence_reviews ADD COLUMN digestion_id TEXT",
+                "evidence_id": "ALTER TABLE digestion_evidence_reviews ADD COLUMN evidence_id TEXT",
+                "reviewer_user_id": "ALTER TABLE digestion_evidence_reviews ADD COLUMN reviewer_user_id TEXT",
+                "action": "ALTER TABLE digestion_evidence_reviews ADD COLUMN action TEXT",
+                "note": "ALTER TABLE digestion_evidence_reviews ADD COLUMN note TEXT",
+                "confidence": "ALTER TABLE digestion_evidence_reviews ADD COLUMN confidence REAL",
+                "evidence_refs_json": "ALTER TABLE digestion_evidence_reviews ADD COLUMN evidence_refs_json TEXT",
+                "metadata_json": "ALTER TABLE digestion_evidence_reviews ADD COLUMN metadata_json TEXT",
+                "created_at": "ALTER TABLE digestion_evidence_reviews ADD COLUMN created_at TIMESTAMP",
+            })
+            conn.executescript(
+                """
                 CREATE INDEX IF NOT EXISTS idx_digestion_evidence_records ON digestion_evidence_records(digestion_id, status, priority, updated_at);
                 CREATE INDEX IF NOT EXISTS idx_digestion_evidence_author ON digestion_evidence_records(created_by_user_id, updated_at);
                 CREATE INDEX IF NOT EXISTS idx_digestion_evidence_reviews ON digestion_evidence_reviews(digestion_id, evidence_id, created_at);
                 """
             )
-            source_columns = {
-                str(row["name"] if hasattr(row, "keys") else row[1])
-                for row in conn.execute("PRAGMA table_info(digestion_sources)").fetchall()
-            }
-            source_additions = {
-                "source_kind": "ALTER TABLE digestion_sources ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'vault_file'",
-                "source_label": "ALTER TABLE digestion_sources ADD COLUMN source_label TEXT",
-                "source_uri": "ALTER TABLE digestion_sources ADD COLUMN source_uri TEXT",
-                "source_metadata_json": "ALTER TABLE digestion_sources ADD COLUMN source_metadata_json TEXT",
-            }
-            for column, ddl in source_additions.items():
-                if column not in source_columns:
-                    conn.execute(ddl)
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -8322,8 +8362,34 @@ Use this as a permissioned retrieval capability, not as raw file access.
             candidate_order[row_id] = candidates
         if not file_ids:
             return
-        placeholders = ",".join("?" for _ in file_ids)
+        source_id_by_candidate = {file_id: file_id for file_id in file_ids}
         with self.db.get_connection() as conn:
+            source_rows = conn.execute(
+                """
+                SELECT file_id, source_metadata_json
+                FROM digestion_sources
+                WHERE digestion_id = ?
+                """,
+                (self._clean_id(digestion_id),),
+            ).fetchall()
+            candidate_set = set(file_ids)
+            for source_row in source_rows:
+                source_file_id = str(source_row["file_id"] or "")
+                if not source_file_id:
+                    continue
+                if source_file_id in candidate_set:
+                    source_id_by_candidate[source_file_id] = source_file_id
+                metadata = self._json_loads(source_row["source_metadata_json"], {})
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                for key in ("original_file_id", "vault_file_id", "source_file_id", "file_id"):
+                    candidate_id = self._clean_id(metadata.get(key))
+                    if candidate_id and candidate_id in candidate_set:
+                        source_id_by_candidate[candidate_id] = source_file_id
+            lookup_ids = self._clean_id_list([*file_ids, *source_id_by_candidate.values()])
+            if not lookup_ids:
+                return
+            placeholders = ",".join("?" for _ in lookup_ids)
             rows = conn.execute(
                 f"""
                 SELECT
@@ -8344,7 +8410,7 @@ Use this as a permissioned retrieval capability, not as raw file access.
                  AND ds.file_id = f.id
                 WHERE f.id IN ({placeholders})
                 """,
-                [self._clean_id(digestion_id), *file_ids],
+                [self._clean_id(digestion_id), *lookup_ids],
             ).fetchall()
         info_by_id: dict[str, dict[str, Any]] = {}
         for row in rows:
@@ -8379,13 +8445,16 @@ Use this as a permissioned retrieval capability, not as raw file access.
             previews: list[dict[str, Any]] = []
             preview_seen: set[str] = set()
             for file_id, relationship in candidate_order.get(str(item.get("id") or ""), []):
-                info = info_by_id.get(file_id)
-                if not info or file_id in preview_seen:
+                resolved_file_id = source_id_by_candidate.get(file_id, file_id)
+                info = info_by_id.get(resolved_file_id)
+                if not info or resolved_file_id in preview_seen:
                     continue
                 preview = dict(info)
                 preview["relationship"] = relationship
+                preview["requested_file_id"] = file_id
+                preview["resolved_from_owner_copy"] = resolved_file_id != file_id
                 previews.append(preview)
-                preview_seen.add(file_id)
+                preview_seen.add(resolved_file_id)
             item["preview_sources"] = previews
 
     def _contribution_title_kind(self, payload: dict[str, Any], *, index: int) -> tuple[str, str]:

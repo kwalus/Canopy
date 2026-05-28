@@ -3713,7 +3713,7 @@
 
                 function renderDigestionContributionItem(source, digestion) {
                     const details = digestionContributionMeta(source);
-                    const fileId = String(source && source.file_id || details.meta.vault_file_id || '').trim();
+                    const fileId = digestionContributionFileId(source, details);
                     const fileName = String(source && (source.file_name || source.source_label) || details.meta.vault_file_name || fileId || 'Contribution source');
                     const label = String(source && (source.source_label || source.file_name) || details.meta.source_label || fileName || 'Contribution');
                     const contentType = String(source && source.content_type || details.meta.content_type || '');
@@ -3724,8 +3724,17 @@
                     const submittedBy = details.submittedBy || 'unknown contributor';
                     const contributedAt = String(details.meta.ingested_at || source.updated_at || '').trim();
                     const tags = Array.isArray(details.nested.tags) ? details.nested.tags.slice(0, 8) : [];
+                    const stats = [
+                        status ? status.replace(/_/g, ' ') : '',
+                        chunks ? `${chunks.toLocaleString()} chunk${chunks === 1 ? '' : 's'}` : '',
+                        chars ? `${chars.toLocaleString()} chars` : '',
+                        contentType ? contentType.replace(/^text\/plain$/i, 'text') : '',
+                    ].filter(Boolean);
                     const sourcePayload = {
                         file_id: fileId,
+                        id: fileId,
+                        vault_file_id: fileId,
+                        preview_file_id: fileId,
                         file_name: fileName,
                         content_type: contentType,
                         page_label: '',
@@ -3738,8 +3747,8 @@
                         sourceUri ? `source:${sourceUri}` : '',
                     ].filter(Boolean).join('\n');
                     return `
-                        <div class="vault-digestion-result is-contribution">
-                            <div class="vault-digestion-result-head">
+                        <div class="vault-digestion-result is-contribution is-contribution-source">
+                            <div class="vault-digestion-contribution-compact-head">
                                 <div class="vault-digestion-contribution-title">
                                     <strong>${vaultEscape(label)}</strong>
                                     <small>
@@ -3748,15 +3757,13 @@
                                         ${contributedAt ? ` · ${vaultEscape(typeof formatTimestamp === 'function' ? formatTimestamp(contributedAt) : contributedAt)}` : ''}
                                     </small>
                                 </div>
-                                <div class="vault-digestion-result-badges">
-                                    ${status ? `<span>${vaultEscape(status)}</span>` : ''}
-                                    ${chunks ? `<span>${chunks.toLocaleString()} chunk${chunks === 1 ? '' : 's'}</span>` : ''}
-                                    ${chars ? `<span>${chars.toLocaleString()} chars</span>` : ''}
+                                <div class="vault-digestion-contribution-mini-stats">
+                                    ${stats.map(stat => `<span>${vaultEscape(stat)}</span>`).join('')}
                                     ${sourceUri ? `<span title="${vaultEscape(sourceUri)}">source uri</span>` : ''}
                                 </div>
                             </div>
                             ${tags.length ? `
-                                <div class="vault-digestion-result-badges mt-1">
+                                <div class="vault-digestion-result-badges vault-digestion-contribution-tags">
                                     ${tags.map(tag => `<span>${vaultEscape(tag)}</span>`).join('')}
                                 </div>
                             ` : ''}
@@ -3794,6 +3801,29 @@
                         }
                     }
                     return null;
+                }
+
+                function digestionContributionFileId(source, details = null) {
+                    const meta = details && details.meta && typeof details.meta === 'object'
+                        ? details.meta
+                        : parseDigestionSourceMetadata(source);
+                    const candidates = [
+                        source && source.file_id,
+                        source && source.preview_file_id,
+                        source && source.vault_file_id,
+                        source && source.source_file_id,
+                        meta && meta.vault_file_id,
+                        meta && meta.file_id,
+                        meta && meta.owner_file_id,
+                        meta && meta.copied_file_id,
+                        meta && meta.material_file_id,
+                        meta && meta.original_file_id,
+                    ];
+                    for (const value of candidates) {
+                        const clean = String(value || '').trim();
+                        if (clean) return clean;
+                    }
+                    return '';
                 }
 
                 function renderDigestionContributionLedgerItem(contribution, digestion) {
@@ -14504,20 +14534,38 @@
                 return value.slice(0, 10) + '…' + value.slice(-5);
             }
 
+            function isBadCanopyFileRefLabel(value, fileId = '') {
+                const label = String(value || '').replace(/\s+/g, ' ').trim();
+                if (!label) return true;
+                const id = String(fileId || '').trim();
+                if (id && (label === id || label.includes(id))) return true;
+                if (/^(file|source|attachment|id|file_id|source_file_id|vault_file_id|origin_file_id|image_file_id)\s*[:=]?\s*$/i.test(label)) return true;
+                if (/[{}]/.test(label) && /\b(id|attachments?|files?|metadata)\b/i.test(label)) return true;
+                if (/(^|[^a-z])attache?m(?:ent|ents)?s?\s*[:=]\s*\{?/i.test(label)) return true;
+                if (/"(?:id|file_id|source_file_id|attachments?)"\s*[:=]?/i.test(label)) return true;
+                if (/^(?:id|name|type|size|url|attachments?)\s*[:=]/i.test(label) && label.length < 80) return true;
+                if (/^[\[{(,:"'\s]+$/.test(label)) return true;
+                return false;
+            }
+
             function canopyFileRefAnchor(fileId, label) {
                 const id = String(fileId || '').trim();
                 if (!id) return '';
                 const safeId = _escapeHtml(id);
                 const shortId = shortCanopyEntityId(id);
                 const fallbackLabel = 'file:' + shortId;
-                const rawLabel = String(label || fallbackLabel).replace(/\s+/g, ' ').trim() || fallbackLabel;
-                const isFallbackLabel = !label
+                let rawLabel = String(label || fallbackLabel).replace(/\s+/g, ' ').trim() || fallbackLabel;
+                const badLabel = isBadCanopyFileRefLabel(rawLabel, id);
+                if (badLabel) rawLabel = fallbackLabel;
+                const isFallbackLabel = badLabel
+                    || !label
                     || rawLabel === id
                     || rawLabel === shortId
                     || rawLabel.toLowerCase() === ('file:' + id).toLowerCase()
                     || rawLabel === fallbackLabel;
                 const safeLabel = _escapeHtml(rawLabel);
                 return '<a class="canopy-entity-link canopy-file-ref" href="/file-ref/' + encodeURIComponent(id) + '" ' +
+                    'target="_blank" rel="noopener noreferrer" data-canopy-open-target="blank" ' +
                     'data-canopy-file-id="' + safeId + '" data-canopy-file-ref="1" data-canopy-file-label-fallback="' + (isFallbackLabel ? '1' : '0') + '" title="Resolve Canopy file ' + safeId + '">' +
                     '<i class="bi bi-paperclip" aria-hidden="true"></i><span data-canopy-file-ref-label="1">' + safeLabel + '</span></a>';
             }
@@ -14739,6 +14787,9 @@
                             : meta.filename + ' (' + fileId + ')');
                         anchor.setAttribute('data-canopy-file-label-hydrated', '1');
                         anchor.setAttribute('data-canopy-file-name', meta.filename);
+                        if (typeof window !== 'undefined' && typeof window.syncAgentRunArtifactOverflowStates === 'function') {
+                            window.syncAgentRunArtifactOverflowStates(anchor.closest('.agent-run-capsule') || anchor.parentElement || document);
+                        }
                     });
                 });
             }
@@ -26871,6 +26922,19 @@
                 return Promise.resolve(false);
             }
             const el = triggerEl instanceof HTMLElement ? triggerEl : null;
+            const target = String((el && (el.getAttribute('target') || el.getAttribute('data-canopy-open-target'))) || '').toLowerCase();
+            const openInNewTab = target === '_blank' || target === 'blank';
+            let pendingWindow = null;
+            if (openInNewTab && typeof window !== 'undefined' && typeof window.open === 'function') {
+                pendingWindow = window.open('about:blank', '_blank');
+                if (pendingWindow) {
+                    try { pendingWindow.opener = null; } catch (_err) {}
+                    try {
+                        pendingWindow.document.title = 'Opening Canopy file...';
+                        pendingWindow.document.body.innerHTML = '<p style="font:16px system-ui,sans-serif;padding:24px;">Opening Canopy file...</p>';
+                    } catch (_err) {}
+                }
+            }
             if (el) el.classList.add('is-resolving');
             return fetch(`/ajax/files/${encodeURIComponent(fileId)}/reference`, {
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -26878,13 +26942,27 @@
                 .then(async (response) => {
                     const payload = await response.json().catch(() => ({}));
                     if (response.ok && payload && payload.can_open && payload.open_url) {
-                        window.location.href = String(payload.open_url);
+                        if (openInNewTab) {
+                            if (pendingWindow) {
+                                pendingWindow.location.href = String(payload.open_url);
+                            } else if (typeof showAlert === 'function') {
+                                showAlert('Your browser blocked the file tab. Allow pop-ups for Canopy or use Download.', 'warning');
+                            }
+                        } else {
+                            window.location.href = String(payload.open_url);
+                        }
                         return true;
+                    }
+                    if (pendingWindow && !pendingWindow.closed) {
+                        try { pendingWindow.close(); } catch (_err) {}
                     }
                     openFileAccessInspector(fileId, payload);
                     return false;
                 })
                 .catch((error) => {
+                    if (pendingWindow && !pendingWindow.closed) {
+                        try { pendingWindow.close(); } catch (_err) {}
+                    }
                     openFileAccessInspector(fileId, { message: error && error.message ? error.message : 'Could not resolve file reference' });
                     return false;
                 })
