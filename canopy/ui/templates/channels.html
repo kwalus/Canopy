@@ -2869,6 +2869,7 @@
         overflow: hidden;
         overflow-wrap: anywhere;
         contain: layout style;
+        container-type: inline-size;
     }
     .agent-run-capsule::before {
         content: "";
@@ -2879,9 +2880,13 @@
     }
     .agent-run-capsule-head {
         display: grid;
-        grid-template-columns: minmax(0, 0.92fr) minmax(20rem, 26rem);
-        gap: 0.8rem;
+        grid-template-columns: minmax(28rem, 1.16fr) minmax(18rem, 0.84fr);
+        align-items: start;
+        gap: 0.9rem;
         padding: 0.85rem 0.95rem 0.75rem 1rem;
+    }
+    .agent-run-capsule-main {
+        min-width: 0;
     }
     .agent-run-capsule-eyebrow {
         display: inline-flex;
@@ -2905,6 +2910,216 @@
         color: var(--canopy-text-secondary);
         font-size: 0.9rem;
         line-height: 1.42;
+    }
+    .agent-run-capsule-work-effort {
+        margin-top: 0.7rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 68%, var(--canopy-primary) 32%);
+        border-radius: 18px;
+        padding: 0.66rem;
+        background:
+            radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--canopy-primary) 20%, transparent), transparent 38%),
+            linear-gradient(135deg,
+                color-mix(in srgb, var(--canopy-bg-tertiary) 76%, var(--canopy-primary) 24%),
+                color-mix(in srgb, var(--canopy-bg-secondary) 88%, var(--canopy-primary) 12%));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        min-width: 0;
+    }
+    .agent-run-capsule-work-effort-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.6rem;
+        min-width: 0;
+    }
+    .agent-run-capsule-work-effort-kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        color: color-mix(in srgb, var(--canopy-primary) 84%, var(--canopy-text-primary) 16%);
+        font-size: 0.68rem;
+        font-weight: 950;
+        letter-spacing: 0.08em;
+        line-height: 1.1;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-work-effort-tag {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.28rem;
+        max-width: 48%;
+        border-radius: 999px;
+        padding: 0.22rem 0.55rem;
+        color: color-mix(in srgb, var(--canopy-primary) 86%, var(--canopy-text-primary) 14%);
+        background: color-mix(in srgb, var(--canopy-primary) 14%, var(--canopy-bg-card) 86%);
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 36%, var(--canopy-border) 64%);
+        font-size: 0.68rem;
+        font-weight: 900;
+        line-height: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-work-effort-lede {
+        margin-top: 0.42rem;
+        color: var(--canopy-text-primary);
+        font-size: 0.88rem;
+        font-weight: 850;
+        line-height: 1.34;
+        overflow-wrap: break-word;
+    }
+    .agent-run-capsule-work-effort-arc {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(6.9rem, 1fr));
+        gap: 0.34rem;
+        margin-top: 0.58rem;
+        min-width: 0;
+    }
+    .agent-run-capsule-work-effort-phase {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.34rem;
+        min-width: 0;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 70%, var(--phase-color, var(--canopy-primary)) 30%);
+        border-radius: 12px;
+        padding: 0.38rem 0.44rem;
+        color: var(--canopy-text-secondary);
+        background:
+            linear-gradient(135deg,
+                color-mix(in srgb, var(--canopy-bg-card) 82%, var(--phase-color, var(--canopy-primary)) 18%),
+                color-mix(in srgb, var(--canopy-bg-secondary) 92%, var(--phase-color, var(--canopy-primary)) 8%));
+        appearance: none;
+        cursor: pointer;
+        text-align: left;
+        transition: transform 140ms ease, border-color 140ms ease, color 140ms ease, background 140ms ease;
+    }
+    .agent-run-capsule-work-effort-phase:hover,
+    .agent-run-capsule-work-effort-phase:focus-visible {
+        color: var(--canopy-text-primary);
+        border-color: color-mix(in srgb, var(--phase-color, var(--canopy-primary)) 74%, var(--canopy-border) 26%);
+        background:
+            linear-gradient(135deg,
+                color-mix(in srgb, var(--canopy-bg-card) 70%, var(--phase-color, var(--canopy-primary)) 30%),
+                color-mix(in srgb, var(--canopy-bg-secondary) 84%, var(--phase-color, var(--canopy-primary)) 16%));
+        transform: translateY(-1px);
+        outline: none;
+    }
+    .agent-run-capsule-work-effort-phase-icon {
+        width: 1.42rem;
+        height: 1.42rem;
+        border-radius: 9px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: color-mix(in srgb, var(--phase-color, var(--canopy-primary)) 82%, #fff 18%);
+        background: color-mix(in srgb, var(--phase-color, var(--canopy-primary)) 14%, var(--canopy-bg-secondary) 86%);
+        border: 1px solid color-mix(in srgb, var(--phase-color, var(--canopy-primary)) 32%, var(--canopy-border) 68%);
+        font-size: 0.82rem;
+    }
+    .agent-run-capsule-work-effort-phase-label {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--canopy-text-primary);
+        font-size: 0.74rem;
+        font-weight: 950;
+        line-height: 1.1;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-work-effort-phase-count {
+        min-width: 1.16rem;
+        height: 1.16rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 0.2rem;
+        color: #052e16;
+        background: #86efac;
+        font-size: 0.62rem;
+        font-weight: 950;
+        line-height: 1;
+    }
+    .agent-run-capsule-work-effort-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+        gap: 0.42rem;
+        margin-top: 0.5rem;
+        min-width: 0;
+    }
+    .agent-run-capsule-work-effort-card {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, var(--canopy-primary) 28%);
+        border-radius: 13px;
+        padding: 0.5rem 0.55rem;
+        color: var(--canopy-text-secondary);
+        background: color-mix(in srgb, var(--canopy-bg-card) 78%, var(--canopy-primary) 22%);
+        appearance: none;
+        cursor: pointer;
+        text-align: left;
+        transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, color 140ms ease;
+    }
+    .agent-run-capsule-work-effort-card:hover,
+    .agent-run-capsule-work-effort-card:focus-visible {
+        color: var(--canopy-text-primary);
+        border-color: color-mix(in srgb, var(--canopy-primary) 68%, var(--canopy-border) 32%);
+        background: color-mix(in srgb, var(--canopy-bg-card) 66%, var(--canopy-primary) 34%);
+        transform: translateY(-1px);
+        outline: none;
+    }
+    .agent-run-capsule-work-effort-card.is-primary {
+        border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border) 42%);
+        background:
+            radial-gradient(circle at top right, color-mix(in srgb, var(--canopy-primary) 20%, transparent), transparent 44%),
+            color-mix(in srgb, var(--canopy-bg-card) 70%, var(--canopy-primary) 30%);
+    }
+    .agent-run-capsule-work-effort-card.needs-human {
+        border-color: rgba(251, 146, 60, 0.48);
+        background: color-mix(in srgb, var(--canopy-bg-card) 78%, rgba(251, 146, 60, 0.22) 22%);
+    }
+    .agent-run-capsule-work-effort-card.is-empty {
+        display: none;
+    }
+    .agent-run-capsule-work-effort-card::after {
+        content: none;
+        display: none;
+    }
+    .agent-run-capsule-work-effort-card-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.32rem;
+        max-width: 100%;
+        color: color-mix(in srgb, var(--canopy-primary) 82%, var(--canopy-text-primary) 18%);
+        font-size: 0.64rem;
+        font-weight: 950;
+        letter-spacing: 0.08em;
+        line-height: 1.1;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-work-effort-card-value {
+        display: -webkit-box;
+        margin-top: 0.26rem;
+        color: var(--canopy-text-primary);
+        font-size: 0.8rem;
+        line-height: 1.3;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+    }
+    .agent-run-capsule-work-effort-card-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        margin-top: 0.36rem;
+        color: color-mix(in srgb, var(--canopy-primary) 88%, var(--canopy-text-primary) 12%);
+        font-size: 0.68rem;
+        font-weight: 900;
     }
     .agent-run-capsule-brief {
         display: grid;
@@ -2966,6 +3181,27 @@
         font-size: 0.84rem;
         line-height: 1.36;
         overflow-wrap: anywhere;
+    }
+    .agent-run-capsule-work-effort-grid.agent-run-capsule-brief {
+        margin-top: 0.5rem;
+    }
+    .agent-run-capsule-work-effort .agent-run-capsule-work-effort-card::after {
+        content: none;
+        display: none;
+    }
+    .agent-run-capsule-work-effort .agent-run-capsule-work-effort-card-label {
+        font-size: 0.64rem;
+        line-height: 1.1;
+        white-space: nowrap;
+    }
+    .agent-run-capsule-work-effort .agent-run-capsule-work-effort-card-value {
+        display: -webkit-box;
+        margin-top: 0.26rem;
+        font-size: 0.8rem;
+        line-height: 1.3;
+        overflow: hidden;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
     }
     .agent-run-capsule-artifacts {
         margin-top: 0.68rem;
@@ -3647,6 +3883,62 @@
             contain-intrinsic-size: 320px;
         }
     }
+    @container (max-width: 58rem) {
+        .agent-run-capsule-head {
+            grid-template-columns: minmax(0, 1fr);
+            gap: 0.72rem;
+        }
+        .agent-run-capsule-side {
+            min-width: 0;
+            width: 100%;
+        }
+        .agent-run-capsule-side-top {
+            align-items: center;
+        }
+        .agent-run-capsule-map {
+            width: 100%;
+        }
+        .agent-run-capsule-map-strip {
+            max-height: min(24rem, 48vh);
+        }
+        .agent-run-capsule-work-effort-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .agent-run-capsule-brief {
+            grid-template-columns: 1fr;
+        }
+    }
+    @container (max-width: 40rem) {
+        .agent-run-capsule-head {
+            padding: 0.72rem 0.72rem 0.68rem 0.86rem;
+        }
+        .agent-run-capsule-work-effort-head {
+            flex-direction: column;
+            gap: 0.36rem;
+        }
+        .agent-run-capsule-work-effort-tag {
+            max-width: 100%;
+        }
+        .agent-run-capsule-work-effort-arc,
+        .agent-run-capsule-work-effort-grid {
+            grid-template-columns: 1fr;
+        }
+        .agent-run-capsule-work-effort-card-value {
+            -webkit-line-clamp: 4;
+        }
+        .agent-run-capsule-side-top {
+            align-items: flex-start;
+            flex-direction: column;
+        }
+        .agent-run-capsule-actions {
+            justify-content: flex-start;
+            width: 100%;
+        }
+        .agent-run-capsule-actions .btn {
+            flex: 1 1 8rem;
+            min-width: min(100%, 8rem);
+        }
+    }
     .channel-agent-capsule-level-panel {
         margin: 0.2rem 0.55rem 0.45rem;
         padding: 0.72rem 0.78rem;
@@ -4059,6 +4351,37 @@
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-brief-label {
         color: #0f766e;
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-work-effort {
+        background:
+            radial-gradient(circle at 12% 0%, rgba(20, 184, 166, 0.12), transparent 38%),
+            linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(240, 253, 250, 0.82));
+        border-color: rgba(15, 118, 110, 0.18);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-work-effort-kicker,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-work-effort-card-label {
+        color: #0f766e;
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-work-effort-tag {
+        color: #0f766e;
+        background: rgba(20, 184, 166, 0.1);
+        border-color: rgba(15, 118, 110, 0.18);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-work-effort-phase,
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-work-effort-card {
+        color: #334155;
+        background:
+            linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(240, 253, 250, 0.78));
+        border-color: rgba(15, 118, 110, 0.16);
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-work-effort-card.needs-human {
+        background: rgba(255, 247, 237, 0.92);
+        border-color: rgba(234, 88, 12, 0.24);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-work-effort-card-action {
+        color: #047857;
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-artifacts {
         background:
@@ -16352,6 +16675,148 @@ function getAgentRunSummary(messages) {
     return brief.overview;
 }
 
+const AGENT_RUN_WORK_EFFORT_PHASE_SPECS = {
+    context: { label: 'Context', icon: 'inbox', color: '#94a3b8' },
+    coordinate: { label: 'Coordinate', icon: 'at', color: '#c084fc' },
+    structure: { label: 'Structure', icon: 'kanban', color: '#60a5fa' },
+    output: { label: 'Output', icon: 'file-earmark-arrow-up', color: '#2dd4bf' },
+    validate: { label: 'Validate', icon: 'check2-circle', color: '#a3e635' },
+    review: { label: 'Review', icon: 'exclamation-triangle', color: '#fb923c' },
+};
+
+function getAgentRunWorkEffortPhaseForSignal(signal) {
+    return ({
+        attention: 'review',
+        deck: 'output',
+        file: 'output',
+        digestion: 'output',
+        workproduct: 'output',
+        card: 'structure',
+        complete: 'validate',
+        mention: 'coordinate',
+        post: 'context',
+    }[signal] || 'context');
+}
+
+function getAgentRunWorkEffortOutputLabel(directArtifacts, deckItems) {
+    const fileCount = (directArtifacts || []).filter(artifact => artifact && artifact.kind !== 'workproduct').length;
+    const workProductCount = (directArtifacts || []).filter(artifact => artifact && artifact.kind === 'workproduct').length;
+    const deckCount = Array.isArray(deckItems) ? deckItems.length : 0;
+    const bits = [
+        fileCount ? `${fileCount} file/reference${fileCount === 1 ? '' : 's'}` : '',
+        workProductCount ? `${workProductCount} workproduct${workProductCount === 1 ? '' : 's'}` : '',
+        deckCount ? `${deckCount} Deck item${deckCount === 1 ? '' : 's'}` : '',
+    ].filter(Boolean);
+    return bits.join(', ');
+}
+
+function buildAgentRunWorkEffort(messages, brief, status, directArtifacts, deckItems, participants, userInfo = {}) {
+    const run = (Array.isArray(messages) ? messages : []).filter(Boolean);
+    const mapArtifacts = (Array.isArray(directArtifacts) ? directArtifacts : []).concat(Array.isArray(deckItems) ? deckItems : []);
+    const map = buildAgentRunCapsuleMapNodes(run, mapArtifacts, 24, userInfo || {});
+    const phaseByKey = new Map();
+    (map.nodes || []).forEach((node) => {
+        const phaseKey = getAgentRunWorkEffortPhaseForSignal(node.signal);
+        const spec = AGENT_RUN_WORK_EFFORT_PHASE_SPECS[phaseKey] || AGENT_RUN_WORK_EFFORT_PHASE_SPECS.context;
+        const existing = phaseByKey.get(phaseKey) || {
+            key: phaseKey,
+            label: spec.label,
+            icon: spec.icon,
+            color: spec.color,
+            count: 0,
+            messageId: node.messageId || '',
+            title: '',
+        };
+        existing.count += Math.max(1, Number(node.count || 0) || 1);
+        existing.title = existing.title || node.title || '';
+        if (!existing.messageId && node.messageId) existing.messageId = node.messageId;
+        phaseByKey.set(phaseKey, existing);
+    });
+    if (!phaseByKey.size && run.length) {
+        phaseByKey.set('context', {
+            key: 'context',
+            ...AGENT_RUN_WORK_EFFORT_PHASE_SPECS.context,
+            count: run.length,
+            messageId: String(run[0] && run[0].id || ''),
+            title: 'Open the first source post in this compressed run',
+        });
+    }
+    const phaseOrder = ['context', 'coordinate', 'structure', 'output', 'validate', 'review'];
+    const phases = phaseOrder.map(key => phaseByKey.get(key)).filter(Boolean);
+    const outputLabel = getAgentRunWorkEffortOutputLabel(directArtifacts, deckItems);
+    const participantCount = Array.isArray(participants) ? participants.length : 0;
+    const postsLabel = `${run.length} source post${run.length === 1 ? '' : 's'}`;
+    const tagBits = [
+        status && status.label ? status.label : '',
+        outputLabel || '',
+        participantCount ? `${participantCount} agent${participantCount === 1 ? '' : 's'}` : '',
+    ].filter(Boolean);
+    const lede = truncateAgentRunText(
+        (brief && (brief.attention || brief.keyUpdate || brief.nextAction || brief.overview)) ||
+        'A compressed agent work run is ready for human review.',
+        210
+    );
+    return {
+        phases,
+        lede,
+        tag: tagBits.slice(0, 2).join(' • ') || postsLabel,
+        postsLabel,
+        outputLabel,
+    };
+}
+
+function renderAgentRunWorkEffortPhaseRail(workEffort, capsuleId) {
+    const phases = Array.isArray(workEffort && workEffort.phases) ? workEffort.phases : [];
+    if (!phases.length) return '';
+    return `<div class="agent-run-capsule-work-effort-arc" aria-label="Work effort phases">
+        ${phases.map((phase) => `
+            <button type="button"
+                    class="agent-run-capsule-work-effort-phase"
+                    style="--phase-color: ${escapeAttr(phase.color || '#34d399')}"
+                    title="${escapeAttr(phase.title || `Open ${phase.label || 'phase'} source`)}"
+                    onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '${escapeAttr(phase.messageId || '')}')">
+                <span class="agent-run-capsule-work-effort-phase-icon"><i class="bi bi-${escapeAttr(phase.icon || 'circle')}"></i></span>
+                <span class="agent-run-capsule-work-effort-phase-label">${escapeHtml(phase.label || 'Phase')}</span>
+                <span class="agent-run-capsule-work-effort-phase-count">${escapeHtml(String(phase.count || 1))}</span>
+            </button>
+        `).join('')}
+    </div>`;
+}
+
+function renderAgentRunWorkEffortPanel(messages, brief, status, directArtifacts, deckItems, participants, capsuleId, userInfo = {}) {
+    const workEffort = buildAgentRunWorkEffort(messages, brief, status, directArtifacts, deckItems, participants, userInfo);
+    const rows = [
+        { key: 'key_update', label: 'What changed', value: brief && brief.keyUpdate, messageId: brief && brief.keyUpdateMessageId, icon: 'bi-check2-circle', className: ' is-primary' },
+        { key: 'attention', label: 'Needs attention', value: brief && brief.attention, messageId: brief && brief.attentionMessageId, icon: 'bi-person-raised-hand', className: ' needs-human' },
+        { key: 'source_trail', label: 'Source trail', value: brief && brief.sourceTrail, messageId: brief && brief.sourceTrailMessageId, icon: 'bi-diagram-3', className: '' },
+        { key: 'next_action', label: 'Next action', value: brief && brief.nextAction, messageId: brief && brief.nextActionMessageId, icon: 'bi-arrow-return-right', className: '' },
+    ];
+    const visibleRows = rows.filter(row => row && (row.value || row.key === 'attention'));
+    return `<div class="agent-run-capsule-work-effort" data-agent-run-capsule-work-effort="${escapeAttr(capsuleId)}">
+        <div class="agent-run-capsule-work-effort-head">
+            <div class="agent-run-capsule-work-effort-kicker"><i class="bi bi-bezier2"></i>Work effort</div>
+            <span class="agent-run-capsule-work-effort-tag" title="${escapeAttr(workEffort.tag || '')}">
+                <i class="bi ${escapeAttr(status && status.icon || 'bi-activity')}"></i>${escapeHtml(workEffort.tag || 'Compressed run')}
+            </span>
+        </div>
+        <div class="agent-run-capsule-work-effort-lede">${escapeHtml(workEffort.lede || '')}</div>
+        ${renderAgentRunWorkEffortPhaseRail(workEffort, capsuleId)}
+        <div class="agent-run-capsule-work-effort-grid agent-run-capsule-brief">
+            ${visibleRows.map(row => `
+                <button type="button"
+                        class="agent-run-capsule-work-effort-card agent-run-capsule-brief-row${escapeAttr(row.className || '')}${row.value ? '' : ' is-empty'}"
+                        data-agent-run-capsule-brief-key="${escapeAttr(row.key || '')}"
+                        title="Open the source trace for ${escapeAttr(row.label)}"
+                        onclick="focusAgentRunCapsuleSource('${escapeAttr(capsuleId)}', '${escapeAttr(row.messageId || '')}')">
+                    <div class="agent-run-capsule-work-effort-card-label agent-run-capsule-brief-label"><i class="bi ${escapeAttr(row.icon)}"></i>${escapeHtml(row.label)}</div>
+                    <div class="agent-run-capsule-work-effort-card-value agent-run-capsule-brief-value">${escapeHtml(row.value)}</div>
+                    <span class="agent-run-capsule-work-effort-card-action"><i class="bi bi-signpost-split"></i>Open source</span>
+                </button>
+            `).join('')}
+        </div>
+    </div>`;
+}
+
 function renderAgentRunBriefRows(brief, capsuleId) {
     const rows = [
         { key: 'key_update', label: 'What changed', value: brief && brief.keyUpdate, messageId: brief && brief.keyUpdateMessageId, icon: 'bi-check2-circle', className: '' },
@@ -16520,11 +16985,11 @@ function renderAgentRunCapsule(messages, userInfo, replyMetaById, options = {}) 
                  data-agent-run-capsule-enrichment-state="fallback"
                  aria-label="Compressed agent run">
             <div class="agent-run-capsule-head">
-                <div class="min-width-0">
+                <div class="agent-run-capsule-main">
                     <div class="agent-run-capsule-eyebrow"><i class="bi bi-layers-fill"></i> Agent run capsule</div>
                     <div class="agent-run-capsule-title" data-agent-run-capsule-field="title">${escapeHtml(title)}</div>
                     <div class="agent-run-capsule-summary" data-agent-run-capsule-field="overview">${escapeHtml(summary)}</div>
-                    ${renderAgentRunBriefRows(brief, capsuleId)}
+                    ${renderAgentRunWorkEffortPanel(run, brief, status, directArtifacts, deckItems, participants, capsuleId, userInfo || {})}
                     ${renderAgentRunCapsuleArtifactRail(directArtifacts, capsuleId)}
                     <div class="agent-run-capsule-meta">
                         <span class="agent-run-capsule-status status-${escapeAttr(status.key)}">
