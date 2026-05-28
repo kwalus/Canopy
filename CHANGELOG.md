@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.265] - 2026-05-28
+
+### Changed
+- **Channel quick mention rail polish** - the composer mention rail now uses tighter, less-pill-shaped chips, a compact `@` cue, smaller avatars, and shorter labels so more teammates fit without losing full-name hover/accessible labels.
+- **Quick mention rail render optimization** - channel quick mentions now use delegated events and a render signature to skip unnecessary DOM rebuilds when the candidate set has not changed, keeping channel loads cache-backed and light.
+
 ## [0.6.264] - 2026-05-28
 
 ### Fixed
