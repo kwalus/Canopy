@@ -738,6 +738,49 @@ class TestDigestions(unittest.TestCase):
         )
         self.assertEqual(review['record']['status'], 'stable')
 
+    def test_evidence_records_store_empty_supersession_as_null_with_foreign_keys(self) -> None:
+        fk_conn = sqlite3.connect(':memory:')
+        fk_conn.row_factory = sqlite3.Row
+        fk_conn.execute("PRAGMA foreign_keys = ON")
+        self.addCleanup(fk_conn.close)
+        fk_conn.execute("CREATE TABLE users (id TEXT PRIMARY KEY, avatar_file_id TEXT, origin_peer TEXT, username TEXT)")
+        fk_conn.execute("INSERT INTO users (id, username) VALUES (?, ?)", ('owner-user', 'owner-user'))
+        fk_conn.execute("CREATE TABLE channel_messages (id TEXT PRIMARY KEY, attachments TEXT, content TEXT)")
+        fk_conn.execute("CREATE TABLE feed_posts (id TEXT PRIMARY KEY, metadata TEXT, content TEXT)")
+        fk_conn.execute("CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT, content TEXT)")
+        fk_conn.commit()
+
+        fk_db = _FakeDbManager(fk_conn)
+        fk_files = FileManager(fk_db, str(Path(self.tempdir.name) / 'fk-evidence-files'))
+        fk_manager = DigestionManager(fk_db, fk_files)
+        digestion = fk_manager.create_digestion('owner-user', name='FK evidence nullability', provider='local_hash')
+
+        append_result = fk_manager.append_evidence_records(
+            digestion['id'],
+            'owner-user',
+            records=[{'statement': 'Evidence without a supersession target should append on FK-enforced stores.'}],
+        )
+        self.assertTrue(append_result['success'])
+        evidence_id = append_result['records'][0]['id']
+        stored = fk_conn.execute(
+            "SELECT superseded_by_id FROM digestion_evidence_records WHERE id = ?",
+            (evidence_id,),
+        ).fetchone()
+        self.assertIsNone(stored['superseded_by_id'])
+
+        review = fk_manager.review_evidence_record(
+            digestion['id'],
+            evidence_id,
+            'owner-user',
+            action='confirm',
+        )
+        self.assertEqual(review['record']['status'], 'stable')
+        reviewed = fk_conn.execute(
+            "SELECT superseded_by_id FROM digestion_evidence_records WHERE id = ?",
+            (evidence_id,),
+        ).fetchone()
+        self.assertIsNone(reviewed['superseded_by_id'])
+
     def test_digestion_indexes_common_business_documents(self) -> None:
         docx = self._save_bytes(
             'planning-memo.docx',

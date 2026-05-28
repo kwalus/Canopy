@@ -1850,6 +1850,7 @@ class DigestionManager:
         with self.db.get_connection() as conn:
             for record in normalized:
                 record_id = record["id"]
+                superseded_by_id = self._clean_id(record.get("superseded_by_id")) or None
                 insert_params = (
                     record_id,
                     digestion.id,
@@ -1866,7 +1867,7 @@ class DigestionManager:
                     self._json_dumps(record["source_refs"]),
                     self._json_dumps(record["related_ids"]),
                     self._json_dumps(record["metadata"]),
-                    self._clean_id(record.get("superseded_by_id")),
+                    superseded_by_id,
                     now,
                     now,
                 )
@@ -1907,7 +1908,7 @@ class DigestionManager:
                             self._json_dumps(record["source_refs"]),
                             self._json_dumps(record["related_ids"]),
                             self._json_dumps(record["metadata"]),
-                            self._clean_id(record.get("superseded_by_id")),
+                            superseded_by_id,
                             now,
                             record_id,
                         ),
@@ -2094,6 +2095,7 @@ class DigestionManager:
         evidence_refs_norm = self._normalize_evidence_refs(evidence_refs or [])
         review_id = f"Evr{secrets.token_hex(12)}"
         now = self._now()
+        superseded_value = self._clean_id(superseded_by_id) or None
         with self.db.get_connection() as conn:
             conn.execute(
                 """
@@ -2123,7 +2125,7 @@ class DigestionManager:
                 """,
                 (
                     next_status,
-                    self._clean_id(superseded_by_id),
+                    superseded_value,
                     now,
                     digestion.id,
                     evidence_id,

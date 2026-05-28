@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.260] - 2026-05-28
+
+### Fixed
+- **Digestion evidence appends now work on foreign-key-enforced VPS stores** - missing `superseded_by_id` values are stored as SQL `NULL` instead of an empty string during evidence append/review, preventing ordinary evidence records from tripping self-referential foreign-key checks while preserving explicit supersession links.
+
 ## [0.6.259] - 2026-05-28
 
 ### Fixed
