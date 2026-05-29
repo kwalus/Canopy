@@ -6921,6 +6921,7 @@ def create_ui_blueprint() -> Blueprint:
             'workspace_event_cursor': workspace_event_cursor,
             'sidebar_state_token': sidebar_state_token,
             'thread_state_token': thread_state_token,
+            'dm_max_message_length': int(getattr(message_manager, 'max_message_length', 4096) or 4096),
         }
 
     @ui.route('/messages')
@@ -12763,6 +12764,19 @@ def create_ui_blueprint() -> Blueprint:
             
             if not content and not file_attachments:
                 return jsonify({'error': 'Message content or attachments required'}), 400
+
+            max_content_length = int(getattr(message_manager, 'max_message_length', 4096) or 4096)
+            if len(content) > max_content_length:
+                return jsonify({
+                    'error': (
+                        f"DM text is {len(content):,} characters, above the "
+                        f"{max_content_length:,} character inline limit. "
+                        "Attach the long text as a file and send a short message with it."
+                    ),
+                    'content_length': len(content),
+                    'max_message_length': max_content_length,
+                    'convert_to_attachment': True,
+                }), 413
             
             processed_attachments, failed_attachments = _process_composer_attachments(
                 file_manager,

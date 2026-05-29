@@ -18730,6 +18730,7 @@
                 deckInboxCanopyLLMInFlight: false,
                 deckInboxCanopyLLMDraftReady: false,
                 deckInboxCanopyLLMIgnoredDraft: '',
+                deckInboxSelectedFiles: [],
                 deckInboxReactionInFlight: new Set(),
                 deckDesktopMode: normalizeDeckDesktopMode(loadSidebarRailPreference('deckDesktopMode', 'default')),
                 /** Last `state.deckItems.length` applied in `syncDeckLayoutMode` (module layout). */
@@ -23822,6 +23823,7 @@
                     deckInboxComposerSlot.innerHTML = data.composer_html;
                     state.deckInboxCanopyLLMDraftReady = false;
                     state.deckInboxCanopyLLMIgnoredDraft = '';
+                    state.deckInboxSelectedFiles = [];
                     if (preserveComposerExpanded) {
                         const composerRoot = deckInboxComposerRoot();
                         const expandBtn = composerRoot ? composerRoot.querySelector('[data-dm-action="toggle-composer-expanded"]') : null;
@@ -23977,6 +23979,157 @@
                 return root ? root.querySelector('[data-dm-role="message-content"]') : null;
             }
 
+            function deckInboxInlineContentLimit() {
+                const root = deckInboxComposerRoot();
+                const raw = root ? Number(root.getAttribute('data-dm-max-content-chars') || 0) : 0;
+                return Math.max(512, raw || 4096);
+            }
+
+            function deckInboxUtf8Bytes(value) {
+                const text = String(value || '');
+                if (window.TextEncoder) return new TextEncoder().encode(text);
+                const encoded = unescape(encodeURIComponent(text));
+                const bytes = new Uint8Array(encoded.length);
+                for (let i = 0; i < encoded.length; i += 1) bytes[i] = encoded.charCodeAt(i);
+                return bytes;
+            }
+
+            function deckInboxBytesToBase64(bytes) {
+                let binary = '';
+                const chunkSize = 0x8000;
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                    const chunk = bytes.subarray(i, i + chunkSize);
+                    binary += String.fromCharCode.apply(null, Array.from(chunk));
+                }
+                return btoa(binary);
+            }
+
+            function deckInboxFormatBytes(bytes) {
+                const size = Math.max(0, Number(bytes || 0));
+                if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+                if (size >= 1024) return `${Math.round(size / 1024)} KB`;
+                return `${size} B`;
+            }
+
+            function deckInboxInferDraftFile(content) {
+                const text = String(content || '');
+                const trimmed = text.trim();
+                if (/^#!/.test(trimmed) && /\b(python|python3)\b/.test(trimmed.split(/\r?\n/, 1)[0] || '')) {
+                    return { ext: 'py', type: 'text/x-python', label: 'Python script' };
+                }
+                if (/^#!/.test(trimmed) && /\b(bash|sh|zsh)\b/.test(trimmed.split(/\r?\n/, 1)[0] || '')) {
+                    return { ext: 'sh', type: 'text/x-shellscript', label: 'shell script' };
+                }
+                if (/^\s*[{[]/.test(trimmed) && /[}\]]\s*$/.test(trimmed)) {
+                    try {
+                        JSON.parse(trimmed);
+                        return { ext: 'json', type: 'application/json', label: 'JSON file' };
+                    } catch (_) {}
+                }
+                if (/```|^#{1,6}\s|\n[-*]\s|\n\d+\.\s/.test(text)) return { ext: 'md', type: 'text/markdown', label: 'Markdown file' };
+                if (/\b(import|from)\s+\w+|def\s+\w+\(|class\s+\w+[:(]/.test(text)) return { ext: 'py', type: 'text/x-python', label: 'Python script' };
+                if (/\b(function|const|let|var)\s+\w+|=>|console\.log\(/.test(text)) return { ext: 'js', type: 'application/javascript', label: 'JavaScript file' };
+                if (/<\/?[a-z][\s\S]*>/i.test(text)) return { ext: 'html', type: 'text/html', label: 'HTML file' };
+                return { ext: 'txt', type: 'text/plain', label: 'text file' };
+            }
+
+            function deckInboxDraftAttachmentDescriptor(content) {
+                const inferred = deckInboxInferDraftFile(content);
+                const now = new Date();
+                const stamp = [
+                    now.getFullYear(),
+                    String(now.getMonth() + 1).padStart(2, '0'),
+                    String(now.getDate()).padStart(2, '0'),
+                    '-',
+                    String(now.getHours()).padStart(2, '0'),
+                    String(now.getMinutes()).padStart(2, '0'),
+                    String(now.getSeconds()).padStart(2, '0')
+                ].join('');
+                return { ...inferred, name: `canopy-dm-draft-${stamp}.${inferred.ext}` };
+            }
+
+            function deckInboxUpdateFilePreview() {
+                const root = deckInboxComposerRoot();
+                const preview = root ? root.querySelector('[data-dm-role="file-preview"]') : null;
+                if (!preview) return;
+                const files = Array.isArray(state.deckInboxSelectedFiles) ? state.deckInboxSelectedFiles : [];
+                if (!files.length) {
+                    preview.hidden = true;
+                    preview.style.display = 'none';
+                    preview.innerHTML = '';
+                    return;
+                }
+                preview.hidden = false;
+                preview.style.display = 'block';
+                preview.innerHTML = files.map((file, index) => `
+                    <div class="file-preview-item d-inline-flex align-items-center gap-2 me-2 mb-2 p-2 rounded">
+                        <i class="bi bi-file-earmark-text"></i>
+                        <span class="small">${escapeEmbedHtml(file.name || 'attachment')}</span>
+                        <small class="text-muted">${escapeEmbedHtml(deckInboxFormatBytes(file.size || 0))}</small>
+                        <button type="button" class="btn-close btn-sm" data-dm-action="remove-converted-file" data-index="${index}" style="font-size:0.7rem;"></button>
+                    </div>
+                `).join('');
+            }
+
+            function deckInboxLongTextOffer(force = false) {
+                const root = deckInboxComposerRoot();
+                const textarea = deckInboxTextArea();
+                const panel = root ? root.querySelector('[data-dm-role="long-text-offer"]') : null;
+                if (!root || !textarea || !panel) return;
+                const content = String(textarea.value || '');
+                const limit = deckInboxInlineContentLimit();
+                const over = content.length > limit;
+                const dismissed = String(root.dataset.longTextDismissedFor || '');
+                panel.hidden = !(over && (force || dismissed !== content));
+                if (panel.hidden) return;
+                const descriptor = deckInboxDraftAttachmentDescriptor(content);
+                const bytes = deckInboxUtf8Bytes(content);
+                const title = panel.querySelector('[data-dm-role="long-text-title"]');
+                const detail = panel.querySelector('[data-dm-role="long-text-detail"]');
+                if (title) title.textContent = `${descriptor.label[0].toUpperCase()}${descriptor.label.slice(1)} is too large for inline DM text`;
+                if (detail) {
+                    detail.textContent = `${content.length.toLocaleString()} characters exceeds the ${limit.toLocaleString()} character inline limit. Attach it as ${descriptor.name} (${deckInboxFormatBytes(bytes.length)}), then edit the message text before sending.`;
+                }
+            }
+
+            function dismissDeckInboxLongTextOffer() {
+                const root = deckInboxComposerRoot();
+                const textarea = deckInboxTextArea();
+                if (root) root.dataset.longTextDismissedFor = String((textarea && textarea.value) || '');
+                deckInboxLongTextOffer(false);
+                if (textarea) textarea.focus();
+            }
+
+            function convertDeckInboxDraftToAttachment() {
+                const root = deckInboxComposerRoot();
+                const textarea = deckInboxTextArea();
+                if (!root || !textarea) return false;
+                const original = String(textarea.value || '');
+                if (!original.trim()) {
+                    showAlert('Add text before converting it to an attachment.', 'warning');
+                    return false;
+                }
+                const descriptor = deckInboxDraftAttachmentDescriptor(original);
+                const bytes = deckInboxUtf8Bytes(original);
+                state.deckInboxSelectedFiles = Array.isArray(state.deckInboxSelectedFiles) ? state.deckInboxSelectedFiles : [];
+                state.deckInboxSelectedFiles.push({
+                    name: descriptor.name,
+                    type: descriptor.type,
+                    size: bytes.length,
+                    data: deckInboxBytesToBase64(bytes),
+                    source: 'composer_text_attachment',
+                });
+                textarea.value = `Attached long-form text as ${descriptor.name}.`;
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                root.dataset.longTextDismissedFor = '';
+                deckInboxUpdateFilePreview();
+                deckInboxLongTextOffer(false);
+                showAlert(`${descriptor.name} attached. Edit the DM text if needed, then send.`, 'success');
+                textarea.focus();
+                textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+                return true;
+            }
+
             function deckInboxHasCanopyLLMTrigger(value) {
                 return !!(window.CanopyLLMCompose && window.CanopyLLMCompose.hasTrigger(value));
             }
@@ -24130,7 +24283,10 @@
                             },
                             onDelta(delta) {
                                 fullText += delta;
-                                if (textarea) textarea.value = fullText;
+                                if (textarea) {
+                                    textarea.value = fullText;
+                                    deckInboxLongTextOffer(false);
+                                }
                             },
                         });
                     } catch (streamError) {
@@ -24145,6 +24301,7 @@
                     if (textarea && !fullText) {
                         textarea.value = expanded;
                         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+                        deckInboxLongTextOffer(false);
                     }
                     state.deckInboxCanopyLLMDraftReady = true;
                     setDeckInboxCanopyLLMStatus(`Draft inserted from ${(data && data.model) || 'LLM'}. Review, edit, send, or add @Canopy to refine again.`, true, 'success', {
@@ -24171,8 +24328,16 @@
             async function sendDeckInboxMessage() {
                 const textarea = deckInboxTextArea();
                 const content = String((textarea && textarea.value) || '').trim();
-                if (!content) {
-                    showAlert('Message content required', 'warning');
+                const attachments = Array.isArray(state.deckInboxSelectedFiles) ? state.deckInboxSelectedFiles : [];
+                if (!content && !attachments.length) {
+                    showAlert('Message content or attachments required', 'warning');
+                    return;
+                }
+                if (content.length > deckInboxInlineContentLimit()) {
+                    const root = deckInboxComposerRoot();
+                    if (root) root.classList.add('composer-expanded');
+                    deckInboxLongTextOffer(true);
+                    showAlert('This DM is too large for inline text. Attach the draft as a file, then send with a short note.', 'warning');
                     return;
                 }
                 const recipients = (Array.isArray(state.deckInboxComposerRecipients) ? state.deckInboxComposerRecipients : [])
@@ -24186,7 +24351,7 @@
                     await generateDeckInboxCanopyLLMDraft(recipients);
                     return;
                 }
-                const payload = { content };
+                const payload = { content, attachments };
                 if (recipients.length > 1) payload.recipient_ids = recipients;
                 else payload.recipient_id = recipients[0];
                 if (state.deckInboxReply && state.deckInboxReply.messageId) {
@@ -24208,6 +24373,8 @@
                             throw new Error((data && data.error) || 'Failed to send message');
                         }
                         if (textarea) textarea.value = '';
+                        state.deckInboxSelectedFiles = [];
+                        deckInboxUpdateFilePreview();
                         state.deckInboxCanopyLLMDraftReady = false;
                         state.deckInboxCanopyLLMIgnoredDraft = '';
                         updateDeckInboxCanopyLLMComposePanel();
@@ -24227,6 +24394,11 @@
                         return loadDeckInboxSnapshot(nextOptions);
                     })
                     .catch((err) => {
+                        if (err && (err.convert_to_attachment || err.max_message_length)) {
+                            const root = deckInboxComposerRoot();
+                            if (root) root.classList.add('composer-expanded');
+                            deckInboxLongTextOffer(true);
+                        }
                         showAlert((err && (err.error || err.message)) || 'Failed to send message', 'danger');
                     })
                     .finally(() => {
@@ -24564,10 +24736,25 @@
                 } else if (action === 'clear-composer') {
                     const textarea = deckInboxTextArea();
                     if (textarea) textarea.value = '';
+                    state.deckInboxSelectedFiles = [];
+                    deckInboxUpdateFilePreview();
+                    const root = deckInboxComposerRoot();
+                    if (root) root.dataset.longTextDismissedFor = '';
+                    deckInboxLongTextOffer(false);
                     state.deckInboxCanopyLLMDraftReady = false;
                     state.deckInboxCanopyLLMIgnoredDraft = '';
                     updateDeckInboxCanopyLLMComposePanel();
                     clearDeckInboxReply();
+                } else if (action === 'convert-long-text') {
+                    convertDeckInboxDraftToAttachment();
+                } else if (action === 'dismiss-long-text') {
+                    dismissDeckInboxLongTextOffer();
+                } else if (action === 'remove-converted-file') {
+                    const index = Number(actionEl.getAttribute('data-index') || -1);
+                    if (index >= 0 && Array.isArray(state.deckInboxSelectedFiles)) {
+                        state.deckInboxSelectedFiles.splice(index, 1);
+                        deckInboxUpdateFilePreview();
+                    }
                 } else if (action === 'generate-canopy-draft') {
                     generateDeckInboxCanopyLLMDraft();
                 } else if (action === 'send-as-written') {
@@ -24631,7 +24818,10 @@
                 });
                 deckInboxSurface.addEventListener('input', (event) => {
                     const textarea = event.target && event.target.closest ? event.target.closest('[data-dm-role="message-content"]') : null;
-                    if (textarea) updateDeckInboxCanopyLLMComposePanel();
+                    if (textarea) {
+                        deckInboxLongTextOffer(false);
+                        updateDeckInboxCanopyLLMComposePanel();
+                    }
                 });
             }
 

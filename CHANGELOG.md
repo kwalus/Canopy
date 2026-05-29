@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.284] - 2026-05-29
+
+### Added
+- **Long DM drafts can be converted into attachments** - Messages and Deck Inbox now detect inline DM text above the safe message-body limit, explain the exact issue, and offer a one-click conversion into a text/code attachment while replacing the composer body with an editable short note.
+
+### Fixed
+- **Oversized DM failures now explain what happened** - AJAX and API DM sends/replies now return an actionable `413` response with the content length, inline limit, and conversion guidance instead of falling through to a generic "Failed to send message."
+
 ## [0.6.283] - 2026-05-29
 
 ### Changed

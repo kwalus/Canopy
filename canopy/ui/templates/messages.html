@@ -1521,6 +1521,62 @@
         line-height: 1.48;
     }
 
+    .dm-long-text-offer {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.65rem;
+        align-items: center;
+        border: 1px solid color-mix(in srgb, var(--canopy-warning, #f59e0b) 42%, var(--canopy-border));
+        background:
+            radial-gradient(circle at 12% 15%, color-mix(in srgb, var(--canopy-warning, #f59e0b) 16%, transparent), transparent 34%),
+            color-mix(in srgb, var(--canopy-bg-card) 92%, var(--canopy-warning, #f59e0b) 8%);
+        border-radius: 16px;
+        padding: 0.62rem 0.72rem;
+        box-shadow: 0 14px 28px rgba(5, 10, 24, 0.16);
+    }
+
+    .dm-long-text-offer[hidden] {
+        display: none !important;
+    }
+
+    .dm-long-text-offer-main {
+        display: flex;
+        align-items: center;
+        gap: 0.58rem;
+        min-width: 0;
+    }
+
+    .dm-long-text-offer-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.1rem;
+        height: 2.1rem;
+        border-radius: 12px;
+        color: var(--canopy-warning, #f59e0b);
+        background: color-mix(in srgb, var(--canopy-warning, #f59e0b) 16%, transparent);
+        border: 1px solid color-mix(in srgb, var(--canopy-warning, #f59e0b) 32%, transparent);
+        flex: 0 0 auto;
+    }
+
+    .dm-long-text-offer-main strong,
+    .dm-long-text-offer-main small {
+        display: block;
+        min-width: 0;
+    }
+
+    .dm-long-text-offer-main small {
+        color: var(--canopy-text-secondary);
+    }
+
+    .dm-long-text-offer-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.45rem;
+        flex-wrap: wrap;
+    }
+
     .dm-composer-expand-btn[aria-pressed="true"] {
         color: var(--canopy-primary);
         border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border));
@@ -2015,6 +2071,18 @@
             font-size: 16px;
         }
 
+        .dm-long-text-offer {
+            grid-template-columns: 1fr;
+        }
+
+        .dm-long-text-offer-actions {
+            justify-content: stretch;
+        }
+
+        .dm-long-text-offer-actions .btn {
+            flex: 1 1 9rem;
+        }
+
         .dm-composer-actions {
             gap: 0.55rem;
         }
@@ -2374,6 +2442,8 @@
     const DM_REACTION_IN_FLIGHT = new Set();
     const DM_WORKSPACE_EVENT_TYPES = ['dm.message.created', 'dm.message.edited', 'dm.message.deleted', 'attachment.available'];
     const DM_SEARCH_QUERY = {{ search_query|tojson }};
+    const DM_MAX_CONTENT_CHARS = {{ dm_max_message_length|default(4096)|int }};
+    let dmLongTextOfferDismissedFor = '';
 
     function isDmSearchActive() {
         if (String(DM_SEARCH_QUERY || '').trim()) {
@@ -2432,6 +2502,7 @@
         if (!draft) {
             if (clearWhenMissing) {
                 textarea.value = '';
+                updateDmLongTextOffer(false);
                 updateDmCanopyLLMComposePanel();
             }
             return false;
@@ -2439,6 +2510,7 @@
         if (!replace && String(textarea.value || '').trim()) return false;
         textarea.value = draft;
         setDmComposerExpanded(draft.length > 360 || (draft.match(/\n/g) || []).length >= 4);
+        updateDmLongTextOffer(false);
         updateDmCanopyLLMComposePanel();
         return true;
     }
@@ -2463,6 +2535,7 @@
         textarea.value = draft;
         setDmComposerExpanded(true);
         saveDmComposerDraft();
+        updateDmLongTextOffer(false);
         updateDmCanopyLLMComposePanel();
         textarea.focus();
         return true;
@@ -3116,6 +3189,7 @@
         updateDmCanopyLLMComposePanel();
         messageSelectedFiles = [];
         updateMessageFilePreview();
+        updateDmLongTextOffer(false);
         clearReplyContext();
         setDmComposerExpanded(false);
         if (!ACTIVE_THREAD || !composerUsesActiveThread) {
@@ -3217,6 +3291,156 @@
             if (lower.match(/\.(zip|tar|gz|tgz|bz2|tbz2|xz|7z|rar)$/)) return 'file-zip';
         }
         return 'file-earmark';
+    }
+
+    function dmUtf8Bytes(value) {
+        const text = String(value || '');
+        if (window.TextEncoder) {
+            return new TextEncoder().encode(text);
+        }
+        const encoded = unescape(encodeURIComponent(text));
+        const bytes = new Uint8Array(encoded.length);
+        for (let i = 0; i < encoded.length; i += 1) {
+            bytes[i] = encoded.charCodeAt(i);
+        }
+        return bytes;
+    }
+
+    function dmBytesToBase64(bytes) {
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode.apply(null, Array.from(chunk));
+        }
+        return btoa(binary);
+    }
+
+    function dmFormatFileSize(bytes) {
+        const size = Math.max(0, Number(bytes || 0));
+        if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+        if (size >= 1024) return `${Math.round(size / 1024)} KB`;
+        return `${size} B`;
+    }
+
+    function inferDmDraftFileType(content) {
+        const text = String(content || '');
+        const trimmed = text.trim();
+        if (/^#!/.test(trimmed) && /\b(python|python3)\b/.test(trimmed.split(/\r?\n/, 1)[0] || '')) {
+            return { ext: 'py', type: 'text/x-python', label: 'Python script' };
+        }
+        if (/^#!/.test(trimmed) && /\b(bash|sh|zsh)\b/.test(trimmed.split(/\r?\n/, 1)[0] || '')) {
+            return { ext: 'sh', type: 'text/x-shellscript', label: 'shell script' };
+        }
+        if ((/^\s*[{[]/.test(trimmed) && /[}\]]\s*$/.test(trimmed))) {
+            try {
+                JSON.parse(trimmed);
+                return { ext: 'json', type: 'application/json', label: 'JSON file' };
+            } catch (_) {}
+        }
+        if (/```|^#{1,6}\s|\n[-*]\s|\n\d+\.\s/.test(text)) {
+            return { ext: 'md', type: 'text/markdown', label: 'Markdown file' };
+        }
+        if (/\b(import|from)\s+\w+|def\s+\w+\(|class\s+\w+[:(]/.test(text)) {
+            return { ext: 'py', type: 'text/x-python', label: 'Python script' };
+        }
+        if (/\b(function|const|let|var)\s+\w+|=>|console\.log\(/.test(text)) {
+            return { ext: 'js', type: 'application/javascript', label: 'JavaScript file' };
+        }
+        if (/<\/?[a-z][\s\S]*>/i.test(text)) {
+            return { ext: 'html', type: 'text/html', label: 'HTML file' };
+        }
+        return { ext: 'txt', type: 'text/plain', label: 'text file' };
+    }
+
+    function makeDmDraftAttachmentName(content) {
+        const inferred = inferDmDraftFileType(content);
+        const now = new Date();
+        const stamp = [
+            now.getFullYear(),
+            String(now.getMonth() + 1).padStart(2, '0'),
+            String(now.getDate()).padStart(2, '0'),
+            '-',
+            String(now.getHours()).padStart(2, '0'),
+            String(now.getMinutes()).padStart(2, '0'),
+            String(now.getSeconds()).padStart(2, '0')
+        ].join('');
+        return {
+            ...inferred,
+            name: `canopy-dm-draft-${stamp}.${inferred.ext}`,
+        };
+    }
+
+    function dmInlineContentLimit() {
+        return Math.max(512, Number(DM_MAX_CONTENT_CHARS || 4096));
+    }
+
+    function dmDraftExceedsInlineLimit(value) {
+        return String(value || '').length > dmInlineContentLimit();
+    }
+
+    function updateDmLongTextOffer(force = false) {
+        const composer = document.getElementById('dm-composer');
+        const textarea = document.getElementById('messageContent');
+        const panel = composer ? composer.querySelector('[data-dm-role="long-text-offer"]') : null;
+        if (!textarea || !panel) return;
+        const content = String(textarea.value || '');
+        const limit = dmInlineContentLimit();
+        const overLimit = content.length > limit;
+        const shouldShow = overLimit && (force || dmLongTextOfferDismissedFor !== content);
+        panel.hidden = !shouldShow;
+        if (!shouldShow) return;
+        const bytes = dmUtf8Bytes(content);
+        const inferred = makeDmDraftAttachmentName(content);
+        const title = panel.querySelector('[data-dm-role="long-text-title"]');
+        const detail = panel.querySelector('[data-dm-role="long-text-detail"]');
+        if (title) {
+            title.textContent = `${inferred.label[0].toUpperCase()}${inferred.label.slice(1)} is too large for inline DM text`;
+        }
+        if (detail) {
+            detail.textContent = `${content.length.toLocaleString()} characters exceeds the ${limit.toLocaleString()} character inline limit. Attach it as ${inferred.name} (${dmFormatFileSize(bytes.length)}), then edit the message text before sending.`;
+        }
+    }
+
+    function dismissDmLongTextOffer() {
+        const textarea = document.getElementById('messageContent');
+        dmLongTextOfferDismissedFor = String(textarea && textarea.value ? textarea.value : '');
+        updateDmLongTextOffer(false);
+        if (textarea) textarea.focus();
+    }
+
+    function convertDmDraftToAttachment(options = {}) {
+        const textarea = document.getElementById('messageContent');
+        if (!textarea) return false;
+        const original = String(textarea.value || '');
+        if (!original.trim()) {
+            showAlert('Add text before converting it to an attachment.', 'warning');
+            return false;
+        }
+        const inferred = makeDmDraftAttachmentName(original);
+        const bytes = dmUtf8Bytes(original);
+        messageSelectedFiles.push({
+            name: inferred.name,
+            type: inferred.type,
+            size: bytes.length,
+            data: dmBytesToBase64(bytes),
+            source: 'composer_text_attachment',
+        });
+        updateMessageFilePreview();
+        textarea.value = `Attached long-form text as ${inferred.name}.`;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        dmLongTextOfferDismissedFor = '';
+        saveDmComposerDraft();
+        updateDmLongTextOffer(false);
+        showAlert(`${inferred.name} attached. Edit the DM text if needed, then send.`, 'success');
+        if (textarea) {
+            textarea.focus();
+            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+        }
+        if (options && options.sendAfter) {
+            window.setTimeout(() => sendMessage(), 0);
+        }
+        return true;
     }
 
     function addMessageFiles(files) {
@@ -3513,6 +3737,7 @@
                             textarea.value = fullText;
                             setDmComposerExpanded(true);
                             saveDmComposerDraft();
+                            updateDmLongTextOffer(false);
                         }
                     },
                 });
@@ -3530,6 +3755,7 @@
                 textarea.setSelectionRange(textarea.value.length, textarea.value.length);
                 setDmComposerExpanded(true);
                 saveDmComposerDraft();
+                updateDmLongTextOffer(false);
             }
             dmCanopyLLMDraftReady = true;
             setDmCanopyLLMStatus(`Draft inserted from ${(data && data.model) || 'LLM'}. Review, edit, send, or add @Canopy to refine again.`, true, 'success', {
@@ -4673,6 +4899,13 @@
             return;
         }
 
+        if (dmDraftExceedsInlineLimit(content)) {
+            setDmComposerExpanded(true);
+            updateDmLongTextOffer(true);
+            showAlert('This DM is too large for inline text. Attach the draft as a file, then send with a short note.', 'warning');
+            return;
+        }
+
         let recipients = selectedRecipients.map(r => r.user_id).filter(Boolean);
         if (!recipients.length && manualInput) {
             commitRecipientFromInput(manualInput);
@@ -4752,6 +4985,10 @@
             }, appended ? 120 : 0);
         })
         .catch(error => {
+            if (error && (error.convert_to_attachment || error.max_message_length)) {
+                setDmComposerExpanded(true);
+                updateDmLongTextOffer(true);
+            }
             showAlert(error.error || 'Failed to send message', 'danger');
         })
         .finally(() => {
@@ -5234,6 +5471,7 @@
         if (messageContent) {
             messageContent.addEventListener('input', () => {
                 handleDmChannelInput();
+                updateDmLongTextOffer(false);
                 updateDmCanopyLLMComposePanel();
             });
             messageContent.addEventListener('keydown', (e) => {
