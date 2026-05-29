@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.279] - 2026-05-29
+
+### Fixed
+- **Agent numbered lists now render more reliably** - Canopy's lightweight Markdown renderer now treats both `1. item` and `1) item` lines as ordered-list items, so common agent output using repeated `1)` markers renders as a properly numbered browser list instead of showing every item as literal `1)`.
+
 ## [0.6.278] - 2026-05-29
 
 ### Added
