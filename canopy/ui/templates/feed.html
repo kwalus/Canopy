@@ -288,31 +288,21 @@
                 </div>
             </div>
 
-            <div class="row mb-3">
-                <div class="col-md-4">
-                    <label for="postType" class="form-label">Post Type</label>
-                    <select class="form-select" id="postType" onchange="handlePostTypeChange()">
-                        <option value="text">Text Post</option>
-                        <option value="link">Link/URL</option>
-                        <option value="image">Image</option>
-                        <option value="video">Video</option>
-                        <option value="audio">Audio</option>
-                    </select>
-                </div>
-
-                <div class="col-md-4">
-                    <label for="postVisibility" class="form-label">Who can see this?</label>
+            <input type="hidden" id="postType" value="text">
+            <div class="feed-unified-composer-meta mb-3" aria-label="Post audience and options">
+                <div class="feed-unified-meta-card feed-unified-meta-card--audience">
+                    <label for="postVisibility" class="form-label">Audience</label>
                     <select class="form-select" id="postVisibility" onchange="handleVisibilityChange()">
-                        <option value="network">Local Network</option>
+                        <option value="network" selected>Local Network</option>
                         <option value="trusted">Trusted Peers Only</option>
                         <option value="public">Everyone</option>
-                        <option value="private" selected>Only Me</option>
+                        <option value="private">Only Me</option>
                         <option value="custom">Custom Permissions</option>
                     </select>
-                    <div class="form-text">Default is private. `Trusted` only reaches peers you have explicitly reviewed.</div>
+                    <div class="form-text">Post broadly by default, or narrow it to trusted peers, yourself, or selected users.</div>
                 </div>
 
-                <div class="col-md-4">
+                <div class="feed-unified-meta-card feed-unified-meta-card--lifespan">
                     <label for="postExpiry" class="form-label">Lifespan</label>
                     <select class="form-select" id="postExpiry" onchange="handleExpiryChange()">
                         <option value="day">Short (1 day)</option>
@@ -320,7 +310,16 @@
                         <option value="quarter" selected>Quarterly (3 months)</option>
                         <option value="custom">Custom…</option>
                     </select>
-                    <small class="text-muted d-block mt-1">Default: Quarterly for healthier networks</small>
+                    <div class="form-text">Quarterly keeps the feed useful without permanent clutter.</div>
+                </div>
+
+                <div class="feed-unified-meta-card feed-unified-meta-card--tags">
+                    <label for="postTags" class="form-label">Tags <small class="text-muted">(optional)</small></label>
+                    <input type="text" class="form-control" id="postTags"
+                           placeholder="research, demo, update" autocomplete="off">
+                    <div id="tagSuggestions" class="mt-1" style="display:none;">
+                        <!-- Popular tags auto-populated -->
+                    </div>
                 </div>
             </div>
 
@@ -340,18 +339,6 @@
                 </div>
                 <div class="col-md-6 d-flex align-items-end">
                     <small class="text-muted">Expiry is best‑effort across peers; the post will auto‑delete locally.</small>
-                </div>
-            </div>
-
-            <!-- Tags input -->
-            <div class="mb-3">
-                <label for="postTags" class="form-label">Tags <small class="text-muted">(comma-separated)</small></label>
-                <div class="d-flex gap-2">
-                    <input type="text" class="form-control" id="postTags"
-                           placeholder="e.g. tech, ai, music" autocomplete="off">
-                </div>
-                <div id="tagSuggestions" class="mt-1" style="display:none;">
-                    <!-- Popular tags auto-populated -->
                 </div>
             </div>
 
@@ -386,32 +373,34 @@
                 <div id="feed-structured-result-list" class="structured-panel-list"></div>
             </div>
 
-            <!-- Media Upload Section -->
-            <div id="mediaSection" class="mb-3" style="display: none;">
-                <label for="mediaFile" class="form-label">Upload Media</label>
-                <input type="file" class="form-control" id="mediaFile" accept="image/*,video/*,audio/*">
-                <small class="form-text text-muted">Max file size: 100MB</small>
-            </div>
-
-            <!-- Link Section -->
-            <div id="linkSection" class="mb-3" style="display: none;">
-                <label for="postLink" class="form-label">Link URL</label>
-                <input type="url" class="form-control" id="postLink" placeholder="https://example.com">
-            </div>
-
             <!-- Custom Permissions Section -->
             <div id="customPermissions" class="mb-3" style="display: none;">
-                <label class="form-label">Custom Permissions</label>
-                <div class="border rounded p-3">
-                    <div class="mb-2">
-                        <input type="text" class="form-control" id="permissionUser"
-                               placeholder="Enter user ID to grant access">
-                        <button type="button" class="btn btn-sm btn-outline-primary mt-1" onclick="addPermission()">
-                            <i class="bi bi-plus"></i> Add User
+                <div class="feed-custom-audience-card">
+                    <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-2">
+                        <div>
+                            <label class="form-label mb-1" for="permissionUser">Selected audience</label>
+                            <div class="form-text mt-0">Search people or agents, or paste a user ID for a narrow feed post.</div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearCustomPermissions()">
+                            Clear
                         </button>
                     </div>
-                    <div id="permissionsList">
+                    <div class="input-group mb-2 feed-custom-audience-search">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" id="permissionUser"
+                               placeholder="Search teammates or agents..."
+                               autocomplete="off"
+                               oninput="renderCustomPermissionsPicker()"
+                               onkeydown="if(event.key === 'Enter'){ event.preventDefault(); addPermission(); }">
+                        <button type="button" class="btn btn-outline-primary" onclick="addPermission()">
+                            <i class="bi bi-plus"></i> Add
+                        </button>
+                    </div>
+                    <div id="permissionsList" class="feed-custom-audience-selected">
                         <!-- Dynamically added permissions will appear here -->
+                    </div>
+                    <div id="permissionSuggestions" class="feed-custom-audience-results" aria-live="polite">
+                        <!-- Searchable people/agent cards appear here -->
                     </div>
                 </div>
             </div>
@@ -703,6 +692,148 @@
 
 #post-composer .card-body {
     padding: 1.05rem 1.1rem 1.15rem;
+}
+
+.feed-unified-composer-meta {
+    display: grid;
+    grid-template-columns: minmax(14rem, 1.05fr) minmax(11rem, 0.8fr) minmax(13rem, 1fr);
+    gap: 0.75rem;
+    align-items: stretch;
+}
+
+.feed-unified-meta-card {
+    min-width: 0;
+    padding: 0.78rem 0.84rem;
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, var(--canopy-border) 78%, transparent);
+    background: linear-gradient(145deg,
+        color-mix(in srgb, var(--canopy-bg-tertiary) 88%, transparent),
+        color-mix(in srgb, var(--canopy-bg-secondary) 90%, transparent));
+}
+
+.feed-unified-meta-card .form-label {
+    margin-bottom: 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
+    color: var(--canopy-text-secondary);
+}
+
+.feed-unified-meta-card .form-select,
+.feed-unified-meta-card .form-control {
+    min-height: 2.45rem;
+    border-radius: 13px;
+}
+
+.feed-unified-meta-card .form-text {
+    margin-top: 0.42rem;
+    color: var(--canopy-text-secondary);
+}
+
+.feed-custom-audience-card {
+    padding: 0.9rem;
+    border-radius: 20px;
+    border: 1px solid color-mix(in srgb, var(--canopy-accent) 34%, var(--canopy-border));
+    background:
+        radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--canopy-accent) 16%, transparent), transparent 34%),
+        color-mix(in srgb, var(--canopy-bg-secondary) 92%, transparent);
+}
+
+.feed-custom-audience-search .form-control,
+.feed-custom-audience-search .btn,
+.feed-custom-audience-search .input-group-text {
+    min-height: 2.55rem;
+}
+
+.feed-custom-audience-selected {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    min-height: 2rem;
+    margin-bottom: 0.65rem;
+}
+
+.feed-custom-audience-empty {
+    color: var(--canopy-text-secondary);
+    font-size: 0.88rem;
+    padding: 0.4rem 0;
+}
+
+.feed-custom-audience-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.42rem;
+    min-width: 0;
+    max-width: min(100%, 18rem);
+    padding: 0.34rem 0.42rem 0.34rem 0.34rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--canopy-accent) 44%, var(--canopy-border));
+    background: color-mix(in srgb, var(--canopy-accent) 14%, var(--canopy-bg-tertiary));
+    color: var(--canopy-text-primary);
+}
+
+.feed-custom-audience-chip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 700;
+}
+
+.feed-custom-audience-chip button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    line-height: 1;
+    opacity: 0.82;
+}
+
+.feed-custom-audience-results {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 0.45rem;
+    max-height: 13.5rem;
+    overflow: auto;
+}
+
+.feed-custom-audience-user {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+    width: 100%;
+    padding: 0.58rem 0.65rem;
+    border-radius: 16px;
+    border: 1px solid color-mix(in srgb, var(--canopy-border) 74%, transparent);
+    background: color-mix(in srgb, var(--canopy-bg-tertiary) 86%, transparent);
+    color: var(--canopy-text-primary);
+    text-align: left;
+}
+
+.feed-custom-audience-user:hover,
+.feed-custom-audience-user:focus-visible {
+    border-color: color-mix(in srgb, var(--canopy-accent) 60%, var(--canopy-border));
+    background: color-mix(in srgb, var(--canopy-accent) 12%, var(--canopy-bg-tertiary));
+}
+
+.feed-custom-audience-avatar {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 12px;
+    flex: 0 0 auto;
+    display: inline-grid;
+    place-items: center;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--canopy-accent) 22%, var(--canopy-bg-secondary));
+    border: 1px solid color-mix(in srgb, var(--canopy-border) 80%, transparent);
+    font-weight: 900;
+}
+
+.feed-custom-audience-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .composer-action-row {
@@ -2587,6 +2718,22 @@
     }
     .composer-action-row {
         align-items: stretch !important;
+    }
+    .feed-unified-composer-meta {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.55rem;
+    }
+    .feed-unified-meta-card {
+        padding: 0.68rem;
+        border-radius: 15px;
+    }
+    .feed-custom-audience-card {
+        padding: 0.72rem;
+        border-radius: 16px;
+    }
+    .feed-custom-audience-results {
+        grid-template-columns: minmax(0, 1fr);
+        max-height: 12rem;
     }
     .composer-action-tools,
     .composer-submit-row {
@@ -7446,8 +7593,8 @@
             if (mentionSearch) mentionSearch.value = '';
             toggleFeedMentionBuilder(false);
 	        updatePermissionsList();
-	        updatePostFilePreview();
-	        // Ensure conditional sections reflect default form state.
+            updatePostFilePreview();
+            // Ensure conditional sections reflect default form state.
             handlePostTypeChange();
             handleVisibilityChange();
             handleExpiryChange();
@@ -8069,38 +8216,11 @@
     }
     
     function handlePostTypeChange() {
-        const postType = document.getElementById('postType').value;
-        const mediaSection = document.getElementById('mediaSection');
-        const linkSection = document.getElementById('linkSection');
-        
-        // Hide all sections first
-        mediaSection.style.display = 'none';
-        linkSection.style.display = 'none';
-        
-        // Show relevant section
-        if (['image', 'video', 'audio'].includes(postType)) {
-            mediaSection.style.display = 'block';
-            const fileInput = document.getElementById('mediaFile');
-            if (postType === 'image') {
-                fileInput.accept = 'image/*';
-            } else if (postType === 'video') {
-                fileInput.accept = 'video/*';
-            } else if (postType === 'audio') {
-                fileInput.accept = 'audio/*';
-            }
-            
-            // Set up media file handler if not already done
-            if (!fileInput.hasAttribute('data-initialized')) {
-                fileInput.addEventListener('change', (e) => {
-                    const files = Array.from(e.target.files);
-                    addPostFiles(files);
-                    e.target.value = ''; // Reset input
-                });
-                fileInput.setAttribute('data-initialized', 'true');
-            }
-        } else if (postType === 'link') {
-            linkSection.style.display = 'block';
-        }
+        const postType = document.getElementById('postType');
+        if (postType && !postType.value) postType.value = 'text';
+        // Feed posting is now channel-style: users write once and attach any
+        // supported media/file type. The server still receives an inferred
+        // post_type for compatibility with older feed rendering.
     }
     
     function handleVisibilityChange() {
@@ -8109,49 +8229,152 @@
         
         if (visibility === 'custom') {
             customSection.style.display = 'block';
+            fetchFeedMentionCandidates().then(() => {
+                renderCustomPermissionsPicker();
+                updatePermissionsList();
+            });
         } else {
             customSection.style.display = 'none';
         }
     }
+
+    function getCustomPermissionCandidateLabel(user) {
+        return getFeedMentionBuilderLabel(user) || String((user && user.user_id) || '');
+    }
+
+    function renderCustomPermissionAvatar(user) {
+        const label = getCustomPermissionCandidateLabel(user);
+        if (user && user.avatar_url) {
+            return `<span class="feed-custom-audience-avatar"><img src="${escapeHtml(user.avatar_url)}" alt="${escapeHtml(label)}"></span>`;
+        }
+        return `<span class="feed-custom-audience-avatar">${escapeHtml(String(label || '?').slice(0, 1).toUpperCase())}</span>`;
+    }
+
+    function resolveCustomPermissionInput(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        const normalized = raw.replace(/^@/, '').toLowerCase();
+        const match = (feedMentionCandidates || []).find(user => {
+            if (!user) return false;
+            const userId = String(user.user_id || '');
+            const username = String(user.username || '');
+            const handle = String(getFeedMentionBuilderHandle(user) || '');
+            const displayName = String(getFeedMentionBuilderLabel(user) || '');
+            return [userId, username, handle, displayName]
+                .some(candidate => String(candidate || '').toLowerCase() === normalized || String(candidate || '') === raw);
+        });
+        return match ? String(match.user_id || '') : raw;
+    }
     
     function addPermission() {
         const userInput = document.getElementById('permissionUser');
-        const userId = userInput.value.trim();
+        const userId = resolveCustomPermissionInput(userInput.value);
         
         if (!userId) {
-            showAlert('Please enter a user ID', 'warning');
+            showAlert('Search for a person or paste a user ID first.', 'warning');
             return;
         }
-        
+        addCustomPermissionUser(userId);
+        userInput.value = '';
+        renderCustomPermissionsPicker();
+    }
+
+    function addCustomPermissionUser(userId) {
+        userId = String(userId || '').trim();
+        if (!userId) return;
         if (customPermissions.includes(userId)) {
             showAlert('User already added', 'warning');
             return;
         }
-        
         customPermissions.push(userId);
-        userInput.value = '';
         updatePermissionsList();
     }
     
     function removePermission(userId) {
         customPermissions = customPermissions.filter(id => id !== userId);
         updatePermissionsList();
+        renderCustomPermissionsPicker();
+    }
+
+    function clearCustomPermissions() {
+        customPermissions = [];
+        const userInput = document.getElementById('permissionUser');
+        if (userInput) userInput.value = '';
+        updatePermissionsList();
+        renderCustomPermissionsPicker();
     }
     
     function updatePermissionsList() {
         const list = document.getElementById('permissionsList');
+        if (!list) return;
         list.innerHTML = '';
-        
-        customPermissions.forEach(userId => {
-            const item = document.createElement('div');
-            item.className = 'badge bg-secondary me-1 mb-1';
-            item.innerHTML = `
-                ${userId}
-                                    <button type="button" class="btn-close ms-1" style="font-size: 0.7em;" 
-                        onclick="removePermission('${userId}')"></button>
-            `;
-            list.appendChild(item);
-        });
+        if (!customPermissions.length) {
+            list.innerHTML = '<div class="feed-custom-audience-empty">No custom recipients selected yet.</div>';
+            return;
+        }
+        const byId = new Map((feedMentionCandidates || []).map(user => [String(user.user_id || ''), user]));
+        list.innerHTML = customPermissions.map(userId => {
+            const user = byId.get(String(userId || ''));
+            const label = user ? getCustomPermissionCandidateLabel(user) : userId;
+            const safeUserId = String(userId || '').replace(/'/g, "\\'");
+            const meta = user ? `@${escapeHtml(getFeedMentionBuilderHandle(user) || userId)}` : escapeHtml(userId);
+            return `<span class="feed-custom-audience-chip" title="${escapeHtml(meta)}">
+                ${user ? renderCustomPermissionAvatar(user) : '<span class="feed-custom-audience-avatar">?</span>'}
+                <span class="feed-custom-audience-chip-label">${escapeHtml(label)}</span>
+                <button type="button" onclick="removePermission('${safeUserId}')" aria-label="Remove ${escapeHtml(label)}">&times;</button>
+            </span>`;
+        }).join('');
+    }
+
+    function renderCustomPermissionsPicker() {
+        const results = document.getElementById('permissionSuggestions');
+        if (!results) return;
+        const visibility = document.getElementById('postVisibility')?.value || '';
+        if (visibility !== 'custom') {
+            results.innerHTML = '';
+            return;
+        }
+        const query = (document.getElementById('permissionUser')?.value || '').trim().toLowerCase();
+        const users = (feedMentionCandidates || [])
+            .filter(user => user && user.user_id && user.user_id !== feedCurrentUserId && !customPermissions.includes(String(user.user_id || '')))
+            .filter(user => {
+                if (!query) return true;
+                return [
+                    user.user_id,
+                    user.username,
+                    getFeedMentionBuilderHandle(user),
+                    getFeedMentionBuilderLabel(user),
+                    normalizeMentionAccountType(user.account_type),
+                ].some(value => String(value || '').toLowerCase().includes(query.replace(/^@/, '')));
+            })
+            .sort((a, b) => {
+                const aType = normalizeMentionAccountType(a.account_type) === 'agent' ? 0 : 1;
+                const bType = normalizeMentionAccountType(b.account_type) === 'agent' ? 0 : 1;
+                if (aType !== bType) return aType - bType;
+                return getCustomPermissionCandidateLabel(a).localeCompare(getCustomPermissionCandidateLabel(b));
+            })
+            .slice(0, 10);
+        if (!users.length) {
+            results.innerHTML = '<div class="feed-custom-audience-empty">No matching people or agents.</div>';
+            return;
+        }
+        results.innerHTML = users.map(user => {
+            const userId = String(user.user_id || '').replace(/'/g, "\\'");
+            const label = getCustomPermissionCandidateLabel(user);
+            const handle = getFeedMentionBuilderHandle(user) || user.user_id;
+            const accountType = normalizeMentionAccountType(user.account_type);
+            return `<button type="button" class="feed-custom-audience-user" onclick="addCustomPermissionUser('${userId}'); renderCustomPermissionsPicker();">
+                ${renderCustomPermissionAvatar(user)}
+                <span class="min-width-0 flex-grow-1">
+                    <span class="d-block fw-semibold text-truncate">${escapeHtml(label)}</span>
+                    <span class="d-flex flex-wrap align-items-center gap-1 small text-muted">
+                        <span>@${escapeHtml(handle)}</span>
+                        <span>· ${escapeHtml(accountType)}</span>
+                        ${renderAgentPresenceBadge(user)}
+                    </span>
+                </span>
+            </button>`;
+        }).join('');
     }
 
     function setShareButtonState(loading) {
@@ -8162,14 +8385,34 @@
             ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Sharing...'
             : '<i class="bi bi-send" aria-hidden="true"></i> Share Post';
     }
+
+    function getFirstUrlFromFeedContent(content) {
+        const match = String(content || '').match(/\bhttps?:\/\/[^\s<>)"]+/i);
+        return match ? match[0].replace(/[.,;:!?]+$/, '') : '';
+    }
+
+    function inferFeedPostType(content, attachments) {
+        const files = Array.isArray(attachments) ? attachments : [];
+        const contentUrl = getFirstUrlFromFeedContent(content);
+        const typePrefix = (file) => String((file && file.type) || '').toLowerCase().split('/')[0] || '';
+        if (files.length > 0) {
+            const prefixes = files.map(typePrefix).filter(Boolean);
+            if (prefixes.length === files.length && prefixes.every(prefix => prefix === 'image')) return 'image';
+            if (prefixes.length === files.length && prefixes.every(prefix => prefix === 'video')) return 'video';
+            if (prefixes.length === files.length && prefixes.every(prefix => prefix === 'audio')) return 'audio';
+            return 'text';
+        }
+        return contentUrl ? 'link' : 'text';
+    }
     
 	    function createPost() {
 	        const textarea = document.getElementById('postContent');
 	        const rawContent = textarea ? textarea.value : '';
 	        let content = rawContent.trim();
-	        const postType = document.getElementById('postType').value;
-	        const visibility = document.getElementById('postVisibility').value;
-	        const link = document.getElementById('postLink').value.trim();
+	        const postType = inferFeedPostType(content, selectedPostFiles);
+	        const postTypeInput = document.getElementById('postType');
+	        if (postTypeInput) postTypeInput.value = postType;
+	        const visibility = (document.getElementById('postVisibility')?.value || 'network').trim() || 'network';
 	        const ttl = resolveTtlSelection();
             hideFeedMentionSuggestions();
 	        
@@ -8205,19 +8448,10 @@
         let metadata = {};
         let permissions = visibility === 'custom' ? customPermissions : null;
         
-        // Handle link posts
-        if (postType === 'link' && link) {
-            metadata.url = link;
-            metadata.title = link; // Could be enhanced with URL parsing
-        }
-        
-        // Handle media uploads - now integrated with the file attachment system
-        if (['image', 'video', 'audio'].includes(postType)) {
-            // Media files should already be in selectedPostFiles from the file input
-            if (selectedPostFiles.length === 0) {
-                showAlert('Please select media files for this post type', 'warning');
-                return;
-            }
+        const firstUrl = getFirstUrlFromFeedContent(content);
+        if (postType === 'link' && firstUrl) {
+            metadata.url = firstUrl;
+            metadata.title = firstUrl;
         }
         
         // Parse tags from comma-separated input

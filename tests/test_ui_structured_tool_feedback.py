@@ -333,6 +333,23 @@ class TestUiStructuredToolFeedback(unittest.TestCase):
         self.assertEqual(structured[0].get('type'), 'handoff')
         self.assertEqual(structured[0].get('title'), 'Feed coordination')
 
+    def test_create_post_infers_link_type_when_post_type_is_omitted(self) -> None:
+        response = self.client.post(
+            '/ajax/create_post',
+            json={
+                'content': 'Useful reference https://example.test/report',
+                'visibility': 'network',
+                'attachments': [],
+                'source_type': 'human',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('success'))
+        self.assertEqual(payload.get('post', {}).get('post_type'), 'link')
+        self.assertEqual((payload.get('post', {}).get('metadata') or {}).get('url'), 'https://example.test/report')
+
     def test_send_channel_message_returns_structured_object_feedback(self) -> None:
         response = self.client.post(
             '/ajax/send_channel_message',

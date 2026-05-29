@@ -302,10 +302,12 @@ class PrivacyFirstComposerRegressionTests(unittest.TestCase):
         source = (ROOT / 'canopy' / 'core' / 'feed.py').read_text(encoding='utf-8')
         self.assertIn("visibility: PostVisibility = PostVisibility.PRIVATE", source)
 
-    def test_feed_template_defaults_to_private_with_explicit_hint(self) -> None:
+    def test_feed_template_surfaces_audience_selector_with_explicit_choices(self) -> None:
         source = (ROOT / 'canopy' / 'ui' / 'templates' / 'feed.html').read_text(encoding='utf-8')
-        self.assertIn('<option value="private" selected>Only Me</option>', source)
-        self.assertIn('Default is private. `Trusted` only reaches peers you have explicitly reviewed.', source)
+        self.assertIn('<label for="postVisibility" class="form-label">Audience</label>', source)
+        self.assertIn('<option value="network" selected>Local Network</option>', source)
+        self.assertIn('<option value="private">Only Me</option>', source)
+        self.assertIn('Post broadly by default, or narrow it to trusted peers, yourself, or selected users.', source)
 
     def test_route_defaults_use_private_visibility(self) -> None:
         ui_routes = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
