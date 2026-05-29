@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.286] - 2026-05-29
+
+### Changed
+- **Capsule LLM enrichment now fails fast after provider trouble** - optional agent-run capsule summaries set a short viewer-scoped server cooldown after OpenAI/Bedrock failures so deterministic capsules keep rendering without tying up request workers on repeated timeouts.
+- **Sidebar notification snapshots use a cursor-aware micro-cache** - the bell/sidebar attention endpoint now reuses identical snapshots briefly unless forced, reducing repeated expensive polling on active VPS instances without changing unread semantics.
+
 ## [0.6.285] - 2026-05-29
 
 ### Added

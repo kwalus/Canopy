@@ -129,10 +129,110 @@ _CHANNEL_LOAD_PURGE_INTERVAL_SECONDS: float = 45.0
 _ADMIN_DIAGNOSTICS_TAIL_BYTES: int = 192 * 1024
 _ADMIN_DIAGNOSTICS_MAX_LOGS: int = 8
 _ADMIN_DIAGNOSTICS_MAX_BUNDLE_CHARS: int = 1_500_000
+_SIDEBAR_ATTENTION_SNAPSHOT_TTL_SECONDS: float = 1.25
+_CAPSULE_SUMMARY_FAILURE_COOLDOWN_SECONDS: float = 120.0
 
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
     return cast(tuple[Any, ...], get_app_components(app))
+
+
+def _env_float(name: str, *, default: float, minimum: float, maximum: float) -> float:
+    try:
+        value = float(os.environ.get(name, default))
+    except Exception:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def _get_capsule_summary_cooldown(user_id: str) -> float:
+    """Return the remaining optional capsule-LLM cooldown for this viewer."""
+    clean_user_id = str(user_id or '').strip()
+    if not clean_user_id:
+        return 0.0
+    try:
+        cooldowns = current_app.config.setdefault('CAPSULE_SUMMARY_LLM_COOLDOWN_BY_USER', {})
+        until = float((cooldowns or {}).get(clean_user_id) or 0.0)
+    except Exception:
+        return 0.0
+    remaining = until - time.monotonic()
+    return remaining if remaining > 0 else 0.0
+
+
+def _set_capsule_summary_cooldown(user_id: str) -> None:
+    """Cool down low-priority capsule enrichment after provider trouble.
+
+    Capsule LLM enrichment is cosmetic and optional. A short user-scoped
+    cooldown prevents repeated provider timeouts from tying up request workers
+    while preserving deterministic capsule rendering.
+    """
+    clean_user_id = str(user_id or '').strip()
+    if not clean_user_id:
+        return
+    duration = _env_float(
+        'CANOPY_CAPSULE_LLM_FAILURE_COOLDOWN_SECONDS',
+        default=_CAPSULE_SUMMARY_FAILURE_COOLDOWN_SECONDS,
+        minimum=15.0,
+        maximum=900.0,
+    )
+    try:
+        cooldowns = current_app.config.setdefault('CAPSULE_SUMMARY_LLM_COOLDOWN_BY_USER', {})
+        cooldowns[clean_user_id] = time.monotonic() + duration
+    except Exception:
+        pass
+
+
+def _sidebar_attention_snapshot_cache_key(user_id: str, cursor: int) -> str:
+    meshspace_id = ''
+    try:
+        record = _current_meshspace_record() or {}
+        meshspace_id = str(record.get('meshspace_id') or '').strip()
+    except Exception:
+        meshspace_id = ''
+    return f"{meshspace_id}:{str(user_id or '').strip()}:{max(0, int(cursor or 0))}"
+
+
+def _get_sidebar_attention_snapshot_cache(user_id: str, cursor: int) -> Optional[dict[str, Any]]:
+    key = _sidebar_attention_snapshot_cache_key(user_id, cursor)
+    if not key:
+        return None
+    ttl = _env_float(
+        'CANOPY_SIDEBAR_ATTENTION_SNAPSHOT_TTL_SECONDS',
+        default=_SIDEBAR_ATTENTION_SNAPSHOT_TTL_SECONDS,
+        minimum=0.0,
+        maximum=10.0,
+    )
+    if ttl <= 0:
+        return None
+    try:
+        cache = current_app.config.setdefault('SIDEBAR_ATTENTION_SNAPSHOT_CACHE', {})
+        cached = cache.get(key)
+        if not cached:
+            return None
+        if (time.monotonic() - float(cached.get('at') or 0.0)) > ttl:
+            cache.pop(key, None)
+            return None
+        value = cached.get('value')
+        return dict(value) if isinstance(value, dict) else None
+    except Exception:
+        return None
+
+
+def _set_sidebar_attention_snapshot_cache(user_id: str, cursor: int, snapshot: dict[str, Any]) -> None:
+    key = _sidebar_attention_snapshot_cache_key(user_id, cursor)
+    if not key or not isinstance(snapshot, dict):
+        return
+    try:
+        cache = current_app.config.setdefault('SIDEBAR_ATTENTION_SNAPSHOT_CACHE', {})
+        cache[key] = {'at': time.monotonic(), 'value': dict(snapshot)}
+        if len(cache) > 128:
+            for stale_key, _ in sorted(
+                cache.items(),
+                key=lambda item: float((item[1] or {}).get('at') or 0.0),
+            )[:32]:
+                cache.pop(stale_key, None)
+    except Exception:
+        pass
 
 
 def _purge_expired_channel_messages_for_ui(
@@ -786,6 +886,7 @@ def _invalidate_meshspace_attention_caches(meshspace_id: Optional[str] = None) -
         # Cache keys are hashed with the meshspace/session tuple, so clear the
         # small process cache rather than risk leaving a stale badge behind.
         current_app.config.setdefault('MESHSPACE_VIEWER_ATTENTION_CACHE', {}).clear()
+        current_app.config.setdefault('SIDEBAR_ATTENTION_SNAPSHOT_CACHE', {}).clear()
     except Exception:
         pass
 
@@ -12324,6 +12425,21 @@ def create_ui_blueprint() -> Blueprint:
             workspace_event_manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
             manager = _get_meshspace_registry_manager()
             current_record = _current_meshspace_record()
+            user_id = get_current_user()
+            latest_seq = int((workspace_event_manager.get_latest_seq() if workspace_event_manager else 0) or 0)
+            force = str(request.args.get('force') or '').strip().lower() in {'1', 'true', 'yes'}
+            if not force:
+                cached_snapshot = _get_sidebar_attention_snapshot_cache(user_id, latest_seq)
+                if cached_snapshot:
+                    return jsonify({
+                        'success': True,
+                        'summary': cached_snapshot.get('summary') or {},
+                        'summary_rev': cached_snapshot.get('summary_rev') or '',
+                        'items': cached_snapshot.get('items') or [],
+                        'activity_rev': cached_snapshot.get('activity_rev') or '',
+                        'workspace_event_cursor': int(cached_snapshot.get('workspace_event_cursor') or latest_seq),
+                        'cached': True,
+                    })
             snapshot = _build_sidebar_attention_snapshot(
                 db_manager,
                 profile_manager,
@@ -12331,10 +12447,11 @@ def create_ui_blueprint() -> Blueprint:
                 feed_manager,
                 p2p_manager,
                 workspace_event_manager,
-                get_current_user(),
+                user_id,
             )
             if manager and current_record:
-                _sync_current_meshspace_shell_summary(manager, current_record, user_id=get_current_user())
+                _sync_current_meshspace_shell_summary(manager, current_record, user_id=user_id)
+            _set_sidebar_attention_snapshot_cache(user_id, latest_seq, snapshot)
             return jsonify({
                 'success': True,
                 'summary': snapshot['summary'],
@@ -25522,6 +25639,15 @@ def create_ui_blueprint() -> Blueprint:
                 status_code = int(error_payload.pop('status_code', 400) or 400)
                 return jsonify(error_payload), status_code
 
+            remaining_cooldown = _get_capsule_summary_cooldown(user_id)
+            if remaining_cooldown > 0:
+                return jsonify({
+                    'success': False,
+                    'fallback': True,
+                    'reason': 'provider_cooldown',
+                    'cooldown_remaining_seconds': int(max(1, remaining_cooldown)),
+                }), 200
+
             payload = data.get('capsule') if isinstance(data.get('capsule'), dict) else dict(data)
             payload['channel_id'] = str(data.get('channel_id') or payload.get('channel_id') or '').strip()
             result = manager.summarize_capsule(
@@ -25542,6 +25668,16 @@ def create_ui_blueprint() -> Blueprint:
         except CanopyLLMError as e:
             # Capsule LLM enrichment is intentionally non-blocking; the browser keeps
             # the deterministic capsule when keys are absent, slow, or provider output is weak.
+            if e.reason in {
+                'provider_cooldown',
+                'provider_unreachable',
+                'provider_http_error',
+                'provider_response_error',
+                'provider_empty_response',
+                'provider_response_too_large',
+                'provider_bad_response',
+            }:
+                _set_capsule_summary_cooldown(get_current_user())
             if e.reason in {
                 'llm_disabled',
                 'missing_api_key',
