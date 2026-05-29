@@ -11851,6 +11851,26 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API structured record append failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/structured-records', methods=['GET'])
+    @require_auth(Permission.READ_FILES)
+    def digestion_structured_records_list_api(digestion_id: str):
+        """List profile-specific structured record outputs."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.list_structured_records(
+                digestion_id,
+                g.api_key_info.user_id,
+                profile=str(request.args.get('profile') or ''),
+                limit=_api_int_param(request.args.get('limit'), default=120, minimum=1, maximum=500),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API structured record list failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/structured-records/search', methods=['POST'])
     @require_auth(Permission.READ_FILES)
     def digestion_structured_records_search_api(digestion_id: str):

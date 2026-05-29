@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.285] - 2026-05-29
+
+### Added
+- **Structured records are now listable** - Digestions now expose `GET /api/v1/digestions/<id>/structured-records` and `canopy_digest_structured_records action=list` so agents can inspect existing domain source-of-truth records without triggering a search-only workflow or hitting a `405`.
+
+### Changed
+- **Digestion query/context responses now flag partial builds** - Query and context-pack responses include build-state metadata and warnings when a corpus has pending/unindexed sources or build errors, helping agents avoid treating draft or partial corpora as complete evidence.
+
 ## [0.6.284] - 2026-05-29
 
 ### Added

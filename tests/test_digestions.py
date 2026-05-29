@@ -1459,6 +1459,16 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(stale_stats['needs_build'])
         self.assertTrue(stale_stats['outputs_stale'])
         self.assertEqual(stale_stats['build_state'], 'built_with_pending_sources')
+        partial_query = self.digestion_manager.query(digestion['id'], 'owner-user', 'agent context packs', top_k=2)
+        self.assertTrue(partial_query['retrieval_ready'])
+        self.assertFalse(partial_query['retrieval_complete'])
+        self.assertEqual(partial_query['build_state'], 'built_with_pending_sources')
+        self.assertEqual(partial_query['pending_source_count'], 1)
+        self.assertIn('pending', partial_query['warning'])
+        partial_context = self.digestion_manager.context_pack(digestion['id'], 'owner-user', 'agent context packs', top_k=2)
+        self.assertFalse(partial_context['retrieval_complete'])
+        self.assertEqual(partial_context['build_state'], 'built_with_pending_sources')
+        self.assertIn('Retrieval warning:', partial_context['prompt_context'])
 
         exported_package = self.digestion_manager.export_package_to_vault(digestion['id'], 'owner-user')
         self.assertTrue(exported_package['success'])
@@ -3083,6 +3093,30 @@ class TestDigestions(unittest.TestCase):
             self.assertEqual(context_response.status_code, 200)
             self.assertIn('prompt_context', context_response.get_json())
 
+            append_records_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/structured-records',
+                json={
+                    'profile': 'validation',
+                    'records': [
+                        {
+                            'record_type': 'workflow_metric',
+                            'title': 'Pilot setup-time metric',
+                            'fields': {'setup_time_reduction': '42%', 'agent_handoffs': '3'},
+                        }
+                    ],
+                },
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(append_records_response.status_code, 200)
+            list_records_response = client.get(
+                f'/api/v1/digestions/{digestion_id}/structured-records?profile=validation',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(list_records_response.status_code, 200)
+            list_records_payload = list_records_response.get_json() or {}
+            self.assertEqual(list_records_payload['result_count'], 1)
+            self.assertEqual(list_records_payload['records'][0]['fields']['setup_time_reduction'], '42%')
+
             with patch.object(
                 self.digestion_manager,
                 '_resolve_datapoint_llm_context',
@@ -3429,6 +3463,15 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(search['records_ready'])
         self.assertEqual(search['result_count'], 1)
         self.assertEqual(search['results'][0]['fields']['final_approach_fix'], 'REEBO')
+        listed_records = self.digestion_manager.list_structured_records(
+            digestion['id'],
+            'owner-user',
+            profile='aviation_chart',
+        )
+        self.assertTrue(listed_records['records_ready'])
+        self.assertEqual(listed_records['result_count'], 1)
+        self.assertEqual(listed_records['records'][0]['fields']['final_approach_fix'], 'REEBO')
+        self.assertIn('aviation_chart', listed_records['profiles'])
 
         persisted_manager = DigestionManager(self.db_manager, self.file_manager)
         progress = persisted_manager.get_operation_progress(digestion['id'], 'owner-user')
@@ -3449,6 +3492,12 @@ class TestDigestions(unittest.TestCase):
                 'REEBO',
                 profile='aviation_chart',
             )
+        with self.assertRaises(DigestionError):
+            self.digestion_manager.list_structured_records(
+                digestion['id'],
+                'reader-user',
+                profile='aviation_chart',
+            )
         self.digestion_manager.grant_access(
             digestion['id'],
             'owner-user',
@@ -3463,6 +3512,12 @@ class TestDigestions(unittest.TestCase):
             profile='aviation_chart',
         )
         self.assertEqual(reader_search['result_count'], 1)
+        reader_list = self.digestion_manager.list_structured_records(
+            digestion['id'],
+            'reader-user',
+            profile='aviation_chart',
+        )
+        self.assertEqual(reader_list['result_count'], 1)
 
     def test_chunk_limit_build_reports_truncation_and_remains_queryable(self) -> None:
         """Chunk-limit truncation should surface clearly without making the index unusable."""
