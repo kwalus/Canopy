@@ -1121,24 +1121,15 @@
         min-height: 0;
     }
 
-    /* Lifespan: single compact row so it doesn't look like three separate controls */
-    .channel-lifespan-row {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.5rem;
+    .channel-quick-mention-row {
+        display: none;
         width: 100%;
+        margin-bottom: 0.46rem;
     }
-    .channel-lifespan-label {
-        font-size: 0.75rem;
-        color: var(--canopy-text-secondary);
-        margin: 0;
-        white-space: nowrap;
-    }
-    .channel-expiry-select {
-        width: auto !important;
-        min-width: 7rem;
-        max-width: 10rem;
+    .channel-quick-mention-row.has-quick-mentions {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
     }
     .channel-privacy-btn {
         min-width: 160px;
@@ -1151,18 +1142,13 @@
         font-weight: 600;
         font-size: 0.8rem;
     }
-    .channel-custom-expiry {
-        width: auto;
-        max-width: 12rem;
-    }
-
     .channel-quick-mention-rail {
         display: none;
         align-items: center;
         gap: 0.28rem;
-        flex: 1 1 auto;
-        min-width: 14rem;
-        max-width: none;
+        flex: 1 1 100%;
+        min-width: 0;
+        max-width: 100%;
         overflow-x: auto;
         scrollbar-width: thin;
         padding: 0.14rem 0.34rem;
@@ -1268,6 +1254,76 @@
     .channel-quick-mention-chip .bi {
         color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-text-primary) 28%);
         font-size: 0.76rem;
+    }
+    .channel-composer-lifespan-tool {
+        flex: 0 0 auto;
+    }
+    .channel-lifespan-toggle {
+        min-width: 4.8rem;
+        gap: 0.28rem;
+    }
+    .channel-lifespan-toggle::after {
+        margin-left: 0.12rem;
+    }
+    .channel-lifespan-button-label {
+        font-size: 0.72rem;
+        font-weight: 850;
+        letter-spacing: 0.01em;
+        max-width: 3.6rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .channel-lifespan-menu {
+        min-width: min(18rem, calc(100vw - 1.5rem));
+        padding: 0.7rem;
+        border-color: color-mix(in srgb, var(--canopy-border) 70%, var(--canopy-primary) 30%);
+        background:
+            linear-gradient(140deg, color-mix(in srgb, var(--canopy-primary) 12%, transparent), transparent 46%),
+            color-mix(in srgb, var(--canopy-bg-card) 96%, var(--canopy-bg-secondary) 4%);
+        box-shadow: 0 18px 42px color-mix(in srgb, #000 26%, transparent);
+    }
+    .channel-lifespan-menu-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+        color: var(--canopy-text-primary);
+        font-size: 0.72rem;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+    }
+    .channel-lifespan-menu-title small {
+        color: var(--canopy-text-secondary);
+        font-weight: 700;
+        letter-spacing: 0;
+        text-transform: none;
+    }
+    .channel-expiry-select {
+        width: 100% !important;
+        min-width: 0;
+    }
+    .channel-lifespan-custom-row {
+        display: none;
+        gap: 0.4rem;
+        margin-top: 0.55rem;
+    }
+    .channel-lifespan-custom-row.is-visible {
+        display: flex;
+    }
+    .channel-lifespan-custom-row input#channelCustomExpiryValue {
+        flex: 0 0 5.2rem;
+    }
+    .channel-lifespan-custom-row .form-select {
+        min-width: 0;
+    }
+    .channel-lifespan-help {
+        color: var(--canopy-text-secondary);
+        font-size: 0.72rem;
+        line-height: 1.3;
+        margin: 0.5rem 0 0;
     }
     .file-dropzone.is-mention-drop-target {
         border-color: var(--canopy-primary);
@@ -1939,16 +1995,6 @@
             gap: 0.45rem;
         }
     }
-    .channel-custom-expiry .form-control,
-    .channel-custom-expiry .form-select {
-        font-size: 0.8rem;
-    }
-    .channel-custom-expiry input#channelCustomExpiryValue {
-        width: 3.5rem;
-        padding-left: 0.4rem;
-        padding-right: 0.4rem;
-    }
-    
     #messages-container {
         background: transparent;
         position: relative;
@@ -6063,12 +6109,10 @@
             padding: 0.36rem 0.46rem !important;
             padding-bottom: max(0.42rem, calc(env(safe-area-inset-bottom) + 0.25rem)) !important;
         }
-        .channel-lifespan-row {
+        .channel-quick-mention-row {
             margin-bottom: 0.28rem !important;
-            gap: 0.28rem;
         }
         .channel-quick-mention-rail {
-            order: 5;
             flex-basis: 100%;
             max-width: 100%;
             min-width: 0;
@@ -6076,16 +6120,6 @@
         }
         .channel-quick-mention-name {
             max-width: 5.1rem;
-        }
-        .channel-lifespan-label {
-            font-size: 0.64rem;
-        }
-        .channel-expiry-select {
-            min-width: 5.65rem;
-            max-width: 7.2rem;
-            font-size: 0.76rem;
-            padding-top: 0.1rem;
-            padding-bottom: 0.1rem;
         }
         #message-input {
             min-height: 33px !important;
@@ -6118,10 +6152,7 @@
             justify-content: center;
         }
         #message-form .input-group-append .btn-group {
-            width: 100%;
-        }
-        #message-form .input-group-append .btn-group #channel-stream-quick-toggle {
-            width: 100%;
+            width: auto;
         }
     }
 
@@ -6204,12 +6235,10 @@
             padding-top: 0.3rem;
             padding-bottom: 0.3rem;
         }
-        .channel-lifespan-row {
+        .channel-quick-mention-row {
             margin-bottom: 0.18rem !important;
-            gap: 0.22rem;
         }
         .channel-quick-mention-rail {
-            order: 5;
             flex-basis: 100%;
             max-width: 100%;
             min-width: 0;
@@ -6221,16 +6250,6 @@
         .channel-quick-mention-name {
             max-width: 4.8rem;
             font-size: 0.7rem;
-        }
-        .channel-lifespan-label {
-            display: none;
-        }
-        .channel-expiry-select {
-            min-width: 5.2rem;
-            max-width: 6rem;
-            font-size: 0.72rem;
-            padding-top: 0.08rem;
-            padding-bottom: 0.08rem;
         }
         #message-form .input-group {
             align-items: stretch;
@@ -6260,7 +6279,7 @@
         #message-form .input-group-append .btn-group {
             width: auto;
         }
-        #message-form .input-group-append .btn-group #channel-stream-quick-toggle {
+        #message-form .input-group-append .btn-group #channel-lifespan-quick-toggle {
             width: auto;
         }
     }
@@ -6269,10 +6288,7 @@
         .channel-header-title h4 {
             font-size: 0.88rem;
         }
-        .channel-lifespan-label {
-            display: none;
-        }
-        .channel-lifespan-row {
+        .channel-quick-mention-row {
             margin-bottom: 0.24rem !important;
         }
         .channel-quick-mention-rail {
@@ -7866,27 +7882,7 @@
                     <button type="button" class="btn-close btn-close-sm" onclick="cancelReply()" aria-label="Cancel reply" style="font-size: 0.6rem;"></button>
                 </div>
                 <form id="message-form" onsubmit="sendMessage(event)">
-                    <div class="channel-lifespan-row mb-2">
-                        <label for="channelExpiry" class="channel-lifespan-label">Lifespan</label>
-                        <select class="form-select form-select-sm channel-expiry-select" id="channelExpiry" onchange="handleChannelExpiryChange()">
-                            <option value="5m">5 min</option>
-                            <option value="15m">15 min</option>
-                            <option value="hour">1 hour</option>
-                            <option value="day">1 day</option>
-                            <option value="week">1 week</option>
-                            <option value="quarter" selected>3 months</option>
-                            <option value="custom">Custom…</option>
-                        </select>
-                        <div id="channelCustomExpiryWrap" class="input-group input-group-sm channel-custom-expiry" style="display: none;">
-                            <input type="number" class="form-control form-control-sm" id="channelCustomExpiryValue" min="1" value="15" aria-label="Custom duration value">
-                            <select class="form-select form-select-sm" id="channelCustomExpiryUnit" aria-label="Custom duration unit">
-                                <option value="minutes" selected>Minutes</option>
-                                <option value="hours">Hours</option>
-                                <option value="days">Days</option>
-                                <option value="weeks">Weeks</option>
-                                <option value="months">Months</option>
-                            </select>
-                        </div>
+                    <div class="channel-quick-mention-row mb-2" id="channel-quick-mention-row">
                         <div id="channel-quick-mention-rail"
                              class="channel-quick-mention-rail"
                              aria-label="Quick mention commonly referenced channel members"></div>
@@ -8187,22 +8183,6 @@
                                     <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('objective')"><i class="bi bi-bullseye"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Set objective</span><span class="structured-tool-item-help">Track a larger goal with members and steps.</span></span></button></li>
                                     <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('handoff')"><i class="bi bi-arrow-left-right"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Hand off ownership</span><span class="structured-tool-item-help">Transfer context and next steps cleanly.</span></span></button></li>
                                     <li><button type="button" class="dropdown-item structured-tool-item" onclick="insertChannelStructuredTemplate('signal')"><i class="bi bi-broadcast-pin"></i><span class="structured-tool-item-copy"><span class="structured-tool-item-label">Record finding</span><span class="structured-tool-item-help">Save evidence, decisions, or metrics as durable context.</span></span></button></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li>
-                                        <button type="button" class="dropdown-item" onclick="openStreamCreateModal('audio_ops')">
-                                            <i class="bi bi-mic-fill me-2"></i>Start audio stream card
-                                        </button>
-                                    </li>
-                                    <li>
-                                        <button type="button" class="dropdown-item" onclick="openStreamCreateModal('video_ops')">
-                                            <i class="bi bi-camera-video-fill me-2"></i>Start video stream card
-                                        </button>
-                                    </li>
-                                    <li>
-                                        <button type="button" class="dropdown-item" onclick="openStreamCreateModal('telemetry_sensor')">
-                                            <i class="bi bi-cpu-fill me-2"></i>Prepare telemetry feed card
-                                        </button>
-                                    </li>
                                 </ul>
                             </div>
                             <button type="button" class="btn btn-outline-secondary channel-composer-advanced-tool" id="channel-mention-builder-toggle"
@@ -8223,32 +8203,54 @@
                                 </button>
                             </div>
                             <div id="channel-mention-macro-buttons" class="mention-macro-buttons" style="display: none;"></div>
-                            <div class="btn-group channel-composer-advanced-tool">
+                            <div class="btn-group channel-composer-lifespan-tool channel-composer-advanced-tool">
                                 <button type="button"
-                                        class="btn btn-outline-danger dropdown-toggle"
-                                        id="channel-stream-quick-toggle"
+                                        class="btn btn-outline-secondary dropdown-toggle channel-lifespan-toggle"
+                                        id="channel-lifespan-quick-toggle"
                                         data-bs-toggle="dropdown"
+                                        data-bs-auto-close="outside"
                                         aria-expanded="false"
-                                        title="Create a live stream post">
-                                    <i class="bi bi-broadcast-pin"></i>
+                                        aria-label="Set message lifespan"
+                                        title="Set message lifespan">
+                                    <i class="bi bi-hourglass-split"></i>
+                                    <span class="channel-lifespan-button-label" id="channel-lifespan-button-label">3mo</span>
                                 </button>
-                                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="channel-stream-quick-toggle">
-                                    <li>
-                                        <button type="button" class="dropdown-item" onclick="openStreamCreateModal('audio_ops')">
-                                            <i class="bi bi-mic-fill me-2"></i>Start audio stream card
-                                        </button>
-                                    </li>
-                                    <li>
-                                        <button type="button" class="dropdown-item" onclick="openStreamCreateModal('video_ops')">
-                                            <i class="bi bi-camera-video-fill me-2"></i>Start video stream card
-                                        </button>
-                                    </li>
-                                    <li>
-                                        <button type="button" class="dropdown-item" onclick="openStreamCreateModal('telemetry_sensor')">
-                                            <i class="bi bi-cpu-fill me-2"></i>Prepare telemetry feed card
-                                        </button>
-                                    </li>
-                                </ul>
+                                <div class="dropdown-menu dropdown-menu-end channel-lifespan-menu" aria-labelledby="channel-lifespan-quick-toggle">
+                                    <div class="channel-lifespan-menu-title">
+                                        <span><i class="bi bi-hourglass-split me-1"></i>Lifespan</span>
+                                        <small id="channel-lifespan-menu-summary">3 months</small>
+                                    </div>
+                                    <select class="form-select form-select-sm channel-expiry-select" id="channelExpiry" onchange="handleChannelExpiryChange()">
+                                        <option value="5m">5 min</option>
+                                        <option value="15m">15 min</option>
+                                        <option value="hour">1 hour</option>
+                                        <option value="day">1 day</option>
+                                        <option value="week">1 week</option>
+                                        <option value="quarter" selected>3 months</option>
+                                        <option value="custom">Custom…</option>
+                                    </select>
+                                    <div id="channelCustomExpiryWrap" class="channel-lifespan-custom-row">
+                                        <input type="number"
+                                               class="form-control form-control-sm"
+                                               id="channelCustomExpiryValue"
+                                               min="1"
+                                               value="15"
+                                               aria-label="Custom duration value"
+                                               oninput="handleChannelExpiryChange()"
+                                               onchange="handleChannelExpiryChange()">
+                                        <select class="form-select form-select-sm"
+                                                id="channelCustomExpiryUnit"
+                                                aria-label="Custom duration unit"
+                                                onchange="handleChannelExpiryChange()">
+                                            <option value="minutes" selected>Minutes</option>
+                                            <option value="hours">Hours</option>
+                                            <option value="days">Days</option>
+                                            <option value="weeks">Weeks</option>
+                                            <option value="months">Months</option>
+                                        </select>
+                                    </div>
+                                    <p class="channel-lifespan-help">Controls how long this post stays active. The default is still three months.</p>
+                                </div>
                             </div>
                             <button type="submit" class="btn btn-primary">
                                 <i class="bi bi-send"></i>
@@ -20860,8 +20862,10 @@ function bindChannelQuickMentionRail(rail) {
 function renderChannelQuickMentionRail() {
     const rail = document.getElementById('channel-quick-mention-rail');
     if (!rail) return;
+    const row = document.getElementById('channel-quick-mention-row');
     if (!currentChannelId || !Array.isArray(channelMentionCache[currentChannelId])) {
         rail.classList.remove('is-visible');
+        if (row) row.classList.remove('has-quick-mentions');
         rail.innerHTML = '';
         channelQuickMentionRailSignature = '';
         return;
@@ -20869,6 +20873,7 @@ function renderChannelQuickMentionRail() {
     const entries = getChannelQuickMentionUsers(10);
     if (!entries.length) {
         rail.classList.remove('is-visible');
+        if (row) row.classList.remove('has-quick-mentions');
         rail.innerHTML = '';
         channelQuickMentionRailSignature = '';
         return;
@@ -20882,6 +20887,7 @@ function renderChannelQuickMentionRail() {
     ].join(':')).join('|')}`;
     if (channelQuickMentionRailSignature === signature && rail.dataset.quickMentionBound === '1') {
         rail.classList.add('is-visible');
+        if (row) row.classList.add('has-quick-mentions');
         return;
     }
     const chips = entries.map(entry => {
@@ -20905,6 +20911,7 @@ function renderChannelQuickMentionRail() {
     rail.innerHTML = `<span class="channel-quick-mention-kicker" title="Quick mentions">@</span>${chips}`;
     channelQuickMentionRailSignature = signature;
     rail.classList.add('is-visible');
+    if (row) row.classList.add('has-quick-mentions');
     bindChannelQuickMentionRail(rail);
 }
 
@@ -27795,10 +27802,49 @@ function handleChannelExpiryChange() {
     const select = document.getElementById('channelExpiry');
     const wrap = document.getElementById('channelCustomExpiryWrap');
     if (!select || !wrap) return;
-    wrap.style.display = select.value === 'custom' ? 'flex' : 'none';
+    wrap.classList.toggle('is-visible', select.value === 'custom');
+    updateChannelLifespanButton();
 }
 
 const CANOPY_MAX_RETENTION_SECONDS = 730 * 24 * 3600;
+
+function getChannelLifespanLabel(shortLabel = false) {
+    const select = document.getElementById('channelExpiry');
+    const mode = select ? select.value : 'quarter';
+    const labels = {
+        '5m': shortLabel ? '5m' : '5 minutes',
+        '15m': shortLabel ? '15m' : '15 minutes',
+        hour: shortLabel ? '1h' : '1 hour',
+        day: shortLabel ? '1d' : '1 day',
+        week: shortLabel ? '1w' : '1 week',
+        quarter: shortLabel ? '3mo' : '3 months',
+        none: shortLabel ? '∞' : 'No expiry',
+    };
+    if (mode !== 'custom') return labels[mode] || labels.quarter;
+    const value = Math.max(1, parseInt(document.getElementById('channelCustomExpiryValue')?.value || '1', 10) || 1);
+    const unit = document.getElementById('channelCustomExpiryUnit')?.value || 'minutes';
+    const unitShort = {
+        minutes: 'm',
+        hours: 'h',
+        days: 'd',
+        weeks: 'w',
+        months: 'mo',
+    }[unit] || 'm';
+    if (shortLabel) return `${value}${unitShort}`;
+    const singular = unit.replace(/s$/, '');
+    return `${value} ${value === 1 ? singular : unit}`;
+}
+
+function updateChannelLifespanButton() {
+    const label = document.getElementById('channel-lifespan-button-label');
+    const summary = document.getElementById('channel-lifespan-menu-summary');
+    const toggle = document.getElementById('channel-lifespan-quick-toggle');
+    const shortLabel = getChannelLifespanLabel(true);
+    const longLabel = getChannelLifespanLabel(false);
+    if (label) label.textContent = shortLabel;
+    if (summary) summary.textContent = longLabel;
+    if (toggle) toggle.title = `Message lifespan: ${longLabel}`;
+}
 
 function updateChannelTaskToggle() {
     const input = document.getElementById('message-input');
@@ -30491,6 +30537,7 @@ document.addEventListener('DOMContentLoaded', function() {
         refreshChannelMentionListOptions();
         renderChannelMentionMacroButtons();
         renderChannelQuickMentionRail();
+        handleChannelExpiryChange();
 
         if (typeof ensureChannelIndex === 'function') {
             ensureChannelIndex();

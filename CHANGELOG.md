@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.272] - 2026-05-28
+
+### Changed
+- **Channel composer quick mentions now own the upper composer row** - the quick mention rail no longer competes with the lifespan selector at medium widths, so chips get a full-width horizontal lane when available.
+- **The composer lifespan control is now a compact dropdown button** - lifespan moved into the lower tool cluster and temporarily replaces the unstable quick stream-create button while preserving the existing send-time TTL behavior.
+
 ## [0.6.271] - 2026-05-28
 
 ### Fixed
