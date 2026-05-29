@@ -3560,6 +3560,7 @@ class DigestionManager:
         top_k = max(1, min(int(top_k or 8), MAX_QUERY_TOP_K))
         rows = self._queryable_chunk_rows(digestion.id)
         stats = self.stats(digestion.id)
+        warning = self._retrieval_preflight_warning(stats, has_indexed_rows=bool(rows))
         if not rows:
             self._log_query(digestion.id, actor_user_id, query_text, 0)
             return {
@@ -3574,8 +3575,14 @@ class DigestionManager:
                 "embedding_model": digestion.embedding_model,
                 "indexed_chunks": int(stats.get("chunks") or 0),
                 "retrieval_ready": False,
+                "retrieval_complete": False,
+                "build_state": str(stats.get("build_state") or "empty"),
+                "needs_build": bool(stats.get("needs_build")),
+                "pending_source_count": int(stats.get("pending_source_count") or 0),
+                "error_source_count": int(stats.get("error_source_count") or 0),
                 "stats": stats,
-                "warning": "This Digestion has no indexed chunks yet. Build or rebuild it before expecting RAG results.",
+                "warning": warning or "This Digestion has no indexed chunks yet. Build or rebuild it before expecting RAG results.",
+                "warnings": [warning] if warning else ["This Digestion has no indexed chunks yet. Build or rebuild it before expecting RAG results."],
             }
         query_vector = self._embed_one(
             query_text,
@@ -3620,7 +3627,7 @@ class DigestionManager:
         scored.sort(key=lambda item: item["score"], reverse=True)
         results = scored[:top_k]
         self._log_query(digestion.id, actor_user_id, query_text, len(results))
-        return {
+        response = {
             "success": True,
             "digestion_id": digestion.id,
             "query": query_text,
@@ -3632,8 +3639,45 @@ class DigestionManager:
             "embedding_model": digestion.embedding_model,
             "indexed_chunks": int(stats.get("chunks") or len(rows) or 0),
             "retrieval_ready": True,
+            "retrieval_complete": not bool(warning) and str(stats.get("build_state") or "") == "ready",
+            "build_state": str(stats.get("build_state") or ""),
+            "needs_build": bool(stats.get("needs_build")),
+            "pending_source_count": int(stats.get("pending_source_count") or 0),
+            "error_source_count": int(stats.get("error_source_count") or 0),
             "stats": stats,
         }
+        if warning:
+            response["warning"] = warning
+            response["warnings"] = [warning]
+        return response
+
+    @staticmethod
+    def _retrieval_preflight_warning(stats: dict[str, Any], *, has_indexed_rows: bool) -> str:
+        """Return a concise operator warning when retrieval can only be partial."""
+        build_state = str(stats.get("build_state") or "").strip().lower()
+        pending = int(stats.get("pending_source_count") or 0)
+        errors = int(stats.get("error_source_count") or 0)
+        chunks = int(stats.get("chunks") or 0)
+        sources = int(stats.get("source_count") or 0)
+        if not has_indexed_rows or chunks <= 0:
+            return "This Digestion has no indexed chunks yet. Build or rebuild it before expecting RAG results."
+        if build_state == "built_with_pending_sources" or pending > 0:
+            suffix = f" ({pending} pending source{'s' if pending != 1 else ''})" if pending else ""
+            return (
+                "This Digestion has indexed chunks but also pending or unindexed sources"
+                f"{suffix}. Build or rebuild it before treating query/context results as complete."
+            )
+        if build_state == "needs_build" or bool(stats.get("needs_build")):
+            return "This Digestion has sources that still need a build. Build or rebuild it before expecting complete RAG results."
+        if build_state == "error" or errors > 0:
+            suffix = f" ({errors} source error{'s' if errors != 1 else ''})" if errors else ""
+            return (
+                "This Digestion has source build errors"
+                f"{suffix}. Results may be incomplete; inspect sources/progress before relying on them."
+            )
+        if sources > 0 and build_state not in {"ready", ""}:
+            return f"This Digestion is in build_state={build_state}. Verify build/progress before treating retrieval as complete."
+        return ""
 
     def search_structured_datapoints(
         self,
@@ -3998,6 +4042,86 @@ class DigestionManager:
             "preview": normalized[:5],
             "progress": self._progress_snapshot(digestion.id).get("structured_records", {}),
             "stats": payload["stats"],
+        }
+
+    def list_structured_records(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        profile: str = "",
+        limit: int = 120,
+    ) -> dict[str, Any]:
+        """List profile-specific source-of-truth records with source-gated access."""
+        try:
+            result_limit = int(limit or 120)
+        except (TypeError, ValueError):
+            result_limit = 120
+        limit = max(1, min(result_limit, 500))
+        digestion = self._require_digestion(digestion_id, actor_user_id, query=True)
+        access = self._access_for(digestion, actor_user_id)
+        if not access.get("can_read_sources"):
+            raise DigestionError(
+                "Structured records are source-revealing. Grant source metadata access before appending or reading them.",
+                status_code=403,
+                reason="structured_record_source_metadata_denied",
+            )
+        stats = self.stats(digestion.id)
+        try:
+            output = self.get_output(digestion.id, actor_user_id, STRUCTURED_RECORD_OUTPUT_KIND)
+        except DigestionError as exc:
+            if getattr(exc, "reason", "") == "output_not_found":
+                return {
+                    "success": True,
+                    "digestion_id": digestion.id,
+                    "profile": self._normalize_structured_record_profile(profile) if str(profile or "").strip() else "",
+                    "mode": "structured_records",
+                    "result_count": 0,
+                    "record_count": 0,
+                    "records": [],
+                    "profiles": {},
+                    "stats": stats,
+                    "records_ready": False,
+                    "warning": "No structured records output exists yet. Ask a manager or agent to append profile records first.",
+                }
+            raise
+        try:
+            payload = json.loads(str(output.get("content") or "{}"))
+        except Exception:
+            payload = {}
+        records = payload.get("records") if isinstance(payload, dict) else []
+        if not isinstance(records, list):
+            records = []
+        requested_profile = self._normalize_structured_record_profile(profile) if str(profile or "").strip() else ""
+        listed: list[dict[str, Any]] = []
+        for index, item in enumerate(records, start=1):
+            if not isinstance(item, dict):
+                continue
+            item_profile = str(item.get("profile") or "generic").strip().lower()
+            if requested_profile and item_profile != requested_profile:
+                continue
+            record = dict(item)
+            record["record_index"] = index
+            listed.append(record)
+            if len(listed) >= limit:
+                break
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "profile": requested_profile,
+            "mode": "structured_records",
+            "result_count": len(listed),
+            "record_count": len(records),
+            "records": listed,
+            "profiles": (payload.get("profiles") if isinstance(payload, dict) else {}) or {},
+            "stats": stats,
+            "records_ready": True,
+            "output": {
+                "id": output.get("id") or "",
+                "title": output.get("title") or "",
+                "updated_at": output.get("updated_at") or "",
+                "metadata": output.get("metadata") or {},
+            },
         }
 
     def search_structured_records(
@@ -5032,6 +5156,7 @@ class DigestionManager:
             "context": f"POST {api_base}/context",
             "datapoints_extract": f"POST {api_base}/datapoints/extract",
             "datapoints_search": f"POST {api_base}/datapoints/search",
+            "structured_records_list": f"GET {api_base}/structured-records",
             "structured_records_append": f"POST {api_base}/structured-records",
             "structured_records_search": f"POST {api_base}/structured-records/search",
             "figures": f"GET {api_base}/figures",
@@ -5408,8 +5533,14 @@ class DigestionManager:
             "prompt_context": prompt_context,
             "results": result.get("results") or [],
             "retrieval_ready": bool(result.get("retrieval_ready")),
+            "retrieval_complete": bool(result.get("retrieval_complete")),
             "indexed_chunks": int(result.get("indexed_chunks") or 0),
+            "build_state": str(result.get("build_state") or ""),
+            "needs_build": bool(result.get("needs_build")),
+            "pending_source_count": int(result.get("pending_source_count") or 0),
+            "error_source_count": int(result.get("error_source_count") or 0),
             "warning": warning,
+            "warnings": result.get("warnings") or ([warning] if warning else []),
             "stats": result.get("stats") or {},
         }
 
