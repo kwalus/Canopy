@@ -2936,6 +2936,8 @@ console.log(JSON.stringify({{
 
     def test_channel_header_can_hide_agent_only_threads(self) -> None:
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        self.assertIn('{% include "_channels_agent_run_capsule_styles.html" %}', channels_template)
+        channels_template += '\n' + (ROOT / 'canopy' / 'ui' / 'templates' / '_channels_agent_run_capsule_styles.html').read_text(encoding='utf-8')
         routes_py = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
         channels_core = (ROOT / 'canopy' / 'core' / 'channels.py').read_text(encoding='utf-8')
 
@@ -4175,6 +4177,7 @@ console.log(JSON.stringify({{
     def test_mobile_resize_dedup_gates_collapse_redundant_layout_work(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         channels_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'channels.html').read_text(encoding='utf-8')
+        channels_template += '\n' + (ROOT / 'canopy' / 'ui' / 'templates' / '_channels_agent_run_capsule_styles.html').read_text(encoding='utf-8')
         messages_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'messages.html').read_text(encoding='utf-8')
         feed_template = read_feed_surface()
 

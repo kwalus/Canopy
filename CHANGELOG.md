@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.274] - 2026-05-29
+
+### Changed
+- **Safely reduced the size of the channel template without changing Capsule behavior** - the self-contained agent-run Capsule CSS block now lives in `_channels_agent_run_capsule_styles.html` and is included from the same position in `channels.html`, preserving cascade order while removing about 1,350 lines from the largest template.
+
 ## [0.6.273] - 2026-05-29
 
 ### Changed
