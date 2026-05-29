@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.281] - 2026-05-29
+
+### Added
+- **Digestions can be merged without deleting either object** - the File Vault now exposes a visible Merge workflow and drag/drop merge preserves source rows, direct duplicate mappings, contribution ledgers, evidence records/reviews, and output snapshots.
+- **Agents get a first-class Digestion merge tool** - REST `/digestions/<target>/merge`, AJAX merge, MCP `canopy_digest_merge`, and agent instructions now expose the same conservative no-loss merge options.
+
 ## [0.6.280] - 2026-05-29
 
 ### Fixed

@@ -11430,7 +11430,7 @@ def create_api_blueprint() -> Blueprint:
     @api.route('/digestions/<digestion_id>/merge', methods=['POST'])
     @require_auth(Permission.WRITE_FILES)
     def merge_digestion_sources_api(digestion_id: str):
-        """Copy source references from one accessible Digestion into another."""
+        """Merge source/contribution/evidence/output matter from one accessible Digestion."""
         manager = _api_get_digestion_manager()
         if not manager:
             return jsonify({'error': 'Digestion manager unavailable'}), 503
@@ -11441,12 +11441,17 @@ def create_api_blueprint() -> Blueprint:
                 digestion_id,
                 source_digestion_id,
                 g.api_key_info.user_id,
+                include_sources=True if 'include_sources' not in data else _as_bool(data.get('include_sources')),
+                include_contributions=True if 'include_contributions' not in data else _as_bool(data.get('include_contributions')),
+                include_evidence=True if 'include_evidence' not in data else _as_bool(data.get('include_evidence')),
+                include_outputs=True if 'include_outputs' not in data else _as_bool(data.get('include_outputs')),
+                build_after=_as_bool(data.get('build_after') or data.get('auto_build')),
             )
             return jsonify(result)
         except DigestionError as exc:
             return _api_digestion_error(exc)
         except Exception as e:
-            logger.error("Digestion API merge sources failed: %s", e, exc_info=True)
+            logger.error("Digestion API merge failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/digestions/<digestion_id>/materials', methods=['POST'])

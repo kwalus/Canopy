@@ -1057,21 +1057,79 @@ class DigestionManager:
                 logger.debug("Could not organize generated Digestion figure asset %s", file_id, exc_info=True)
         return folder_id
 
+    def _local_user_id_or_none(self, user_id: Any) -> Optional[str]:
+        clean = self._clean_id(user_id)
+        if not clean:
+            return None
+        with self.db.get_connection() as conn:
+            row = conn.execute("SELECT id FROM users WHERE id = ? LIMIT 1", (clean,)).fetchone()
+        return clean if row else None
+
+    @staticmethod
+    def _merge_snapshot_output_kind(source_digestion_id: str, output_kind: str) -> str:
+        source_tag = re.sub(r"[^A-Za-z0-9]+", "", str(source_digestion_id or ""))[-10:] or "source"
+        kind_tag = re.sub(r"[^A-Za-z0-9_]+", "_", str(output_kind or "output").strip().lower())
+        kind_tag = re.sub(r"_+", "_", kind_tag).strip("_")[:80] or "output"
+        return f"merged_snapshot_{source_tag}_{kind_tag}"[:120]
+
+    def _merge_remap_value(
+        self,
+        value: Any,
+        file_id_map: dict[str, str],
+        evidence_id_map: Optional[dict[str, str]] = None,
+    ) -> Any:
+        evidence_id_map = evidence_id_map or {}
+        if isinstance(value, list):
+            return [self._merge_remap_value(item, file_id_map, evidence_id_map) for item in value]
+        if isinstance(value, dict):
+            remapped: dict[str, Any] = {}
+            file_keys = {
+                "file_id",
+                "source_file_id",
+                "vault_file_id",
+                "attachment_file_id",
+                "image_file_id",
+                "preview_file_id",
+            }
+            evidence_keys = {"evidence_id", "superseded_by_id"}
+            for key, item in value.items():
+                if key in file_keys and isinstance(item, str) and item in file_id_map:
+                    remapped[key] = file_id_map[item]
+                elif key in evidence_keys and isinstance(item, str) and item in evidence_id_map:
+                    remapped[key] = evidence_id_map[item]
+                else:
+                    remapped[key] = self._merge_remap_value(item, file_id_map, evidence_id_map)
+            return remapped
+        if isinstance(value, str):
+            return file_id_map.get(value, evidence_id_map.get(value, value))
+        return value
+
     def merge_sources_from_digestion(
         self,
         target_digestion_id: str,
         source_digestion_id: str,
         actor_user_id: str,
+        *,
+        include_sources: bool = True,
+        include_contributions: bool = True,
+        include_evidence: bool = True,
+        include_outputs: bool = True,
+        build_after: bool = False,
     ) -> dict[str, Any]:
-        """Copy source references from one accessible Digestion into another.
+        """Merge one accessible Digestion into another without deleting either.
 
-        This intentionally does not merge or delete Digestion records. It makes the
-        target dirty so the owner can rebuild with the expanded source set.
+        The merge is conservative: it only de-duplicates direct file/original/checksum
+        matches, copies foreign-owned source bytes into the target owner's intake
+        folder when available, and preserves contribution/evidence/output snapshots
+        as provenance-bearing target records.
         """
+        source_digestion_id = self._clean_id(source_digestion_id)
+        if not source_digestion_id:
+            raise DigestionError("source_digestion_id is required.", status_code=400, reason="missing_source_digestion")
         target = self._require_digestion(target_digestion_id, actor_user_id, manage=True)
         source = self._require_digestion(source_digestion_id, actor_user_id, query=True)
         if target.id == source.id:
-            raise DigestionError("Drop a different Digestion to merge sources.", status_code=400, reason="same_digestion")
+            raise DigestionError("Choose a different Digestion to merge.", status_code=400, reason="same_digestion")
         source_access = self._access_for(source, actor_user_id)
         if not source_access.get("can_read_sources"):
             raise DigestionError(
@@ -1081,27 +1139,26 @@ class DigestionManager:
             )
 
         now = self._now()
+        target_owner_id = str(target.owner_user_id or "")
         added = 0
-        updated = 0
-        skipped: list[dict[str, str]] = []
+        existing = 0
+        skipped: list[dict[str, Any]] = []
+        source_results: list[dict[str, Any]] = []
+        file_id_map: dict[str, str] = {}
+        intake_folder_id: Optional[str] = None
+
         with self.db.get_connection() as conn:
             source_rows = conn.execute(
                 """
-                SELECT file_id, file_checksum, file_name, content_type, source_kind,
-                       source_label, source_uri, source_metadata_json
+                SELECT *
                 FROM digestion_sources
                 WHERE digestion_id = ?
                 ORDER BY file_name COLLATE NOCASE, file_id
                 """,
                 (source.id,),
             ).fetchall()
-            existing_ids = {
-                str(row["file_id"] or "")
-                for row in conn.execute(
-                    "SELECT file_id FROM digestion_sources WHERE digestion_id = ?",
-                    (target.id,),
-                ).fetchall()
-            }
+
+        if include_sources:
             for row in source_rows:
                 file_id = self._clean_id(row["file_id"] if "file_id" in row.keys() else "")
                 if not file_id:
@@ -1111,69 +1168,433 @@ class DigestionManager:
                 if not info:
                     skipped.append({"file_id": file_id, "reason": "file_not_found"})
                     continue
-                if str(info.uploaded_by) != str(target.owner_user_id):
-                    skipped.append({"file_id": file_id, "reason": "not_owned_by_target_owner"})
+
+                row_checksum = str(row["file_checksum"] or info.checksum or "")
+                existing_source_id = self._existing_source_file_for_original(
+                    target.id,
+                    info.id,
+                    checksum=row_checksum,
+                )
+                if existing_source_id:
+                    existing += 1
+                    file_id_map[file_id] = existing_source_id
+                    source_results.append({
+                        "input_file_id": file_id,
+                        "file_id": existing_source_id,
+                        "file_name": str(row["file_name"] or info.original_name or ""),
+                        "status": "existing",
+                        "reason": "direct_duplicate",
+                    })
                     continue
-                try:
-                    metadata = json.loads(row["source_metadata_json"] or "{}")
-                except Exception:
-                    metadata = {}
+
+                source_info = info
+                copied_to_owner = False
+                if str(info.uploaded_by or "") != target_owner_id:
+                    source_path = self._resolved_source_file_path(info)
+                    if not source_path or not source_path.exists():
+                        skipped.append({
+                            "file_id": file_id,
+                            "file_name": str(row["file_name"] or info.original_name or ""),
+                            "reason": "source_file_unavailable_for_owner_copy",
+                            "source_owner_user_id": str(info.uploaded_by or ""),
+                            "target_owner_user_id": target_owner_id,
+                            "hint": "The source record is readable, but this node does not have the bytes needed to copy it into the target owner's Digestion Intake folder.",
+                        })
+                        continue
+                    if intake_folder_id is None:
+                        intake_folder_id = self._digestion_intake_folder_id(target)
+                    if not intake_folder_id:
+                        skipped.append({
+                            "file_id": file_id,
+                            "file_name": str(row["file_name"] or info.original_name or ""),
+                            "reason": "intake_folder_unavailable",
+                            "target_owner_user_id": target_owner_id,
+                        })
+                        continue
+                    copied = self.file_manager.copy_file_to_user_vault(
+                        info.id,
+                        target_owner_id,
+                        vault_folder_id=intake_folder_id,
+                        duplicate_if_owned=True,
+                    )
+                    if not copied:
+                        skipped.append({
+                            "file_id": file_id,
+                            "file_name": str(row["file_name"] or info.original_name or ""),
+                            "reason": "copy_to_target_owner_failed",
+                            "source_owner_user_id": str(info.uploaded_by or ""),
+                            "target_owner_user_id": target_owner_id,
+                        })
+                        continue
+                    source_info = copied
+                    copied_to_owner = True
+
+                metadata = self._json_loads(row["source_metadata_json"], {})
                 if not isinstance(metadata, dict):
                     metadata = {}
                 metadata.update({
                     "ingest_path": "digestion_merge",
+                    "submitted_by": actor_user_id,
+                    "source_owner_user_id": str(source_info.uploaded_by or ""),
+                    "original_file_id": info.id,
+                    "original_file_name": info.original_name,
+                    "original_uploaded_by": str(info.uploaded_by or ""),
+                    "original_checksum": info.checksum,
                     "merged_from_digestion_id": source.id,
                     "merged_from_digestion_name": source.name,
+                    "merged_source_file_id": file_id,
+                    "merged_source_checksum": row_checksum,
                 })
-                was_existing = file_id in existing_ids
-                conn.execute(
+                if copied_to_owner:
+                    metadata.update({
+                        "copied_to_owner_vault": True,
+                        "owner_intake_folder_id": intake_folder_id or source_info.vault_folder_id,
+                        "owner_intake_folder": self._digestion_intake_folder_name(target),
+                    })
+
+                with self.db.get_connection() as conn:
+                    conn.execute(
+                        """
+                        INSERT INTO digestion_sources (
+                            digestion_id, file_id, file_checksum, file_name, content_type,
+                            status, extracted_chars, chunk_count, error, updated_at,
+                            source_kind, source_label, source_uri, source_metadata_json
+                        ) VALUES (?, ?, ?, ?, ?, 'pending', 0, 0, NULL, ?, ?, ?, ?, ?)
+                        ON CONFLICT(digestion_id, file_id) DO UPDATE SET
+                            file_checksum = excluded.file_checksum,
+                            file_name = excluded.file_name,
+                            content_type = excluded.content_type,
+                            status = 'pending',
+                            error = NULL,
+                            source_kind = COALESCE(digestion_sources.source_kind, excluded.source_kind),
+                            source_label = COALESCE(digestion_sources.source_label, excluded.source_label),
+                            source_uri = COALESCE(digestion_sources.source_uri, excluded.source_uri),
+                            source_metadata_json = excluded.source_metadata_json,
+                            updated_at = excluded.updated_at
+                        """,
+                        (
+                            target.id,
+                            source_info.id,
+                            source_info.checksum,
+                            source_info.original_name,
+                            source_info.content_type,
+                            now,
+                            str(row["source_kind"] or "vault_file"),
+                            str(row["source_label"] or source_info.original_name),
+                            str(row["source_uri"] or ""),
+                            json.dumps(metadata, sort_keys=True),
+                        ),
+                    )
+                    conn.commit()
+                added += 1
+                file_id_map[file_id] = source_info.id
+                source_results.append({
+                    "input_file_id": file_id,
+                    "file_id": source_info.id,
+                    "file_name": source_info.original_name,
+                    "content_type": source_info.content_type,
+                    "status": "added",
+                    "copied_to_target_owner_vault": copied_to_owner,
+                    "source_owner_user_id": str(info.uploaded_by or ""),
+                    "target_owner_user_id": target_owner_id,
+                    "metadata": metadata,
+                })
+
+        contribution_rows: list[Any] = []
+        contributions_copied = 0
+        if include_contributions:
+            with self.db.get_connection() as conn:
+                contribution_rows = conn.execute(
                     """
-                    INSERT INTO digestion_sources (
-                        digestion_id, file_id, file_checksum, file_name, content_type,
-                        status, extracted_chars, chunk_count, error, updated_at,
-                        source_kind, source_label, source_uri, source_metadata_json
-                    ) VALUES (?, ?, ?, ?, ?, 'pending', 0, 0, NULL, ?, ?, ?, ?, ?)
-                    ON CONFLICT(digestion_id, file_id) DO UPDATE SET
-                        file_checksum = excluded.file_checksum,
-                        file_name = excluded.file_name,
-                        content_type = excluded.content_type,
-                        status = 'pending',
-                        error = NULL,
-                        source_kind = excluded.source_kind,
-                        source_label = excluded.source_label,
-                        source_uri = excluded.source_uri,
-                        source_metadata_json = excluded.source_metadata_json,
-                        updated_at = excluded.updated_at
+                    SELECT *
+                    FROM digestion_contributions
+                    WHERE digestion_id = ?
+                    ORDER BY created_at ASC, id ASC
                     """,
-                    (
-                        target.id,
-                        info.id,
-                        info.checksum,
-                        info.original_name,
-                        info.content_type,
-                        now,
-                        str(row["source_kind"] or "vault_file"),
-                        str(row["source_label"] or info.original_name),
-                        str(row["source_uri"] or ""),
-                        json.dumps(metadata, sort_keys=True),
-                    ),
-                )
-                if was_existing:
-                    updated += 1
+                    (source.id,),
+                ).fetchall()
+                existing_keys: set[str] = set()
+                for existing_row in conn.execute(
+                    "SELECT id, metadata_json FROM digestion_contributions WHERE digestion_id = ?",
+                    (target.id,),
+                ).fetchall():
+                    meta = self._json_loads(existing_row["metadata_json"], {})
+                    if isinstance(meta, dict):
+                        key = f"{meta.get('merged_from_digestion_id')}::{meta.get('merged_from_contribution_id')}"
+                        if key != "::":
+                            existing_keys.add(key)
+                for row in contribution_rows:
+                    source_contribution_id = str(row["id"] or "")
+                    merge_key = f"{source.id}::{source_contribution_id}"
+                    if merge_key in existing_keys:
+                        continue
+                    contributor_id = self._local_user_id_or_none(row["contributor_user_id"])
+                    metadata = self._json_loads(row["metadata_json"], {})
+                    if not isinstance(metadata, dict):
+                        metadata = {}
+                    metadata.update({
+                        "ingest_path": "digestion_merge",
+                        "merged_from_digestion_id": source.id,
+                        "merged_from_digestion_name": source.name,
+                        "merged_from_contribution_id": source_contribution_id,
+                        "original_contributor_user_id": str(row["contributor_user_id"] or ""),
+                    })
+                    conn.execute(
+                        """
+                        INSERT INTO digestion_contributions (
+                            id, digestion_id, contributor_user_id, contribution_kind, title,
+                            status, payload_json, summary, tags_json, confidence,
+                            source_file_ids_json, material_file_ids_json, added_source_file_ids_json,
+                            datapoint_count, skipped_json, result_json, metadata_json,
+                            created_at, updated_at, reviewed_by, reviewed_at, review_note, accepted_at, rejected_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            f"Dc{secrets.token_hex(12)}",
+                            target.id,
+                            contributor_id,
+                            str(row["contribution_kind"] or "agent_output"),
+                            str(row["title"] or "Merged contribution")[:240],
+                            str(row["status"] or CONTRIBUTION_STATUS_ACCEPTED),
+                            self._json_dumps(self._merge_remap_value(self._json_loads(row["payload_json"], {}), file_id_map)),
+                            str(row["summary"] or ""),
+                            row["tags_json"] or "[]",
+                            row["confidence"],
+                            self._json_dumps(self._merge_remap_value(self._json_loads(row["source_file_ids_json"], []), file_id_map)),
+                            self._json_dumps(self._merge_remap_value(self._json_loads(row["material_file_ids_json"], []), file_id_map)),
+                            self._json_dumps(self._merge_remap_value(self._json_loads(row["added_source_file_ids_json"], []), file_id_map)),
+                            int(row["datapoint_count"] or 0),
+                            row["skipped_json"] or "[]",
+                            self._json_dumps(self._merge_remap_value(self._json_loads(row["result_json"], {}), file_id_map)),
+                            self._json_dumps(metadata),
+                            row["created_at"] or now,
+                            now,
+                            self._local_user_id_or_none(row["reviewed_by"]),
+                            row["reviewed_at"],
+                            row["review_note"],
+                            row["accepted_at"],
+                            row["rejected_at"],
+                        ),
+                    )
+                    existing_keys.add(merge_key)
+                    contributions_copied += 1
+                conn.commit()
+
+        evidence_copied = 0
+        evidence_reviews_copied = 0
+        if include_evidence:
+            with self.db.get_connection() as conn:
+                evidence_rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM digestion_evidence_records
+                    WHERE digestion_id = ?
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (source.id,),
+                ).fetchall()
+                evidence_id_map: dict[str, str] = {}
+                existing_by_key: dict[str, str] = {}
+                for existing_row in conn.execute(
+                    "SELECT id, metadata_json FROM digestion_evidence_records WHERE digestion_id = ?",
+                    (target.id,),
+                ).fetchall():
+                    meta = self._json_loads(existing_row["metadata_json"], {})
+                    if isinstance(meta, dict):
+                        key = f"{meta.get('merged_from_digestion_id')}::{meta.get('merged_from_evidence_id')}"
+                        if key != "::":
+                            existing_by_key[key] = str(existing_row["id"] or "")
+                for row in evidence_rows:
+                    source_evidence_id = str(row["id"] or "")
+                    merge_key = f"{source.id}::{source_evidence_id}"
+                    evidence_id_map[source_evidence_id] = existing_by_key.get(merge_key) or f"Er{secrets.token_hex(12)}"
+                inserted_source_evidence_ids: list[str] = []
+                for row in evidence_rows:
+                    source_evidence_id = str(row["id"] or "")
+                    merge_key = f"{source.id}::{source_evidence_id}"
+                    if merge_key in existing_by_key:
+                        continue
+                    metadata = self._json_loads(row["metadata_json"], {})
+                    if not isinstance(metadata, dict):
+                        metadata = {}
+                    metadata.update({
+                        "ingest_path": "digestion_merge",
+                        "merged_from_digestion_id": source.id,
+                        "merged_from_digestion_name": source.name,
+                        "merged_from_evidence_id": source_evidence_id,
+                        "original_created_by_user_id": str(row["created_by_user_id"] or ""),
+                    })
+                    conn.execute(
+                        """
+                        INSERT INTO digestion_evidence_records (
+                            id, digestion_id, created_by_user_id, record_kind, statement,
+                            summary, scope, status, priority, confidence, tags_json,
+                            evidence_refs_json, source_refs_json, related_ids_json,
+                            metadata_json, superseded_by_id, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            evidence_id_map[source_evidence_id],
+                            target.id,
+                            self._local_user_id_or_none(row["created_by_user_id"]),
+                            str(row["record_kind"] or "finding"),
+                            str(row["statement"] or ""),
+                            row["summary"],
+                            row["scope"],
+                            str(row["status"] or EVIDENCE_STATUS_CANDIDATE),
+                            str(row["priority"] or "normal"),
+                            row["confidence"],
+                            row["tags_json"] or "[]",
+                            self._json_dumps(self._merge_remap_value(self._json_loads(row["evidence_refs_json"], []), file_id_map, evidence_id_map)),
+                            self._json_dumps(self._merge_remap_value(self._json_loads(row["source_refs_json"], []), file_id_map, evidence_id_map)),
+                            self._json_dumps(self._merge_remap_value(self._json_loads(row["related_ids_json"], []), file_id_map, evidence_id_map)),
+                            self._json_dumps(metadata),
+                            evidence_id_map.get(str(row["superseded_by_id"] or "")) or None,
+                            row["created_at"] or now,
+                            now,
+                        ),
+                    )
+                    evidence_copied += 1
+                    inserted_source_evidence_ids.append(source_evidence_id)
+                if inserted_source_evidence_ids:
+                    placeholders = ",".join("?" for _ in inserted_source_evidence_ids)
+                    review_rows = conn.execute(
+                        f"""
+                        SELECT *
+                        FROM digestion_evidence_reviews
+                        WHERE digestion_id = ? AND evidence_id IN ({placeholders})
+                        ORDER BY created_at ASC, id ASC
+                        """,
+                        (source.id, *inserted_source_evidence_ids),
+                    ).fetchall()
+                    for review in review_rows:
+                        metadata = self._json_loads(review["metadata_json"], {})
+                        if not isinstance(metadata, dict):
+                            metadata = {}
+                        metadata.update({
+                            "ingest_path": "digestion_merge",
+                            "merged_from_digestion_id": source.id,
+                            "merged_from_review_id": str(review["id"] or ""),
+                        })
+                        conn.execute(
+                            """
+                            INSERT INTO digestion_evidence_reviews (
+                                id, digestion_id, evidence_id, reviewer_user_id, action,
+                                note, confidence, evidence_refs_json, metadata_json, created_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                f"Evr{secrets.token_hex(12)}",
+                                target.id,
+                                evidence_id_map.get(str(review["evidence_id"] or "")),
+                                self._local_user_id_or_none(review["reviewer_user_id"]),
+                                str(review["action"] or "support"),
+                                review["note"],
+                                review["confidence"],
+                                self._json_dumps(self._merge_remap_value(self._json_loads(review["evidence_refs_json"], []), file_id_map, evidence_id_map)),
+                                self._json_dumps(metadata),
+                                review["created_at"] or now,
+                            ),
+                        )
+                        evidence_reviews_copied += 1
+                conn.commit()
+
+        outputs_copied = 0
+        if include_outputs:
+            with self.db.get_connection() as conn:
+                output_rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM digestion_outputs
+                    WHERE digestion_id = ?
+                    ORDER BY updated_at ASC, id ASC
+                    """,
+                    (source.id,),
+                ).fetchall()
+                for row in output_rows:
+                    original_kind = str(row["output_kind"] or "output")
+                    output_kind = self._merge_snapshot_output_kind(source.id, original_kind)
+                    metadata = self._json_loads(row["metadata_json"], {})
+                    if not isinstance(metadata, dict):
+                        metadata = {}
+                    metadata.update({
+                        "ingest_path": "digestion_merge",
+                        "merged_from_digestion_id": source.id,
+                        "merged_from_digestion_name": source.name,
+                        "merged_from_output_id": str(row["id"] or ""),
+                        "merged_from_output_kind": original_kind,
+                        "source_revealing": bool(metadata.get("source_revealing")),
+                    })
+                    content = str(row["content"] or "")
+                    if str(row["content_type"] or "").startswith("text/"):
+                        content = (
+                            f"<!-- Merged snapshot from Digestion {source.name} ({source.id}), "
+                            f"output kind {original_kind}. -->\n\n{content}"
+                        )
+                    existing_output = conn.execute(
+                        "SELECT id FROM digestion_outputs WHERE digestion_id = ? AND output_kind = ?",
+                        (target.id, output_kind),
+                    ).fetchone()
+                    output_id = str(existing_output["id"]) if existing_output else f"Dgo{secrets.token_hex(12)}"
+                    conn.execute(
+                        """
+                        INSERT INTO digestion_outputs (
+                            id, digestion_id, output_kind, title, content_type, content,
+                            metadata_json, created_by, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(digestion_id, output_kind) DO UPDATE SET
+                            title = excluded.title,
+                            content_type = excluded.content_type,
+                            content = excluded.content,
+                            metadata_json = excluded.metadata_json,
+                            created_by = excluded.created_by,
+                            updated_at = excluded.updated_at
+                        """,
+                        (
+                            output_id,
+                            target.id,
+                            output_kind,
+                            f"Merged from {source.name}: {row['title'] or original_kind}"[:240],
+                            str(row["content_type"] or "text/markdown"),
+                            content,
+                            self._json_dumps(metadata),
+                            actor_user_id,
+                            row["created_at"] or now,
+                            now,
+                        ),
+                    )
+                    outputs_copied += 1
+                conn.commit()
+
+        changed = added + contributions_copied + evidence_copied + outputs_copied
+        if changed:
+            with self.db.get_connection() as conn:
+                if added:
+                    conn.execute("UPDATE digestions SET status = ?, updated_at = ? WHERE id = ?", ("draft", now, target.id))
                 else:
-                    added += 1
-                    existing_ids.add(file_id)
-            if added or updated:
-                conn.execute("UPDATE digestions SET status = ?, updated_at = ? WHERE id = ?", ("draft", now, target.id))
-            conn.commit()
+                    conn.execute("UPDATE digestions SET updated_at = ? WHERE id = ?", (now, target.id))
+                conn.commit()
+        build_result = None
+        if build_after and added:
+            build_result = self.build_digestion(target.id, actor_user_id, rebuild=False)
         return {
             "success": True,
             "digestion_id": target.id,
             "target_digestion_id": target.id,
             "source_digestion_id": source.id,
             "added": added,
-            "updated": updated,
+            "sources_added": added,
+            "sources_existing": existing,
             "skipped": skipped,
+            "source_results": source_results,
+            "file_id_map": file_id_map,
+            "contributions_copied": contributions_copied,
+            "evidence_copied": evidence_copied,
+            "evidence_reviews_copied": evidence_reviews_copied,
+            "outputs_copied": outputs_copied,
+            "changed_records": changed,
+            "build_result": build_result,
+            "stats": self.stats(target.id),
         }
 
     def remove_sources(
@@ -4633,6 +5054,7 @@ class DigestionManager:
             "context": "canopy_digest_context",
             "sources": "canopy_digest_sources",
             "add_sources": "canopy_digest_add_sources",
+            "merge": "canopy_digest_merge",
             "add_materials": "canopy_digest_add_materials",
             "append_contributions": "canopy_digest_append_contributions",
             "contributions": "canopy_digest_contributions",
@@ -6273,6 +6695,8 @@ class DigestionManager:
         checksum = str(checksum or "").strip()
         if checksum:
             for row in rows:
+                if str(row["file_checksum"] or "").strip() == checksum:
+                    return str(row["file_id"] or "")
                 try:
                     metadata = json.loads(row["source_metadata_json"] or "{}")
                 except Exception:

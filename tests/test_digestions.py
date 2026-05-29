@@ -853,12 +853,131 @@ class TestDigestions(unittest.TestCase):
 
         self.assertTrue(result['success'])
         self.assertEqual(result['added'], 1)
-        self.assertEqual(result['updated'], 1)
+        self.assertEqual(result['sources_existing'], 1)
         self.assertFalse(result['skipped'])
         target_sources = self.digestion_manager.list_sources(target['id'], user_id='owner-user')
         source_sources = self.digestion_manager.list_sources(source['id'], user_id='owner-user')
         self.assertEqual({item['file_id'] for item in target_sources}, {alpha.id, beta.id})
         self.assertEqual({item['file_id'] for item in source_sources}, {alpha.id, beta.id})
+
+    def test_merge_digestions_preserves_ledgers_evidence_and_output_snapshots(self) -> None:
+        source_file = self._save_text('source-ledger.txt', 'Merge evidence and contribution provenance.')
+        source = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Source ledger corpus',
+            source_file_ids=[source_file.id],
+            provider='local_hash',
+        )
+        target = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Target ledger corpus',
+            provider='local_hash',
+        )
+        now = self.digestion_manager._now()
+        with self.conn:
+            self.conn.execute(
+                """
+                INSERT INTO digestion_contributions (
+                    id, digestion_id, contributor_user_id, contribution_kind, title,
+                    status, payload_json, summary, tags_json, confidence,
+                    source_file_ids_json, material_file_ids_json, added_source_file_ids_json,
+                    datapoint_count, skipped_json, result_json, metadata_json,
+                    created_at, updated_at, accepted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    'Dc-source-merge-test',
+                    source['id'],
+                    'owner-user',
+                    'agent_note',
+                    'Mergeable synthesis',
+                    'accepted',
+                    json.dumps({'content': 'Synthesis cites the source file.', 'file_id': source_file.id}),
+                    'Synthesis cites the source file.',
+                    json.dumps(['merge']),
+                    0.77,
+                    json.dumps([source_file.id]),
+                    json.dumps([]),
+                    json.dumps([]),
+                    0,
+                    json.dumps([]),
+                    json.dumps({'file_id': source_file.id}),
+                    json.dumps({}),
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            self.conn.execute(
+                """
+                INSERT INTO digestion_outputs (
+                    id, digestion_id, output_kind, title, content_type, content,
+                    metadata_json, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    'Dgo-source-merge-test',
+                    source['id'],
+                    'agent_context',
+                    'Agent context',
+                    'text/markdown',
+                    'Reusable source summary.',
+                    json.dumps({'source_revealing': False}),
+                    'owner-user',
+                    now,
+                    now,
+                ),
+            )
+        evidence = self.digestion_manager.append_evidence_records(
+            source['id'],
+            'owner-user',
+            records=[{
+                'statement': 'Merged evidence remains reviewable.',
+                'summary': 'The source ledger file supports this.',
+                'evidence_refs': [{'file_id': source_file.id, 'quote': 'provenance'}],
+            }],
+        )
+        evidence_id = evidence['records'][0]['id']
+        self.digestion_manager.review_evidence_record(
+            source['id'],
+            evidence_id,
+            'owner-user',
+            action='confirm',
+            note='Confirmed before merge.',
+        )
+
+        result = self.digestion_manager.merge_sources_from_digestion(
+            target['id'],
+            source['id'],
+            'owner-user',
+        )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['sources_added'], 1)
+        self.assertEqual(result['contributions_copied'], 1)
+        self.assertEqual(result['evidence_copied'], 1)
+        self.assertEqual(result['evidence_reviews_copied'], 1)
+        self.assertEqual(result['outputs_copied'], 1)
+        self.assertEqual(result['changed_records'], 4)
+
+        target_contributions = self.digestion_manager.list_contributions(target['id'], 'owner-user', include_payload=True)
+        self.assertEqual(target_contributions['count'], 1)
+        contribution = target_contributions['contributions'][0]
+        self.assertEqual(contribution['metadata']['merged_from_digestion_id'], source['id'])
+        self.assertEqual(contribution['source_file_ids'], [source_file.id])
+        self.assertEqual(contribution['payload']['file_id'], source_file.id)
+
+        target_evidence = self.digestion_manager.list_evidence_records(target['id'], 'owner-user')
+        self.assertEqual(target_evidence['count'], 1)
+        self.assertEqual(target_evidence['records'][0]['metadata']['merged_from_digestion_id'], source['id'])
+        self.assertEqual(target_evidence['records'][0]['evidence_refs'][0]['file_id'], source_file.id)
+        self.assertEqual(target_evidence['records'][0]['review_summary']['confirm_count'], 1)
+
+        outputs = self.digestion_manager.list_outputs(target['id'], 'owner-user', include_content=True)
+        output_kinds = {item['output_kind'] for item in outputs}
+        self.assertTrue(any(kind.startswith('merged_snapshot_') and kind.endswith('_agent_context') for kind in output_kinds))
+        merged_output = next(item for item in outputs if item['output_kind'].endswith('_agent_context'))
+        self.assertIn('Merged snapshot from Digestion Source ledger corpus', merged_output['content'])
 
     def test_query_unbuilt_digestion_returns_explicit_no_chunk_warning_without_embedding(self) -> None:
         source = self._save_text('unbuilt-corpus.txt', 'This text is present but has not been indexed yet.')

@@ -7292,7 +7292,7 @@ def create_ui_blueprint() -> Blueprint:
     @ui.route('/ajax/digestions/<digestion_id>/merge', methods=['POST'])
     @require_login
     def ajax_merge_digestion_sources(digestion_id: str):
-        """Copy source references from one Digestion into another."""
+        """Merge source/contribution/evidence/output matter from one Digestion into another."""
         manager = current_app.config.get('DIGESTION_MANAGER')
         if not manager:
             return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
@@ -7303,12 +7303,17 @@ def create_ui_blueprint() -> Blueprint:
                 digestion_id,
                 source_digestion_id,
                 get_current_user(),
+                include_sources=True if 'include_sources' not in data else _ui_as_bool(data.get('include_sources')),
+                include_contributions=True if 'include_contributions' not in data else _ui_as_bool(data.get('include_contributions')),
+                include_evidence=True if 'include_evidence' not in data else _ui_as_bool(data.get('include_evidence')),
+                include_outputs=True if 'include_outputs' not in data else _ui_as_bool(data.get('include_outputs')),
+                build_after=_ui_as_bool(data.get('build_after') or data.get('auto_build')),
             ))
         except DigestionError as exc:
             return _ajax_digestion_error(exc)
         except Exception as e:
-            logger.error("Digestion UI merge sources error: %s", e, exc_info=True)
-            return jsonify({'success': False, 'error': 'Could not merge Digestion sources'}), 500
+            logger.error("Digestion UI merge error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not merge Digestions'}), 500
 
     @ui.route('/ajax/digestions/<digestion_id>/materials', methods=['POST'])
     @require_login

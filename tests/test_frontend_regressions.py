@@ -5,11 +5,29 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
+import types
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 LIGHT_SCHEME_SELECTOR = ':is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"])'
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+if 'zeroconf' not in sys.modules:
+    zeroconf_stub = types.ModuleType('zeroconf')
+
+    class _DummyZeroconf:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    zeroconf_stub.ServiceBrowser = _DummyZeroconf
+    zeroconf_stub.ServiceInfo = _DummyZeroconf
+    zeroconf_stub.Zeroconf = _DummyZeroconf
+    zeroconf_stub.ServiceStateChange = _DummyZeroconf
+    sys.modules['zeroconf'] = zeroconf_stub
 
 
 def read_feed_surface() -> str:
@@ -529,6 +547,13 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('async function addSelectionToExistingDigestion(digestionId, button)', main_js)
         self.assertIn('async function uploadExternalFilesToDigestion(digestionId, dataTransfer)', main_js)
         self.assertIn('async function mergeDigestionsByDrop(targetDigestionId, sourceDigestionId)', main_js)
+        self.assertIn('function renderDigestionMergePanel(digestion)', main_js)
+        self.assertIn('async function executeDigestionMerge(targetDigestionId, sourceDigestionId', main_js)
+        self.assertIn('data-vault-digestion-action="merge"', main_js)
+        self.assertIn('data-vault-digestion-merge-source', main_js)
+        self.assertIn('include_contributions', main_js)
+        self.assertIn('include_evidence', main_js)
+        self.assertIn('include_outputs', main_js)
         self.assertIn("`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/sources`", main_js)
         self.assertIn("`${vaultUrls().digestions}/${encodeURIComponent(targetDigestionId)}/merge`", main_js)
         self.assertIn('function toggleDigestionShare(digestionId)', main_js)
@@ -580,6 +605,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('.vault-digestion-drop-hint', vault_template)
         self.assertIn('.vault-digestion-card.is-drag-over', vault_template)
         self.assertIn('.vault-digestion-actions .vault-digestion-btn', vault_template)
+        self.assertIn('.vault-digestion-merge', vault_template)
+        self.assertIn('.vault-digestion-merge-grid', vault_template)
         self.assertIn('.vault-digestion-rename', vault_template)
         self.assertIn('.vault-digestion-rename-actions', vault_template)
         self.assertIn('.vault-digestion-share-current', vault_template)
@@ -4432,11 +4459,13 @@ console.log(JSON.stringify({{
         self.assertIn('canopy_digest_request_access', mcp_server)
         self.assertIn('canopy_digest_figures', mcp_server)
         self.assertIn('canopy_digest_add_sources', mcp_server)
+        self.assertIn('canopy_digest_merge', mcp_server)
         self.assertIn('canopy_digest_manage_sources', mcp_server)
         self.assertIn('canopy_digest_datapoints_extract', mcp_server)
         self.assertIn('canopy_digest_evidence', mcp_server)
         self.assertIn('_digest_figures', mcp_server)
         self.assertIn('_digest_add_sources', mcp_server)
+        self.assertIn('_digest_merge', mcp_server)
         self.assertIn('_digest_manage_sources', mcp_server)
         self.assertIn('_digest_datapoints_extract', mcp_server)
         self.assertIn('_digest_evidence', mcp_server)
@@ -4468,6 +4497,7 @@ console.log(JSON.stringify({{
         self.assertIn('datapoint_source_metadata_denied', agent_instructions)
         self.assertIn('scope=all', agent_instructions)
         self.assertIn('canopy_digest_add_sources', agent_instructions)
+        self.assertIn('canopy_digest_merge', agent_instructions)
         self.assertIn('canopy_digest_manage_sources', agent_instructions)
         self.assertIn('canopy_digest_datapoints_extract', agent_instructions)
         self.assertIn('canopy_digest_evidence', agent_instructions)

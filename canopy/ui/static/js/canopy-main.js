@@ -3991,6 +3991,78 @@
                     `;
                 }
 
+                function digestionMergeCandidates(targetDigestionId) {
+                    const targetId = String(targetDigestionId || '');
+                    return state.digestions.filter(item => {
+                        if (!item || String(item.id || '') === targetId) return false;
+                        const access = item.access || {};
+                        return !!(access.can_query || access.can_manage) && !!access.can_read_sources;
+                    });
+                }
+
+                function renderDigestionMergePanel(digestion) {
+                    const id = vaultEscape(digestion && digestion.id || '');
+                    const candidates = digestionMergeCandidates(digestion && digestion.id);
+                    const options = candidates.map(item => {
+                        const stats = digestionStats(item);
+                        const sourceCount = digestionSourceCount(item, stats);
+                        const contributionCounts = digestionContributionCounts(item, stats);
+                        const label = `${item.name || item.id || 'Untitled Digestion'} · ${sourceCount} src · ${Number(stats.chunks || 0).toLocaleString()} chunks${contributionCounts.total ? ` · ${contributionCounts.total} contributions` : ''}`;
+                        return `<option value="${vaultEscape(item.id || '')}">${vaultEscape(label)}</option>`;
+                    }).join('');
+                    const hasChoices = candidates.length > 0;
+                    return `
+                        <form class="vault-digestion-merge" data-vault-digestion-merge="${id}" hidden>
+                            <div class="vault-digestion-merge-head">
+                                <div>
+                                    <strong><i class="bi bi-intersect"></i> Merge another Digestion</strong>
+                                    <span>Combine corpora without deleting either object. Canopy maps exact duplicate source files and preserves source, contribution, evidence, and output history by default.</span>
+                                </div>
+                            </div>
+                            <div class="vault-digestion-merge-grid">
+                                <label>
+                                    Source Digestion
+                                    <select class="form-select form-select-sm"
+                                            data-vault-digestion-merge-source="${id}"
+                                            aria-label="Source Digestion to merge into ${vaultEscape(digestion && digestion.name || 'this Digestion')}"
+                                            ${hasChoices ? '' : 'disabled'}>
+                                        ${hasChoices ? options : '<option value="">No accessible source-metadata Digestions available</option>'}
+                                    </select>
+                                </label>
+                                <label class="form-check vault-digestion-merge-check">
+                                    <input class="form-check-input" type="checkbox" data-vault-digestion-merge-sources="${id}" checked>
+                                    <span class="form-check-label">Sources</span>
+                                </label>
+                                <label class="form-check vault-digestion-merge-check">
+                                    <input class="form-check-input" type="checkbox" data-vault-digestion-merge-contributions="${id}" checked>
+                                    <span class="form-check-label">Contribution ledger</span>
+                                </label>
+                                <label class="form-check vault-digestion-merge-check">
+                                    <input class="form-check-input" type="checkbox" data-vault-digestion-merge-evidence="${id}" checked>
+                                    <span class="form-check-label">Evidence records</span>
+                                </label>
+                                <label class="form-check vault-digestion-merge-check">
+                                    <input class="form-check-input" type="checkbox" data-vault-digestion-merge-outputs="${id}" checked>
+                                    <span class="form-check-label">Output snapshots</span>
+                                </label>
+                                <label class="form-check vault-digestion-merge-check">
+                                    <input class="form-check-input" type="checkbox" data-vault-digestion-merge-build="${id}">
+                                    <span class="form-check-label">Build after source merge</span>
+                                </label>
+                            </div>
+                            <div class="vault-digestion-merge-actions">
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-digestion-action="cancel-merge" data-vault-digestion-id="${id}">
+                                    Cancel
+                                </button>
+                                <button class="btn btn-sm btn-success" type="submit" data-vault-digestion-action="confirm-merge" data-vault-digestion-id="${id}" ${hasChoices ? '' : 'disabled'}>
+                                    <i class="bi bi-intersect"></i> Merge Digestions
+                                </button>
+                            </div>
+                            <div class="vault-digestion-merge-status" data-vault-digestion-merge-status="${id}" aria-live="polite"></div>
+                        </form>
+                    `;
+                }
+
                 function renderDigestionCard(digestion) {
 		                    const id = vaultEscape(digestion.id || '');
 		                    const name = vaultEscape(digestion.name || 'Untitled Digestion');
@@ -4062,7 +4134,7 @@
                             ${canDropSources ? `
                             <div class="vault-digestion-drop-hint" data-vault-digestion-drop-hint="${id}">
                                 <i class="bi bi-plus-square-dotted"></i>
-                                <span>Drop Vault files or local files to add sources. Drop another Digestion to merge sources.</span>
+                                <span>Drop Vault files or local files to add sources. Drop another Digestion to merge sources and durable records.</span>
                             </div>
                             ` : ''}
                             <div class="vault-digestion-actions">
@@ -4090,6 +4162,9 @@
 	                                    <i class="bi bi-box-arrow-up-right"></i> Share package
 	                                </button>
 	                                ${canManage ? `
+                                    <button class="btn btn-sm btn-outline-info vault-digestion-btn" type="button" data-vault-digestion-action="merge" data-vault-digestion-id="${id}" aria-label="Merge another Digestion into ${name}" aria-expanded="false" title="Merge another accessible Digestion into this one without deleting either.">
+                                        <i class="bi bi-intersect"></i> Merge
+                                    </button>
                                     <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="rename" data-vault-digestion-id="${id}" aria-label="Rename ${name}" aria-expanded="false" title="Rename this Digestion without changing sources or access grants.">
                                         <i class="bi bi-pencil-square"></i> Rename
                                     </button>
@@ -4114,6 +4189,7 @@
                                     ` : ''}
 	                            </div>
                                 ${renderDigestionPackageHandoff(digestion)}
+                                ${canManage ? renderDigestionMergePanel(digestion) : ''}
                                 ${canManage ? renderDigestionRenamePanel(digestion) : ''}
                                 ${canDelete ? renderDigestionDeletePanel(digestion) : ''}
                                 ${renderDigestionProgress('build', 'Build', buildProgress)}
@@ -4543,6 +4619,42 @@
                     }
                 }
 
+                function toggleDigestionMergePanel(digestionId, forceOpen = null) {
+                    const id = String(digestionId || '').trim();
+                    const panel = document.querySelector(`[data-vault-digestion-merge="${vaultCssEscape(id)}"]`);
+                    if (!panel) return;
+                    const willOpen = forceOpen === null ? panel.hidden : !!forceOpen;
+                    panel.hidden = !willOpen;
+                    panel.classList.toggle('is-visible', willOpen);
+                    const button = digestionList && digestionList.querySelector(`[data-vault-digestion-action="merge"][data-vault-digestion-id="${vaultCssEscape(id)}"]`);
+                    if (button) button.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+                    const status = panel.querySelector(`[data-vault-digestion-merge-status="${vaultCssEscape(id)}"]`);
+                    if (status) status.textContent = '';
+                    if (willOpen) {
+                        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }
+
+                async function mergeDigestionFromPanel(digestionId, form, button = null) {
+                    const id = String(digestionId || '').trim();
+                    if (!id || !form) return;
+                    const select = form.querySelector(`[data-vault-digestion-merge-source="${vaultCssEscape(id)}"]`);
+                    const status = form.querySelector(`[data-vault-digestion-merge-status="${vaultCssEscape(id)}"]`);
+                    const sourceId = String(select && select.value || '').trim();
+                    if (!sourceId) {
+                        if (status) status.textContent = 'Choose a source Digestion first.';
+                        if (select) select.focus();
+                        return;
+                    }
+                    await executeDigestionMerge(id, sourceId, {
+                        include_sources: !!form.querySelector(`[data-vault-digestion-merge-sources="${vaultCssEscape(id)}"]`)?.checked,
+                        include_contributions: !!form.querySelector(`[data-vault-digestion-merge-contributions="${vaultCssEscape(id)}"]`)?.checked,
+                        include_evidence: !!form.querySelector(`[data-vault-digestion-merge-evidence="${vaultCssEscape(id)}"]`)?.checked,
+                        include_outputs: !!form.querySelector(`[data-vault-digestion-merge-outputs="${vaultCssEscape(id)}"]`)?.checked,
+                        build_after: !!form.querySelector(`[data-vault-digestion-merge-build="${vaultCssEscape(id)}"]`)?.checked,
+                    }, button);
+                }
+
                 function applyDigestionProgressPayload(digestionId, data) {
                     const operations = data && data.operations && typeof data.operations === 'object' ? data.operations : {};
                     const patch = { operation_progress: operations };
@@ -4907,31 +5019,76 @@
                         if (typeof showAlert === 'function') showAlert('Merging requires source metadata access to the source Digestion.', 'warning');
                         return;
                     }
-                    const ok = global.confirm(`Merge sources from "${source.name || 'source Digestion'}" into "${target.name || 'target Digestion'}"? This copies source references and leaves both Digestions in place.`);
+                    const ok = global.confirm(`Merge "${source.name || 'source Digestion'}" into "${target.name || 'target Digestion'}"? This preserves source rows, contributions, evidence records, and output snapshots while leaving both Digestions in place.`);
                     if (!ok) return;
+                    await executeDigestionMerge(targetDigestionId, sourceDigestionId, {
+                        include_sources: true,
+                        include_contributions: true,
+                        include_evidence: true,
+                        include_outputs: true,
+                        build_after: false,
+                    });
+                }
+
+                function summarizeDigestionMergeResult(result) {
+                    const sourcesAdded = Number(result && (result.sources_added ?? result.added) || 0);
+                    const sourcesExisting = Number(result && result.sources_existing || 0);
+                    const contributions = Number(result && result.contributions_copied || 0);
+                    const evidence = Number(result && result.evidence_copied || 0);
+                    const outputs = Number(result && result.outputs_copied || 0);
+                    const skipped = Array.isArray(result && result.skipped) ? result.skipped.length : 0;
+                    const parts = [];
+                    if (sourcesAdded) parts.push(`${sourcesAdded} source${sourcesAdded === 1 ? '' : 's'} added`);
+                    if (sourcesExisting) parts.push(`${sourcesExisting} direct duplicate${sourcesExisting === 1 ? '' : 's'} mapped`);
+                    if (contributions) parts.push(`${contributions} contribution${contributions === 1 ? '' : 's'}`);
+                    if (evidence) parts.push(`${evidence} evidence record${evidence === 1 ? '' : 's'}`);
+                    if (outputs) parts.push(`${outputs} output snapshot${outputs === 1 ? '' : 's'}`);
+                    if (skipped) parts.push(`${skipped} skipped`);
+                    return parts.length ? `Merged: ${parts.join(', ')}. Rebuild when ready.` : 'Nothing new was merged. The Digestions may already share the same direct sources and records.';
+                }
+
+                async function executeDigestionMerge(targetDigestionId, sourceDigestionId, options = {}, button = null) {
+                    const targetId = String(targetDigestionId || '').trim();
+                    const sourceId = String(sourceDigestionId || '').trim();
+                    if (!targetId || !sourceId || targetId === sourceId) return null;
+                    const status = document.querySelector(`[data-vault-digestion-merge-status="${vaultCssEscape(targetId)}"]`);
+                    if (status) status.textContent = 'Merging Digestions without deleting either object...';
+                    const original = button ? button.innerHTML : '';
+                    if (button) {
+                        button.disabled = true;
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Merging';
+                    }
                     setDigestionDropBusy(targetDigestionId, true);
                     try {
                         const result = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(targetDigestionId)}/merge`, {
                             method: 'POST',
-                            body: JSON.stringify({ source_digestion_id: sourceDigestionId })
+                            body: JSON.stringify({
+                                source_digestion_id: sourceId,
+                                include_sources: options.include_sources !== false,
+                                include_contributions: options.include_contributions !== false,
+                                include_evidence: options.include_evidence !== false,
+                                include_outputs: options.include_outputs !== false,
+                                build_after: !!options.build_after,
+                            })
                         });
-                        const added = Number(result.added || 0);
-                        const updated = Number(result.updated || 0);
-                        const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
+                        const message = summarizeDigestionMergeResult(result);
+                        if (status) status.textContent = message;
                         if (typeof showAlert === 'function') {
-                            const changed = added + updated;
-                            showAlert(
-                                changed
-                                    ? `Merged ${changed} source reference${changed === 1 ? '' : 's'} into Digestion${skipped ? `; ${skipped} skipped` : ''}. Rebuild when ready.`
-                                    : "No mergeable sources were added. Sources may already be present or outside the target owner's Vault.",
-                                changed && !skipped ? 'success' : 'warning'
-                            );
+                            showAlert(message, Number(result && result.changed_records || 0) ? 'success' : 'warning');
                         }
                         await loadDigestions();
+                        return result;
                     } catch (error) {
-                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not merge Digestion sources.', 'danger');
+                        const message = error && (error.error || error.message) ? (error.error || error.message) : 'Could not merge Digestions.';
+                        if (status) status.textContent = message;
+                        if (typeof showAlert === 'function') showAlert(message, 'danger');
+                        return null;
                     } finally {
                         setDigestionDropBusy(targetDigestionId, false);
+                        if (button) {
+                            button.disabled = false;
+                            button.innerHTML = original;
+                        }
                     }
                 }
 
@@ -8034,6 +8191,12 @@
 		                            revokeDigestionAclAccess(actionBtn);
 		                        } else if (action === 'copy-agent-ref') {
 		                            copyDigestionAgentReference(digestionId);
+                        } else if (action === 'merge') {
+                            toggleDigestionMergePanel(digestionId);
+                        } else if (action === 'cancel-merge') {
+                            toggleDigestionMergePanel(digestionId, false);
+                        } else if (action === 'confirm-merge') {
+                            mergeDigestionFromPanel(digestionId, actionBtn.closest('[data-vault-digestion-merge]'), actionBtn);
                         } else if (action === 'rename') {
                             toggleDigestionRenamePanel(digestionId);
                         } else if (action === 'cancel-rename') {
@@ -8122,6 +8285,12 @@
 		                        }
 		                    });
 		                    digestionList.addEventListener('submit', (event) => {
+                        const mergeForm = event.target.closest('[data-vault-digestion-merge]');
+                        if (mergeForm && digestionList.contains(mergeForm)) {
+                            event.preventDefault();
+                            mergeDigestionFromPanel(mergeForm.getAttribute('data-vault-digestion-merge') || '', mergeForm, mergeForm.querySelector('[data-vault-digestion-action="confirm-merge"]'));
+                            return;
+                        }
                         const renameForm = event.target.closest('[data-vault-digestion-rename]');
                         if (renameForm && digestionList.contains(renameForm)) {
                             event.preventDefault();
