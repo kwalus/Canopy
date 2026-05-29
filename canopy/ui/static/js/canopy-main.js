@@ -14757,6 +14757,13 @@
             const _canopyFileReferenceMetadataCache = new Map();
             const _canopyFileReferenceMetadataPending = new Map();
 
+            function canopyLooksLikeBusinessDocument(filename, contentType) {
+                const name = String(filename || '').toLowerCase();
+                const type = String(contentType || '').toLowerCase();
+                if (/(pdf|msword|officedocument|opendocument|rtf|spreadsheet|presentation|csv|tab-separated-values)/.test(type)) return true;
+                return /\.(pdf|docx?|docm|dotx?|rtf|odt|pages|pptx?|pptm|ppsx?|potx?|odp|xlsx?|xlsm|xlsb|ods|numbers|csv|tsv)$/i.test(name);
+            }
+
             function resolveCanopyFileReferenceMetadata(fileId) {
                 const id = String(fileId || '').trim();
                 if (!id) return Promise.resolve(null);
@@ -14822,6 +14829,10 @@
                             : meta.filename + ' (' + fileId + ')');
                         anchor.setAttribute('data-canopy-file-label-hydrated', '1');
                         anchor.setAttribute('data-canopy-file-name', meta.filename);
+                        const artifactCard = anchor.closest('.agent-run-capsule-artifact');
+                        if (artifactCard && canopyLooksLikeBusinessDocument(meta.filename, meta.content_type)) {
+                            artifactCard.classList.add('is-business-document');
+                        }
                         if (typeof window !== 'undefined' && typeof window.syncAgentRunArtifactOverflowStates === 'function') {
                             window.syncAgentRunArtifactOverflowStates(anchor.closest('.agent-run-capsule') || anchor.parentElement || document);
                         }

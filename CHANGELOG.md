@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.275] - 2026-05-29
+
+### Changed
+- **Capsule output filenames now marquee back to the start predictably** - long artifact labels cycle from the beginning to the tail and back instead of feeling like they scroll away permanently.
+- **Capsule file/workproduct icons are more legible** - direct output icons are slightly larger while preserving the compact artifact rail layout.
+- **Business documents stand out in Capsule output rails** - PDF, Office/OpenDocument, spreadsheet, presentation, CSV/TSV, and related business-document artifacts now receive a stronger document treatment in dark and light themes, including after fallback file references hydrate to their real names.
+
 ## [0.6.274] - 2026-05-29
 
 ### Changed

@@ -3039,15 +3039,18 @@
     @media (hover: hover) and (pointer: fine) {
         .agent-run-capsule-artifact-name.agent-run-artifact-overflow:hover span,
         .agent-run-capsule-artifact-name.agent-run-artifact-overflow:focus-visible span {
-            animation: agentRunArtifactMarquee 4.6s cubic-bezier(0.22, 0.61, 0.36, 1) 0.12s infinite alternate;
+            animation: agentRunArtifactMarquee 7.2s cubic-bezier(0.22, 0.61, 0.36, 1) 0.12s infinite;
         }
     }
     @keyframes agentRunArtifactMarquee {
-        0%, 18% {
-            transform: translateX(0);
+        0%, 14% {
+            transform: translate3d(0, 0, 0);
         }
-        82%, 100% {
-            transform: translateX(calc(var(--agent-run-artifact-shift, 0px) * -1));
+        48%, 62% {
+            transform: translate3d(calc(var(--agent-run-artifact-shift, 0px) * -1), 0, 0);
+        }
+        100% {
+            transform: translate3d(0, 0, 0);
         }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -3360,10 +3363,22 @@
         border-color: rgba(15, 118, 110, 0.16);
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
     }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-artifact.is-business-document {
+        background:
+            radial-gradient(circle at 0% 0%, rgba(245, 158, 11, 0.12), transparent 42%),
+            rgba(255, 251, 235, 0.92);
+        border-color: rgba(217, 119, 6, 0.24);
+    }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-artifact-icon {
         color: #0f766e;
         background: rgba(20, 184, 166, 0.1);
         border-color: rgba(15, 118, 110, 0.18);
+    }
+:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-artifact.is-business-document .agent-run-capsule-artifact-icon {
+        color: #92400e;
+        background: rgba(245, 158, 11, 0.16);
+        border-color: rgba(217, 119, 6, 0.28);
+        box-shadow: 0 8px 18px rgba(146, 64, 14, 0.08);
     }
 :is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) .agent-run-capsule-artifact-more {
         color: #334155;
@@ -15128,6 +15143,21 @@ function getAgentRunArtifactIcon(artifact) {
     return icon || 'file-earmark';
 }
 
+function isAgentRunBusinessDocumentArtifact(artifact) {
+    if (!artifact || artifact.kind === 'digestion-ref' || artifact.kind === 'workproduct') return false;
+    const label = String(artifact.label || artifact.name || '').toLowerCase();
+    const type = String(artifact.contentType || '').toLowerCase();
+    if (/(pdf|msword|officedocument|opendocument|rtf|spreadsheet|presentation|csv|tab-separated-values)/.test(type)) return true;
+    return /\.(pdf|docx?|docm|dotx?|rtf|odt|pages|pptx?|pptm|ppsx?|potx?|odp|xlsx?|xlsm|xlsb|ods|numbers|csv|tsv)$/i.test(label);
+}
+
+function getAgentRunArtifactCardClass(artifact) {
+    const classes = ['agent-run-capsule-artifact'];
+    if (artifact && artifact.kind === 'workproduct') classes.push('is-workproduct');
+    if (isAgentRunBusinessDocumentArtifact(artifact)) classes.push('is-business-document');
+    return classes.join(' ');
+}
+
 function getAgentRunWorkproductIcon(type) {
     const normalized = String(type || '').toLowerCase();
     if (/task/.test(normalized)) return 'check2-square';
@@ -15250,7 +15280,7 @@ function renderAgentRunCapsuleArtifactRail(artifacts, capsuleId) {
         </div>
         <div class="agent-run-capsule-artifact-list">
             ${visible.map((artifact) => `
-                <div class="agent-run-capsule-artifact${artifact.kind === 'workproduct' ? ' is-workproduct' : ''}">
+                <div class="${escapeAttr(getAgentRunArtifactCardClass(artifact))}">
                     <span class="agent-run-capsule-artifact-icon"><i class="bi bi-${escapeAttr(getAgentRunArtifactIcon(artifact))}"></i></span>
                     <div class="agent-run-capsule-artifact-main">
                         ${renderAgentRunCapsuleArtifactLink(artifact)}
@@ -16155,7 +16185,7 @@ function applyAgentRunCapsuleWorkproducts(capsule, summary) {
     const html = artifacts
         .filter(artifact => !existingLabels.has(normalizeAgentRunText(artifact.label).toLowerCase()))
         .map((artifact) => `
-            <div class="agent-run-capsule-artifact is-workproduct" data-agent-run-llm-workproduct="1">
+            <div class="${escapeAttr(getAgentRunArtifactCardClass({ ...artifact, kind: 'workproduct' }))}" data-agent-run-llm-workproduct="1">
                 <span class="agent-run-capsule-artifact-icon"><i class="bi bi-${escapeAttr(getAgentRunArtifactIcon(artifact))}"></i></span>
                 <div class="agent-run-capsule-artifact-main">
                     ${renderAgentRunCapsuleArtifactLink(artifact)}
