@@ -387,11 +387,13 @@
         align-items: center;
         flex: 1 1 auto;
     }
-    .vault-selection-digestion-target {
+    .vault-selection-digestion-target,
+    .vault-selection-move-target {
         position: relative;
         display: inline-flex;
     }
-    .vault-selection-digestion-menu {
+    .vault-selection-digestion-menu,
+    .vault-selection-move-menu {
         position: absolute;
         top: calc(100% + 0.5rem);
         right: 0;
@@ -408,6 +410,9 @@
         box-shadow: 0 24px 52px color-mix(in srgb, var(--canopy-shadow) 68%, transparent);
     }
     .vault-selection-digestion-menu[hidden] {
+        display: none;
+    }
+    .vault-selection-move-menu[hidden] {
         display: none;
     }
     .vault-selection-digestion-menu-head {
@@ -463,6 +468,56 @@
         color: var(--canopy-text-muted);
         font-size: 0.85rem;
         line-height: 1.35;
+    }
+    .vault-selection-move-choice {
+        width: 100%;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 0.65rem;
+        margin-top: 0.4rem;
+        padding: 0.62rem 0.68rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 86%, transparent);
+        color: var(--canopy-text-primary);
+        text-align: left;
+    }
+    .vault-selection-move-choice:hover,
+    .vault-selection-move-choice:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-primary) 55%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 13%, var(--canopy-bg-card));
+    }
+    .vault-selection-move-choice i {
+        color: var(--canopy-primary);
+    }
+    .vault-selection-move-choice span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .vault-selection-danger {
+        border-color: color-mix(in srgb, var(--canopy-danger, #ef4444) 45%, var(--canopy-border));
+        color: color-mix(in srgb, var(--canopy-danger, #ef4444) 86%, var(--canopy-text-primary));
+    }
+    .vault-selection-delete-confirm {
+        flex: 1 1 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        align-items: center;
+        gap: 0.55rem;
+        padding: 0.62rem 0.7rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-danger, #ef4444) 45%, var(--canopy-border));
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--canopy-danger, #ef4444) 10%, var(--canopy-bg-card));
+        color: var(--canopy-text-primary);
+    }
+    .vault-selection-delete-confirm[hidden] {
+        display: none;
+    }
+    .vault-selection-delete-confirm small {
+        color: var(--canopy-text-muted);
     }
     .vault-card[data-vault-file-id],
     .vault-folder-card {
@@ -3508,6 +3563,7 @@
         }
 
         .vault-selection-digestion-menu,
+        .vault-selection-move-menu,
         .vault-digestion-share-results,
         .vault-file-share-results {
             position: fixed;
@@ -3536,6 +3592,9 @@
 
         .vault-selection-digestion-choice {
             grid-template-columns: minmax(0, 1fr);
+        }
+        .vault-selection-delete-confirm {
+            grid-template-columns: 1fr;
         }
 
         .vault-inline-preview-panel {
@@ -3727,7 +3786,7 @@
 		        <div class="vault-selection-bar" id="vault-selection-bar" hidden>
             <div>
                 <strong id="vault-selection-count">0 selected</strong>
-                <span class="text-muted small ms-1">Collect Vault links without opening each file.</span>
+                <span class="text-muted small ms-1">Move, delete, link, or build Digestions from selected files.</span>
             </div>
             <div class="vault-selection-actions">
 	                <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-selection-open">
@@ -3739,6 +3798,20 @@
                 <button class="btn btn-sm btn-outline-primary" type="button" id="vault-selection-digest">
                     <i class="bi bi-diagram-3"></i> New Digestion
                 </button>
+                <div class="vault-selection-move-target" id="vault-selection-move-target">
+                    <button class="btn btn-sm btn-outline-secondary"
+                            type="button"
+                            id="vault-selection-move"
+                            aria-expanded="false"
+                            aria-controls="vault-selection-move-menu">
+                        <i class="bi bi-folder-symlink"></i> Move to
+                    </button>
+                    <div class="vault-selection-move-menu"
+                         id="vault-selection-move-menu"
+                         role="menu"
+                         aria-label="Move selected Vault files to a folder"
+                         hidden></div>
+                </div>
                 <div class="vault-selection-digestion-target" id="vault-selection-digestion-target">
                     <button class="btn btn-sm btn-outline-primary"
                             type="button"
@@ -3753,9 +3826,24 @@
                          aria-label="Add selected Vault files to an existing Digestion"
                          hidden></div>
                 </div>
+                <button class="btn btn-sm btn-outline-danger vault-selection-danger" type="button" id="vault-selection-delete" aria-expanded="false" aria-controls="vault-selection-delete-confirm">
+                    <i class="bi bi-trash"></i> Delete selected
+                </button>
                 <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-selection-clear">
                     Clear
                 </button>
+                <div class="vault-selection-delete-confirm" id="vault-selection-delete-confirm" hidden>
+                    <div>
+                        <strong>Delete selected Vault files?</strong>
+                        <small class="d-block" id="vault-selection-delete-summary">Only files not attached to posts, messages, avatars, or other content can be removed.</small>
+                    </div>
+                    <button class="btn btn-sm btn-danger" type="button" id="vault-selection-delete-yes">
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-selection-delete-cancel">
+                        Cancel
+                    </button>
+                </div>
                 <form class="vault-digestion-create vault-digestion-builder" id="vault-digestion-create-form" hidden novalidate aria-labelledby="vault-digestion-builder-title">
                     <div class="vault-digestion-builder-head">
                         <div>

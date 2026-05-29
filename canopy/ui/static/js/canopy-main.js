@@ -2241,6 +2241,11 @@
                     digestionPackageHandoffs: new Map(),
 					                    previewFileId: '',
 		                                selectionDigestionMenuOpen: false,
+                    selectionMoveMenuOpen: false,
+                    selectionDeleteConfirmOpen: false,
+                    selectionBusy: false,
+                    allFolders: [],
+                    allFoldersLoadedAt: 0,
                                 pendingUrlDigestionId: (() => {
                                     try { return String(new URLSearchParams(global.location.search).get('digestion') || '').trim(); } catch (_) { return ''; }
                                 })(),
@@ -2276,8 +2281,15 @@
 	                const selectionOpen = document.getElementById('vault-selection-open');
 		                const selectionCopy = document.getElementById('vault-selection-copy');
 		                const selectionDigest = document.getElementById('vault-selection-digest');
+		                const selectionMove = document.getElementById('vault-selection-move');
+		                const selectionMoveMenu = document.getElementById('vault-selection-move-menu');
 		                const selectionAddExisting = document.getElementById('vault-selection-add-existing');
 		                const selectionDigestionMenu = document.getElementById('vault-selection-digestion-menu');
+		                const selectionDelete = document.getElementById('vault-selection-delete');
+		                const selectionDeleteConfirm = document.getElementById('vault-selection-delete-confirm');
+		                const selectionDeleteSummary = document.getElementById('vault-selection-delete-summary');
+		                const selectionDeleteYes = document.getElementById('vault-selection-delete-yes');
+		                const selectionDeleteCancel = document.getElementById('vault-selection-delete-cancel');
 		                const selectionClear = document.getElementById('vault-selection-clear');
 	                const selectAllBtn = document.getElementById('vault-select-all-btn');
 	                const digestionCreateForm = document.getElementById('vault-digestion-create-form');
@@ -3061,6 +3073,112 @@
                         setDigestionBuilderStatus('');
 	                }
 
+	                function selectedVaultFileLabel() {
+	                    const count = selectedVaultFiles().length;
+	                    return `${count} selected file${count === 1 ? '' : 's'}`;
+	                }
+
+	                async function loadAllVaultFoldersForMove({ force = false } = {}) {
+	                    const now = Date.now();
+	                    if (!force && Array.isArray(state.allFolders) && state.allFolders.length && (now - Number(state.allFoldersLoadedAt || 0)) < 30000) {
+	                        return state.allFolders;
+	                    }
+	                    const data = await apiCall(`${vaultUrls().folders}?all=1`);
+	                    state.allFolders = Array.isArray(data.folders) ? data.folders : [];
+	                    state.allFoldersLoadedAt = now;
+	                    return state.allFolders;
+	                }
+
+	                function availableMoveTargets() {
+	                    const currentId = String(state.currentFolderId || '');
+	                    const folders = (state.allFolders || []).filter((folder) => {
+	                        const id = String(folder && folder.id || '');
+	                        return id && id !== currentId;
+	                    });
+	                    const targets = currentId
+	                        ? [{ id: '', name: 'Vault Home', path_label: 'Vault Home', icon: 'bi-house-door' }]
+	                        : [];
+	                    return [
+	                        ...targets,
+	                        ...folders.map((folder) => ({
+	                            id: String(folder.id || ''),
+	                            name: String(folder.name || 'Folder'),
+	                            path_label: String(folder.path_label || folder.name || 'Folder'),
+	                            icon: 'bi-folder',
+	                        })),
+	                    ];
+	                }
+
+	                function renderSelectionMoveMenu() {
+	                    if (!selectionMoveMenu) return;
+	                    const selected = selectedVaultFiles();
+	                    if (!selected.length) {
+	                        selectionMoveMenu.innerHTML = '';
+	                        return;
+	                    }
+	                    const head = `
+	                        <div class="vault-selection-digestion-menu-head">
+	                            <span><i class="bi bi-folder-symlink"></i> Move ${vaultEscape(selectedVaultFileLabel())}</span>
+	                            <button class="btn btn-sm btn-outline-secondary" type="button" data-vault-selection-move-close aria-label="Close folder list">
+	                                <i class="bi bi-x-lg"></i>
+	                            </button>
+	                        </div>
+	                    `;
+	                    const targets = availableMoveTargets();
+	                    if (!targets.length) {
+	                        selectionMoveMenu.innerHTML = `${head}
+	                            <div class="vault-selection-digestion-empty">
+	                                No other folders are available yet. Create a folder above, then move the selected files into it.
+	                            </div>
+	                        `;
+	                        return;
+	                    }
+	                    selectionMoveMenu.innerHTML = head + targets.map((target) => {
+	                        const id = vaultEscape(target.id);
+	                        const label = vaultEscape(target.path_label || target.name || 'Folder');
+	                        const icon = vaultEscape(target.icon || 'bi-folder');
+	                        const disabled = String(target.id || '') === String(state.currentFolderId || '');
+	                        return `
+	                            <button class="vault-selection-move-choice"
+	                                    type="button"
+	                                    role="menuitem"
+	                                    data-vault-selection-move-folder="${id}"
+	                                    ${disabled ? 'disabled' : ''}>
+	                                <i class="bi ${icon}"></i>
+	                                <span>${label}</span>
+	                            </button>
+	                        `;
+	                    }).join('');
+	                }
+
+	                function setSelectionMoveMenu(open) {
+	                    state.selectionMoveMenuOpen = !!open;
+	                    if (selectionMove) {
+	                        selectionMove.setAttribute('aria-expanded', state.selectionMoveMenuOpen ? 'true' : 'false');
+	                    }
+	                    if (selectionMoveMenu) {
+	                        if (state.selectionMoveMenuOpen) {
+	                            renderSelectionMoveMenu();
+	                            selectionMoveMenu.hidden = false;
+	                        } else {
+	                            selectionMoveMenu.hidden = true;
+	                        }
+	                    }
+	                }
+
+	                function setSelectionDeleteConfirm(open) {
+	                    state.selectionDeleteConfirmOpen = !!open;
+	                    if (selectionDeleteConfirm) {
+	                        selectionDeleteConfirm.hidden = !state.selectionDeleteConfirmOpen;
+	                    }
+	                    if (selectionDelete) {
+	                        selectionDelete.setAttribute('aria-expanded', state.selectionDeleteConfirmOpen ? 'true' : 'false');
+	                    }
+	                    if (selectionDeleteSummary) {
+	                        selectionDeleteSummary.textContent = `${selectedVaultFileLabel()} will be deleted where safe. Files attached to posts, DMs, profile avatars, or other content will be skipped.`;
+	                    }
+	                }
+
 	                function selectionManageableDigestions() {
 	                    return state.digestions.filter((digestion) => {
 	                        const id = String(digestion && digestion.id || '');
@@ -3150,20 +3268,137 @@
 	                    }
 	                }
 
+	                async function moveSelectedVaultFiles(folderId, button) {
+	                    const selected = selectedVaultFiles();
+	                    if (!selected.length || state.selectionBusy) return;
+	                    const safeFolderId = String(folderId || '').trim();
+	                    const targetLabel = safeFolderId
+	                        ? (availableMoveTargets().find(target => String(target.id || '') === safeFolderId)?.path_label || 'selected folder')
+	                        : 'Vault Home';
+	                    const original = button ? button.innerHTML : '';
+	                    const movedIds = [];
+	                    const failures = [];
+	                    state.selectionBusy = true;
+	                    setSelectionMoveMenu(false);
+	                    setSelectionDeleteConfirm(false);
+	                    updateSelectionUi();
+	                    if (button) {
+	                        button.disabled = true;
+	                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Moving';
+	                    }
+	                    try {
+	                        for (const file of selected) {
+	                            const id = vaultFileId(file);
+	                            if (!id) continue;
+	                            try {
+	                                await apiCall(`/ajax/vault/files/${encodeURIComponent(id)}/folder`, {
+	                                    method: 'PATCH',
+	                                    body: JSON.stringify({ folder_id: safeFolderId })
+	                                });
+	                                movedIds.push(id);
+	                            } catch (error) {
+	                                failures.push({ file, error });
+	                            }
+	                        }
+	                        movedIds.forEach(id => state.selectedIds.delete(id));
+	                        const movedCount = movedIds.length;
+	                        const failedCount = failures.length;
+	                        if (typeof showAlert === 'function') {
+	                            if (movedCount && failedCount) {
+	                                showAlert(`Moved ${movedCount} file${movedCount === 1 ? '' : 's'} to ${targetLabel}; ${failedCount} could not be moved.`, 'warning');
+	                            } else if (movedCount) {
+	                                showAlert(`Moved ${movedCount} file${movedCount === 1 ? '' : 's'} to ${targetLabel}.`, 'success');
+	                            } else if (failedCount) {
+	                                showAlert(failures[0].error?.error || 'Could not move selected files.', 'warning');
+	                            }
+	                        }
+	                        await loadFiles({ append: false });
+	                    } finally {
+	                        state.selectionBusy = false;
+	                        if (button) {
+	                            button.disabled = false;
+	                            button.innerHTML = original;
+	                        }
+	                        updateSelectionUi();
+	                    }
+	                }
+
+	                async function deleteSelectedVaultFiles(button) {
+	                    const selected = selectedVaultFiles();
+	                    if (!selected.length || state.selectionBusy) return;
+	                    const original = button ? button.innerHTML : '';
+	                    const deletedIds = [];
+	                    const failures = [];
+	                    state.selectionBusy = true;
+	                    setSelectionMoveMenu(false);
+	                    setSelectionDigestionMenu(false);
+	                    updateSelectionUi();
+	                    if (button) {
+	                        button.disabled = true;
+	                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Deleting';
+	                    }
+	                    try {
+	                        for (const file of selected) {
+	                            const id = vaultFileId(file);
+	                            if (!id) continue;
+	                            try {
+	                                await apiCall(`/ajax/vault/files/${encodeURIComponent(id)}`, { method: 'DELETE' });
+	                                deletedIds.push(id);
+	                            } catch (error) {
+	                                failures.push({ file, error });
+	                            }
+	                        }
+	                        deletedIds.forEach(id => state.selectedIds.delete(id));
+	                        state.files = state.files.filter(candidate => !deletedIds.includes(vaultFileId(candidate)));
+	                        const deletedCount = deletedIds.length;
+	                        const failedCount = failures.length;
+	                        if (typeof showAlert === 'function') {
+	                            if (deletedCount && failedCount) {
+	                                const firstReason = failures[0].error?.error || 'Some selected files are still referenced.';
+	                                showAlert(`Deleted ${deletedCount} file${deletedCount === 1 ? '' : 's'}; ${failedCount} skipped. ${firstReason}`, 'warning');
+	                            } else if (deletedCount) {
+	                                showAlert(`Deleted ${deletedCount} Vault file${deletedCount === 1 ? '' : 's'}.`, 'success');
+	                            } else if (failedCount) {
+	                                showAlert(failures[0].error?.error || 'Selected files could not be deleted.', 'warning');
+	                            }
+	                        }
+	                        setSelectionDeleteConfirm(false);
+	                        await loadFiles({ append: false });
+	                    } finally {
+	                        state.selectionBusy = false;
+	                        if (button) {
+	                            button.disabled = false;
+	                            button.innerHTML = original;
+	                        }
+	                        updateSelectionUi();
+	                    }
+	                }
+
 	                function updateSelectionUi() {
 	                    const selected = selectedVaultFiles();
 	                    if (selectionBar) selectionBar.hidden = selected.length === 0;
 	                    if (selectionCount) selectionCount.textContent = `${selected.length} selected`;
-	                    if (selectionOpen) selectionOpen.disabled = selected.length === 0;
-	                    if (selectionCopy) selectionCopy.disabled = selected.length === 0;
-	                    if (selectionDigest) selectionDigest.disabled = selected.length === 0;
-	                    if (selectionAddExisting) selectionAddExisting.disabled = selected.length === 0 || selectionManageableDigestions().length === 0;
-	                    if (selectionClear) selectionClear.disabled = selected.length === 0;
+	                    const busy = !!state.selectionBusy;
+	                    if (selectionOpen) selectionOpen.disabled = selected.length === 0 || busy;
+	                    if (selectionCopy) selectionCopy.disabled = selected.length === 0 || busy;
+	                    if (selectionDigest) selectionDigest.disabled = selected.length === 0 || busy;
+	                    if (selectionMove) selectionMove.disabled = selected.length === 0 || busy;
+	                    if (selectionAddExisting) selectionAddExisting.disabled = selected.length === 0 || selectionManageableDigestions().length === 0 || busy;
+	                    if (selectionDelete) selectionDelete.disabled = selected.length === 0 || busy;
+	                    if (selectionDeleteYes) selectionDeleteYes.disabled = selected.length === 0 || busy;
+	                    if (selectionClear) selectionClear.disabled = selected.length === 0 || busy;
 	                    if (!selected.length) {
 	                        hideDigestionCreateForm();
 	                        setSelectionDigestionMenu(false);
+	                        setSelectionMoveMenu(false);
+	                        setSelectionDeleteConfirm(false);
 	                    } else if (state.selectionDigestionMenuOpen) {
 	                        renderSelectionDigestionMenu();
+	                    } else if (state.selectionMoveMenuOpen) {
+	                        renderSelectionMoveMenu();
+	                    }
+	                    if (state.selectionDeleteConfirmOpen) {
+	                        setSelectionDeleteConfirm(true);
 	                    }
                         if (digestionCreateForm && !digestionCreateForm.hidden) {
                             refreshDigestionBuilderSummary();
@@ -7838,6 +8073,7 @@
                                 method: 'POST',
                                 body: JSON.stringify({ name, parent_id: state.currentFolderId || '' })
                             });
+                            state.allFoldersLoadedAt = 0;
                             hideNewFolderForm();
                             if (typeof showAlert === 'function') showAlert('Folder created.', 'success');
                             await loadFiles({ append: false });
@@ -7911,9 +8147,47 @@
 	                if (selectionDigest) {
 	                    selectionDigest.addEventListener('click', showDigestionCreateForm);
 	                }
+	                if (selectionMove) {
+	                    selectionMove.addEventListener('click', async (event) => {
+	                        event.preventDefault();
+	                        setSelectionDigestionMenu(false);
+	                        setSelectionDeleteConfirm(false);
+	                        if (!state.selectionMoveMenuOpen) {
+	                            selectionMove.disabled = true;
+	                            const original = selectionMove.innerHTML;
+	                            selectionMove.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Folders';
+	                            try {
+	                                await loadAllVaultFoldersForMove();
+	                            } catch (error) {
+	                                if (typeof showAlert === 'function') showAlert(error.error || 'Could not load Vault folders.', 'warning');
+	                            } finally {
+	                                selectionMove.disabled = false;
+	                                selectionMove.innerHTML = original;
+	                            }
+	                        }
+	                        renderSelectionMoveMenu();
+	                        setSelectionMoveMenu(!state.selectionMoveMenuOpen);
+	                    });
+	                }
+	                if (selectionMoveMenu) {
+	                    selectionMoveMenu.addEventListener('click', (event) => {
+	                        const closeBtn = event.target.closest('[data-vault-selection-move-close]');
+	                        if (closeBtn) {
+	                            event.preventDefault();
+	                            setSelectionMoveMenu(false);
+	                            return;
+	                        }
+	                        const choice = event.target.closest('[data-vault-selection-move-folder]');
+	                        if (!choice) return;
+	                        event.preventDefault();
+	                        moveSelectedVaultFiles(choice.getAttribute('data-vault-selection-move-folder') || '', choice);
+	                    });
+	                }
 	                if (selectionAddExisting) {
 	                    selectionAddExisting.addEventListener('click', (event) => {
 	                        event.preventDefault();
+	                        setSelectionMoveMenu(false);
+	                        setSelectionDeleteConfirm(false);
 	                        renderSelectionDigestionMenu();
 	                        setSelectionDigestionMenu(!state.selectionDigestionMenuOpen);
 	                    });
@@ -7930,6 +8204,26 @@
 	                        if (!choice) return;
 	                        event.preventDefault();
 	                        addSelectionToExistingDigestion(choice.getAttribute('data-vault-selection-add-digestion') || '', choice);
+	                    });
+	                }
+	                if (selectionDelete) {
+	                    selectionDelete.addEventListener('click', (event) => {
+	                        event.preventDefault();
+	                        setSelectionMoveMenu(false);
+	                        setSelectionDigestionMenu(false);
+	                        setSelectionDeleteConfirm(!state.selectionDeleteConfirmOpen);
+	                    });
+	                }
+	                if (selectionDeleteCancel) {
+	                    selectionDeleteCancel.addEventListener('click', (event) => {
+	                        event.preventDefault();
+	                        setSelectionDeleteConfirm(false);
+	                    });
+	                }
+	                if (selectionDeleteYes) {
+	                    selectionDeleteYes.addEventListener('click', (event) => {
+	                        event.preventDefault();
+	                        deleteSelectedVaultFiles(selectionDeleteYes);
 	                    });
 	                }
 	                if (digestionCreateCancel) {
@@ -8336,14 +8630,22 @@
 	                    const fileShareToggle = event.target.closest('[data-vault-action="share"]');
 	                    const selectionMenu = event.target.closest('#vault-selection-digestion-menu');
 	                    const selectionToggle = event.target.closest('#vault-selection-add-existing');
-	                    if (shareForm || shareToggle || fileShareForm || fileShareToggle || selectionMenu || selectionToggle) return;
+	                    const selectionMoveMenuTarget = event.target.closest('#vault-selection-move-menu');
+	                    const selectionMoveToggle = event.target.closest('#vault-selection-move');
+	                    const selectionDeletePanel = event.target.closest('#vault-selection-delete-confirm');
+	                    const selectionDeleteToggle = event.target.closest('#vault-selection-delete');
+	                    if (shareForm || shareToggle || fileShareForm || fileShareToggle || selectionMenu || selectionToggle || selectionMoveMenuTarget || selectionMoveToggle || selectionDeletePanel || selectionDeleteToggle) return;
 	                    setSelectionDigestionMenu(false);
+	                    setSelectionMoveMenu(false);
+	                    setSelectionDeleteConfirm(false);
 	                    closeOtherDigestionShareResults();
 	                    closeOtherVaultFileShareResults();
 	                });
 	                if (selectionClear) {
 	                    selectionClear.addEventListener('click', () => {
 	                        state.selectedIds.clear();
+	                        setSelectionMoveMenu(false);
+	                        setSelectionDeleteConfirm(false);
 	                        render();
 	                    });
 	                }
@@ -8436,6 +8738,7 @@
 	                }
 	                if (grid) {
                     let draggingFileId = '';
+                    let draggingFileIds = [];
                     let suppressNextCardOpen = false;
                     function clearVaultDropTargets() {
                         page.querySelectorAll('.is-drop-target').forEach(el => el.classList.remove('is-drop-target'));
@@ -8477,6 +8780,9 @@
                         const card = event.target.closest('[data-vault-file-id]');
                         if (!card) return;
                         draggingFileId = card.getAttribute('data-vault-file-id') || '';
+                        draggingFileIds = state.selectedIds.has(draggingFileId)
+                            ? selectedVaultFiles().map(vaultFileId).filter(Boolean)
+                            : [draggingFileId].filter(Boolean);
                         suppressNextCardOpen = false;
                         card.classList.add('is-dragging');
                         card.setAttribute('aria-grabbed', 'true');
@@ -8489,6 +8795,7 @@
                     grid.addEventListener('dragend', () => {
                         const hadDrag = !!draggingFileId;
                         draggingFileId = '';
+                        draggingFileIds = [];
                         page.querySelectorAll('[aria-grabbed="true"]').forEach(el => el.setAttribute('aria-grabbed', 'false'));
                         grid.querySelectorAll('.is-dragging').forEach(el => el.classList.remove('is-dragging'));
                         clearVaultDropTargets();
@@ -8520,7 +8827,11 @@
                         const folderId = target.getAttribute('data-vault-folder-drop') || '';
                         clearVaultDropTargets();
                         try {
-                            await moveVaultFileToFolder(draggingFileId, folderId);
+                            if (draggingFileIds.length > 1 && state.selectedIds.has(draggingFileId)) {
+                                await moveSelectedVaultFiles(folderId);
+                            } else {
+                                await moveVaultFileToFolder(draggingFileId, folderId);
+                            }
                         } catch (error) {
                             if (typeof showAlert === 'function') showAlert(error.error || 'Could not move file.', 'warning');
                         }
@@ -8551,6 +8862,7 @@
                                         method: 'PATCH',
                                         body: JSON.stringify({ name: nextName.trim() })
                                     });
+                                    state.allFoldersLoadedAt = 0;
                                     if (typeof showAlert === 'function') showAlert('Folder renamed.', 'success');
                                     await loadFiles({ append: false });
                                 } catch (error) {
@@ -8561,6 +8873,7 @@
                                 if (!ok) return;
                                 try {
                                     await apiCall(folderEndpoint(folderId), { method: 'DELETE' });
+                                    state.allFoldersLoadedAt = 0;
                                     if (typeof showAlert === 'function') showAlert('Folder deleted.', 'success');
                                     await loadFiles({ append: false });
                                 } catch (error) {
