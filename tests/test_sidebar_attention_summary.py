@@ -379,6 +379,25 @@ class TestSidebarAttentionSummary(unittest.TestCase):
         payload = response.get_json() or {}
         self.assertGreater(len(payload.get('items') or []), 12)
 
+    def test_sidebar_attention_snapshot_uses_short_cursor_cache_until_forced(self) -> None:
+        first = self.client.get('/ajax/sidebar_attention_snapshot')
+        self.assertEqual(first.status_code, 200)
+        first_payload = first.get_json() or {}
+        self.assertEqual(first_payload.get('summary', {}).get('feed'), 4)
+
+        self.feed_manager.unread_count = 9
+        cached = self.client.get('/ajax/sidebar_attention_snapshot')
+        self.assertEqual(cached.status_code, 200)
+        cached_payload = cached.get_json() or {}
+        self.assertTrue(cached_payload.get('cached'))
+        self.assertEqual(cached_payload.get('summary', {}).get('feed'), 4)
+
+        forced = self.client.get('/ajax/sidebar_attention_snapshot?force=1')
+        self.assertEqual(forced.status_code, 200)
+        forced_payload = forced.get_json() or {}
+        self.assertFalse(forced_payload.get('cached', False))
+        self.assertEqual(forced_payload.get('summary', {}).get('feed'), 9)
+
     def test_sidebar_attention_snapshot_links_group_dm_events_to_group_thread(self) -> None:
         self.workspace_events.emit_event(
             event_type=EVENT_DM_MESSAGE_CREATED,

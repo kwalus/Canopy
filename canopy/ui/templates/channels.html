@@ -16403,9 +16403,11 @@ async function enrichAgentRunCapsule(capsule, payload) {
             'provider_bad_response',
             'capsule_summary_failed',
         ].includes(reason)) {
-            channelAgentRunCapsuleLlmUnavailableUntil = Date.now() + (
-                (reason === 'llm_disabled' || reason === 'missing_api_key') ? 5 * 60 * 1000 : 90 * 1000
-            );
+            const serverCooldownSeconds = Math.max(0, Number(data.cooldown_remaining_seconds || 0) || 0);
+            const fallbackCooldownMs = (reason === 'llm_disabled' || reason === 'missing_api_key') ? 5 * 60 * 1000 : 90 * 1000;
+            channelAgentRunCapsuleLlmUnavailableUntil = Date.now() + (serverCooldownSeconds > 0
+                ? Math.min(serverCooldownSeconds * 1000, 15 * 60 * 1000)
+                : fallbackCooldownMs);
         }
         markAgentRunCapsuleEnrichmentUnavailable(capsule, 'unavailable');
         return;

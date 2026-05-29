@@ -34,6 +34,7 @@ from canopy.core.canopy_ai import (
     CANOPY_LLM_TRANSFORMATION_GUIDE,
     DEFAULT_BEDROCK_LLM_MODEL,
     DEFAULT_CANOPY_LLM_SYSTEM_PROMPT,
+    CanopyLLMError,
     CanopyLLMManager,
 )
 from canopy.ui.routes import create_ui_blueprint
@@ -1329,6 +1330,40 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
         self.assertEqual(payload.get('credential_source'), 'instance')
         self.assertEqual(self.llm_manager.capsule_calls[0]['channel_name'], 'general')
         self.assertEqual(self.llm_manager.capsule_calls[0]['capsule_payload']['channel_id'], 'general')
+
+    def test_capsule_summary_provider_failure_sets_user_scoped_fast_fallback(self) -> None:
+        csrf = self._login()
+        calls = {'count': 0}
+
+        def _fail_capsule_summary(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            calls['count'] += 1
+            raise CanopyLLMError('Could not reach OpenAI: timed out', status_code=502, reason='provider_unreachable')
+
+        self.llm_manager.summarize_capsule = _fail_capsule_summary  # type: ignore[method-assign]
+        payload = {
+            'channel_id': 'general',
+            'capsule': {
+                'capsule_id': 'M1-agent-run-0',
+                'source_hash': 'client-hash',
+                'deterministic': {'title': 'Source work run', 'overview': 'Fallback overview'},
+                'messages': [{'id': 'M1', 'author': 'Gene', 'text': 'Uploaded a file.'}],
+            },
+        }
+
+        first = self.client.post('/ajax/canopy_llm/capsule_summary', json=payload, headers={'X-CSRFToken': csrf})
+        self.assertEqual(first.status_code, 200)
+        first_payload = first.get_json() or {}
+        self.assertFalse(first_payload.get('success'))
+        self.assertTrue(first_payload.get('fallback'))
+        self.assertEqual(first_payload.get('reason'), 'provider_unreachable')
+
+        second = self.client.post('/ajax/canopy_llm/capsule_summary', json=payload, headers={'X-CSRFToken': csrf})
+        self.assertEqual(second.status_code, 200)
+        second_payload = second.get_json() or {}
+        self.assertFalse(second_payload.get('success'))
+        self.assertTrue(second_payload.get('fallback'))
+        self.assertEqual(second_payload.get('reason'), 'provider_cooldown')
+        self.assertEqual(calls['count'], 1)
 
     def test_expand_stream_endpoint_returns_sse_draft_events(self) -> None:
         csrf = self._login()
