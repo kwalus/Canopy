@@ -8410,6 +8410,44 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Vault save attachment error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
+    @ui.route('/ajax/vault/folders', methods=['GET'])
+    @require_login
+    def ajax_vault_list_folders():
+        """List current-user logical Vault folders for picker and bulk move UI."""
+        try:
+            _, _, _, _, _, file_manager, _, _, _, _, _ = _get_app_components_any(current_app)
+            user_id = get_current_user()
+            if not file_manager:
+                return jsonify({'success': False, 'error': 'File manager unavailable'}), 503
+            parent_id = str(request.args.get('parent_id') or request.args.get('folder_id') or '').strip()
+            if parent_id and not file_manager.get_user_folder(user_id, parent_id):
+                return jsonify({'success': False, 'error': 'Folder not found'}), 404
+            if str(request.args.get('all') or '').lower() in {'1', 'true', 'yes'}:
+                folders: list[dict[str, Any]] = []
+
+                def walk(folder_parent_id: str, prefix: str, depth: int) -> None:
+                    if len(folders) >= 500:
+                        return
+                    for folder in file_manager.list_user_folders(user_id, folder_parent_id):
+                        entry = _vault_folder_to_entry(folder)
+                        name = str(entry.get('name') or 'Folder')
+                        path_label = f"{prefix}{name}" if prefix else name
+                        entry['depth'] = depth
+                        entry['path_label'] = path_label
+                        folders.append(entry)
+                        walk(str(entry.get('id') or ''), f"{path_label} / ", depth + 1)
+
+                walk(parent_id, '', 0)
+            else:
+                folders = [
+                    _vault_folder_to_entry(folder)
+                    for folder in file_manager.list_user_folders(user_id, parent_id)
+                ]
+            return jsonify({'success': True, 'folders': folders, 'parent_id': parent_id})
+        except Exception as e:
+            logger.error(f"Vault folder list error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Internal server error'}), 500
+
     @ui.route('/ajax/vault/folders', methods=['POST'])
     @require_login
     def ajax_vault_create_folder():

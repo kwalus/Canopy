@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.290] - 2026-05-29
+
+### Added
+- **Vault cleanup bar now supports bulk move and bulk delete** - selected File Vault files can be moved to any folder in the user’s Vault tree or deleted through an inline confirmation flow that preserves the existing backend safeguards for referenced files.
+- **Vault folder tree can be loaded for cleanup actions** - the logged-in UI now exposes a folder-tree listing endpoint so bulk move menus can target nested folders without requiring users to manually drag files one at a time.
+
 ## [0.6.289] - 2026-05-29
 
 ### Fixed
