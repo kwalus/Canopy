@@ -273,6 +273,9 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn("function refreshMessages() {", body)
         self.assertIn("if (isDmSearchActive()) {", body)
         self.assertIn("loadDmSnapshot({ forceBottom: false, allowDeferred: false, hardFallback: true }).catch(() => {});", body)
+        self.assertIn("function scrollThreadToBottom(options)", body)
+        self.assertIn("scrollThreadToBottom({ stabilize: !!opts.forceBottom });", body)
+        self.assertIn("scrollThreadToBottom({ stabilize: true });", body)
         self.assertIn("setKnownSnapshotToken(url, 'known_sidebar_token', dmLastSidebarToken);", body)
         self.assertIn("setKnownSnapshotToken(url, 'known_thread_token', dmLastThreadToken);", body)
         self.assertIn('/ajax/mention_suggestions?', body)
@@ -514,6 +517,9 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         pattern = re.compile(
             r"function applyInlineDmMessageEdit\(messageId, content, editedAt\)\s*\{.*?"
             r"textEl\.textContent = content \|\| '';\s*"
+            r"\['data-dm-rich-source', 'data-dm-rich-processed', 'data-canopy-rich-source', 'data-canopy-rich-rendered'\]\.forEach\(attr => \{\s*"
+            r"textEl\.removeAttribute\(attr\);\s*"
+            r"\}\);\s*"
             r"applyDmRichContentInScope\(msgEl\);",
             re.S,
         )

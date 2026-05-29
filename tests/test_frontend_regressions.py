@@ -1187,9 +1187,12 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('function showDeckInboxRecipients(actionEl)', main_js)
         self.assertIn("recipientApi.show(recipients, { title: 'Group recipients' });", main_js)
         self.assertIn('function setDeckInboxRefreshing(isRefreshing)', main_js)
+        self.assertIn('function scrollDeckInboxThreadToBottom(options = {})', main_js)
         self.assertIn('const preserveLayout = !!options.preserveLayout', main_js)
         self.assertIn('nextOptions.preserveLayout = true;', main_js)
         self.assertIn('nextOptions.preserveComposerExpanded = preserveComposerExpanded;', main_js)
+        self.assertIn('nextOptions.forceBottom = true;', main_js)
+        self.assertIn('nextOptions.stabilizeBottom = true;', main_js)
         self.assertIn("root.classList.contains('composer-expanded')", main_js)
         self.assertIn('setDeckInboxRefreshing(false);', main_js)
 
