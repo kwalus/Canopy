@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from datetime import datetime
 from typing import Any, Iterator, Optional
@@ -24,6 +25,10 @@ from urllib.request import Request, urlopen
 from cryptography.fernet import Fernet, InvalidToken
 
 logger = logging.getLogger(__name__)
+
+_PROVIDER_CIRCUIT_DEFAULT_FAILURE_THRESHOLD = 3
+_PROVIDER_CIRCUIT_DEFAULT_WINDOW_SECONDS = 120.0
+_PROVIDER_CIRCUIT_DEFAULT_COOLDOWN_SECONDS = 45.0
 
 
 DEFAULT_CANOPY_LLM_MODEL = os.getenv('CANOPY_LLM_DEFAULT_MODEL', 'gpt-5-mini').strip() or 'gpt-5-mini'
@@ -214,6 +219,8 @@ class CanopyLLMManager:
         self.secret_key = self._normalize_secret(secret_key)
         self._fernet: Optional[Fernet] = None
         self._schema_ready = False
+        self._provider_circuit_lock = threading.RLock()
+        self._provider_circuit: dict[str, dict[str, Any]] = {}
         self._ensure_schema()
 
     @staticmethod
@@ -2477,6 +2484,7 @@ class CanopyLLMManager:
                 credentials=credentials,
             )
         request = Request(url, data=body, method='POST', headers=headers)
+        self._provider_circuit_check('bedrock', url)
         try:
             with urlopen(request, timeout=timeout) as response:
                 raw_bytes = response.read(_MAX_LLM_RESPONSE_BYTES + 1)
@@ -2487,11 +2495,13 @@ class CanopyLLMManager:
                         reason='provider_response_too_large',
                     )
                 raw = raw_bytes.decode('utf-8')
+            self._provider_circuit_record_success('bedrock', url)
         except HTTPError as exc:
             message = self._extract_bedrock_error(exc)
             logger.warning('AWS Bedrock compose request failed with HTTP %s: %s', exc.code, message)
             raise CanopyLLMError(message, status_code=502, reason='provider_http_error') from exc
         except (URLError, TimeoutError) as exc:
+            self._provider_circuit_record_failure('bedrock', url, exc)
             logger.warning('AWS Bedrock compose request failed: %s', exc)
             raise CanopyLLMError(f'Could not reach AWS Bedrock: {exc}', status_code=502, reason='provider_unreachable') from exc
 
@@ -2911,6 +2921,7 @@ class CanopyLLMManager:
         return self._read_openai_json(request, timeout=timeout)
 
     def _read_openai_json(self, request: Request, *, timeout: float) -> dict[str, Any]:
+        self._provider_circuit_check('openai', request.full_url)
         try:
             with urlopen(request, timeout=timeout) as response:
                 raw_bytes = response.read(_MAX_LLM_RESPONSE_BYTES + 1)
@@ -2921,11 +2932,13 @@ class CanopyLLMManager:
                         reason='provider_response_too_large',
                     )
                 raw = raw_bytes.decode('utf-8')
+            self._provider_circuit_record_success('openai', request.full_url)
         except HTTPError as exc:
             message = self._extract_openai_error(exc)
             logger.warning('OpenAI compose request failed with HTTP %s: %s', exc.code, message)
             raise CanopyLLMError(message, status_code=502, reason='provider_http_error') from exc
         except (URLError, TimeoutError) as exc:
+            self._provider_circuit_record_failure('openai', request.full_url, exc)
             logger.warning('OpenAI compose request failed: %s', exc)
             raise CanopyLLMError(f'Could not reach OpenAI: {exc}', status_code=502, reason='provider_unreachable') from exc
 
@@ -2936,6 +2949,7 @@ class CanopyLLMManager:
         return data if isinstance(data, dict) else {}
 
     def _read_openai_sse(self, request: Request, *, timeout: float) -> Iterator[dict[str, Any]]:
+        self._provider_circuit_check('openai', request.full_url)
         try:
             with urlopen(request, timeout=timeout) as response:
                 event_name = ''
@@ -2982,11 +2996,13 @@ class CanopyLLMManager:
                         event_name = line.split(':', 1)[1].strip()
                     elif line.startswith('data:'):
                         data_lines.append(line.split(':', 1)[1].lstrip())
+            self._provider_circuit_record_success('openai', request.full_url)
         except HTTPError as exc:
             message = self._extract_openai_error(exc)
             logger.warning('OpenAI compose stream failed with HTTP %s: %s', exc.code, message)
             raise CanopyLLMError(message, status_code=502, reason='provider_http_error') from exc
         except (URLError, TimeoutError) as exc:
+            self._provider_circuit_record_failure('openai', request.full_url, exc)
             logger.warning('OpenAI compose stream failed: %s', exc)
             raise CanopyLLMError(f'Could not reach OpenAI: {exc}', status_code=502, reason='provider_unreachable') from exc
 
@@ -3116,6 +3132,112 @@ class CanopyLLMManager:
         if data.get('id'):
             summary += '; id=present'
         return summary[:500]
+
+    def _provider_circuit_key(self, provider: str, url: Any) -> str:
+        provider_name = str(provider or 'provider').strip().lower() or 'provider'
+        try:
+            parsed = urlparse(str(url or ''))
+            host = (parsed.netloc or parsed.path or provider_name).lower()
+        except Exception:
+            host = provider_name
+        return f'{provider_name}:{host}'
+
+    def _provider_circuit_params(self) -> tuple[int, float, float]:
+        threshold = self._bounded_int_env(
+            'CANOPY_LLM_PROVIDER_FAILURE_THRESHOLD',
+            default=_PROVIDER_CIRCUIT_DEFAULT_FAILURE_THRESHOLD,
+            minimum=0,
+            maximum=20,
+        )
+        window = self._bounded_float_env(
+            'CANOPY_LLM_PROVIDER_FAILURE_WINDOW_SECONDS',
+            default=_PROVIDER_CIRCUIT_DEFAULT_WINDOW_SECONDS,
+            minimum=10.0,
+            maximum=900.0,
+        )
+        cooldown = self._bounded_float_env(
+            'CANOPY_LLM_PROVIDER_COOLDOWN_SECONDS',
+            default=_PROVIDER_CIRCUIT_DEFAULT_COOLDOWN_SECONDS,
+            minimum=5.0,
+            maximum=600.0,
+        )
+        return threshold, window, cooldown
+
+    def _provider_circuit_check(self, provider: str, url: Any) -> None:
+        threshold, _, _ = self._provider_circuit_params()
+        if threshold <= 0:
+            return
+        key = self._provider_circuit_key(provider, url)
+        now = time.monotonic()
+        with self._provider_circuit_lock:
+            state = self._provider_circuit.get(key) or {}
+            cooldown_until = float(state.get('cooldown_until') or 0.0)
+            if cooldown_until <= now:
+                return
+            remaining = max(1, int(cooldown_until - now))
+        label = 'OpenAI' if str(provider).lower() == 'openai' else 'AWS Bedrock'
+        raise CanopyLLMError(
+            f'{label} is temporarily cooling down after repeated connection timeouts. Try again in about {remaining}s.',
+            status_code=503,
+            reason='provider_cooldown',
+        )
+
+    def _provider_circuit_record_success(self, provider: str, url: Any) -> None:
+        key = self._provider_circuit_key(provider, url)
+        with self._provider_circuit_lock:
+            self._provider_circuit.pop(key, None)
+
+    def _provider_circuit_record_failure(self, provider: str, url: Any, exc: Exception) -> None:
+        threshold, window, cooldown = self._provider_circuit_params()
+        if threshold <= 0:
+            return
+        key = self._provider_circuit_key(provider, url)
+        now = time.monotonic()
+        cutoff = now - window
+        with self._provider_circuit_lock:
+            state = self._provider_circuit.setdefault(key, {})
+            failures = [
+                float(item)
+                for item in (state.get('failures') or [])
+                if isinstance(item, (int, float)) and float(item) >= cutoff
+            ]
+            failures.append(now)
+            state['failures'] = failures[-threshold:]
+            if len(failures) >= threshold:
+                state['cooldown_until'] = now + cooldown
+                logger.warning(
+                    'LLM provider cooldown active for %s after %s connection failures in %.0fs: %s',
+                    key,
+                    len(failures),
+                    window,
+                    exc,
+                )
+
+    def get_provider_circuit_diagnostics(self) -> dict[str, Any]:
+        """Return non-secret provider cooldown state for admin diagnostics."""
+        threshold, window, cooldown = self._provider_circuit_params()
+        now = time.monotonic()
+        rows: list[dict[str, Any]] = []
+        with self._provider_circuit_lock:
+            for key, state in sorted(self._provider_circuit.items()):
+                failures = [
+                    float(item)
+                    for item in (state.get('failures') or [])
+                    if isinstance(item, (int, float))
+                ]
+                cooldown_until = float(state.get('cooldown_until') or 0.0)
+                rows.append({
+                    'provider_endpoint': key,
+                    'recent_failure_count': len([item for item in failures if item >= now - window]),
+                    'cooldown_remaining_seconds': max(0, int(cooldown_until - now)) if cooldown_until > now else 0,
+                })
+        return {
+            'available': True,
+            'failure_threshold': threshold,
+            'window_seconds': window,
+            'cooldown_seconds': cooldown,
+            'states': rows,
+        }
 
     @staticmethod
     def _bounded_int_env(name: str, *, default: int, minimum: int, maximum: int) -> int:

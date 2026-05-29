@@ -799,6 +799,42 @@ class TestCanopyLLMManager(unittest.TestCase):
         self.assertNotIn('tool_choice', captured['payload'])
         self.assertEqual(captured['payload']['max_output_tokens'], 2600)
 
+    def test_openai_repeated_timeouts_trigger_short_cooldown(self) -> None:
+        manager = CanopyLLMManager(self.db, 'test-secret')
+        calls = {'count': 0}
+
+        def _timeout(*args: Any, **kwargs: Any) -> None:
+            calls['count'] += 1
+            raise TimeoutError('The read operation timed out')
+
+        env = {
+            'CANOPY_LLM_PROVIDER_FAILURE_THRESHOLD': '2',
+            'CANOPY_LLM_PROVIDER_FAILURE_WINDOW_SECONDS': '60',
+            'CANOPY_LLM_PROVIDER_COOLDOWN_SECONDS': '30',
+        }
+        with patch.dict(os.environ, env, clear=False):
+            with patch('canopy.core.canopy_ai.urlopen', side_effect=_timeout):
+                for _ in range(2):
+                    with self.assertRaises(Exception) as ctx:
+                        manager._call_openai(
+                            api_key='sk-test',
+                            model='gpt-5-mini',
+                            system_prompt='Compose.',
+                            prompt='Draft.',
+                        )
+                    self.assertEqual(getattr(ctx.exception, 'reason', ''), 'provider_unreachable')
+
+                with self.assertRaises(Exception) as ctx:
+                    manager._call_openai(
+                        api_key='sk-test',
+                        model='gpt-5-mini',
+                        system_prompt='Compose.',
+                        prompt='Draft.',
+                    )
+
+        self.assertEqual(getattr(ctx.exception, 'reason', ''), 'provider_cooldown')
+        self.assertEqual(calls['count'], 2)
+
     def test_bedrock_bearer_token_payload_uses_converse_api_without_sigv4(self) -> None:
         manager = CanopyLLMManager(self.db, 'test-secret')
         captured: dict[str, Any] = {}

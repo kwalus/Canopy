@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.278] - 2026-05-29
+
+### Added
+- **LLM provider health now appears in diagnostics** - the admin Support Diagnostics Bundle reports non-secret provider cooldown state when the Canopy LLM manager has been initialized.
+
+### Changed
+- **Repeated LLM provider timeouts now fail fast for a short cooldown window** - OpenAI and Bedrock compose calls use a small in-memory circuit breaker after repeated connection failures, preventing provider outages from repeatedly tying up HTTP workers.
+- **Capsule summaries keep deterministic fallback during provider cooldowns** - LLM capsule enrichment remains best-effort, so channels stay responsive even if the configured provider is temporarily unreachable.
+
 ## [0.6.277] - 2026-05-29
 
 ### Added

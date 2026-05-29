@@ -24717,6 +24717,15 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as exc:
             return {'available': True, 'error': str(exc)}
 
+    def _diagnostics_llm_snapshot() -> dict[str, Any]:
+        manager = current_app.config.get('CANOPY_LLM_MANAGER')
+        if not manager or not hasattr(manager, 'get_provider_circuit_diagnostics'):
+            return {'available': False, 'reason': 'Canopy LLM manager has not been initialized in this process.'}
+        try:
+            return dict(manager.get_provider_circuit_diagnostics() or {})
+        except Exception as exc:
+            return {'available': True, 'error': str(exc)}
+
     def _build_admin_diagnostics_bundle() -> str:
         db_manager, _, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
         sections: list[tuple[str, str]] = []
@@ -24734,6 +24743,7 @@ def create_ui_blueprint() -> Blueprint:
         sections.append(('Mesh', _diagnostics_json(_diagnostics_mesh_snapshot(p2p_manager))))
         sections.append(('Workspace Events', _diagnostics_json(_diagnostics_workspace_event_snapshot())))
         sections.append(('Request Metrics', _diagnostics_json(_diagnostics_request_metrics_snapshot())))
+        sections.append(('LLM Provider Health', _diagnostics_json(_diagnostics_llm_snapshot())))
 
         log_paths = _diagnostics_known_log_paths(config, db_manager)
         if log_paths:
@@ -25516,6 +25526,7 @@ def create_ui_blueprint() -> Blueprint:
             if e.reason in {
                 'llm_disabled',
                 'missing_api_key',
+                'provider_cooldown',
                 'provider_unreachable',
                 'provider_http_error',
                 'provider_response_error',

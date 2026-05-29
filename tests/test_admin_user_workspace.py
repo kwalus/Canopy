@@ -893,6 +893,7 @@ class TestAdminUserWorkspace(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn('Canopy admin diagnostics bundle', body)
         self.assertIn('Request Metrics', body)
+        self.assertIn('LLM Provider Health', body)
         self.assertIn('Log Tail: errors.log', body)
         self.assertIn('password=<redacted>', body)
         self.assertIn('Authorization: <redacted>', body)
