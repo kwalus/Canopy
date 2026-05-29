@@ -130,7 +130,9 @@ _ADMIN_DIAGNOSTICS_TAIL_BYTES: int = 192 * 1024
 _ADMIN_DIAGNOSTICS_MAX_LOGS: int = 8
 _ADMIN_DIAGNOSTICS_MAX_BUNDLE_CHARS: int = 1_500_000
 _SIDEBAR_ATTENTION_SNAPSHOT_TTL_SECONDS: float = 1.25
-_CAPSULE_SUMMARY_FAILURE_COOLDOWN_SECONDS: float = 120.0
+_CAPSULE_SUMMARY_FAILURE_COOLDOWN_SECONDS: float = 300.0
+_CAPSULE_SUMMARY_FAILURE_MAX_COOLDOWN_SECONDS: float = 900.0
+_CAPSULE_SUMMARY_FAILURE_WINDOW_SECONDS: float = 900.0
 
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
@@ -152,32 +154,79 @@ def _get_capsule_summary_cooldown(user_id: str) -> float:
         return 0.0
     try:
         cooldowns = current_app.config.setdefault('CAPSULE_SUMMARY_LLM_COOLDOWN_BY_USER', {})
-        until = float((cooldowns or {}).get(clean_user_id) or 0.0)
+        entry = (cooldowns or {}).get(clean_user_id) or 0.0
+        if isinstance(entry, dict):
+            until = float(entry.get('until') or 0.0)
+        else:
+            until = float(entry or 0.0)
     except Exception:
         return 0.0
     remaining = until - time.monotonic()
     return remaining if remaining > 0 else 0.0
 
 
-def _set_capsule_summary_cooldown(user_id: str) -> None:
+def _set_capsule_summary_cooldown(user_id: str) -> float:
     """Cool down low-priority capsule enrichment after provider trouble.
 
     Capsule LLM enrichment is cosmetic and optional. A short user-scoped
-    cooldown prevents repeated provider timeouts from tying up request workers
-    while preserving deterministic capsule rendering.
+    cooldown prevents repeated provider timeouts from tying up request workers.
+    The cooldown ramps up while the same viewer keeps hitting provider trouble,
+    because deterministic capsule rendering remains available without the LLM.
     """
     clean_user_id = str(user_id or '').strip()
     if not clean_user_id:
-        return
-    duration = _env_float(
+        return 0.0
+    base_duration = _env_float(
         'CANOPY_CAPSULE_LLM_FAILURE_COOLDOWN_SECONDS',
         default=_CAPSULE_SUMMARY_FAILURE_COOLDOWN_SECONDS,
         minimum=15.0,
         maximum=900.0,
     )
+    max_duration = _env_float(
+        'CANOPY_CAPSULE_LLM_FAILURE_MAX_COOLDOWN_SECONDS',
+        default=_CAPSULE_SUMMARY_FAILURE_MAX_COOLDOWN_SECONDS,
+        minimum=base_duration,
+        maximum=3600.0,
+    )
+    failure_window = _env_float(
+        'CANOPY_CAPSULE_LLM_FAILURE_WINDOW_SECONDS',
+        default=_CAPSULE_SUMMARY_FAILURE_WINDOW_SECONDS,
+        minimum=60.0,
+        maximum=3600.0,
+    )
+    now = time.monotonic()
+    duration = base_duration
     try:
         cooldowns = current_app.config.setdefault('CAPSULE_SUMMARY_LLM_COOLDOWN_BY_USER', {})
-        cooldowns[clean_user_id] = time.monotonic() + duration
+        previous = cooldowns.get(clean_user_id) or {}
+        previous_count = 0
+        previous_at = 0.0
+        if isinstance(previous, dict):
+            previous_count = int(previous.get('failure_count') or 0)
+            previous_at = float(previous.get('last_failure_at') or 0.0)
+        if previous_count > 0 and previous_at >= now - failure_window:
+            failure_count = min(previous_count + 1, 6)
+        else:
+            failure_count = 1
+        duration = min(max_duration, base_duration * (2 ** max(0, failure_count - 1)))
+        cooldowns[clean_user_id] = {
+            'until': now + duration,
+            'failure_count': failure_count,
+            'last_failure_at': now,
+        }
+    except Exception:
+        return 0.0
+    return duration
+
+
+def _clear_capsule_summary_cooldown(user_id: str) -> None:
+    """Clear cosmetic capsule LLM cooldown state after a successful enrichment."""
+    clean_user_id = str(user_id or '').strip()
+    if not clean_user_id:
+        return
+    try:
+        cooldowns = current_app.config.setdefault('CAPSULE_SUMMARY_LLM_COOLDOWN_BY_USER', {})
+        cooldowns.pop(clean_user_id, None)
     except Exception:
         pass
 
@@ -25718,6 +25767,7 @@ def create_ui_blueprint() -> Blueprint:
                 channel_name=channel_name,
                 context_label='Channel capsule',
             )
+            _clear_capsule_summary_cooldown(user_id)
             return jsonify({
                 'success': True,
                 'summary': result.get('summary') or {},
@@ -25738,6 +25788,8 @@ def create_ui_blueprint() -> Blueprint:
                 'provider_empty_response',
                 'provider_response_too_large',
                 'provider_bad_response',
+                'empty_llm_output',
+                'invalid_capsule_summary',
             }:
                 _set_capsule_summary_cooldown(get_current_user())
             if e.reason in {
@@ -25753,11 +25805,22 @@ def create_ui_blueprint() -> Blueprint:
                 'empty_llm_output',
                 'invalid_capsule_summary',
             }:
-                return jsonify({'success': False, 'fallback': True, 'reason': e.reason, 'error': str(e)}), 200
+                cooldown_remaining = _get_capsule_summary_cooldown(get_current_user())
+                payload = {'success': False, 'fallback': True, 'reason': e.reason, 'error': str(e)}
+                if cooldown_remaining > 0:
+                    payload['cooldown_remaining_seconds'] = int(max(1, cooldown_remaining))
+                return jsonify(payload), 200
             return jsonify({'error': str(e), 'reason': e.reason}), e.status_code
         except Exception as e:
+            _set_capsule_summary_cooldown(get_current_user())
             logger.error("Canopy LLM capsule summary error: %s", e, exc_info=True)
-            return jsonify({'success': False, 'fallback': True, 'reason': 'capsule_summary_failed'}), 200
+            cooldown_remaining = _get_capsule_summary_cooldown(get_current_user())
+            return jsonify({
+                'success': False,
+                'fallback': True,
+                'reason': 'capsule_summary_failed',
+                'cooldown_remaining_seconds': int(max(1, cooldown_remaining)) if cooldown_remaining > 0 else 0,
+            }), 200
 
     @ui.route('/ajax/canopy_llm/expand_stream', methods=['POST'])
     @require_login

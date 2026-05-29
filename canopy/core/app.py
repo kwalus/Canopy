@@ -8676,6 +8676,9 @@ def _install_rate_limiting(app: Flask) -> None:
             return  # Other UI pages are not rate-limited
 
         if not limiter.allow(key):
+            retry_after_seconds = max(1, int((1.0 / max(float(getattr(limiter, 'rate', 1.0) or 1.0), 0.1)) + 0.999))
+            g.rate_limit_limiter = limiter_name
+            g.rate_limit_retry_after_seconds = retry_after_seconds
             caller_fingerprint = 'unknown'
             recorder = app.config.get('REQUEST_METRICS_RECORDER')
             if recorder and hasattr(recorder, 'record_rate_limit'):
@@ -8735,10 +8738,30 @@ def register_error_handlers(app: Flask) -> None:
     
     @app.errorhandler(429)
     def rate_limit_exceeded(error):
-        retry_after = str(int(float(os.getenv('CANOPY_RETRY_AFTER_SECONDS', '1') or '1')))
-        response = jsonify({'error': 'Rate limit exceeded', 'message': 'Too many requests'})
+        try:
+            retry_after_seconds = int(float(os.getenv('CANOPY_RETRY_AFTER_SECONDS', '1') or '1'))
+        except Exception:
+            retry_after_seconds = 1
+        try:
+            retry_after_seconds = int(getattr(g, 'rate_limit_retry_after_seconds', retry_after_seconds) or retry_after_seconds)
+        except Exception:
+            retry_after_seconds = 1
+        retry_after_seconds = max(1, retry_after_seconds)
+        limiter_name = str(getattr(g, 'rate_limit_limiter', '') or '').strip()
+        message = 'Too many requests'
+        if limiter_name == 'upload':
+            message = 'Too many upload requests. Wait briefly, then retry the next file or batch.'
+        response_payload = {
+            'error': 'Rate limit exceeded',
+            'message': message,
+            'action_hint': 'retry_after_rate_limit',
+            'retry_after_seconds': retry_after_seconds,
+        }
+        if limiter_name:
+            response_payload['limiter'] = limiter_name
+        response = jsonify(response_payload)
         response.status_code = 429
-        response.headers['Retry-After'] = retry_after
+        response.headers['Retry-After'] = str(retry_after_seconds)
         return response
     
     @app.errorhandler(500)

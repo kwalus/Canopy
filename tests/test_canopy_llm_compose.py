@@ -1365,6 +1365,48 @@ class TestCanopyLLMComposeRoutes(unittest.TestCase):
         self.assertEqual(second_payload.get('reason'), 'provider_cooldown')
         self.assertEqual(calls['count'], 1)
 
+    def test_capsule_summary_provider_failure_cooldown_escalates_after_repeat_timeouts(self) -> None:
+        csrf = self._login()
+        calls = {'count': 0}
+
+        def _fail_capsule_summary(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            calls['count'] += 1
+            raise CanopyLLMError('Could not reach OpenAI: timed out', status_code=502, reason='provider_unreachable')
+
+        self.llm_manager.summarize_capsule = _fail_capsule_summary  # type: ignore[method-assign]
+        payload = {
+            'channel_id': 'general',
+            'capsule': {
+                'capsule_id': 'M1-agent-run-0',
+                'source_hash': 'client-hash',
+                'deterministic': {'title': 'Source work run', 'overview': 'Fallback overview'},
+                'messages': [{'id': 'M1', 'author': 'Gene', 'text': 'Uploaded a file.'}],
+            },
+        }
+
+        env = {
+            'CANOPY_CAPSULE_LLM_FAILURE_COOLDOWN_SECONDS': '15',
+            'CANOPY_CAPSULE_LLM_FAILURE_MAX_COOLDOWN_SECONDS': '120',
+        }
+        with patch.dict(os.environ, env):
+            first = self.client.post('/ajax/canopy_llm/capsule_summary', json=payload, headers={'X-CSRFToken': csrf})
+            first_payload = first.get_json() or {}
+            self.assertEqual(first_payload.get('reason'), 'provider_unreachable')
+            self.assertGreaterEqual(int(first_payload.get('cooldown_remaining_seconds') or 0), 14)
+
+            # Simulate the user returning after the first cooldown expires while
+            # preserving the failure history used for exponential backoff.
+            cooldowns = self.app.config.get('CAPSULE_SUMMARY_LLM_COOLDOWN_BY_USER') or {}
+            cooldowns['user-1']['until'] = 0.0
+
+            second = self.client.post('/ajax/canopy_llm/capsule_summary', json=payload, headers={'X-CSRFToken': csrf})
+            second_payload = second.get_json() or {}
+
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second_payload.get('reason'), 'provider_unreachable')
+        self.assertGreaterEqual(int(second_payload.get('cooldown_remaining_seconds') or 0), 29)
+        self.assertEqual(calls['count'], 2)
+
     def test_expand_stream_endpoint_returns_sse_draft_events(self) -> None:
         csrf = self._login()
 

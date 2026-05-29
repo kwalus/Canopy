@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.291] - 2026-05-29
+
+### Changed
+- **Capsule LLM enrichment backs off after provider trouble** - repeated optional capsule-summary timeouts now trigger progressive user-scoped cooldowns while deterministic capsule cards continue to render immediately.
+- **Rate-limit responses are more actionable** - API/UI 429 responses now include `action_hint`, `retry_after_seconds`, `Retry-After`, and the limiter name so agents and clients can pace retries instead of blindly hammering upload/API endpoints.
+
 ## [0.6.290] - 2026-05-29
 
 ### Added
