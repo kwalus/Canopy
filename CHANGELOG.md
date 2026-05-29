@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.288] - 2026-05-29
+
+### Fixed
+- **Vault file access picker no longer clips in details view** - file sharing user search results now expand inside the access panel, elevate the active file card, and preserve a usable picker across details/list, icon, preview, and mobile Vault modes.
+
 ## [0.6.287] - 2026-05-29
 
 ### Changed

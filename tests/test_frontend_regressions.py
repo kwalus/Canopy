@@ -1968,6 +1968,21 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('Mobile fit polish: make admin controls scan and act without horizontal hunting.', admin_template)
         self.assertIn('.governance-toolbar .d-flex.flex-wrap {\n        overflow-x: auto;', admin_template)
 
+    def test_vault_file_share_picker_is_not_clipped_in_file_views(self) -> None:
+        vault_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'vault.html').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+
+        self.assertIn('.vault-card.is-file-share-open,\n    .vault-card:has(.vault-file-share.is-visible)', vault_template)
+        self.assertIn('overflow: visible;', vault_template)
+        self.assertIn('.vault-card.is-file-share-search-open,\n    .vault-card:has(.vault-file-share-results:not([hidden]))', vault_template)
+        self.assertIn('.vault-file-share-results {\n        position: static;', vault_template)
+        self.assertIn('.vault-grid.view-list .vault-card.is-file-share-open,\n    .vault-grid.view-list .vault-card:has(.vault-file-share.is-visible)', vault_template)
+        self.assertIn('grid-template-rows: auto auto;', vault_template)
+        self.assertIn('.vault-file-share .vault-file-share-results {\n            position: static;', vault_template)
+        self.assertIn("card.classList.toggle('is-file-share-open', willOpen);", main_js)
+        self.assertIn("card.classList.add('is-file-share-search-open');", main_js)
+        self.assertIn("card.classList.remove('is-file-share-search-open');", main_js)
+
     def test_theme_loader_preserves_auto_preference_and_updates_meta_color(self) -> None:
         base_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'base.html').read_text(encoding='utf-8')
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
