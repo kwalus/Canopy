@@ -3116,6 +3116,8 @@ console.log(JSON.stringify({{
         self.assertIn('function scheduleAgentRunCapsuleEnrichments(root)', channels_template)
         self.assertIn('/ajax/canopy_llm/capsule_summary', channels_template)
         self.assertIn('AGENT_RUN_CAPSULE_LLM_TIMEOUT_MS = 8000', channels_template)
+        self.assertIn("provider_unreachable", channels_template)
+        self.assertIn("channelAgentRunCapsuleEnrichmentQueue = [];", channels_template)
         self.assertIn('data-agent-run-capsule-source-hash', channels_template)
         self.assertIn('data-agent-run-capsule-brief-key', channels_template)
         self.assertIn('function focusAgentRunCapsuleSource(capsuleId, messageId)', channels_template)

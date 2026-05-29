@@ -217,6 +217,29 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
 
         self.assertIsNone(self.file_manager.get_thumbnail_data("Flarge"))
 
+    def test_svg_preview_uses_original_without_raster_thumbnail(self) -> None:
+        svg_bytes = (
+            b'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32">'
+            b'<rect width="64" height="32" fill="#16a34a"/></svg>'
+        )
+        info = self.file_manager.save_file(
+            file_data=svg_bytes,
+            original_name="diagram.svg",
+            content_type="image/svg+xml",
+            uploaded_by="user-test",
+        )
+        self.assertIsNotNone(info)
+        assert info is not None
+        original_path = Path(info.file_path)
+        self.assertFalse(self.file_manager._thumb_path_for(original_path).exists())
+
+        thumb = self.file_manager.get_thumbnail_data(info.id)
+        self.assertIsNotNone(thumb)
+        assert thumb is not None
+        thumb_bytes, _, thumb_mimetype = thumb
+        self.assertEqual(thumb_bytes, svg_bytes)
+        self.assertEqual(thumb_mimetype, "image/svg+xml")
+
     def test_user_file_vault_lists_searches_and_counts_owned_files(self) -> None:
         self.conn.execute("INSERT INTO users (id) VALUES (?)", ('other-user',))
         report = self.file_manager.save_file(
