@@ -256,6 +256,7 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         self.message_manager.get_messages.return_value = []
         self.channel_manager = MagicMock()
         self.channel_manager.get_channel_access_decision.return_value = {'allowed': True}
+        self.file_manager = MagicMock()
         self.feed_manager = MagicMock()
 
         components = (
@@ -264,7 +265,7 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
             MagicMock(),                  # trust_manager
             self.message_manager,         # message_manager
             self.channel_manager,         # channel_manager
-            MagicMock(),                  # file_manager
+            self.file_manager,            # file_manager
             self.feed_manager,            # feed_manager
             MagicMock(),                  # interaction_manager
             MagicMock(),                  # profile_manager
@@ -546,6 +547,76 @@ class TestAgentReliabilityEndpoints(unittest.TestCase):
         collab = payload.get('collab_cards') or {}
         self.assertIn('Do not wrap live [input-card]', collab.get('fenced_block_warning') or '')
         self.assertEqual((collab.get('endpoints') or {}).get('advance_source', {}).get('path'), '/api/v1/collab-cards/<card_id>/advance-source')
+
+        files = payload.get('files_and_media') or {}
+        module_rules = files.get('canopy_modules') or {}
+        self.assertIn('.canopy-module.html', module_rules.get('required_filename_suffixes') or [])
+        self.assertEqual(module_rules.get('required_content_type'), 'text/html')
+        self.assertIn('module_bundle_saved_as_text', module_rules.get('server_feedback') or '')
+        self.assertIn('attachment:<MODULE_FILE_ID>', str(module_rules.get('source_layout_example') or {}))
+        self.assertIn('Do not append .txt', ' '.join(module_rules.get('anti_patterns') or []))
+
+    def test_send_channel_message_warns_for_text_wrapped_module_bundle(self) -> None:
+        self.conn.execute(
+            "INSERT INTO channels (id, privacy_mode) VALUES (?, ?)",
+            ('general', 'open'),
+        )
+        self.conn.commit()
+        self.channel_manager.can_user_post_message.return_value = {'allowed': True}
+        self.file_manager.get_file.return_value = types.SimpleNamespace(
+            id='Fmodule',
+            original_name='quiz.canopy-module.html.txt',
+            content_type='text/plain',
+            size=256,
+            uploaded_by='agent-a',
+        )
+        message = types.SimpleNamespace(
+            id='M-module-warning',
+            created_at=datetime.now(timezone.utc),
+            attachments=[{
+                'id': 'Fmodule',
+                'name': 'quiz.canopy-module.html.txt',
+                'type': 'text/plain',
+                'size': 256,
+            }],
+            source_layout=None,
+            source_reference=None,
+            repost_policy=None,
+            expires_at=None,
+            parent_message_id=None,
+        )
+        message.to_dict = lambda: {
+            'id': message.id,
+            'channel_id': 'general',
+            'content': 'Module attempt',
+            'attachments': message.attachments,
+            'source_layout': message.source_layout,
+        }
+        self.channel_manager.send_message.return_value = message
+
+        response = self.client.post(
+            '/api/v1/channels/messages',
+            json={
+                'channel_id': 'general',
+                'content': 'Module attempt',
+                'attachments': [{'id': 'Fmodule'}],
+                'source_layout': {
+                    'version': 1,
+                    'hero': {'ref': 'attachment:'},
+                    'deck': {'default_ref': 'attachment:'},
+                },
+            },
+            headers=self._headers('key-agent-a'),
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json() or {}
+        warnings = payload.get('warnings') or []
+        codes = {warning.get('code') for warning in warnings}
+        self.assertIn('module_bundle_saved_as_text', codes)
+        self.assertIn('empty_attachment_source_ref', codes)
+        _, kwargs = self.channel_manager.send_message.call_args
+        self.assertIsNone(kwargs.get('source_layout'))
 
     def test_source_advance_endpoints_call_underlying_managers(self) -> None:
         self.feed_manager.advance_post.return_value = {

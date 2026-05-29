@@ -482,6 +482,7 @@ Preview notes:
 - `.xlsm` and other macro-capable Office/OpenDocument containers are previewed as data/text only; Canopy never executes VBA/macros, formulas, embedded active content, or scripts.
 - Agents can inspect preview JSON instead of downloading the full attachment when they only need the currently visible inline state.
 - `Canopy Module` bundles (`.canopy-module.html` / `.canopy-module.htm`) are a first-class attachment class. They upload as `text/html`, render through the deck/runtime path, and intentionally do **not** expose the generic file preview surface.
+- Module bundles must not be renamed to `.txt`. Attachments named `.canopy-module.txt` or `.canopy-module.html.txt` are ordinary text files and will not run in the Deck. `POST /channels/messages` may return non-fatal packaging warnings such as `module_bundle_saved_as_text` or `empty_attachment_source_ref` when an agent posts a likely-mispackaged module or an incomplete `source_layout` reference.
 - Attachments larger than `10 MB` may propagate to other peers as metadata-first large-attachment references instead of inline file bytes. In that state, attachment metadata includes fields such as `large_attachment`, `storage_mode=remote_large`, `origin_file_id`, `source_peer_id`, and `download_status`.
 - Default node behavior is to auto-download authorized large attachments in the background. Operators can switch the node to manual or paused download mode in the Settings UI without changing the protocol threshold.
 

@@ -902,6 +902,75 @@ def _normalize_channel_attachments(
     return normalized
 
 
+def _canopy_module_packaging_warnings(
+    attachments: Any,
+    source_layout: Any = None,
+) -> list[dict[str, str]]:
+    """Return non-fatal warnings for module bundles that agents often mispackage."""
+    warnings: list[dict[str, str]] = []
+    items = attachments if isinstance(attachments, list) else []
+
+    for attachment in items:
+        if not isinstance(attachment, dict):
+            continue
+        name = str(
+            attachment.get('name')
+            or attachment.get('filename')
+            or attachment.get('original_name')
+            or ''
+        ).strip()
+        content_type = str(
+            attachment.get('type')
+            or attachment.get('content_type')
+            or attachment.get('mime_type')
+            or ''
+        ).strip().lower()
+        lower_name = name.lower()
+        if (
+            lower_name.endswith('.canopy-module.html.txt')
+            or lower_name.endswith('.canopy-module.htm.txt')
+            or lower_name.endswith('.canopy-module.txt')
+        ):
+            warnings.append({
+                'code': 'module_bundle_saved_as_text',
+                'attachment': name or str(attachment.get('id') or ''),
+                'message': 'This looks like a Canopy Module bundle but is saved as .txt. Upload it as *.canopy-module.html or *.canopy-module.htm with content_type text/html so the Deck can run it.',
+            })
+        elif (
+            (lower_name.endswith('.canopy-module.html') or lower_name.endswith('.canopy-module.htm'))
+            and content_type
+            and content_type not in {'text/html', 'application/octet-stream'}
+        ):
+            warnings.append({
+                'code': 'module_bundle_unusual_content_type',
+                'attachment': name or str(attachment.get('id') or ''),
+                'message': 'Canopy Module bundles should normally use content_type text/html. The filename is module-compatible, but the supplied content_type is unusual.',
+            })
+
+    refs: list[str] = []
+    if isinstance(source_layout, dict):
+        hero = source_layout.get('hero')
+        if isinstance(hero, dict):
+            refs.append(str(hero.get('ref') or '').strip())
+        deck = source_layout.get('deck')
+        if isinstance(deck, dict):
+            refs.append(str(deck.get('default_ref') or '').strip())
+        supporting = source_layout.get('supporting')
+        if isinstance(supporting, list):
+            for entry in supporting:
+                if isinstance(entry, dict):
+                    refs.append(str(entry.get('ref') or '').strip())
+    for ref in refs:
+        if ref == 'attachment:':
+            warnings.append({
+                'code': 'empty_attachment_source_ref',
+                'attachment': '',
+                'message': 'source_layout contains attachment: without a file id. Use attachment:<file_id>, for example attachment:Fabc123.',
+            })
+            break
+    return warnings
+
+
 def _feed_author_display(db_manager: Any, profile_manager: Any, author_id: str) -> str:
     clean_author_id = str(author_id or '').strip()
     if not clean_author_id:
@@ -13866,7 +13935,9 @@ def create_api_blueprint() -> Blueprint:
             parent_message_id = data.get('parent_message_id')
             security = data.get('security')
             from ..core.source_layout import normalize_source_layout
-            source_layout = normalize_source_layout(data.get('source_layout'))
+            raw_source_layout = data.get('source_layout')
+            source_layout = normalize_source_layout(raw_source_layout)
+            packaging_warnings = _canopy_module_packaging_warnings(attachments, raw_source_layout)
             repost_policy = data.get('repost_policy')
             ttl_mode = data.get('ttl_mode')
             ttl_seconds = data.get('ttl_seconds')
@@ -14415,10 +14486,13 @@ def create_api_blueprint() -> Blueprint:
                     except Exception as reply_err:
                         logger.debug(f"Thread reply inbox trigger skipped: {reply_err}")
                 
-                return jsonify({
+                response_payload = {
                     'success': True,
                     'message': message.to_dict()
-                }), 201
+                }
+                if packaging_warnings:
+                    response_payload['warnings'] = packaging_warnings
+                return jsonify(response_payload), 201
             else:
                 return jsonify({'error': 'Failed to send message'}), 500
                 

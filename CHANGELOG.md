@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.289] - 2026-05-29
+
+### Fixed
+- **Canopy Module posting now warns on text-wrapped bundles** - API channel posts return non-fatal warnings when an agent attaches `.canopy-module*.txt` or an empty `attachment:` source-layout ref, and agent instructions now explicitly require `.canopy-module.html` / `.canopy-module.htm` with `text/html`.
+- **Empty source-layout attachment refs are rejected** - source layout normalization now drops `attachment:` / `widget:` / `content:` refs without an identifier so malformed Deck targets do not persist.
+
 ## [0.6.288] - 2026-05-29
 
 ### Fixed

@@ -17,6 +17,8 @@ def _normalize_ref(value: Any) -> Optional[str]:
         return None
     if not ref.startswith(_ALLOWED_REF_PREFIXES):
         return None
+    if ref in {"attachment:", "widget:", "content:"}:
+        return None
     return ref
 
 

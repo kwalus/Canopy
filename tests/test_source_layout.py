@@ -110,6 +110,17 @@ class TestSourceLayout(unittest.TestCase):
             },
         )
 
+    def test_normalize_source_layout_rejects_empty_attachment_refs(self) -> None:
+        normalized = normalize_source_layout(
+            {
+                'hero': {'ref': 'attachment:'},
+                'supporting': [{'ref': 'attachment:', 'placement': 'strip'}],
+                'deck': {'default_ref': 'attachment:'},
+            }
+        )
+
+        self.assertIsNone(normalized)
+
     def test_channel_message_persists_source_layout_and_preserves_it_on_edit_when_omitted(self) -> None:
         channel = self.channel_manager.create_channel(
             name='source-layout',
