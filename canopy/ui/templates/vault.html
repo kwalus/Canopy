@@ -716,6 +716,7 @@
     }
     .vault-digestion-card.is-compact .vault-digestion-progress,
     .vault-digestion-card.is-compact .vault-digestion-options,
+    .vault-digestion-card.is-compact .vault-digestion-merge,
     .vault-digestion-card.is-compact .vault-digestion-rename,
     .vault-digestion-card.is-compact .vault-digestion-delete,
     .vault-digestion-card.is-compact .vault-digestion-contributions,
@@ -929,6 +930,7 @@
         border-color: color-mix(in srgb, var(--canopy-danger, #ef4444) 72%, white);
         background: linear-gradient(135deg, color-mix(in srgb, var(--canopy-danger, #ef4444) 92%, #7f1d1d), color-mix(in srgb, var(--canopy-danger, #ef4444) 76%, #111827));
     }
+    .vault-digestion-merge,
     .vault-digestion-rename {
         display: none;
         gap: 0.62rem;
@@ -941,8 +943,59 @@
             color-mix(in srgb, var(--canopy-bg-card) 90%, transparent);
         min-width: 0;
     }
+    .vault-digestion-merge {
+        border-color: color-mix(in srgb, var(--canopy-primary) 38%, var(--canopy-border));
+        background:
+            radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--canopy-primary) 15%, transparent), transparent 42%),
+            color-mix(in srgb, var(--canopy-bg-card) 90%, transparent);
+    }
+    .vault-digestion-merge.is-visible,
     .vault-digestion-rename.is-visible {
         display: grid;
+    }
+    .vault-digestion-merge-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.7rem;
+        min-width: 0;
+    }
+    .vault-digestion-merge-head strong {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.42rem;
+        color: var(--canopy-text-primary);
+        font-weight: 900;
+    }
+    .vault-digestion-merge-head span {
+        display: block;
+        margin-top: 0.18rem;
+        color: var(--canopy-text-muted);
+        font-size: 0.77rem;
+        line-height: 1.35;
+    }
+    .vault-digestion-merge-grid {
+        display: grid;
+        grid-template-columns: minmax(14rem, 1.6fr) repeat(2, minmax(9rem, 1fr));
+        gap: 0.52rem;
+        align-items: end;
+        min-width: 0;
+    }
+    .vault-digestion-merge-grid > label:first-child {
+        grid-row: span 2;
+    }
+    .vault-digestion-merge-check {
+        min-height: 2.35rem;
+        align-items: center;
+        gap: 0.4rem;
+        margin: 0;
+        padding: 0.45rem 0.55rem;
+        border-radius: 12px;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 75%, transparent);
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 48%, transparent);
+        color: var(--canopy-text-secondary);
+        font-size: 0.78rem;
+        font-weight: 800;
     }
     .vault-digestion-rename label {
         display: grid;
@@ -953,18 +1006,30 @@
         font-size: 0.78rem;
         font-weight: 850;
     }
+    .vault-digestion-merge-grid > label:first-child {
+        display: grid;
+        gap: 0.32rem;
+        margin: 0;
+        min-width: 0;
+        color: var(--canopy-text-primary);
+        font-size: 0.78rem;
+        font-weight: 850;
+    }
+    .vault-digestion-merge .form-select,
     .vault-digestion-rename .form-control {
         border-radius: 12px;
         border-color: var(--canopy-border);
         background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
         color: var(--canopy-text-primary);
     }
+    .vault-digestion-merge-status,
     .vault-digestion-rename-copy,
     .vault-digestion-rename-status {
         color: var(--canopy-text-muted);
         font-size: 0.76rem;
         line-height: 1.32;
     }
+    .vault-digestion-merge-actions,
     .vault-digestion-rename-actions {
         display: flex;
         flex-wrap: wrap;
@@ -1969,6 +2034,7 @@
     }
     .vault-digestion-query .btn,
     .vault-digestion-create .btn,
+    .vault-digestion-merge .btn,
     .vault-digestion-rename .btn,
     .vault-digestion-share .btn,
     .vault-digestion-options .btn {
@@ -3181,6 +3247,7 @@
             .vault-digestion-builder-rights,
             .vault-digestion-builder-access,
             .vault-digestion-contributions-head,
+            .vault-digestion-merge-grid,
 	        .vault-digestion-share-row,
             .vault-file-share-row,
             .vault-digestion-acl-row,
