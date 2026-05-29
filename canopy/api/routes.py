@@ -5539,6 +5539,19 @@ def create_api_blueprint() -> Blueprint:
             has_attachments = isinstance(metadata, dict) and bool(metadata.get('attachments'))
             if not content and not has_attachments:
                 return jsonify({'error': 'Message content or attachments required'}), 400
+
+            max_content_length = int(getattr(message_manager, 'max_message_length', 4096) or 4096)
+            if len(content) > max_content_length:
+                return jsonify({
+                    'error': (
+                        f"DM text is {len(content):,} characters, above the "
+                        f"{max_content_length:,} character inline limit. "
+                        "Send the long text as an attachment and keep the DM body short."
+                    ),
+                    'content_length': len(content),
+                    'max_message_length': max_content_length,
+                    'convert_to_attachment': True,
+                }), 413
             
             try:
                 message_type = MessageType(message_type_str)
@@ -5736,6 +5749,19 @@ def create_api_blueprint() -> Blueprint:
             has_attachments = bool(metadata.get('attachments')) if isinstance(metadata, dict) else False
             if not content and not has_attachments:
                 return jsonify({'error': 'Message content or attachments required'}), 400
+
+            max_content_length = int(getattr(message_manager, 'max_message_length', 4096) or 4096)
+            if len(content) > max_content_length:
+                return jsonify({
+                    'error': (
+                        f"DM reply text is {len(content):,} characters, above the "
+                        f"{max_content_length:,} character inline limit. "
+                        "Send the long text as an attachment and keep the DM reply body short."
+                    ),
+                    'content_length': len(content),
+                    'max_message_length': max_content_length,
+                    'convert_to_attachment': True,
+                }), 413
 
             if group_members:
                 group_id = str(original_meta.get('group_id') or original.recipient_id or '').strip()

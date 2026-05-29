@@ -252,6 +252,9 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
         self.p2p_manager = _FakeP2PManager()
         self.profile_manager = MagicMock()
         self.profile_manager.get_profile.return_value = None
+        self.interaction_manager = MagicMock()
+        self.interaction_manager.get_message_interactions.return_value = {}
+        self.interaction_manager.get_user_has_liked.return_value = None
         self.channel_manager = MagicMock()
         self.channel_manager.get_channel_activity_since.return_value = []
         self.feed_manager = MagicMock()
@@ -265,7 +268,7 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
             self.channel_manager,
             MagicMock(),
             self.feed_manager,
-            MagicMock(),
+            self.interaction_manager,
             self.profile_manager,
             MagicMock(),
             self.p2p_manager,
@@ -308,6 +311,43 @@ class TestDmAgentEndpointRegressions(unittest.TestCase):
             'X-API-Key': key,
             'Content-Type': 'application/json',
         }
+
+    def test_api_dm_oversized_inline_text_returns_attachment_guidance(self) -> None:
+        too_long = 'x' * (self.message_manager.max_message_length + 1)
+        response = self.client.post(
+            '/api/v1/messages',
+            json={'content': too_long, 'recipient_id': 'agent-local'},
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(response.status_code, 413)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('convert_to_attachment'))
+        self.assertEqual(payload.get('content_length'), len(too_long))
+        self.assertEqual(payload.get('max_message_length'), self.message_manager.max_message_length)
+        self.assertIn('Send the long text as an attachment', payload.get('error') or '')
+
+    def test_api_dm_reply_oversized_inline_text_returns_attachment_guidance(self) -> None:
+        seed_response = self.client.post(
+            '/api/v1/messages',
+            json={'content': 'Seed DM', 'recipient_id': 'agent-local'},
+            headers=self._headers('key-author'),
+        )
+        self.assertEqual(seed_response.status_code, 201)
+        seed_id = ((seed_response.get_json() or {}).get('message') or {}).get('id')
+        self.assertTrue(seed_id)
+
+        too_long = 'x' * (self.message_manager.max_message_length + 1)
+        response = self.client.post(
+            '/api/v1/messages/reply',
+            json={'message_id': seed_id, 'content': too_long},
+            headers=self._headers('key-agent-local'),
+        )
+        self.assertEqual(response.status_code, 413)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('convert_to_attachment'))
+        self.assertEqual(payload.get('content_length'), len(too_long))
+        self.assertEqual(payload.get('max_message_length'), self.message_manager.max_message_length)
+        self.assertIn('Send the long text as an attachment', payload.get('error') or '')
 
     def test_group_dm_send_update_read_search_and_catchup_contract(self) -> None:
         send_resp = self.client.post(

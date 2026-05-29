@@ -17,6 +17,7 @@
 <div class="dm-composer{% if dm_is_deck %} deck-dm-composer{% endif %}"
      id="{{ composer_id }}"
      data-dm-surface="{{ dm_surface_value }}"
+     data-dm-max-content-chars="{{ dm_max_message_length|default(4096) }}"
      data-dm-role="composer">
     <div class="dm-composer-topline">
         <div class="dm-composer-target">
@@ -77,6 +78,32 @@
         <div id="{{ channel_suggestions_id }}" class="mention-suggestions" data-dm-role="channel-suggestions" style="display:none;"></div>
     </div>
 
+    <div class="dm-long-text-offer"
+         data-dm-role="long-text-offer"
+         hidden>
+        <div class="dm-long-text-offer-main">
+            <span class="dm-long-text-offer-icon" aria-hidden="true"><i class="bi bi-file-earmark-text"></i></span>
+            <div>
+                <strong data-dm-role="long-text-title">Long draft detected</strong>
+                <small data-dm-role="long-text-detail">
+                    Attach this draft as a text file, then edit the DM text before sending.
+                </small>
+            </div>
+        </div>
+        <div class="dm-long-text-offer-actions">
+            <button type="button"
+                    class="btn btn-sm btn-primary"
+                    {% if dm_is_deck %}data-dm-action="convert-long-text"{% else %}onclick="convertDmDraftToAttachment()"{% endif %}>
+                <i class="bi bi-paperclip"></i> Attach as file
+            </button>
+            <button type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    {% if dm_is_deck %}data-dm-action="dismiss-long-text"{% else %}onclick="dismissDmLongTextOffer()"{% endif %}>
+                Keep editing
+            </button>
+        </div>
+    </div>
+
     <div class="alert alert-primary py-2 px-3 mt-2 mb-0 dm-canopy-llm-status"
          data-dm-role="canopy-llm-status"
          aria-live="polite"
@@ -115,7 +142,7 @@
                 <i class="bi bi-emoji-smile"></i> Emoji
             </button>
             {% if dm_is_deck %}
-                <span class="text-muted small">Quick text reply here; use Messages for attachments and deep history.</span>
+                <span class="text-muted small">Quick reply here; long drafts can attach as text files. Use Messages for uploads and deep history.</span>
             {% else %}
                 <input type="file" id="message-file-input" style="display:none;" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.docm,.dot,.dotx,.rtf,.odt,.ppt,.pptx,.pptm,.pps,.ppsx,.pot,.potx,.odp,.txt,.tex,.md,.markdown,.json,.py,.pyi,.pyw,.js,.jsx,.mjs,.cjs,.ts,.tsx,.dockerfile,.makefile,.go,.rs,.java,.c,.h,.cpp,.hpp,.cs,.rb,.php,.sh,.bash,.zsh,.ps1,.sql,.kt,.kts,.swift,.svelte,.vue,.css,.log,.csv,.tsv,.xls,.xlsx,.xlsm,.xlsb,.ods,.yaml,.yml,.xml,.html,.css,.sh,.bat,.cfg,.ini,.toml,.eml,.msg,.pages,.numbers,.key,.zip,.tar,.gz,.tgz,.bz2,.tbz2,.xz,.7z,.rar,.mp3,.mp4,.m4v,.avi,.mkv,.mov,.webm">
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('message-file-input').click()">

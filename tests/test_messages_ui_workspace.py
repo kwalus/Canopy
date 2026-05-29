@@ -284,6 +284,12 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('"user_id": "peer-b"', body)
         self.assertIn('setupMessageDropzone();', body)
         self.assertIn("composer.addEventListener('drop'", body)
+        self.assertIn('data-dm-role="long-text-offer"', body)
+        self.assertIn('Attach as file', body)
+        self.assertIn('function convertDmDraftToAttachment(options = {})', body)
+        self.assertIn('DM_MAX_CONTENT_CHARS = 4096', body)
+        self.assertIn("source: 'composer_text_attachment'", body)
+        self.assertIn('This DM is too large for inline text. Attach the draft as a file', body)
         self.assertNotIn("threadPane.addEventListener('paste'", body)
         self.assertIn('grid-template-rows: auto minmax(0, 1fr);', body)
         self.assertIn('position: sticky;', body)
@@ -293,6 +299,18 @@ class TestMessagesUiWorkspace(unittest.TestCase):
         self.assertIn('toggleDmMobileSidebar(true)', body)
         self.assertIn('function syncDmMobileLayoutState(options)', body)
         self.assertIn("window.addEventListener('resize', scheduleDmMobileLayoutSync);", body)
+
+    def test_ajax_send_message_reports_large_inline_text_actionably(self) -> None:
+        response = self.client.post(
+            '/ajax/send_message',
+            json={'recipient_id': 'peer-a', 'content': 'x' * (self.message_manager.max_message_length + 1)},
+            headers={'X-CSRFToken': 'csrf-ui-messages'},
+        )
+        self.assertEqual(response.status_code, 413)
+        payload = response.get_json() or {}
+        self.assertTrue(payload.get('convert_to_attachment'))
+        self.assertEqual(payload.get('max_message_length'), self.message_manager.max_message_length)
+        self.assertIn('Attach the long text as a file', payload.get('error') or '')
 
     def test_dm_thread_opens_on_latest_page_and_paginates_older_history(self) -> None:
         rows = []
