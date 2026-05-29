@@ -55,6 +55,22 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("function toggleFeedComposer(forceOpen)", feed)
         self.assertIn("syncFeedComposerLayout({ forceExpand: true });", feed)
 
+    def test_feed_composer_uses_channel_style_unified_post_flow(self) -> None:
+        feed = (ROOT / "canopy" / "ui" / "templates" / "feed.html").read_text(encoding="utf-8")
+        self.assertIn('type="hidden" id="postType" value="text"', feed)
+        self.assertIn('class="feed-unified-composer-meta mb-3"', feed)
+        self.assertIn('<option value="network" selected>Local Network</option>', feed)
+        self.assertIn("function inferFeedPostType(content, attachments)", feed)
+        self.assertIn("post_type: postType", feed)
+        self.assertIn('id="permissionSuggestions"', feed)
+        self.assertIn("function resolveCustomPermissionInput(value)", feed)
+        self.assertIn("function renderCustomPermissionsPicker()", feed)
+        self.assertIn("feed-custom-audience-user", feed)
+        self.assertNotIn('label for="postType"', feed)
+        self.assertNotIn('id="mediaSection"', feed)
+        self.assertNotIn('id="postLink"', feed)
+        self.assertNotIn("Enter user ID to grant access", feed)
+
     def test_dm_sidebar_empty_states_have_icons(self) -> None:
         sidebar = (ROOT / "canopy" / "ui" / "templates" / "_messages_sidebar_sections.html").read_text(encoding="utf-8")
         self.assertIn("bi bi-chat-dots", sidebar)

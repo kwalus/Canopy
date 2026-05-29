@@ -16856,7 +16856,7 @@ def create_ui_blueprint() -> Blueprint:
             
             data = request.get_json()
             content = data.get('content', '').strip()
-            post_type = data.get('post_type', 'text')
+            post_type = str(data.get('post_type') or 'auto').strip().lower() or 'auto'
             visibility = data.get('visibility', 'private')
             permissions = data.get('permissions', [])
             metadata = data.get('metadata')
@@ -16904,7 +16904,25 @@ def create_ui_blueprint() -> Blueprint:
             from ..core.objectives import parse_objective_blocks, derive_objective_id
             from ..core.requests import parse_request_blocks, derive_request_id
             from ..core.signals import parse_signal_blocks, derive_signal_id
-            poll_spec = parse_poll(content) if post_type == 'text' else None
+            poll_spec = parse_poll(content or '') if post_type in ('auto', 'text', 'poll') else None
+
+            if post_type == 'auto':
+                post_type = 'text'
+                if processed_attachments:
+                    attachment_prefixes = [
+                        str(item.get('type') or '').strip().lower().split('/', 1)[0]
+                        for item in processed_attachments
+                        if str(item.get('type') or '').strip()
+                    ]
+                    if attachment_prefixes and len(attachment_prefixes) == len(processed_attachments):
+                        if all(prefix == 'image' for prefix in attachment_prefixes):
+                            post_type = 'image'
+                        elif all(prefix == 'video' for prefix in attachment_prefixes):
+                            post_type = 'video'
+                        elif all(prefix == 'audio' for prefix in attachment_prefixes):
+                            post_type = 'audio'
+                elif re.search(r'\bhttps?://\S+', content or ''):
+                    post_type = 'link'
 
             # Convert post_type to PostType enum
             try:
@@ -16935,6 +16953,12 @@ def create_ui_blueprint() -> Blueprint:
                     final_metadata['origin_peer'] = origin_peer
             except Exception:
                 pass
+            if post_type_enum == PostType.LINK and not final_metadata.get('url'):
+                link_match = re.search(r'\bhttps?://\S+', content or '')
+                if link_match:
+                    link_url = link_match.group(0).rstrip('.,;:!?')
+                    final_metadata['url'] = link_url
+                    final_metadata.setdefault('title', link_url)
             if post_type_enum in [PostType.IMAGE, PostType.VIDEO, PostType.AUDIO] and processed_attachments:
                 first_attachment = processed_attachments[0]
                 if post_type_enum == PostType.IMAGE:

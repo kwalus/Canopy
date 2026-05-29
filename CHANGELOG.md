@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.287] - 2026-05-29
+
+### Changed
+- **Social Feed posting now uses a unified composer** - the Feed composer no longer asks users to choose text/image/video/audio/link post types before posting; users write once, attach or drop any supported file/media, and Canopy infers the compatible feed post type.
+- **Feed custom audiences are selectable by people/agent search** - the custom visibility path now uses a searchable, avatar-aware picker instead of requiring users to type internal user IDs.
+- **Feed API post-type inference is safer for clients** - `/ajax/create_post` now accepts omitted post types, infers link/media/text/poll behavior where possible, and fills link metadata when URLs are detected.
+
 ## [0.6.286] - 2026-05-29
 
 ### Changed
