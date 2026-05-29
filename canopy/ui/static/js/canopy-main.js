@@ -23741,6 +23741,23 @@
                 }
             }
 
+            function scrollDeckInboxThreadToBottom(options = {}) {
+                if (!deckInboxThreadScroll) return;
+                const pin = () => {
+                    deckInboxThreadScroll.scrollTop = deckInboxThreadScroll.scrollHeight;
+                };
+                pin();
+                if (options.stabilize) {
+                    if (typeof window.requestAnimationFrame === 'function') {
+                        window.requestAnimationFrame(pin);
+                        window.requestAnimationFrame(() => window.requestAnimationFrame(pin));
+                    }
+                    [80, 220, 520].forEach((delay) => {
+                        window.setTimeout(pin, delay);
+                    });
+                }
+            }
+
             function setDeckInboxRefreshing(isRefreshing) {
                 if (!deckInboxSurface) return;
                 deckInboxSurface.classList.toggle('is-refreshing', !!isRefreshing);
@@ -23851,7 +23868,9 @@
                             return;
                         }
                     }
-                    deckInboxThreadScroll.scrollTop = deckInboxThreadScroll.scrollHeight;
+                    scrollDeckInboxThreadToBottom({
+                        stabilize: !!(options.forceBottom || options.stabilizeBottom),
+                    });
                 }, 40);
             }
 
@@ -24203,6 +24222,8 @@
                         }
                         nextOptions.preserveLayout = true;
                         nextOptions.preserveComposerExpanded = preserveComposerExpanded;
+                        nextOptions.forceBottom = true;
+                        nextOptions.stabilizeBottom = true;
                         return loadDeckInboxSnapshot(nextOptions);
                     })
                     .catch((err) => {

@@ -2505,10 +2505,22 @@
         };
     }
 
-    function scrollThreadToBottom() {
+    function scrollThreadToBottom(options) {
         const scroller = document.getElementById('dm-thread-scroll');
-        if (scroller) {
+        if (!scroller) return;
+        const pin = () => {
             scroller.scrollTop = scroller.scrollHeight;
+        };
+        pin();
+        const opts = options || {};
+        if (opts.stabilize) {
+            if (typeof window.requestAnimationFrame === 'function') {
+                window.requestAnimationFrame(pin);
+                window.requestAnimationFrame(() => window.requestAnimationFrame(pin));
+            }
+            [80, 220, 520].forEach((delay) => {
+                window.setTimeout(pin, delay);
+            });
         }
     }
 
@@ -2517,7 +2529,7 @@
         if (!scroller) return;
         const opts = options || {};
         if (opts.forceBottom || !state || state.nearBottom) {
-            scrollThreadToBottom();
+            scrollThreadToBottom({ stabilize: !!opts.forceBottom });
             return;
         }
         scroller.scrollTop = state.top || 0;
@@ -4637,7 +4649,7 @@
         if (typeof formatTimestamps === 'function') {
             formatTimestamps(row);
         }
-        scrollThreadToBottom();
+        scrollThreadToBottom({ stabilize: true });
         return true;
     }
 

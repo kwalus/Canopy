@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.282] - 2026-05-29
+
+### Fixed
+- **DM sends stay anchored at the newest message** - the Messages page and Deck Inbox now stabilize the bottom scroll position through the post-send snapshot and short rich-content layout window so sending a DM does not jump the user back up into older conversation history.
+
 ## [0.6.281] - 2026-05-29
 
 ### Added
