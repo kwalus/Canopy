@@ -14673,7 +14673,8 @@
                     || value.includes('/file-ref/')
                     || /[`'"]F[A-Za-z0-9_-]{6,}[`'"]/.test(value)
                     || /\b(?:file(?:\s*id)?|file_id|source_file_id|vault_file_id|attachment_id|origin_file_id|image_file_id|pdf|figure|image|attachment|output|artifact)\s*[:=]\s*['"`]?F[A-Za-z0-9_-]{6,}/i.test(value)
-                    || /(^|[\s>])[^()\s<>]{1,140}\.(?:pdf|docx?|xlsx?|csv|tsv|json|md|txt|py|ipynb|js|ts|tsx|jsx|html?|css|tex|bib|ya?ml|png|jpe?g|gif|webp|svg|tiff?|zip|tar|gz|mp4|mov|m4v|mp3|wav|wasm)\s*\(\s*F[A-Za-z0-9_-]{6,}\s*\)/i.test(value);
+                    || /(^|[\s>])[^()\s<>]{1,140}\.(?:pdf|docx?|xlsx?|csv|tsv|json|md|txt|py|ipynb|js|ts|tsx|jsx|html?|css|tex|bib|ya?ml|png|jpe?g|gif|webp|svg|tiff?|zip|tar|gz|mp4|mov|m4v|mp3|wav|wasm)\s*\(\s*F[A-Za-z0-9_-]{6,}\s*(?:,\s*[^)]{0,120})?\)/i.test(value)
+                    || /\b(?:pdf|deck|presentation|slides?|report|figure|image|chart|diagram|layout|artifact|output|work\s*product|source)[^()\n<>]{0,120}\(\s*F[A-Za-z0-9_-]{6,}\s*(?:,\s*[^)]{0,120})?\)/i.test(value);
                 const hasDigestionSignal = /\bDg[A-Za-z0-9_-]{6,}\b/.test(value) || value.includes('/vault?digestion=');
                 if (!value || (!hasFileSignal && !hasDigestionSignal)) {
                     return value;
@@ -14735,8 +14736,16 @@
                 working = working.replace(new RegExp("(^|[\\s([{<>\"'`])(?:https?:\\/\\/[^\\s)]+)?\\/vault\\?digestion=" + digestionId + "(?=$|[\\s)\\]}>\\'\",.;:!?#&/])", 'g'), function(match, prefix, id) {
                     return (prefix || '') + canopyDigestionRefToken(id, 'Digestion ' + shortCanopyEntityId(id));
                 });
-                working = working.replace(new RegExp('(^|[\\s>])([^()\\s<>]{1,140}\\.(?:pdf|docx?|xlsx?|csv|tsv|json|md|txt|py|ipynb|js|ts|tsx|jsx|html?|css|tex|bib|ya?ml|png|jpe?g|gif|webp|svg|tiff?|zip|tar|gz|mp4|mov|m4v|mp3|wav|wasm))\\s*\\(\\s*' + fileId + '\\s*\\)', 'gi'), function(match, prefix, label, id) {
+                working = working.replace(new RegExp('(^|[\\s>])([^()\\s<>]{1,140}\\.(?:pdf|docx?|xlsx?|csv|tsv|json|md|txt|py|ipynb|js|ts|tsx|jsx|html?|css|tex|bib|ya?ml|png|jpe?g|gif|webp|svg|tiff?|zip|tar|gz|mp4|mov|m4v|mp3|wav|wasm))\\s*\\(\\s*' + fileId + '\\s*(?:,[^)]{0,120})?\\)', 'gi'), function(match, prefix, label, id) {
                     return (prefix || '') + canopyFileRefToken(id, cleanCanopyEntityRefLabel(label, 'file:' + shortCanopyEntityId(id)));
+                });
+                working = working.replace(new RegExp('(^|[\\s>;:,-])((?=[^()\\n<>]{1,140}\\b(?:pdf|deck|presentation|slides?|report|figure|image|chart|diagram|layout|artifact|output|work\\s*product|source)\\b)[^()\\n<>]{1,140}?)\\s*\\(\\s*' + fileId + '\\s*(?:,[^)]{0,120})?\\)', 'gi'), function(match, prefix, label, id) {
+                    const cleaned = cleanCanopyEntityRefLabel(label, 'file:' + shortCanopyEntityId(id))
+                        .replace(/^.*[:;]\s*/, '')
+                        .replace(/^(?:and|or)\s+/i, '')
+                        .trim();
+                    if (!cleaned || cleaned.length < 3 || /^[,.;:>\\-\\s]+$/.test(cleaned)) return match;
+                    return (prefix || '') + canopyFileRefToken(id, cleaned);
                 });
                 working = working.replace(new RegExp("\\b((?:digestion(?:\\s*id)?|digest(?:\\s*id)?|corpus(?:\\s*id)?|reference[-\\s]*corpus(?:\\s*id)?)\\s*[:=]\\s*)(['\"`]?)" + digestionId + "\\2", 'gi'), function(match, labelPrefix, quote, id) {
                     return labelPrefix + canopyDigestionRefToken(id, 'Digestion ' + shortCanopyEntityId(id));

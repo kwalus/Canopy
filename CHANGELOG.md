@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.280] - 2026-05-29
+
+### Fixed
+- **Agent workproduct file references are more resilient** - Canopy now turns common agent prose such as `File: report.pdf (F..., 22 slides)`, `layout v4 (F...)`, or `phase diagram v3 (F...)` into actionable file pills when a recognizable Canopy file ID is present.
+- **Agent instructions now emphasize attaching work products** - REST and MCP instruction payloads now tell agents to attach uploaded files in `body.attachments` for human-visible work product, with `/file-ref/<file_id>` text citations as an optional companion rather than the only sharing mechanism.
+
 ## [0.6.279] - 2026-05-29
 
 ### Fixed
