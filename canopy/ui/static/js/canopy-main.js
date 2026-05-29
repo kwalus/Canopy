@@ -6161,11 +6161,16 @@
 			                    const resultsEl = form.querySelector('[data-vault-file-share-results]');
 			                    const input = form.querySelector('[data-vault-file-share-search]');
 			                    const fileId = form.getAttribute('data-vault-file-share') || '';
+			                    const searchShell = input && input.closest('.vault-file-share-search');
+			                    const card = form.closest('[data-vault-file-id]');
 			                    if (resultsEl) {
 			                        resultsEl.hidden = true;
 			                        resultsEl.innerHTML = '';
 			                    }
 			                    if (input) input.setAttribute('aria-expanded', 'false');
+			                    if (searchShell) searchShell.classList.remove('is-open');
+			                    form.classList.remove('is-search-open');
+			                    if (card) card.classList.remove('is-file-share-search-open');
 			                    state.fileShareActiveIndex.set(String(fileId), -1);
 			                    state.fileShareUsers.set(String(fileId), []);
 			                }
@@ -6334,6 +6339,14 @@
 			                    state.fileShareActiveIndex.set(String(fileId || ''), safeUsers.length ? 0 : -1);
 			                    resultsEl.hidden = false;
 			                    resultsEl.setAttribute('role', 'listbox');
+			                    const form = vaultFileShareForm(fileId);
+			                    const input = form && form.querySelector('[data-vault-file-share-search]');
+			                    const searchShell = input && input.closest('.vault-file-share-search');
+			                    const card = form && form.closest('[data-vault-file-id]');
+			                    if (input) input.setAttribute('aria-expanded', 'true');
+			                    if (searchShell) searchShell.classList.add('is-open');
+			                    if (form) form.classList.add('is-search-open');
+			                    if (card) card.classList.add('is-file-share-search-open');
 			                    if (!safeUsers.length) {
 			                        resultsEl.innerHTML = `<div class="vault-file-share-empty">${vaultEscape(emptyMessage)}</div>`;
 			                        return;
@@ -6544,6 +6557,11 @@
 			                    const willOpen = form.hidden;
 			                    form.hidden = !willOpen;
 			                    form.classList.toggle('is-visible', willOpen);
+			                    const card = form.closest('[data-vault-file-id]');
+			                    if (card) {
+			                        card.classList.toggle('is-file-share-open', willOpen);
+			                        if (!willOpen) card.classList.remove('is-file-share-search-open');
+			                    }
 			                    const shareBtn = grid && grid.querySelector(`[data-vault-action="share"][data-vault-id="${vaultCssEscape(fileId)}"]`);
 			                    if (shareBtn) shareBtn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
 			                    if (willOpen) {

@@ -1764,6 +1764,20 @@
     .vault-file-share.is-visible {
         display: grid;
     }
+    .vault-card.is-file-share-open,
+    .vault-card:has(.vault-file-share.is-visible) {
+        overflow: visible;
+        z-index: 16;
+    }
+    .vault-card.is-file-share-search-open,
+    .vault-card:has(.vault-file-share-results:not([hidden])) {
+        z-index: 28;
+    }
+    .vault-file-share.is-search-open,
+    .vault-file-share:has(.vault-file-share-results:not([hidden])) {
+        position: relative;
+        z-index: 2;
+    }
     .vault-file-share-copy {
         color: var(--canopy-text-secondary);
         font-size: 0.78rem;
@@ -1854,6 +1868,10 @@
         position: relative;
         min-width: 0;
     }
+    .vault-file-share-search.is-open,
+    .vault-file-share-search:focus-within {
+        z-index: 3;
+    }
     .vault-file-share-search .form-control {
         border-radius: 12px;
         border-color: color-mix(in srgb, var(--canopy-success) 28%, var(--canopy-border));
@@ -1861,11 +1879,9 @@
         color: var(--canopy-text-primary);
     }
     .vault-file-share-results {
-        position: absolute;
-        z-index: 70;
-        top: calc(100% + 0.35rem);
-        left: 0;
-        right: 0;
+        position: static;
+        width: 100%;
+        margin-top: 0.38rem;
         max-height: 280px;
         overflow: auto;
         border: 1px solid var(--canopy-border);
@@ -3113,6 +3129,21 @@
         min-height: 0;
         align-items: center;
     }
+    .vault-grid.view-list .vault-card.is-file-share-open,
+    .vault-grid.view-list .vault-card:has(.vault-file-share.is-visible) {
+        grid-template-rows: auto auto;
+        align-items: stretch;
+    }
+    .vault-grid.view-list .vault-card.is-file-share-open .vault-file-share,
+    .vault-grid.view-list .vault-card:has(.vault-file-share.is-visible) .vault-file-share {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        margin: 0.1rem 0.72rem 0.82rem;
+    }
+    .vault-grid.view-list .vault-card.is-file-share-open .vault-card-actions,
+    .vault-grid.view-list .vault-card:has(.vault-file-share.is-visible) .vault-card-actions {
+        align-self: center;
+    }
     .vault-grid.view-list .vault-select-wrap,
     .vault-grid.view-list .vault-select-spacer {
         position: static;
@@ -3489,6 +3520,18 @@
             max-width: none;
             max-height: min(58dvh, 26rem);
             z-index: 70;
+        }
+
+        .vault-file-share .vault-file-share-results {
+            position: static;
+            left: auto;
+            right: auto;
+            top: auto;
+            bottom: auto;
+            width: 100%;
+            max-width: none;
+            max-height: min(46dvh, 22rem);
+            z-index: auto;
         }
 
         .vault-selection-digestion-choice {
