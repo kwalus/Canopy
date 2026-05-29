@@ -892,6 +892,7 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertIn('attachment;', response.headers.get('Content-Disposition', ''))
         body = response.get_data(as_text=True)
         self.assertIn('Canopy admin diagnostics bundle', body)
+        self.assertIn('Request Metrics', body)
         self.assertIn('Log Tail: errors.log', body)
         self.assertIn('password=<redacted>', body)
         self.assertIn('Authorization: <redacted>', body)

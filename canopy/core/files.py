@@ -37,6 +37,27 @@ except ImportError:
 
 logger = logging.getLogger('canopy.files')
 
+_OBVIOUS_PLACEHOLDER_FILE_IDS = {
+    'F',
+    'FAIL',
+    'FILE',
+    'FILE_ID',
+    'FILEID',
+    'FILE_ID_HERE',
+    'FILEIDHERE',
+    'FILE_ID_PLACEHOLDER',
+    'FILE_PLACEHOLDER',
+}
+
+
+def is_obvious_placeholder_file_id(file_id: Any) -> bool:
+    """Return True for documentation/example tokens that are not real files."""
+    compact = str(file_id or '').strip().replace('-', '_').upper()
+    if compact in _OBVIOUS_PLACEHOLDER_FILE_IDS:
+        return True
+    return compact.startswith('FILE_ID_') and compact.endswith('_HERE')
+
+
 @dataclass
 class FileInfo:
     """Information about an uploaded file."""
@@ -1417,7 +1438,10 @@ class FileManager:
                 
                 row = cursor.fetchone()
                 if not row:
-                    logger.warning(f"File not found: {file_id}")
+                    if is_obvious_placeholder_file_id(file_id):
+                        logger.debug("Ignoring placeholder file lookup: %s", file_id)
+                    else:
+                        logger.warning(f"File not found: {file_id}")
                     return None
                 
                 file_info = FileInfo(

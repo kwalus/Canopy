@@ -16,7 +16,7 @@ import secrets
 import threading
 import time
 from datetime import datetime, timezone
-from flask import Flask, jsonify
+from flask import Flask, jsonify, g, request
 from pathlib import Path
 from typing import Any, Optional, cast
 
@@ -24,6 +24,7 @@ from .config import Config
 from .backups import BackupManager
 from .database import DatabaseManager
 from .logging_config import setup_logging
+from .request_metrics import RequestMetricsRecorder
 from .files import FileManager
 from .digestions import DigestionManager
 from .updates import UpdateManager
@@ -276,6 +277,7 @@ def create_app(config: Optional[Config] = None) -> Flask:
     app.config['MAX_VAULT_FILE_SIZE'] = int(getattr(config.storage, 'max_vault_file_size', 512 * 1024 * 1024) or 512 * 1024 * 1024)
     app.config['GOOGLE_MAPS_EMBED_API_KEY'] = os.getenv('CANOPY_GOOGLE_MAPS_EMBED_API_KEY', '').strip()
     app.config['CANOPY_STARTED_AT'] = time.time()
+    app.config['REQUEST_METRICS_RECORDER'] = RequestMetricsRecorder()
 
     # Harden session cookies: HTTPOnly prevents JS access; Lax SameSite blocks
     # most CSRF vectors; Secure is enabled only when TLS is configured so that
@@ -8481,6 +8483,10 @@ def create_app(config: Optional[Config] = None) -> Flask:
     # Attach security response headers to every reply
     _install_security_headers(app)
 
+    # Install bounded request timing before rate limiting so 429 responses are
+    # visible in admin diagnostics without capturing request bodies or secrets.
+    _install_request_metrics(app)
+
     # Install rate limiting
     _install_rate_limiting(app)
     
@@ -8569,6 +8575,42 @@ def _is_stream_playback_path(path: str) -> bool:
     )
 
 
+def _install_request_metrics(app: Flask) -> None:
+    """Record bounded HTTP timing diagnostics for the admin support bundle."""
+
+    @app.before_request
+    def _request_metrics_start():
+        g._canopy_request_started_at = time.perf_counter()
+
+    @app.after_request
+    def _request_metrics_finish(response):
+        recorder = app.config.get('REQUEST_METRICS_RECORDER')
+        if recorder and hasattr(recorder, 'record_request'):
+            try:
+                started_at = getattr(g, '_canopy_request_started_at', None)
+                if started_at is not None:
+                    duration_ms = (time.perf_counter() - float(started_at)) * 1000.0
+                    route = ''
+                    try:
+                        route = str(request.url_rule.rule) if request.url_rule else ''
+                    except Exception:
+                        route = ''
+                    content_length = response.content_length
+                    recorder.record_request(
+                        method=request.method,
+                        path=request.path,
+                        route=route or request.path,
+                        endpoint=str(request.endpoint or ''),
+                        status_code=int(response.status_code or 0),
+                        duration_ms=duration_ms,
+                        content_length=content_length,
+                        user_agent=str(request.headers.get('User-Agent', '') or ''),
+                    )
+            except Exception:
+                logger.debug("Request metrics recording skipped", exc_info=True)
+        return response
+
+
 def _install_security_headers(app: Flask) -> None:
     """Attach security-hardening headers to every HTTP response.
 
@@ -8609,26 +8651,49 @@ def _install_rate_limiting(app: Flask) -> None:
 
         if '/register' in path or '/keys' in path:
             limiter = _register_limiter
+            limiter_name = 'register'
         elif path.rstrip('/') == '/login' and _req.method == 'POST':
             limiter = _login_limiter
+            limiter_name = 'login'
         elif path.startswith('/ajax/'):
             # Per-IP (and optionally session) for UI AJAX (login, content creation, uploads)
             session_marker = _session.get('_id') or _session.get('user_id') or ''
             key = f"{key}:{session_marker}" if session_marker else key
             limiter = _ui_ajax_limiter
+            limiter_name = 'ui_ajax'
         elif '/files/upload' in path:
             key = _req.headers.get('X-API-Key', key)
             limiter = _upload_limiter
+            limiter_name = 'upload'
         elif _is_stream_playback_path(path):
             limiter = _stream_playback_limiter
+            limiter_name = 'stream_playback'
         elif path.startswith('/api/'):
             key = _req.headers.get('X-API-Key', key)
             limiter = _api_limiter
+            limiter_name = 'api'
         else:
             return  # Other UI pages are not rate-limited
 
         if not limiter.allow(key):
-            logger.warning(f"Rate limit exceeded for {key} on {path}")
+            caller_fingerprint = 'unknown'
+            recorder = app.config.get('REQUEST_METRICS_RECORDER')
+            if recorder and hasattr(recorder, 'record_rate_limit'):
+                try:
+                    caller_fingerprint = str(recorder.record_rate_limit(
+                        method=_req.method,
+                        path=path,
+                        limiter=limiter_name,
+                        caller_key=key,
+                    ) or caller_fingerprint)
+                except Exception:
+                    caller_fingerprint = 'unknown'
+            logger.warning(
+                "Rate limit exceeded for caller=%s limiter=%s on %s",
+                caller_fingerprint,
+                limiter_name,
+                path,
+            )
             abort(429)
 
     # Periodic prune (piggyback on after_request)

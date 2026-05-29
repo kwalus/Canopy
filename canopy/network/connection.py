@@ -31,7 +31,18 @@ class _ExpectedWebSocketServerNoiseFilter(logging.Filter):
         if record.getMessage() != "opening handshake failed":
             return True
         exc = record.exc_info[1] if record.exc_info else None
-        return not isinstance(exc, websockets.exceptions.ConnectionClosedError)
+        expected_types = tuple(
+            exc_type
+            for exc_type in (
+                getattr(websockets.exceptions, 'ConnectionClosedError', None),
+                getattr(websockets.exceptions, 'InvalidHandshake', None),
+                getattr(websockets.exceptions, 'InvalidHeader', None),
+                getattr(websockets.exceptions, 'InvalidMessage', None),
+                getattr(websockets.exceptions, 'InvalidUpgrade', None),
+            )
+            if exc_type is not None
+        )
+        return not isinstance(exc, expected_types)
 
 
 _ws_server_logger = logging.getLogger('canopy.network.connection.websockets_server')

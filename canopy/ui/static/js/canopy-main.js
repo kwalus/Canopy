@@ -14569,6 +14569,20 @@
                 return value.slice(0, 10) + '…' + value.slice(-5);
             }
 
+            function isObviousPlaceholderFileId(fileId) {
+                const compact = String(fileId || '').trim().replace(/-/g, '_').toUpperCase();
+                return compact === 'F'
+                    || compact === 'FAIL'
+                    || compact === 'FILE'
+                    || compact === 'FILE_ID'
+                    || compact === 'FILEID'
+                    || compact === 'FILE_ID_HERE'
+                    || compact === 'FILEIDHERE'
+                    || compact === 'FILE_ID_PLACEHOLDER'
+                    || compact === 'FILE_PLACEHOLDER'
+                    || (/^FILE_ID_.*_HERE$/.test(compact));
+            }
+
             function isBadCanopyFileRefLabel(value, fileId = '') {
                 const label = String(value || '').replace(/\s+/g, ' ').trim();
                 if (!label) return true;
@@ -14586,6 +14600,9 @@
             function canopyFileRefAnchor(fileId, label) {
                 const id = String(fileId || '').trim();
                 if (!id) return '';
+                if (isObviousPlaceholderFileId(id)) {
+                    return _escapeHtml(String(label || id || '').trim() || id);
+                }
                 const safeId = _escapeHtml(id);
                 const shortId = shortCanopyEntityId(id);
                 const fallbackLabel = 'file:' + shortId;

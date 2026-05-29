@@ -83,6 +83,7 @@ from ..core.events import (
     EVENT_MENTION_CREATED,
 )
 from ..core.file_preview import build_file_preview
+from ..core.files import is_obvious_placeholder_file_id
 from ..core.digestions import DigestionError
 from ..core.messaging import (
     build_dm_security_summary,
@@ -23893,6 +23894,18 @@ def create_ui_blueprint() -> Blueprint:
     def _build_ui_file_reference_payload(file_id: str) -> tuple[dict[str, Any], int]:
         db_manager, _, trust_manager, _, _, file_manager, feed_manager, _, _, _, _ = _get_app_components_any(current_app)
         user_id = get_current_user()
+        if is_obvious_placeholder_file_id(file_id):
+            return {
+                'success': False,
+                'file_id': file_id,
+                'found': False,
+                'available': False,
+                'can_open': False,
+                'status': 'placeholder',
+                'error': 'Placeholder file reference',
+                'message': 'This looks like an example placeholder, not a real Canopy file ID.',
+                'reference_url': url_for('ui.file_reference', file_id=file_id),
+            }, 404
         file_info = file_manager.get_file(file_id)
         if not file_info:
             return {
@@ -24551,6 +24564,26 @@ def create_ui_blueprint() -> Blueprint:
                         snapshot['tables'].append({'name': name, 'rows': count})
                     except Exception as exc:
                         snapshot['tables'].append({'name': name, 'error': str(exc)})
+                row_counts = {
+                    str(item.get('name')): int(item.get('rows') or 0)
+                    for item in snapshot.get('tables') or []
+                    if isinstance(item, dict) and 'rows' in item
+                }
+                snapshot['largest_tables_by_rows'] = sorted(
+                    [{'name': name, 'rows': rows} for name, rows in row_counts.items()],
+                    key=lambda item: int(item.get('rows') or 0),
+                    reverse=True,
+                )[:20]
+                notes: list[str] = []
+                channel_rows = max(1, int(row_counts.get('channel_messages') or 0))
+                if int(row_counts.get('workspace_events') or 0) > channel_rows * 10:
+                    notes.append('workspace_events is much larger than channel_messages; consider event retention or compaction if UI catch-up slows.')
+                if int(row_counts.get('file_access_log') or 0) > channel_rows * 10:
+                    notes.append('file_access_log is much larger than channel_messages; consider access-log rollups if diagnostics show DB pressure.')
+                if int(row_counts.get('digestion_chunks') or 0) > 5000:
+                    notes.append('digestion_chunks is a dominant table; Digestion search/build endpoints should be watched in request metrics.')
+                if notes:
+                    snapshot['operator_notes'] = notes
         except Exception as exc:
             snapshot['error'] = str(exc)
         return snapshot
@@ -24675,6 +24708,15 @@ def create_ui_blueprint() -> Blueprint:
         except Exception as exc:
             return {'available': True, 'error': str(exc)}
 
+    def _diagnostics_request_metrics_snapshot() -> dict[str, Any]:
+        recorder = current_app.config.get('REQUEST_METRICS_RECORDER')
+        if not recorder or not hasattr(recorder, 'snapshot'):
+            return {'available': False}
+        try:
+            return dict(recorder.snapshot(limit_recent=25, limit_slow=25, limit_endpoints=20) or {})
+        except Exception as exc:
+            return {'available': True, 'error': str(exc)}
+
     def _build_admin_diagnostics_bundle() -> str:
         db_manager, _, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
         sections: list[tuple[str, str]] = []
@@ -24683,7 +24725,7 @@ def create_ui_blueprint() -> Blueprint:
             '\n'.join([
                 'Canopy admin diagnostics bundle.',
                 'This file is generated on demand by an instance admin and is intended for paste-based debugging.',
-                'It includes bounded log tails, runtime counters, database table counts, and mesh status summaries.',
+                'It includes bounded log tails, runtime counters, request timings, database table counts, and mesh status summaries.',
                 'Common secrets are redacted, but admins should still review before sharing outside the trusted support context.',
             ]),
         ))
@@ -24691,6 +24733,7 @@ def create_ui_blueprint() -> Blueprint:
         sections.append(('Database', _diagnostics_json(_diagnostics_database_snapshot(db_manager, config))))
         sections.append(('Mesh', _diagnostics_json(_diagnostics_mesh_snapshot(p2p_manager))))
         sections.append(('Workspace Events', _diagnostics_json(_diagnostics_workspace_event_snapshot())))
+        sections.append(('Request Metrics', _diagnostics_json(_diagnostics_request_metrics_snapshot())))
 
         log_paths = _diagnostics_known_log_paths(config, db_manager)
         if log_paths:

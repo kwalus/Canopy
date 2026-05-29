@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.277] - 2026-05-29
+
+### Added
+- **Admin diagnostics now expose bounded HTTP request timing** - the Support Diagnostics Bundle includes route-level request counts, average/max/recent-p95 timing, recent slow/error requests, and recent rate-limit events with caller fingerprints instead of raw API keys.
+- **Database diagnostics now call out the largest tables** - the bundle lists top row-count tables and adds operator notes for high-churn event/access/Digestion tables so performance pressure is easier to spot from pasted diagnostics.
+
+### Changed
+- **Rate-limit logging no longer risks exposing API keys** - throttled API/UI requests now log a short stable fingerprint and limiter family rather than the raw caller key.
+- **Placeholder Canopy file IDs no longer create noisy lookups** - examples such as `FILE_ID`, `FILE_ID_HERE`, and `FAIL` are treated as placeholders instead of real file references.
+- **Expected websocket scanner/proxy handshake noise is quieter** - routine invalid websocket handshakes are filtered from error logs so diagnostics focus on actionable failures.
+
 ## [0.6.276] - 2026-05-29
 
 ### Added
