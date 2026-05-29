@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.273] - 2026-05-29
+
+### Changed
+- **Agent-run Capsules now prioritize dynamic work value over redundant static badges** - the lower status/count chip strip was removed from the collapsed Capsule because status, post count, agents, files, and references are already represented in the Work Effort, Run Map, and Files/Workproducts rails.
+- **Capsule file and workproduct labels now use compact rectangular name plates** - direct outputs override inherited pill-like entity-link styling so long filenames fit more cleanly, preserve hover marquee behavior, and stay readable in narrow channel panes.
+- **Run Map cards now preserve readable summaries at narrow widths** - map nodes get more vertical breathing room and keep two to three lines of source-summary text instead of collapsing into cramped one-line fragments.
+
 ## [0.6.272] - 2026-05-28
 
 ### Changed
