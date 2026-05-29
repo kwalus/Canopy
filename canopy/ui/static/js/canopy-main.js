@@ -12574,7 +12574,7 @@
                 return (
                     /(^|\n)\s{0,3}#{1,3}\s+\S/.test(value) ||
                     /(^|\n)\s{0,3}>\s+\S/.test(value) ||
-                    /(^|\n)\s{0,3}(?:[-*+]\s+|\d+\.\s+)\S/.test(value) ||
+                    /(^|\n)\s{0,3}(?:[-*+]\s+|\d+[.)]\s+)\S/.test(value) ||
                     /(?:\*\*|__)[^\n]+(?:\*\*|__)/.test(value) ||
                     /(^|[^\*])\*[^\s*][^\n]*[^\s*]\*(?!\*)/.test(value) ||
                     /~~[^\n]+~~/.test(value) ||
@@ -12626,7 +12626,7 @@
                     const heading = line.match(/^\s{0,3}(#{1,3})\s+(.+)$/);
                     const quote = line.match(/^\s{0,3}>\s?(.*)$/);
                     const unordered = line.match(/^\s{0,3}[-*+]\s+(.+)$/);
-                    const ordered = line.match(/^\s{0,3}\d+\.\s+(.+)$/);
+                    const ordered = line.match(/^\s{0,3}\d+[.)]\s+(.+)$/);
 
                     if (heading) {
                         flushList();
