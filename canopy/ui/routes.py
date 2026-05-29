@@ -26,6 +26,7 @@ import tempfile
 import html as html_lib
 import threading
 import xml.etree.ElementTree as ET
+from io import BytesIO
 from functools import wraps
 from pathlib import Path
 from flask import Blueprint, render_template, request, jsonify, current_app, session, redirect, url_for, flash, send_file, Response, g, stream_with_context
@@ -124,6 +125,9 @@ _VIEWER_ATTENTION_MAX_BACKOFF: float = 60.0
 _CHANNEL_LOAD_MAINTENANCE_LOCK = threading.Lock()
 _CHANNEL_LOAD_LAST_PURGE_BY_MANAGER: dict[int, float] = {}
 _CHANNEL_LOAD_PURGE_INTERVAL_SECONDS: float = 45.0
+_ADMIN_DIAGNOSTICS_TAIL_BYTES: int = 192 * 1024
+_ADMIN_DIAGNOSTICS_MAX_LOGS: int = 8
+_ADMIN_DIAGNOSTICS_MAX_BUNDLE_CHARS: int = 1_500_000
 
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
@@ -24383,6 +24387,344 @@ def create_ui_blueprint() -> Blueprint:
         if not manager:
             return None, (jsonify({'error': 'Instance update manager is unavailable on this node'}), 503)
         return manager, None
+
+    def _diagnostics_redact_text(value: Any) -> str:
+        """Redact common credential shapes before diagnostic text leaves the node."""
+        text = str(value or '')
+        if not text:
+            return ''
+        patterns = [
+            (
+                re.compile(r'(?im)\b(authorization|cookie|set-cookie)\s*:\s*[^\r\n]+'),
+                r'\1: <redacted>',
+            ),
+            (
+                re.compile(
+                    r'(?i)\b(authorization|cookie|set-cookie|x-api-key|api[_-]?key|github[_-]?token|token|secret|password|passwd|private[_-]?key|session|csrf|invite(?:[_-]?code)?)\b(\s*[:=]\s*)([^\s,;]+)'
+                ),
+                r'\1\2<redacted>',
+            ),
+            (
+                re.compile(
+                    r'(?i)("?(?:authorization|cookie|set-cookie|x-api-key|api[_-]?key|github[_-]?token|token|secret|password|passwd|private[_-]?key|session|csrf|invite(?:[_-]?code)?)"?\s*:\s*")[^"]*(")'
+                ),
+                r'\1<redacted>\2',
+            ),
+            (
+                re.compile(r'(?i)(bearer\s+)[A-Za-z0-9._~+/\-=]+'),
+                r'\1<redacted>',
+            ),
+        ]
+        redacted = text
+        for pattern, replacement in patterns:
+            redacted = pattern.sub(replacement, redacted)
+        return redacted
+
+    def _diagnostics_json(value: Any) -> str:
+        try:
+            return _diagnostics_redact_text(json.dumps(value, indent=2, sort_keys=True, default=str))
+        except Exception:
+            return _diagnostics_redact_text(str(value))
+
+    def _diagnostics_path_stat(path: Any) -> dict[str, Any]:
+        try:
+            p = Path(str(path)).expanduser()
+            if not p.exists():
+                return {'path': str(p), 'exists': False}
+            stat = p.stat()
+            return {
+                'path': str(p),
+                'exists': True,
+                'size_bytes': int(stat.st_size),
+                'modified_at': datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+            }
+        except Exception as exc:
+            return {'path': str(path), 'error': str(exc)}
+
+    def _diagnostics_known_log_paths(config: Any, db_manager: Any) -> list[Path]:
+        """Return a small, explicit set of likely log paths; never scan broadly."""
+        candidates: list[Path] = []
+        seen: set[str] = set()
+
+        def _add(path: Any) -> None:
+            try:
+                if not path:
+                    return
+                p = Path(str(path)).expanduser()
+                key = str(p.resolve() if p.exists() else p.absolute())
+                if key in seen:
+                    return
+                seen.add(key)
+                candidates.append(p)
+            except Exception:
+                return
+
+        for logger_name in ('', 'canopy.performance'):
+            try:
+                for handler in logging.getLogger(logger_name).handlers:
+                    base = getattr(handler, 'baseFilename', None)
+                    if base:
+                        _add(base)
+            except Exception:
+                pass
+
+        roots = [Path.cwd()]
+        try:
+            roots.append(Path(current_app.root_path).resolve().parent)
+        except Exception:
+            pass
+        try:
+            data_dir = str(getattr(getattr(config, 'storage', None), 'data_dir', '') or '').strip()
+            if data_dir:
+                roots.append(Path(data_dir).expanduser())
+        except Exception:
+            pass
+        try:
+            db_path = getattr(db_manager, 'db_path', None)
+            if db_path:
+                roots.append(Path(str(db_path)).expanduser().parent)
+        except Exception:
+            pass
+
+        for root in roots:
+            for name in (
+                'logs/canopy.log',
+                'logs/errors.log',
+                'logs/performance.log',
+                'logs/debug.log',
+                'canopy_console.log',
+            ):
+                _add(root / name)
+
+        existing = [p for p in candidates if p.exists() and p.is_file()]
+        return existing[:_ADMIN_DIAGNOSTICS_MAX_LOGS]
+
+    def _diagnostics_tail_file(path: Path, *, max_bytes: int = _ADMIN_DIAGNOSTICS_TAIL_BYTES) -> str:
+        try:
+            size = path.stat().st_size
+            with path.open('rb') as handle:
+                handle.seek(max(0, size - max_bytes))
+                data = handle.read(max_bytes)
+            text = data.decode('utf-8', errors='replace')
+            if size > max_bytes:
+                text = f"[truncated to last {max_bytes} bytes of {size}]\n" + text
+            return _diagnostics_redact_text(text)
+        except Exception as exc:
+            return f"[could not read {path}: {_diagnostics_redact_text(exc)}]"
+
+    def _diagnostics_database_snapshot(db_manager: Any, config: Any) -> dict[str, Any]:
+        db_path = getattr(db_manager, 'db_path', None)
+        if not db_path:
+            try:
+                db_path = str(getattr(getattr(config, 'storage', None), 'database_path', '') or '')
+            except Exception:
+                db_path = ''
+        snapshot: dict[str, Any] = {
+            'database_file': _diagnostics_path_stat(db_path) if db_path else {'path': '', 'exists': False},
+            'tables': [],
+            'wal_file': _diagnostics_path_stat(str(db_path) + '-wal') if db_path else None,
+            'shm_file': _diagnostics_path_stat(str(db_path) + '-shm') if db_path else None,
+        }
+        try:
+            with db_manager.get_connection() as conn:
+                try:
+                    pragmas = {}
+                    for pragma in ('page_count', 'freelist_count', 'page_size', 'journal_mode'):
+                        try:
+                            row = conn.execute(f'PRAGMA {pragma}').fetchone()
+                            if row is not None:
+                                pragmas[pragma] = list(row) if not isinstance(row, tuple) else list(row)
+                        except Exception:
+                            continue
+                    snapshot['pragmas'] = pragmas
+                except Exception:
+                    pass
+                rows = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+                ).fetchall()
+                for row in rows:
+                    name = row['name'] if hasattr(row, 'keys') else row[0]
+                    try:
+                        quoted_name = str(name).replace('"', '""')
+                        count_row = conn.execute(f'SELECT COUNT(*) AS n FROM "{quoted_name}"').fetchone()
+                        count = int((count_row['n'] if hasattr(count_row, 'keys') else count_row[0]) or 0)
+                        snapshot['tables'].append({'name': name, 'rows': count})
+                    except Exception as exc:
+                        snapshot['tables'].append({'name': name, 'error': str(exc)})
+        except Exception as exc:
+            snapshot['error'] = str(exc)
+        return snapshot
+
+    def _diagnostics_runtime_snapshot(db_manager: Any, config: Any, p2p_manager: Any) -> dict[str, Any]:
+        import platform
+        import sys
+
+        rss_mb: Optional[float] = None
+        try:
+            import resource
+            rss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+            rss_mb = rss / 1024.0 if sys.platform != 'darwin' else rss / (1024.0 * 1024.0)
+        except Exception:
+            rss_mb = None
+        try:
+            from .. import __version__ as canopy_version
+        except Exception:
+            canopy_version = 'unknown'
+        peer_id = ''
+        try:
+            if p2p_manager and hasattr(p2p_manager, 'get_peer_id'):
+                peer_id = str(p2p_manager.get_peer_id() or '')
+        except Exception:
+            peer_id = ''
+        meshspace_record = current_app.config.get('MESHSPACE_RECORD') or {}
+        return {
+            'generated_at': datetime.now(timezone.utc).isoformat(),
+            'canopy_version': canopy_version,
+            'python': sys.version.split()[0],
+            'platform': platform.platform(),
+            'pid': os.getpid(),
+            'cwd': os.getcwd(),
+            'thread_count': threading.active_count(),
+            'rss_mb': round(rss_mb, 2) if rss_mb is not None else None,
+            'debug': bool(current_app.config.get('DEBUG')),
+            'testing': bool(current_app.config.get('TESTING')),
+            'peer_id': peer_id,
+            'meshspace': {
+                'id': str(meshspace_record.get('meshspace_id') or ''),
+                'name': str(meshspace_record.get('name') or ''),
+                'runtime_mode': str(meshspace_record.get('runtime_mode') or ''),
+                'status': str(meshspace_record.get('status') or ''),
+            },
+            'network': {
+                'host': str(getattr(getattr(config, 'network', None), 'host', '') or ''),
+                'port': str(getattr(getattr(config, 'network', None), 'port', '') or ''),
+                'mesh_port': str(getattr(getattr(config, 'network', None), 'mesh_port', '') or ''),
+                'discovery_port': str(getattr(getattr(config, 'network', None), 'discovery_port', '') or ''),
+                'relay_policy': str(getattr(getattr(config, 'network', None), 'relay_policy', '') or ''),
+                'transport_security_mode': str(getattr(getattr(config, 'network', None), 'transport_security_mode', '') or ''),
+            },
+            'storage': {
+                'data_dir': str(getattr(getattr(config, 'storage', None), 'data_dir', '') or ''),
+                'database_path': str(getattr(getattr(config, 'storage', None), 'database_path', '') or getattr(db_manager, 'db_path', '') or ''),
+                'max_file_size': str(getattr(getattr(config, 'storage', None), 'max_file_size', '') or ''),
+                'max_vault_file_size': str(getattr(getattr(config, 'storage', None), 'max_vault_file_size', '') or ''),
+            },
+        }
+
+    def _diagnostics_mesh_snapshot(p2p_manager: Any) -> dict[str, Any]:
+        if not p2p_manager:
+            return {'available': False}
+        snapshot: dict[str, Any] = {'available': True}
+        for attr in ('is_running', 'get_peer_id'):
+            try:
+                value = getattr(p2p_manager, attr, None)
+                if callable(value):
+                    snapshot[attr] = value()
+            except Exception as exc:
+                snapshot[attr] = f'error: {exc}'
+        try:
+            diagnostics_fn = getattr(p2p_manager, 'get_mesh_diagnostics', None)
+            if callable(diagnostics_fn):
+                diagnostics = diagnostics_fn() or {}
+                if isinstance(diagnostics, dict):
+                    allowed_keys = {
+                        'running',
+                        'authenticated_count',
+                        'pending_connection_count',
+                        'pending_handshake_candidates',
+                        'connection_state_counts',
+                        'trusted_peer_count',
+                        'known_peer_count',
+                        'recent_peer_state_transitions',
+                        'relay_policy',
+                    }
+                    snapshot['mesh_diagnostics'] = {
+                        key: diagnostics.get(key)
+                        for key in allowed_keys
+                        if key in diagnostics
+                    }
+                else:
+                    snapshot['mesh_diagnostics'] = diagnostics
+        except Exception as exc:
+            snapshot['mesh_diagnostics_error'] = str(exc)
+        return snapshot
+
+    def _diagnostics_workspace_event_snapshot() -> dict[str, Any]:
+        manager = current_app.config.get('WORKSPACE_EVENT_MANAGER')
+        if not manager or not hasattr(manager, 'get_diagnostics'):
+            return {'available': False}
+        try:
+            diagnostics = manager.get_diagnostics(limit=15) or {}
+            items = []
+            for item in diagnostics.get('items') or []:
+                if not isinstance(item, dict):
+                    continue
+                items.append({
+                    'seq': item.get('seq'),
+                    'event_type': item.get('event_type'),
+                    'created_at': item.get('created_at'),
+                    'origin_peer_id': item.get('origin_peer_id'),
+                })
+            return {
+                'available': True,
+                'count': diagnostics.get('count'),
+                'latest_seq': diagnostics.get('latest_seq'),
+                'type_counts': diagnostics.get('type_counts'),
+                'items': items,
+            }
+        except Exception as exc:
+            return {'available': True, 'error': str(exc)}
+
+    def _build_admin_diagnostics_bundle() -> str:
+        db_manager, _, _, _, _, _, _, _, _, config, p2p_manager = _get_app_components_any(current_app)
+        sections: list[tuple[str, str]] = []
+        sections.append((
+            'README',
+            '\n'.join([
+                'Canopy admin diagnostics bundle.',
+                'This file is generated on demand by an instance admin and is intended for paste-based debugging.',
+                'It includes bounded log tails, runtime counters, database table counts, and mesh status summaries.',
+                'Common secrets are redacted, but admins should still review before sharing outside the trusted support context.',
+            ]),
+        ))
+        sections.append(('Runtime', _diagnostics_json(_diagnostics_runtime_snapshot(db_manager, config, p2p_manager))))
+        sections.append(('Database', _diagnostics_json(_diagnostics_database_snapshot(db_manager, config))))
+        sections.append(('Mesh', _diagnostics_json(_diagnostics_mesh_snapshot(p2p_manager))))
+        sections.append(('Workspace Events', _diagnostics_json(_diagnostics_workspace_event_snapshot())))
+
+        log_paths = _diagnostics_known_log_paths(config, db_manager)
+        if log_paths:
+            for path in log_paths:
+                sections.append((f'Log Tail: {path.name}', f'path: {path}\n{_diagnostics_tail_file(path)}'))
+        else:
+            sections.append(('Log Tails', 'No readable Canopy log files were found from active handlers or known log paths.'))
+
+        rendered_parts = []
+        for title, body in sections:
+            rendered_parts.append(f'\n===== {title} =====\n{_diagnostics_redact_text(body).strip()}\n')
+        bundle = ''.join(rendered_parts).strip() + '\n'
+        if len(bundle) > _ADMIN_DIAGNOSTICS_MAX_BUNDLE_CHARS:
+            bundle = bundle[:_ADMIN_DIAGNOSTICS_MAX_BUNDLE_CHARS]
+            bundle += '\n\n[diagnostics bundle truncated by admin export size guard]\n'
+        return bundle
+
+    @ui.route('/ajax/admin/diagnostics/download', methods=['GET'])
+    @require_admin
+    def ajax_admin_diagnostics_download():
+        """Download a paste-friendly, redacted admin diagnostics bundle."""
+        try:
+            text = _build_admin_diagnostics_bundle()
+            payload = BytesIO(text.encode('utf-8', errors='replace'))
+            stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+            return send_file(
+                payload,
+                mimetype='text/plain; charset=utf-8',
+                as_attachment=True,
+                download_name=f'canopy-diagnostics-{stamp}.txt',
+            )
+        except Exception as e:
+            logger.error("Admin diagnostics bundle error: %s", e, exc_info=True)
+            return jsonify({'error': 'Could not generate diagnostics bundle'}), 500
 
     @ui.route('/ajax/admin/backups/status', methods=['GET'])
     @require_admin

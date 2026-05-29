@@ -216,6 +216,53 @@
     word-break: break-all;
 }
 
+.diagnostics-shell {
+    border: 1px solid rgba(125, 211, 252, 0.26);
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 8% 0%, rgba(45, 212, 191, 0.16), transparent 30%),
+        linear-gradient(145deg, rgba(8, 22, 40, 0.92), rgba(12, 21, 38, 0.88));
+    padding: 1rem;
+}
+
+.diagnostics-shell .diagnostics-title {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: #eaf5ff;
+    font-weight: 800;
+}
+
+.diagnostics-shell .diagnostics-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1rem;
+    align-items: center;
+}
+
+.diagnostics-shell .diagnostics-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.55rem;
+}
+
+.diagnostics-shell .diagnostics-badges span {
+    border: 1px solid rgba(122, 151, 215, 0.24);
+    border-radius: 999px;
+    background: rgba(10, 22, 38, 0.68);
+    color: #a9bdd8;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.28rem 0.52rem;
+}
+
+@media (max-width: 720px) {
+    .diagnostics-shell .diagnostics-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 .update-shell {
     border: 1px solid rgba(86, 166, 255, 0.28);
     border-radius: 18px;
@@ -1823,6 +1870,7 @@
 .directive-shell,
 .subsystem-shell,
 .backup-shell,
+.diagnostics-shell,
 .update-shell,
 .workspace-shell,
 .agent-launchpad,
@@ -1859,6 +1907,7 @@
 .update-commit-item,
 .update-security-note,
 .backup-security-note,
+.diagnostics-shell .diagnostics-badges span,
 .workspace-roster-panel,
 .workspace-roster-filter,
 .workspace-user-empty,
@@ -3703,6 +3752,32 @@
                             {% endif %}
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="diagnostics-shell mb-3" id="admin-diagnostics-panel">
+            <div class="diagnostics-grid">
+                <div>
+                    <div class="diagnostics-title">
+                        <i class="bi bi-activity"></i>
+                        <span>Support Diagnostics Bundle</span>
+                    </div>
+                    <div class="text-muted small mt-1">
+                        Download one paste-friendly text file with redacted server errors, bounded log tails, database counters, runtime state, and mesh health summaries.
+                    </div>
+                    <div class="diagnostics-badges" aria-label="Diagnostics bundle contents">
+                        <span>read-only</span>
+                        <span>secret redaction</span>
+                        <span>log tails only</span>
+                        <span>DB counts, not content</span>
+                    </div>
+                </div>
+                <div class="d-grid">
+                    <a class="btn btn-outline-info btn-sm" id="admin-diagnostics-download-btn" href="{{ url_for('ui.ajax_admin_diagnostics_download') }}">
+                        <i class="bi bi-file-earmark-arrow-down"></i> Download Diagnostics
+                    </a>
+                    <small class="text-muted mt-1">Review before sharing outside trusted support.</small>
                 </div>
             </div>
         </div>

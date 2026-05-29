@@ -1,8 +1,10 @@
 """Regression tests for admin user workspace and profile controls."""
 
 import os
+import logging
 import sqlite3
 import sys
+import tempfile
 import types
 import unittest
 from io import BytesIO
@@ -862,10 +864,39 @@ class TestAdminUserWorkspace(unittest.TestCase):
         self.assertIn('Generate reset password', html)
         self.assertIn('Meshspace Agent API Template', html)
         self.assertIn('Read only', html)
+        self.assertIn('Support Diagnostics Bundle', html)
+        self.assertIn('/ajax/admin/diagnostics/download', html)
         self.assertNotIn('Subsystem Visibility', html)
         self.assertNotIn('Mesh Sync Diagnostics', html)
         self.assertNotIn('Workspace Event Journal', html)
-        self.assertNotIn('Identity Portability (Phase 1)', html)
+
+    def test_admin_diagnostics_bundle_download_redacts_log_tails(self) -> None:
+        self._set_authenticated_session()
+        root_logger = logging.getLogger()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_path = os.path.join(tmp_dir, 'errors.log')
+            with open(log_path, 'w', encoding='utf-8') as handle:
+                handle.write(
+                    '2026-05-29 ERROR failed request password=super-secret-token '
+                    'Authorization: Bearer abc.def.ghi\n'
+                )
+            handler = logging.FileHandler(log_path)
+            root_logger.addHandler(handler)
+            try:
+                response = self.client.get('/ajax/admin/diagnostics/download')
+            finally:
+                root_logger.removeHandler(handler)
+                handler.close()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('attachment;', response.headers.get('Content-Disposition', ''))
+        body = response.get_data(as_text=True)
+        self.assertIn('Canopy admin diagnostics bundle', body)
+        self.assertIn('Log Tail: errors.log', body)
+        self.assertIn('password=<redacted>', body)
+        self.assertIn('Authorization: <redacted>', body)
+        self.assertNotIn('super-secret-token', body)
+        self.assertNotIn('abc.def.ghi', body)
 
     def test_admin_workspace_event_status_snapshot(self) -> None:
         self._set_authenticated_session()

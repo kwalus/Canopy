@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.276] - 2026-05-29
+
+### Added
+- **Admin diagnostics bundle download** - the Admin Data Operations panel now includes a read-only Support Diagnostics Bundle download that collects redacted runtime state, database/table counters, mesh summaries, workspace-event counts, and bounded Canopy log tails into a paste-friendly text file for backend performance and error review.
+
 ## [0.6.275] - 2026-05-29
 
 ### Changed
