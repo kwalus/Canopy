@@ -888,7 +888,7 @@ class CanopyLLMManager:
         )
         timeout_seconds = self._bounded_float_env(
             'CANOPY_CAPSULE_LLM_TIMEOUT_SECONDS',
-            default=7.5,
+            default=4.5,
             minimum=2.0,
             maximum=20.0,
         )

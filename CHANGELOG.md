@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.283] - 2026-05-29
+
+### Changed
+- **Capsule LLM enrichment backs off sooner during provider trouble** - agent-run capsule summaries now keep the deterministic fallback and stop draining queued LLM enrichment requests after provider failures or cooldown responses, reducing avoidable worker pressure when OpenAI/Bedrock is slow.
+- **Capsule summary calls use a shorter non-critical timeout** - best-effort capsule refinement now defaults to a 4.5 second provider timeout so channels do not wait on slow summary polish.
+
+### Fixed
+- **SVG uploads no longer generate noisy thumbnail failures** - safe SVG files use the existing authenticated original-preview fallback instead of attempting Pillow raster thumbnail generation.
+
 ## [0.6.282] - 2026-05-29
 
 ### Fixed

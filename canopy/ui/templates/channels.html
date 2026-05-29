@@ -16331,6 +16331,10 @@ function scheduleAgentRunCapsuleEnrichments(root) {
 
 function pumpAgentRunCapsuleEnrichmentQueue() {
     if (channelAgentRunCapsuleEnrichmentActive >= 1) return;
+    if (Date.now() < channelAgentRunCapsuleLlmUnavailableUntil) {
+        channelAgentRunCapsuleEnrichmentQueue = [];
+        return;
+    }
     const capsuleId = channelAgentRunCapsuleEnrichmentQueue.shift();
     if (!capsuleId) return;
     const selectorId = window.CSS && window.CSS.escape ? window.CSS.escape(capsuleId) : capsuleId.replace(/"/g, '\\"');
@@ -16388,8 +16392,20 @@ async function enrichAgentRunCapsule(capsule, payload) {
     const data = await response.json().catch(() => ({}));
     if (!data || !data.success || data.fallback) {
         const reason = String(data && data.reason || '');
-        if (reason === 'llm_disabled' || reason === 'missing_api_key') {
-            channelAgentRunCapsuleLlmUnavailableUntil = Date.now() + (5 * 60 * 1000);
+        if ([
+            'llm_disabled',
+            'missing_api_key',
+            'provider_cooldown',
+            'provider_unreachable',
+            'provider_http_error',
+            'provider_response_error',
+            'provider_response_too_large',
+            'provider_bad_response',
+            'capsule_summary_failed',
+        ].includes(reason)) {
+            channelAgentRunCapsuleLlmUnavailableUntil = Date.now() + (
+                (reason === 'llm_disabled' || reason === 'missing_api_key') ? 5 * 60 * 1000 : 90 * 1000
+            );
         }
         markAgentRunCapsuleEnrichmentUnavailable(capsule, 'unavailable');
         return;

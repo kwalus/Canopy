@@ -832,6 +832,9 @@ class FileManager:
 
         Best-effort: failures are logged but never propagate.
         """
+        if str(file_extension or '').lower() == '.svg':
+            logger.debug("SVG %s uses original preview fallback; raster thumbnail skipped", original_path.name)
+            return
         try:
             img: Any = Image.open(_io.BytesIO(file_data))
             orientation = self._image_exif_orientation(img)
@@ -886,7 +889,8 @@ class FileManager:
         original_path = self._resolve_file_disk_path(file_info.file_path)
 
         thumb_path = self._thumb_path_for(original_path)
-        if _PILLOW_AVAILABLE and str(file_info.content_type or '').startswith('image/') and original_path.exists():
+        is_svg = original_path.suffix.lower() == '.svg' or str(file_info.content_type or '').lower() == 'image/svg+xml'
+        if _PILLOW_AVAILABLE and not is_svg and str(file_info.content_type or '').startswith('image/') and original_path.exists():
             if not thumb_path.exists() or self._thumbnail_orientation_mismatch(original_path, thumb_path):
                 try:
                     self._generate_thumbnail(original_path.read_bytes(), original_path, original_path.suffix)
@@ -1046,7 +1050,7 @@ class FileManager:
                     conn.commit()
             
             # Generate thumbnail for images (best-effort)
-            if _PILLOW_AVAILABLE and content_type.startswith('image/'):
+            if _PILLOW_AVAILABLE and content_type.startswith('image/') and file_extension != '.svg':
                 self._generate_thumbnail(file_data, file_path, file_extension)
 
             logger.info(f"File saved successfully: {file_id} -> {file_path}")
@@ -1168,7 +1172,7 @@ class FileManager:
                 )
                 conn.commit()
 
-            if _PILLOW_AVAILABLE and ctype.startswith('image/'):
+            if _PILLOW_AVAILABLE and ctype.startswith('image/') and file_extension != '.svg':
                 self._generate_thumbnail(raw, target_path, file_extension)
 
             return self.get_file(file_id)
@@ -1276,7 +1280,7 @@ class FileManager:
                     shutil.copy2(source_thumb, self._thumb_path_for(target_path))
                 except Exception:
                     logger.debug("Could not copy thumbnail for Vault copy %s", file_id, exc_info=True)
-            elif _PILLOW_AVAILABLE and content_type.startswith('image/'):
+            elif _PILLOW_AVAILABLE and content_type.startswith('image/') and file_extension != '.svg':
                 try:
                     self._generate_thumbnail(target_path.read_bytes(), target_path, file_extension)
                 except Exception:
