@@ -14,7 +14,7 @@
     }
     .vault-hero {
         display: grid;
-        grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.8fr);
+        grid-template-columns: minmax(260px, 0.72fr) minmax(340px, 1.28fr);
         gap: 1rem;
         align-items: stretch;
         margin-bottom: 1rem;
@@ -44,9 +44,9 @@
     }
     .vault-title {
         margin: 0;
-        font-size: clamp(2rem, 5vw, 4rem);
-        line-height: 0.95;
-        letter-spacing: -0.06em;
+        font-size: clamp(1.8rem, 3.2vw, 3.2rem);
+        line-height: 1;
+        letter-spacing: -0.05em;
         color: var(--canopy-text-primary);
     }
     .vault-subtitle {
@@ -59,14 +59,14 @@
         display: flex;
         flex-wrap: wrap;
         gap: 0.55rem;
-        margin-top: 1.2rem;
+        margin-top: 1rem;
     }
     .vault-rule {
         display: inline-flex;
         align-items: center;
         gap: 0.4rem;
         padding: 0.46rem 0.68rem;
-        border-radius: 999px;
+        border-radius: 12px;
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 80%, transparent);
         border: 1px solid var(--canopy-border);
         color: var(--canopy-text-secondary);
@@ -83,6 +83,9 @@
             linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 13%, transparent), color-mix(in srgb, var(--canopy-accent) 9%, transparent));
         cursor: pointer;
         transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    }
+    .vault-intro .vault-stats {
+        margin-top: 1rem;
     }
     .vault-dropzone:hover,
     .vault-dropzone.is-dragging {
@@ -210,7 +213,7 @@
         border: 1px solid var(--canopy-border);
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
         color: var(--canopy-text-secondary);
-        border-radius: 999px;
+        border-radius: 12px;
         padding: 0.44rem 0.75rem;
         font-weight: 700;
         font-size: 0.84rem;
@@ -247,7 +250,7 @@
     }
     .vault-crumb {
         border: 1px solid transparent;
-        border-radius: 999px;
+        border-radius: 12px;
         background: transparent;
         color: var(--canopy-text-secondary);
         padding: 0.35rem 0.55rem;
@@ -345,7 +348,7 @@
         gap: 0.25rem;
         padding: 0.22rem;
         border: 1px solid var(--canopy-border);
-        border-radius: 999px;
+        border-radius: 14px;
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
     }
     .vault-view-btn {
@@ -354,7 +357,7 @@
         gap: 0.34rem;
         min-height: 2rem;
         border: 0;
-        border-radius: 999px;
+        border-radius: 10px;
         padding: 0.32rem 0.6rem;
         background: transparent;
         color: var(--canopy-text-secondary);
@@ -545,21 +548,18 @@
         font-weight: 750;
     }
     .vault-stats {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.45rem;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.44rem;
         margin-bottom: 0.75rem;
     }
     .vault-stat {
-        display: inline-flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 0.52rem;
-        flex: 1 1 9rem;
+        display: grid;
+        gap: 0.08rem;
         min-width: 0;
-        padding: 0.46rem 0.62rem;
+        padding: 0.5rem 0.58rem;
         border: 1px solid var(--canopy-border);
-        border-radius: 999px;
+        border-radius: 12px;
         background: color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
     }
     .vault-stat-label {
@@ -568,13 +568,15 @@
         letter-spacing: 0.09em;
         font-size: 0.68rem;
         font-weight: 850;
+        line-height: 1;
     }
     .vault-stat-value {
         color: var(--canopy-text-primary);
         font-weight: 900;
-        font-size: 0.98rem;
+        font-size: 0.95rem;
         margin-top: 0;
         font-variant-numeric: tabular-nums;
+        line-height: 1.08;
     }
     .vault-digestion-panel {
         margin-bottom: 1rem;
@@ -3278,6 +3280,39 @@
         color: var(--canopy-secondary);
         font-size: 2.4rem;
     }
+
+    .vault-shell .btn:not(.rounded-circle),
+    .vault-shell .vault-rule,
+    .vault-shell .vault-filter,
+    .vault-shell .vault-crumb,
+    .vault-shell .vault-view-switch,
+    .vault-shell .vault-view-btn,
+    .vault-shell .vault-stat,
+    .vault-shell .vault-digestion-summary-pill,
+    .vault-shell .vault-digestion-pill,
+    .vault-shell .vault-digestion-delete-keep,
+    .vault-shell .vault-digestion-contribution-mini-stats span,
+    .vault-shell .vault-digestion-acl-perms .form-check,
+    .vault-shell .vault-digestion-acl-warning,
+    .vault-shell .vault-digestion-share-chip,
+    .vault-shell .vault-digestion-share-clear-all,
+    .vault-shell .vault-digestion-share-user.is-selected::after,
+    .vault-shell .vault-file-acl-perm,
+    .vault-shell .vault-file-acl-warning,
+    .vault-shell .vault-file-share-selected,
+    .vault-shell .vault-digestion-search-mode .form-select,
+    .vault-shell .vault-digestion-builder-stat,
+    .vault-shell .vault-digestion-builder-filter .btn,
+    .vault-shell .vault-digestion-builder-role,
+    .vault-shell .vault-digestion-builder-picked,
+    .vault-shell .vault-digestion-result-source span,
+    .vault-shell .vault-digestion-result-badges span,
+    .vault-shell .vault-digestion-result-actions .btn,
+    .vault-shell .vault-digestion-output-summary span,
+    .vault-shell .vault-file-pill {
+        border-radius: 12px;
+    }
+
     @media (max-width: 900px) {
         .vault-hero,
         .vault-toolbar {
@@ -3675,6 +3710,24 @@
                 <span class="vault-rule"><i class="bi bi-hdd-network"></i> Local to this instance</span>
                 <span class="vault-rule"><i class="bi bi-cpu"></i> Digest-ready later</span>
             </div>
+            <div class="vault-stats" aria-label="Vault summary">
+                <div class="vault-stat">
+                    <div class="vault-stat-label">Files</div>
+                    <div class="vault-stat-value" id="vault-stat-count">{{ vault_stats.count|default(0) }}</div>
+                </div>
+                <div class="vault-stat">
+                    <div class="vault-stat-label">Storage</div>
+                    <div class="vault-stat-value" id="vault-stat-bytes">0 B</div>
+                </div>
+                <div class="vault-stat">
+                    <div class="vault-stat-label">Docs</div>
+                    <div class="vault-stat-value" id="vault-stat-docs">0</div>
+                </div>
+                <div class="vault-stat">
+                    <div class="vault-stat-label">Media</div>
+                    <div class="vault-stat-value" id="vault-stat-media">0</div>
+                </div>
+            </div>
         </div>
         <label class="vault-panel vault-dropzone" id="vault-dropzone" for="vault-upload-input" role="button" tabindex="0" aria-label="Upload files to your vault">
             <span class="vault-drop-icon"><i class="bi bi-cloud-arrow-up"></i></span>
@@ -3705,25 +3758,6 @@
             <button class="vault-filter" type="button" data-vault-filter="video">Video</button>
             <button class="vault-filter" type="button" data-vault-filter="audio">Audio</button>
             <button class="vault-filter" type="button" data-vault-filter="other">Other</button>
-        </div>
-    </section>
-
-    <section class="vault-stats" aria-label="Vault summary">
-        <div class="vault-stat">
-            <div class="vault-stat-label">Files</div>
-            <div class="vault-stat-value" id="vault-stat-count">{{ vault_stats.count|default(0) }}</div>
-        </div>
-        <div class="vault-stat">
-            <div class="vault-stat-label">Storage</div>
-            <div class="vault-stat-value" id="vault-stat-bytes">0 B</div>
-        </div>
-        <div class="vault-stat">
-            <div class="vault-stat-label">Documents</div>
-            <div class="vault-stat-value" id="vault-stat-docs">0</div>
-        </div>
-        <div class="vault-stat">
-            <div class="vault-stat-label">Media</div>
-            <div class="vault-stat-value" id="vault-stat-media">0</div>
         </div>
     </section>
 

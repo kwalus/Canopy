@@ -408,7 +408,15 @@ class TestFrontendRegressions(unittest.TestCase):
             vault_template.index('id="vault-selection-bar"'),
         )
         self.assertIn('.vault-file-panel .vault-explorer-bar', vault_template)
-        self.assertIn('flex: 1 1 9rem;', vault_template)
+        self.assertLess(
+            vault_template.index('Private local file vault'),
+            vault_template.index('id="vault-stat-count"'),
+        )
+        self.assertLess(
+            vault_template.index('id="vault-stat-media"'),
+            vault_template.index('id="vault-dropzone"'),
+        )
+        self.assertIn('grid-template-columns: repeat(2, minmax(0, 1fr));', vault_template)
         self.assertIn('vault-digestion-list', vault_template)
         self.assertIn('vault-digestion-toolbar', vault_template)
         self.assertIn('id="vault-digestion-search"', vault_template)
@@ -2919,6 +2927,7 @@ console.log(JSON.stringify({{
         routes_py = (ROOT / 'canopy' / 'ui' / 'routes.py').read_text(encoding='utf-8')
 
         self.assertIn('id="workspaceSearchTrigger"', base_template)
+        self.assertIn('data-workspace-search-hotkey', base_template)
         self.assertIn('id="workspaceSearchOverlay"', base_template)
         self.assertIn('id="workspaceSearchInput"', base_template)
         self.assertIn('data-workspace-search-scope="channels"', base_template)
@@ -2941,6 +2950,7 @@ console.log(JSON.stringify({{
         self.assertIn('file_manager.list_user_files(user_id, limit=12, query=query)', routes_py)
         self.assertIn('url_for(\'ui.channels_locate\', message_id=item_id)', routes_py)
         self.assertIn('function initWorkspaceSearch(global)', main_js)
+        self.assertIn("hotkeyLabel.textContent = /mac|iphone|ipad|ipod/i.test(platform) ? '⌘K' : 'Ctrl K';", main_js)
         self.assertIn("const chord = (event.metaKey || event.ctrlKey) && key === 'k';", main_js)
         self.assertIn("routes().workspaceSearch || '/ajax/workspace_search'", main_js)
         self.assertIn("const requestScope = state.scope || DEFAULT_SCOPE;", main_js)

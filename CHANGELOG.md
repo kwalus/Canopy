@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.292] - 2026-05-29
+
+### Changed
+- **Vault hero now uses space more efficiently** - File Vault counts, storage, document, and media stats moved into the compact local-vault summary panel so the upload drop zone gets more horizontal room.
+- **Search and Vault controls use rounded corners instead of pill ends** - workspace search, Vault filters, breadcrumbs, view toggles, buttons, and metadata chips now use rounded-rectangle styling while progress and avatar shapes remain functionally distinct.
+- **Workspace search hotkey label is platform-aware** - the header search trigger defaults to `Ctrl K` and switches to `⌘K` on Apple platforms so Windows users are not shown a Mac-only symbol.
+
 ## [0.6.291] - 2026-05-29
 
 ### Changed

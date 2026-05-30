@@ -17264,6 +17264,11 @@
 	                const els = elements();
 	                if (!els.overlay || els.overlay.dataset.wired === '1') return;
 	                els.overlay.dataset.wired = '1';
+	                const hotkeyLabel = document.querySelector('[data-workspace-search-hotkey]');
+	                if (hotkeyLabel) {
+	                    const platform = String(global.navigator && (global.navigator.userAgentData?.platform || global.navigator.platform || '') || '');
+	                    hotkeyLabel.textContent = /mac|iphone|ipad|ipod/i.test(platform) ? '⌘K' : 'Ctrl K';
+	                }
 	                if (els.trigger) {
 	                    els.trigger.addEventListener('click', () => openSearch());
 	                }
