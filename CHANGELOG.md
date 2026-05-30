@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.293] - 2026-05-30
+
+### Changed
+- **Vault file previews now open in place** - clicking a previewable Vault file inserts its preview directly beneath that file card instead of jumping to a shared preview panel at the top of the list.
+- **Multiple Vault previews can stay open** - users can compare files in the same folder without losing scroll position; each inline preview has its own expand, open-in-new-tab, download, and close controls.
+
 ## [0.6.292] - 2026-05-29
 
 ### Changed
