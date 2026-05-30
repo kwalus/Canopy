@@ -1575,7 +1575,7 @@
             min-height: 2.35rem;
             padding: 0.4rem 0.74rem;
             border: 1px solid color-mix(in srgb, var(--canopy-border) 72%, var(--canopy-primary) 28%);
-            border-radius: 999px;
+            border-radius: 16px;
             background:
                 radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--canopy-primary) 18%, transparent), transparent 34%),
                 color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
@@ -1672,7 +1672,7 @@
         .workspace-search-close {
             width: 2.35rem;
             height: 2.35rem;
-            border-radius: 999px;
+            border-radius: 16px;
             border: 1px solid color-mix(in srgb, var(--canopy-border) 75%, transparent);
             background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
             color: var(--canopy-text-primary);
@@ -1730,7 +1730,7 @@
         .workspace-search-filter {
             position: relative;
             border: 1px solid color-mix(in srgb, var(--canopy-border) 74%, transparent);
-            border-radius: 999px;
+            border-radius: 12px;
             background: color-mix(in srgb, var(--canopy-bg-tertiary) 58%, transparent);
             color: var(--canopy-text-secondary);
             font-size: 0.76rem;
@@ -14105,7 +14105,7 @@
                         aria-label="Search this meshspace">
                     <i class="bi bi-search"></i>
                     <span>Search</span>
-                    <kbd>⌘K</kbd>
+                    <kbd data-workspace-search-hotkey>Ctrl K</kbd>
                 </button>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                     <span class="navbar-toggler-icon"></span>
