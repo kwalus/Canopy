@@ -2239,7 +2239,7 @@
                     digestionBuilderUserFilter: 'all',
 		                                digestionProgressTimers: new Map(),
                     digestionPackageHandoffs: new Map(),
-					                    previewFileId: '',
+					                    openPreviewFileIds: new Set(),
 		                                selectionDigestionMenuOpen: false,
                     selectionMoveMenuOpen: false,
                     selectionDeleteConfirmOpen: false,
@@ -2327,14 +2327,6 @@
 	                const digestionCount = document.getElementById('vault-digestion-count');
 	                const digestionSummary = document.getElementById('vault-digestion-summary');
 	                const digestionClearFilters = document.getElementById('vault-digestion-clear-filters');
-	                const inlinePreviewPanel = document.getElementById('vault-inline-preview-panel');
-	                const inlinePreviewTitle = document.getElementById('vault-inline-preview-title');
-	                const inlinePreviewMeta = document.getElementById('vault-inline-preview-meta');
-	                const inlinePreviewBody = document.getElementById('vault-inline-preview-body');
-	                const inlinePreviewOpen = document.getElementById('vault-inline-preview-open');
-	                const inlinePreviewDownload = document.getElementById('vault-inline-preview-download');
-	                const inlinePreviewExpand = document.getElementById('vault-inline-preview-expand');
-	                const inlinePreviewClose = document.getElementById('vault-inline-preview-close');
 
                     function openPendingVaultDigestionFromUrl() {
                         const digestionId = String(state.pendingUrlDigestionId || '').trim();
@@ -2406,63 +2398,142 @@
 	                    return detectors.some(fn => typeof fn === 'function' && fn(name, type));
 	                }
 
-	                function setVaultPreviewCardState(fileId) {
+	                function setVaultPreviewCardState() {
 	                    if (!grid) return;
-	                    const selectedId = String(fileId || '');
 	                    grid.querySelectorAll('[data-vault-file-id]').forEach((card) => {
 	                        const id = card.getAttribute('data-vault-file-id') || '';
-	                        card.classList.toggle('is-previewing', !!selectedId && id === selectedId);
+	                        card.classList.toggle('is-previewing', state.openPreviewFileIds.has(id));
 	                    });
 	                }
 
-	                function closeVaultInlinePreview() {
-	                    state.previewFileId = '';
-	                    if (inlinePreviewPanel) inlinePreviewPanel.hidden = true;
-	                    setVaultInlinePreviewExpanded(false);
-	                    setVaultInlinePreviewExpandAvailable(false);
-	                    if (inlinePreviewBody) {
-	                        inlinePreviewBody.innerHTML = '';
-	                        delete inlinePreviewBody.dataset.loadedFileId;
-	                    }
-	                    setVaultPreviewCardState('');
+	                function vaultInlinePreviewPanelId(fileId) {
+	                    return `vault-inline-preview-${String(fileId || '').replace(/[^A-Za-z0-9_-]/g, '-')}`;
 	                }
 
-	                function setVaultInlinePreviewExpanded(expanded) {
-	                    if (!inlinePreviewPanel) return;
+	                function vaultInlinePreviewPanel(fileId) {
+	                    if (!grid) return null;
+	                    return grid.querySelector(`[data-vault-inline-preview-panel="${vaultCssEscape(fileId)}"]`);
+	                }
+
+	                function vaultInlinePreviewBody(fileId) {
+	                    const panel = vaultInlinePreviewPanel(fileId);
+	                    return panel ? panel.querySelector('[data-vault-inline-preview-body]') : null;
+	                }
+
+	                function vaultFileCard(fileId) {
+	                    if (!grid) return null;
+	                    return grid.querySelector(`[data-vault-file-id="${vaultCssEscape(fileId)}"]`);
+	                }
+
+	                function renderVaultInlinePreviewShell(file, options = {}) {
+	                    const id = vaultEscape(vaultFileId(file));
+	                    const name = vaultEscape(vaultFileName(file));
+	                    const meta = vaultEscape(vaultInlinePreviewMeta(file));
+	                    const url = vaultEscape(vaultFileUrl(file));
+	                    const pageNumber = Number(options.page || 0);
+	                    const type = vaultFileContentType(file);
+	                    const isPdf = typeof global.canopyIsPdfPreviewable === 'function' && global.canopyIsPdfPreviewable(vaultFileName(file), type);
+	                    const openUrl = vaultEscape(pageNumber && isPdf ? vaultPdfPreviewUrl(file, pageNumber) : vaultFileUrl(file));
+	                    return `
+	                        <section class="vault-inline-preview-panel vault-card-inline-preview"
+	                                 id="${vaultEscape(vaultInlinePreviewPanelId(id))}"
+	                                 data-vault-inline-preview-panel="${id}"
+	                                 aria-live="polite"
+	                                 aria-label="Preview ${name}">
+	                            <div class="vault-inline-preview-head">
+	                                <div>
+	                                    <div class="vault-inline-preview-kicker"><i class="bi bi-eye"></i> Inline Vault preview</div>
+	                                    <h3 class="vault-inline-preview-title">${name}</h3>
+	                                    <div class="vault-inline-preview-meta">${meta}</div>
+	                                </div>
+	                                <div class="vault-inline-preview-actions">
+	                                    <button class="btn btn-sm btn-outline-primary" type="button"
+	                                            data-vault-inline-preview-action="expand"
+	                                            data-vault-inline-preview-id="${id}"
+	                                            hidden
+	                                            aria-pressed="false">
+	                                        <i class="bi bi-arrows-fullscreen"></i> Full-page height
+	                                    </button>
+	                                    <a class="btn btn-sm btn-outline-secondary" href="${openUrl || url || '#'}" target="_blank" rel="noopener">
+	                                        <i class="bi bi-box-arrow-up-right"></i> Open in new tab
+	                                    </a>
+	                                    <a class="btn btn-sm btn-outline-secondary" href="${url || '#'}" download="${name}">
+	                                        <i class="bi bi-download"></i> Download
+	                                    </a>
+	                                    <button class="btn btn-sm btn-outline-secondary" type="button"
+	                                            data-vault-inline-preview-action="close"
+	                                            data-vault-inline-preview-id="${id}">
+	                                        <i class="bi bi-x-lg"></i> Close
+	                                    </button>
+	                                </div>
+	                            </div>
+	                            <div class="vault-inline-preview-body" data-vault-inline-preview-body></div>
+	                        </section>
+	                    `;
+	                }
+
+	                function ensureVaultInlinePreviewPanel(file, options = {}) {
+	                    const id = vaultFileId(file);
+	                    if (!id || !grid) return null;
+	                    let panel = vaultInlinePreviewPanel(id);
+	                    if (panel) return panel;
+	                    const card = vaultFileCard(id);
+	                    if (!card) return null;
+	                    card.insertAdjacentHTML('afterend', renderVaultInlinePreviewShell(file, options));
+	                    panel = vaultInlinePreviewPanel(id);
+	                    return panel;
+	                }
+
+	                function closeVaultInlinePreview(fileId) {
+	                    const id = String(fileId || '').trim();
+	                    if (!id) {
+	                        state.openPreviewFileIds.clear();
+	                        if (grid) {
+	                            grid.querySelectorAll('[data-vault-inline-preview-panel]').forEach(panel => panel.remove());
+	                        }
+	                        setVaultPreviewCardState();
+	                        return;
+	                    }
+	                    state.openPreviewFileIds.delete(id);
+	                    const panel = vaultInlinePreviewPanel(id);
+	                    if (panel) panel.remove();
+	                    setVaultPreviewCardState();
+	                }
+
+	                function setVaultInlinePreviewExpanded(fileId, expanded) {
+	                    const panel = vaultInlinePreviewPanel(fileId);
+	                    if (!panel) return;
 	                    const isExpanded = !!expanded;
-	                    inlinePreviewPanel.classList.toggle('is-expanded', isExpanded);
-	                    if (inlinePreviewExpand) {
-	                        inlinePreviewExpand.setAttribute('aria-pressed', isExpanded ? 'true' : 'false');
-	                        inlinePreviewExpand.innerHTML = isExpanded
+	                    panel.classList.toggle('is-expanded', isExpanded);
+	                    const expandBtn = panel.querySelector('[data-vault-inline-preview-action="expand"]');
+	                    if (expandBtn) {
+	                        expandBtn.setAttribute('aria-pressed', isExpanded ? 'true' : 'false');
+	                        expandBtn.innerHTML = isExpanded
 	                            ? '<i class="bi bi-arrows-angle-contract"></i> Compact height'
 	                            : '<i class="bi bi-arrows-fullscreen"></i> Full-page height';
 	                    }
-	                    if (isExpanded) {
-	                        global.setTimeout(() => {
-	                            inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-	                        }, 0);
-	                    }
 	                }
 
-	                function setVaultInlinePreviewExpandAvailable(available) {
-	                    if (!inlinePreviewExpand) return;
-	                    inlinePreviewExpand.hidden = !available;
+	                function setVaultInlinePreviewExpandAvailable(fileId, available) {
+	                    const panel = vaultInlinePreviewPanel(fileId);
+	                    const expandBtn = panel && panel.querySelector('[data-vault-inline-preview-action="expand"]');
+	                    if (!expandBtn) return;
+	                    expandBtn.hidden = !available;
 	                    if (!available) {
-	                        setVaultInlinePreviewExpanded(false);
+	                        setVaultInlinePreviewExpanded(fileId, false);
 	                    }
 	                }
 
-	                function emphasizeVaultInlinePreview() {
-	                    if (!inlinePreviewPanel) return;
-	                    inlinePreviewPanel.classList.remove('is-preview-jump');
+	                function emphasizeVaultInlinePreview(fileId) {
+	                    const panel = vaultInlinePreviewPanel(fileId);
+	                    if (!panel) return;
+	                    panel.classList.remove('is-preview-jump');
 	                    // Restart the attention animation when source-result buttons target the same preview twice.
-	                    void inlinePreviewPanel.offsetWidth;
-	                    inlinePreviewPanel.classList.add('is-preview-jump');
-	                    try {
-	                        inlinePreviewPanel.focus({ preventScroll: true });
-	                    } catch (_) {}
+	                    void panel.offsetWidth;
+	                    panel.classList.add('is-preview-jump');
 	                    global.setTimeout(() => {
-	                        if (inlinePreviewPanel) inlinePreviewPanel.classList.remove('is-preview-jump');
+	                        const latest = vaultInlinePreviewPanel(fileId);
+	                        if (latest) latest.classList.remove('is-preview-jump');
 	                    }, 1300);
 	                }
 
@@ -2508,7 +2579,7 @@
 	                async function previewVaultFileInline(file) {
 	                    const options = arguments.length > 1 && arguments[1] ? arguments[1] : {};
 	                    const id = vaultFileId(file);
-	                    if (!id || !inlinePreviewPanel || !inlinePreviewBody) {
+	                    if (!id || !grid) {
 	                        openVaultFileInNewTab(file);
 	                        return;
 	                    }
@@ -2517,51 +2588,41 @@
 	                        return;
 	                    }
 
-	                    const url = vaultFileUrl(file);
 	                    const name = vaultFileName(file);
 	                    const type = vaultFileContentType(file);
 	                    const pageNumber = Number(options.page || 0);
-	                    const scrollBlock = options.scrollBlock || 'start';
-	                    const shouldScroll = options.suppressScroll !== true;
 	                    const isPdf = typeof global.canopyIsPdfPreviewable === 'function' && global.canopyIsPdfPreviewable(name, type);
-	                    setVaultInlinePreviewExpanded(false);
-	                    setVaultInlinePreviewExpandAvailable(false);
-	                    const openUrl = (pageNumber && isPdf)
-	                        ? vaultPdfPreviewUrl(file, pageNumber)
-	                        : url;
-	                    state.previewFileId = id;
-	                    if (inlinePreviewTitle) inlinePreviewTitle.textContent = name;
-	                    if (inlinePreviewMeta) inlinePreviewMeta.textContent = vaultInlinePreviewMeta(file);
-	                    if (inlinePreviewOpen) inlinePreviewOpen.href = openUrl || '#';
-	                    if (inlinePreviewDownload) {
-	                        inlinePreviewDownload.href = url || '#';
-	                        inlinePreviewDownload.setAttribute('download', name);
+	                    const panel = ensureVaultInlinePreviewPanel(file, { page: pageNumber });
+	                    if (!panel) {
+	                        openVaultFileInNewTab(file);
+	                        return;
 	                    }
-	                    inlinePreviewPanel.hidden = false;
-	                    setVaultPreviewCardState(id);
+	                    const inlinePreviewBody = vaultInlinePreviewBody(id);
+	                    if (!inlinePreviewBody) return;
+	                    setVaultInlinePreviewExpanded(id, false);
+	                    setVaultInlinePreviewExpandAvailable(id, false);
+	                    state.openPreviewFileIds.add(id);
+	                    setVaultPreviewCardState();
 
 	                    const mediaHtml = renderVaultInlineMediaPreview(file);
 	                    if (mediaHtml) {
 	                        inlinePreviewBody.dataset.loadedFileId = id;
 	                        inlinePreviewBody.innerHTML = mediaHtml;
-	                        if (shouldScroll) inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
-	                        if (options.flash && shouldScroll) emphasizeVaultInlinePreview();
+	                        if (options.flash) emphasizeVaultInlinePreview(id);
 	                        return;
 	                    }
 	                    if (isPdf) {
 	                        inlinePreviewBody.dataset.loadedFileId = id;
 	                        inlinePreviewBody.innerHTML = renderVaultInlinePdfPreview(file, { page: pageNumber });
-	                        setVaultInlinePreviewExpandAvailable(true);
-	                        if (shouldScroll) inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
-	                        if (options.flash && shouldScroll) emphasizeVaultInlinePreview();
+	                        setVaultInlinePreviewExpandAvailable(id, true);
+	                        if (options.flash) emphasizeVaultInlinePreview(id);
 	                        return;
 	                    }
 
 	                    inlinePreviewBody.innerHTML = '<div class="vault-inline-preview-message"><span class="spinner-border spinner-border-sm me-1"></span>Loading preview...</div>';
-	                    if (shouldScroll) inlinePreviewPanel.scrollIntoView({ behavior: 'smooth', block: scrollBlock });
 	                    try {
 	                        const payload = await apiCall(vaultFilePreviewUrl(file));
-	                        if (state.previewFileId !== id) return;
+	                        if (!state.openPreviewFileIds.has(id)) return;
 	                        const previewId = `vault-preview-${id.replace(/[^A-Za-z0-9_-]/g, '-')}`;
 	                        if (typeof global.renderFilePreviewPayloadHtml === 'function') {
 	                            inlinePreviewBody.dataset.loadedFileId = id;
@@ -2570,7 +2631,7 @@
 	                            inlinePreviewBody.innerHTML = '<div class="vault-inline-preview-message">Preview renderer is not available. Use Open in new tab.</div>';
 	                        }
 	                    } catch (error) {
-	                        if (state.previewFileId !== id) return;
+	                        if (!state.openPreviewFileIds.has(id)) return;
 	                        inlinePreviewBody.innerHTML = `<div class="vault-inline-preview-message text-danger"><i class="bi bi-exclamation-triangle me-1"></i>${vaultEscape(error.error || error.message || 'Could not load preview.')}</div>`;
 	                    }
 	                }
@@ -2589,6 +2650,11 @@
 
 	                function openVaultFile(file) {
 	                    if (isVaultInlinePreviewable(file)) {
+	                        const id = vaultFileId(file);
+	                        if (id && state.openPreviewFileIds.has(id)) {
+	                            emphasizeVaultInlinePreview(id);
+	                            return;
+	                        }
 	                        previewVaultFileInline(file);
 	                        return;
 	                    }
@@ -3411,7 +3477,7 @@
 		                            const box = card.querySelector('[data-vault-select-file]');
 		                            if (box) box.checked = checked;
 		                        });
-		                        setVaultPreviewCardState(state.previewFileId);
+		                        setVaultPreviewCardState();
 		                    }
 	                    updateVaultSelectAllButton();
 		                }
@@ -7498,9 +7564,9 @@
 	                    state.selectedIds.forEach((id) => {
 	                        if (!visibleIds.has(id)) state.selectedIds.delete(id);
 	                    });
-	                    if (state.previewFileId && !visibleIds.has(state.previewFileId)) {
-	                        closeVaultInlinePreview();
-	                    }
+	                    state.openPreviewFileIds.forEach((id) => {
+	                        if (!visibleIds.has(id)) state.openPreviewFileIds.delete(id);
+	                    });
 	                    if (!state.files.length && !state.folders.length) {
                         grid.innerHTML = '';
                         empty.style.display = 'block';
@@ -7509,6 +7575,12 @@
                         grid.innerHTML = state.folders.map(renderVaultFolderCard).join('')
                             + state.files.map(file => renderVaultPageCard(file, state.selectedIds.has(vaultFileId(file)))).join('');
                     }
+                    Array.from(state.openPreviewFileIds).forEach((id) => {
+                        const file = state.files.find(candidate => vaultFileId(candidate) === id);
+                        if (file) {
+                            previewVaultFileInline(file, { suppressScroll: true });
+                        }
+                    });
                     applyVaultViewMode();
                     updateSelectionUi();
                     updateStats(state.stats);
@@ -8649,16 +8721,6 @@
 	                        render();
 	                    });
 	                }
-	                if (inlinePreviewClose) {
-	                    inlinePreviewClose.addEventListener('click', closeVaultInlinePreview);
-	                }
-	                if (inlinePreviewExpand) {
-	                    inlinePreviewExpand.addEventListener('click', (event) => {
-	                        event.preventDefault();
-	                        const expanded = !!(inlinePreviewPanel && inlinePreviewPanel.classList.contains('is-expanded'));
-	                        setVaultInlinePreviewExpanded(!expanded);
-	                    });
-	                }
 	                if (dropzone && uploadInput) {
                     let externalDragDepth = 0;
                     dropzone.addEventListener('keydown', (event) => {
@@ -8837,6 +8899,21 @@
                         }
                     });
                     grid.addEventListener('click', async (event) => {
+                        const previewActionBtn = event.target.closest('[data-vault-inline-preview-action]');
+                        if (previewActionBtn && grid.contains(previewActionBtn)) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const id = previewActionBtn.getAttribute('data-vault-inline-preview-id') || '';
+                            const action = previewActionBtn.getAttribute('data-vault-inline-preview-action') || '';
+                            if (action === 'close') {
+                                closeVaultInlinePreview(id);
+                            } else if (action === 'expand') {
+                                const panel = vaultInlinePreviewPanel(id);
+                                const expanded = !!(panel && panel.classList.contains('is-expanded'));
+                                setVaultInlinePreviewExpanded(id, !expanded);
+                            }
+                            return;
+                        }
                         const selectBox = event.target.closest('[data-vault-select-file]');
                         if (selectBox && grid.contains(selectBox)) {
                             const id = selectBox.getAttribute('data-vault-select-file') || '';
