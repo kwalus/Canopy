@@ -6785,6 +6785,116 @@
 			                    };
 			                }
 
+			                function vaultFileShareSelectedUsers(form) {
+			                    if (!form) return [];
+			                    let parsed = [];
+			                    try {
+			                        parsed = JSON.parse(form.dataset.granteeUsers || '[]');
+			                    } catch (_) {
+			                        parsed = [];
+			                    }
+			                    const deduped = new Map();
+			                    (Array.isArray(parsed) ? parsed : []).forEach((user) => {
+			                        const normalized = normalizeDigestionShareUser(user);
+			                        if (normalized && !deduped.has(normalized.user_id)) {
+			                            deduped.set(normalized.user_id, normalized);
+			                        }
+			                    });
+			                    return Array.from(deduped.values());
+			                }
+
+			                function vaultFileShareSelectedUserIds(form) {
+			                    return new Set(vaultFileShareSelectedUsers(form).map((user) => user.user_id));
+			                }
+
+			                function renderVaultFileShareSelection(form) {
+			                    if (!form) return;
+			                    const selectedEl = form.querySelector('[data-vault-file-share-selected]');
+			                    const users = vaultFileShareSelectedUsers(form);
+			                    if (!selectedEl) return;
+			                    if (!users.length) {
+			                        selectedEl.hidden = true;
+			                        selectedEl.innerHTML = '';
+			                        return;
+			                    }
+			                    selectedEl.hidden = false;
+			                    selectedEl.innerHTML = `
+			                        ${users.map((user) => {
+			                            const label = userLabel(user);
+			                            const subLabel = digestionShareIdentitySubLabel(user);
+			                            return `
+			                                <span class="vault-file-share-chip" title="${vaultEscape(label)}${subLabel ? ` - ${vaultEscape(subLabel)}` : ''}">
+			                                    <i class="bi bi-person-check"></i>
+			                                    <span><strong>${vaultEscape(label)}</strong>${subLabel ? ` <small>${vaultEscape(subLabel)}</small>` : ''}</span>
+			                                    <button type="button"
+			                                            title="Remove ${vaultEscape(label)}"
+			                                            aria-label="Remove ${vaultEscape(label)}"
+			                                            data-vault-file-share-remove="${vaultEscape(user.user_id)}">
+			                                        <i class="bi bi-x-lg"></i>
+			                                    </button>
+			                                </span>
+			                            `;
+			                        }).join('')}
+			                        ${users.length > 1 ? `
+			                            <button class="vault-file-share-clear-all" type="button" data-vault-file-share-clear>
+			                                <i class="bi bi-x-circle"></i> Clear all
+			                            </button>
+			                        ` : ''}
+			                    `;
+			                }
+
+			                function refreshVaultFileShareSubmitState(form) {
+			                    if (!form) return;
+			                    const submitBtn = form.querySelector('[data-vault-file-share-submit]');
+			                    if (!submitBtn) return;
+			                    const recipients = vaultFileShareSelectedUsers(form);
+			                    submitBtn.disabled = !recipients.length;
+			                    submitBtn.innerHTML = recipients.length > 1
+			                        ? `<i class="bi bi-unlock"></i> Grant ${recipients.length}`
+			                        : '<i class="bi bi-unlock"></i> Grant access';
+			                }
+
+			                function setVaultFileShareSelectedUsers(form, users) {
+			                    if (!form) return [];
+			                    const deduped = new Map();
+			                    (Array.isArray(users) ? users : []).forEach((user) => {
+			                        const normalized = normalizeDigestionShareUser(user);
+			                        if (normalized && !deduped.has(normalized.user_id)) {
+			                            deduped.set(normalized.user_id, normalized);
+			                        }
+			                    });
+			                    const selected = Array.from(deduped.values());
+			                    form.dataset.granteeUsers = JSON.stringify(selected);
+			                    if (selected.length) {
+			                        form.dataset.granteeUserId = selected[0].user_id;
+			                        form.dataset.granteeUserLabel = userLabel(selected[0]);
+			                    } else {
+			                        delete form.dataset.granteeUserId;
+			                        delete form.dataset.granteeUserLabel;
+			                    }
+			                    renderVaultFileShareSelection(form);
+			                    refreshVaultFileShareSubmitState(form);
+			                    return selected;
+			                }
+
+			                function addVaultFileShareSelectedUser(form, user) {
+			                    const normalized = normalizeDigestionShareUser(user);
+			                    if (!form || !normalized) return false;
+			                    const existing = vaultFileShareSelectedUsers(form);
+			                    const alreadySelected = existing.some((entry) => entry.user_id === normalized.user_id);
+			                    setVaultFileShareSelectedUsers(form, alreadySelected ? existing : existing.concat(normalized));
+			                    return true;
+			                }
+
+			                function removeVaultFileShareSelectedUser(form, userId) {
+			                    if (!form) return;
+			                    const target = String(userId || '').trim();
+			                    setVaultFileShareSelectedUsers(
+			                        form,
+			                        vaultFileShareSelectedUsers(form).filter((user) => user.user_id !== target),
+			                    );
+			                }
+
 			                function updateVaultFileShareCountInState(fileId, count) {
 			                    const safeFileId = String(fileId || '');
 			                    const safeCount = Math.max(0, Number(count || 0));
@@ -6886,28 +6996,23 @@
 
 			                function resetVaultFileShareSelection(form, { keepInput = true, keepStatus = false } = {}) {
 			                    if (!form) return;
-			                    delete form.dataset.granteeUserId;
-			                    delete form.dataset.granteeUserLabel;
-			                    const submitBtn = form.querySelector('[data-vault-file-share-submit]');
-			                    const selectedEl = form.querySelector('[data-vault-file-share-selected]');
+			                    setVaultFileShareSelectedUsers(form, []);
 			                    const input = form.querySelector('[data-vault-file-share-search]');
-			                    if (submitBtn) submitBtn.disabled = true;
-			                    if (selectedEl) {
-			                        selectedEl.hidden = true;
-			                        selectedEl.innerHTML = '';
-			                    }
 			                    if (!keepInput && input) input.value = '';
 			                    closeVaultFileShareResults(form);
 			                    vaultFileShareResultButtons(form).forEach((button) => {
 			                        button.classList.remove('is-active');
 			                        button.setAttribute('aria-selected', 'false');
 			                    });
+			                    refreshVaultFileShareSubmitState(form);
 			                    if (!keepStatus) setVaultFileShareStatus(form, '');
 			                }
 
 			                function renderVaultFileShareUsers(fileId, users, { emptyMessage = 'No matching local users or agents.' } = {}) {
 			                    const resultsEl = document.querySelector(`[data-vault-file-share-results="${vaultCssEscape(fileId)}"]`);
 			                    if (!resultsEl) return;
+			                    const form = vaultFileShareForm(fileId);
+			                    const selectedIds = vaultFileShareSelectedUserIds(form);
 			                    const safeUsers = Array.isArray(users)
 			                        ? users.map(normalizeDigestionShareUser).filter(Boolean)
 			                        : [];
@@ -6915,7 +7020,6 @@
 			                    state.fileShareActiveIndex.set(String(fileId || ''), safeUsers.length ? 0 : -1);
 			                    resultsEl.hidden = false;
 			                    resultsEl.setAttribute('role', 'listbox');
-			                    const form = vaultFileShareForm(fileId);
 			                    const input = form && form.querySelector('[data-vault-file-share-search]');
 			                    const searchShell = input && input.closest('.vault-file-share-search');
 			                    const card = form && form.closest('[data-vault-file-id]');
@@ -6930,14 +7034,16 @@
 			                    resultsEl.innerHTML = safeUsers.map((user, index) => {
 			                        const label = userLabel(user);
 			                        const subLabel = digestionShareIdentitySubLabel(user) || user.user_id;
+			                        const isSelected = selectedIds.has(user.user_id);
 			                        const avatar = user.avatar_url
 			                            ? `<img src="${vaultEscape(user.avatar_url)}" alt="">`
 			                            : `<span>${vaultEscape(label.slice(0, 2).toUpperCase())}</span>`;
 			                        return `
-			                            <button class="vault-file-share-user${index === 0 ? ' is-active' : ''}"
+			                            <button class="vault-file-share-user${index === 0 ? ' is-active' : ''}${isSelected ? ' is-selected' : ''}"
 			                                    type="button"
 			                                    role="option"
 			                                    aria-selected="${index === 0 ? 'true' : 'false'}"
+			                                    title="${vaultEscape(label)}${subLabel ? ` - ${vaultEscape(subLabel)}` : ''}"
 			                                    data-vault-file-share-user-id="${vaultEscape(user.user_id)}"
 			                                    data-vault-file-share-user-label="${vaultEscape(label)}"
 			                                    data-vault-file-share-user-sub-label="${vaultEscape(subLabel)}"
@@ -6987,27 +7093,18 @@
 			                function setVaultFileShareSelected(form, user) {
 			                    const normalized = normalizeDigestionShareUser(user);
 			                    if (!form || !normalized) return false;
-			                    const selectedEl = form.querySelector('[data-vault-file-share-selected]');
-			                    const submitBtn = form.querySelector('[data-vault-file-share-submit]');
 			                    const input = form.querySelector('[data-vault-file-share-search]');
 			                    const label = userLabel(normalized);
-			                    const subLabel = digestionShareIdentitySubLabel(normalized);
-			                    form.dataset.granteeUserId = normalized.user_id;
-			                    form.dataset.granteeUserLabel = label;
-			                    if (input) input.value = label;
-			                    if (submitBtn) submitBtn.disabled = false;
+			                    const selectedBefore = vaultFileShareSelectedUserIds(form);
+			                    if (input) input.value = '';
+			                    addVaultFileShareSelectedUser(form, normalized);
 			                    closeVaultFileShareResults(form);
-			                    if (selectedEl) {
-			                        selectedEl.hidden = false;
-			                        selectedEl.innerHTML = `
-			                            <i class="bi bi-person-check"></i>
-			                            <span>Selected: <strong>${vaultEscape(label)}</strong>${subLabel ? ` <small>${vaultEscape(subLabel)}</small>` : ''}</span>
-			                            <button type="button" title="Clear selected user" aria-label="Clear selected user" data-vault-file-share-clear>
-			                                <i class="bi bi-x-lg"></i>
-			                            </button>
-			                        `;
-			                    }
-			                    setVaultFileShareStatus(form, '');
+			                    setVaultFileShareStatus(
+			                        form,
+			                        selectedBefore.has(normalized.user_id)
+			                            ? `${label} is already selected.`
+			                            : `${label} added. Search again to add more recipients.`
+			                    );
 			                    return true;
 			                }
 
@@ -7078,11 +7175,6 @@
 			                    const fileId = input.getAttribute('data-vault-file-share-search') || '';
 			                    const form = vaultFileShareForm(fileId);
 			                    if (form) {
-			                        const selectedLabel = digestionShareSearchKey(form.dataset.granteeUserLabel || '');
-			                        const typed = digestionShareSearchKey(input.value);
-			                        if (!selectedLabel || typed !== selectedLabel) {
-			                            resetVaultFileShareSelection(form, { keepInput: true });
-			                        }
 			                        const directUserId = digestionShareDirectUserIdCandidate(input.value);
 			                        if (directUserId) {
 			                            setVaultFileShareSelected(form, {
@@ -7143,6 +7235,7 @@
 			                    if (willOpen) {
 			                        const input = form.querySelector('[data-vault-file-share-search]');
 			                        loadVaultFileAcl(fileId, { force: true });
+			                        refreshVaultFileShareSubmitState(form);
 			                        global.setTimeout(() => {
 			                            if (input) input.focus();
 			                        }, 0);
@@ -7154,12 +7247,10 @@
 			                async function grantVaultFileAccess(form) {
 			                    if (!form) return;
 			                    const fileId = form.getAttribute('data-vault-file-share') || '';
-			                    if (!form.dataset.granteeUserId) maybeSelectTypedVaultFileShareUser(form);
-			                    const input = form.querySelector('[data-vault-file-share-search]');
-			                    const directUserId = digestionShareDirectUserIdCandidate(input && input.value);
-			                    const granteeUserId = String(form.dataset.granteeUserId || directUserId || '').trim();
-			                    if (!fileId || !granteeUserId) {
-			                        setVaultFileShareStatus(form, 'Choose a user or agent before granting access.', 'warning');
+			                    maybeSelectTypedVaultFileShareUser(form);
+			                    const recipients = vaultFileShareSelectedUsers(form);
+			                    if (!fileId || !recipients.length) {
+			                        setVaultFileShareStatus(form, 'Choose one or more users or agents before granting access.', 'warning');
 			                        return;
 			                    }
 			                    const submitBtn = form.querySelector('[data-vault-file-share-submit]');
@@ -7168,31 +7259,59 @@
 			                        submitBtn.disabled = true;
 			                        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Granting';
 			                    }
-			                    setVaultFileShareStatus(form, 'Granting file access...', 'muted');
+			                    setVaultFileShareStatus(form, `Granting file access to ${recipients.length} recipient${recipients.length === 1 ? '' : 's'}...`, 'muted');
+			                    const successes = [];
+			                    const failures = [];
 			                    try {
-			                        const result = await apiCall(vaultFileShareEndpoint(fileId), {
-			                            method: 'POST',
-			                            body: JSON.stringify({
-			                                grantee_user_id: granteeUserId,
-			                                can_read: true,
-			                            })
-			                        });
-			                        const grantee = result.grantee || {};
-			                        const label = userLabel(grantee.user_id ? grantee : { user_id: granteeUserId });
-			                        const entries = Array.isArray(result.entries) ? result.entries : await loadVaultFileAcl(fileId, { force: true });
+			                        for (const recipient of recipients) {
+			                            try {
+			                                const result = await apiCall(vaultFileShareEndpoint(fileId), {
+			                                    method: 'POST',
+			                                    body: JSON.stringify({
+			                                        grantee_user_id: recipient.user_id,
+			                                        can_read: true,
+			                                    })
+			                                });
+			                                successes.push(result.grantee || recipient);
+			                            } catch (error) {
+			                                failures.push({
+			                                    user: recipient,
+			                                    message: error.error || 'Could not grant access.',
+			                                });
+			                            }
+			                        }
+			                        if (!successes.length && failures.length) {
+			                            throw { error: failures.map((failure) => `${userLabel(failure.user)}: ${failure.message}`).join(' · ') };
+			                        }
+			                        const entries = await loadVaultFileAcl(fileId, { force: true });
 			                        state.fileShareAcl.set(fileId, entries);
 			                        renderVaultFileAclList(fileId, entries);
-			                        resetVaultFileShareSelection(form, { keepInput: false, keepStatus: true });
-			                        setVaultFileShareStatus(form, `${label} can now read/download this Vault file.`, 'success');
-			                        if (typeof showAlert === 'function') showAlert(`Vault file shared with ${label}.`, 'success');
+			                        const successLabel = successes.length === 1 ? userLabel(successes[0]) : `${successes.length} recipients`;
+			                        const failureCopy = failures.length
+			                            ? ` ${failures.length} recipient${failures.length === 1 ? '' : 's'} could not be updated.`
+			                            : '';
+			                        setVaultFileShareStatus(
+			                            form,
+			                            `${successLabel} can now read/download this Vault file.${failureCopy}`,
+			                            failures.length ? 'warning' : 'success'
+			                        );
+			                        if (typeof showAlert === 'function') {
+			                            showAlert(`Vault file shared with ${successLabel}.${failureCopy}`, failures.length ? 'warning' : 'success');
+			                        }
+			                        if (failures.length) {
+			                            setVaultFileShareSelectedUsers(form, failures.map((failure) => failure.user));
+			                        } else {
+			                            resetVaultFileShareSelection(form, { keepInput: false, keepStatus: true });
+			                        }
+			                        closeVaultFileShareResults(form);
 			                    } catch (error) {
 			                        const message = error.error || 'Could not grant file access.';
 			                        setVaultFileShareStatus(form, message, 'danger');
 			                        if (typeof showAlert === 'function') showAlert(message, 'danger');
 			                    } finally {
 			                        if (submitBtn) {
-			                            submitBtn.disabled = !String(form.dataset.granteeUserId || '').trim();
 			                            submitBtn.innerHTML = original;
+			                            refreshVaultFileShareSubmitState(form);
 			                        }
 			                    }
 			                }
@@ -9256,6 +9375,14 @@
                                     if (typeof showAlert === 'function') showAlert(error.error || 'Could not delete folder.', 'warning');
                                 }
                             }
+                            return;
+                        }
+                        const fileShareRemoveBtn = event.target.closest('[data-vault-file-share-remove]');
+                        if (fileShareRemoveBtn && grid.contains(fileShareRemoveBtn)) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const form = fileShareRemoveBtn.closest('[data-vault-file-share]');
+                            removeVaultFileShareSelectedUser(form, fileShareRemoveBtn.getAttribute('data-vault-file-share-remove') || '');
                             return;
                         }
                         const fileShareClearBtn = event.target.closest('[data-vault-file-share-clear]');

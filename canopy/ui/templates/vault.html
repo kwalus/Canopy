@@ -2116,6 +2116,25 @@
         background: color-mix(in srgb, var(--canopy-primary) 16%, transparent);
         outline: none;
     }
+    .vault-file-share-user.is-selected {
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-success) 26%, transparent), color-mix(in srgb, var(--canopy-primary) 14%, transparent));
+        box-shadow: inset 3px 0 0 var(--canopy-success);
+    }
+    .vault-file-share-user.is-selected::after {
+        content: "Selected";
+        justify-self: end;
+        align-self: center;
+        grid-column: 2;
+        border-radius: 999px;
+        padding: 0.12rem 0.42rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-success) 38%, transparent);
+        color: var(--canopy-success);
+        font-size: 0.62rem;
+        font-weight: 850;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
     .vault-file-share-avatar {
         width: 34px;
         height: 34px;
@@ -2152,14 +2171,27 @@
     .vault-file-share-selected {
         display: inline-flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 0.4rem;
-        width: fit-content;
+        width: 100%;
         max-width: 100%;
         padding: 0.35rem 0.55rem;
-        border-radius: 999px;
+        border-radius: 14px;
         background: color-mix(in srgb, var(--canopy-success) 16%, transparent);
         color: var(--canopy-text-primary);
         font-size: 0.78rem;
+    }
+    .vault-file-share-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        min-width: 0;
+        max-width: min(100%, 22rem);
+        border: 1px solid color-mix(in srgb, var(--canopy-success) 34%, var(--canopy-border));
+        border-radius: 999px;
+        padding: 0.26rem 0.5rem;
+        background: color-mix(in srgb, var(--canopy-bg-card) 72%, var(--canopy-success) 16%);
+        box-shadow: 0 8px 22px color-mix(in srgb, var(--canopy-shadow) 28%, transparent);
     }
     .vault-file-share-selected span {
         min-width: 0;
@@ -2167,7 +2199,8 @@
         text-overflow: ellipsis;
         white-space: nowrap;
     }
-    .vault-file-share-selected button {
+    .vault-file-share-selected button,
+    .vault-file-share-clear-all {
         border: 0;
         background: transparent;
         color: inherit;
@@ -2176,15 +2209,25 @@
         opacity: 0.72;
     }
     .vault-file-share-selected button:hover,
-    .vault-file-share-selected button:focus {
+    .vault-file-share-selected button:focus,
+    .vault-file-share-clear-all:hover,
+    .vault-file-share-clear-all:focus {
         opacity: 1;
         outline: none;
     }
-    .vault-file-share-selected button:focus-visible {
+    .vault-file-share-selected button:focus-visible,
+    .vault-file-share-clear-all:focus-visible {
         opacity: 1;
         outline: 2px solid var(--canopy-primary);
         outline-offset: 2px;
         border-radius: 4px;
+    }
+    .vault-file-share-clear-all {
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 82%, transparent);
+        border-radius: 999px;
+        padding: 0.22rem 0.55rem;
+        color: var(--canopy-text-secondary);
+        font-weight: 800;
     }
     .vault-file-share-status {
         min-height: 1rem;
