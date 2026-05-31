@@ -104,6 +104,45 @@ class TestFileUploadMetadataHardening(unittest.TestCase):
         self.assertEqual(info.original_name, 'agent_tool.py')
         self.assertIn('/documents/', info.file_path.replace('\\', '/'))
 
+    def test_default_attachment_folder_groups_posted_media_by_type(self) -> None:
+        folder_id = self.file_manager.ensure_default_attachment_folder(
+            'user-test',
+            'field-photo.png',
+            'image/png',
+            root_name='Posted Attachments',
+        )
+        self.assertTrue(folder_id)
+        path = self.file_manager.get_user_folder_path('user-test', folder_id)
+        self.assertEqual([folder.name for folder in path], ['Posted Attachments', 'Images'])
+
+        png_1x1 = (
+            b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR'
+            b'\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00'
+            b'\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\xf8\x0f\x00\x01\x01\x01\x00'
+            b'\x18\xdd\x8d\xb0\x00\x00\x00\x00IEND\xaeB`\x82'
+        )
+        info = self.file_manager.save_file(
+            file_data=png_1x1,
+            original_name='field-photo.png',
+            content_type='image/png',
+            uploaded_by='user-test',
+            vault_folder_id=folder_id,
+        )
+        self.assertIsNotNone(info)
+        assert info is not None
+        self.assertEqual(info.vault_folder_id, folder_id)
+
+    def test_default_attachment_folder_uses_business_document_bucket(self) -> None:
+        folder_id = self.file_manager.ensure_default_attachment_folder(
+            'user-test',
+            'meeting-notes.docx',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            root_name='Saved Attachments',
+        )
+        self.assertTrue(folder_id)
+        path = self.file_manager.get_user_folder_path('user-test', folder_id)
+        self.assertEqual([folder.name for folder in path], ['Saved Attachments', 'Documents'])
+
     def test_file_manager_rejects_binary_python_source(self) -> None:
         info = self.file_manager.save_file(
             file_data=b'\x00\x01\x02not-python',
