@@ -7906,17 +7906,81 @@ Required JSON shape:
         }
 
     def _normalize_figure_vision_payload(self, parsed: dict[str, Any]) -> dict[str, Any]:
+        roots = [parsed]
+        for key in (
+            "figure",
+            "image",
+            "analysis",
+            "result",
+            "data",
+            "output",
+            "vision",
+            "visual_analysis",
+            "visual_evidence",
+            "figure_analysis",
+            "figure_vision",
+        ):
+            nested = parsed.get(key)
+            if isinstance(nested, dict):
+                roots.append(nested)
+            elif isinstance(nested, list) and nested and isinstance(nested[0], dict):
+                roots.append(nested[0])
+
+        def first_value(*keys: str) -> Any:
+            for root in roots:
+                for key in keys:
+                    value = root.get(key)
+                    if value not in (None, "", [], {}):
+                        return value
+            return None
+
         description = self._llm_scalar(
-            parsed.get("description") or parsed.get("summary") or parsed.get("caption_summary"),
+            first_value(
+                "description",
+                "figure_description",
+                "visual_description",
+                "image_description",
+                "vision_description",
+                "summary",
+                "caption_summary",
+                "what_it_shows",
+                "content_summary",
+                "analysis_summary",
+            ),
             limit=2800,
         )
-        figure_type = self._llm_scalar(parsed.get("figure_type") or parsed.get("type"), limit=80).lower() or "other"
-        author_intent = self._llm_scalar(parsed.get("author_intent") or parsed.get("intent"), limit=900)
-        observations = self._llm_string_list(parsed.get("observations") or parsed.get("qualitative_observations"), limit=16, item_limit=500)
-        limitations = self._llm_string_list(parsed.get("limitations") or parsed.get("uncertainty"), limit=12, item_limit=500)
-        warnings = self._llm_string_list(parsed.get("warnings") or parsed.get("caveats"), limit=8, item_limit=400)
+        figure_type = self._llm_scalar(
+            first_value("figure_type", "type", "kind", "visual_type", "image_type"),
+            limit=80,
+        ).lower() or "other"
+        author_intent = self._llm_scalar(
+            first_value("author_intent", "intent", "purpose", "interpretation", "main_point"),
+            limit=900,
+        )
+        observations = self._llm_string_list(
+            first_value("observations", "qualitative_observations", "findings", "key_observations", "visible_features"),
+            limit=16,
+            item_limit=500,
+        )
+        limitations = self._llm_string_list(
+            first_value("limitations", "uncertainty", "caveats", "not_readable", "quality_limitations"),
+            limit=12,
+            item_limit=500,
+        )
+        warnings = self._llm_string_list(
+            first_value("warnings", "safety_caveats", "citation_caveats", "notes"),
+            limit=8,
+            item_limit=400,
+        )
         datapoints: list[dict[str, Any]] = []
-        raw_datapoints = parsed.get("datapoints") or parsed.get("data_points") or parsed.get("quantitative_results") or []
+        raw_datapoints = first_value(
+            "datapoints",
+            "data_points",
+            "quantitative_results",
+            "visible_datapoints",
+            "measurements",
+            "values",
+        ) or []
         if isinstance(raw_datapoints, dict):
             raw_datapoints = [raw_datapoints]
         if isinstance(raw_datapoints, list):
@@ -7936,7 +8000,33 @@ Required JSON shape:
                     text = self._llm_scalar(item, limit=400)
                     if text:
                         datapoints.append({"label": "visible datapoint", "value_text": text, "unit": "", "series": "", "evidence": text, "approximate": False})
-        confidence = self._normalize_confidence(parsed.get("confidence"))
+        if not description:
+            fallback_bits: list[str] = []
+            if observations:
+                fallback_bits.append(f"Observations: {'; '.join(observations[:3])}.")
+            if author_intent:
+                fallback_bits.append(f"Apparent purpose: {author_intent}.")
+            if datapoints:
+                point_labels = [
+                    " ".join(
+                        part
+                        for part in (
+                            item.get("label") or "datapoint",
+                            item.get("value_text") or "",
+                            item.get("unit") or "",
+                        )
+                        if part
+                    )
+                    for item in datapoints[:4]
+                ]
+                fallback_bits.append(f"Visible datapoints include: {'; '.join(point_labels)}.")
+            if limitations:
+                fallback_bits.append(f"Limitations: {'; '.join(limitations[:2])}.")
+            if fallback_bits:
+                description = self._llm_scalar(" ".join(fallback_bits), limit=2800)
+                if "description_synthesized_from_structured_fields" not in warnings:
+                    warnings.append("description_synthesized_from_structured_fields")
+        confidence = self._normalize_confidence(first_value("confidence", "score"))
         return {
             "description": description,
             "figure_type": figure_type,
