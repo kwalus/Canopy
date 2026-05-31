@@ -9,6 +9,9 @@
 {% set recipient_chips_id = 'deck-recipient-chips' if dm_is_deck else 'recipient-chips' %}
 {% set recipient_input_id = 'deck-messageRecipient' if dm_is_deck else 'messageRecipient' %}
 {% set recipient_suggestions_id = 'deck-recipient-suggestions' if dm_is_deck else 'recipient-suggestions' %}
+{% set recipient_picker_id = 'deck-recipient-picker-panel' if dm_is_deck else 'recipient-picker-panel' %}
+{% set recipient_picker_count_id = 'deck-recipient-picker-count' if dm_is_deck else 'recipient-picker-count' %}
+{% set recipient_picker_grid_id = 'deck-recipient-picker-grid' if dm_is_deck else 'recipient-picker-grid' %}
 {% set textarea_id = 'deck-messageContent' if dm_is_deck else 'messageContent' %}
 {% set channel_suggestions_id = 'deck-dm-channel-suggestions' if dm_is_deck else 'dm-channel-suggestions' %}
 {% set file_preview_id = 'deck-message-file-preview' if dm_is_deck else 'message-file-preview' %}
@@ -66,6 +69,27 @@
                 <input type="text" id="{{ recipient_input_id }}" data-dm-role="recipient-input" placeholder="Type a name, @handle, or user ID">
             </div>
             <div id="{{ recipient_suggestions_id }}" class="recipient-suggestions" data-dm-role="recipient-suggestions"></div>
+        </div>
+        <div id="{{ recipient_picker_id }}" class="recipient-picker-panel" data-dm-role="recipient-picker-panel">
+            <div class="recipient-picker-head">
+                <div>
+                    <strong><i class="bi bi-person-plus"></i> Pick people and agents</strong>
+                    <small id="{{ recipient_picker_count_id }}" data-dm-role="recipient-picker-count">Loading available recipients</small>
+                </div>
+                <div class="recipient-picker-filterbar" role="group" aria-label="Recipient type filter">
+                    <button type="button" class="recipient-picker-filter is-active" data-recipient-picker-filter="all" aria-pressed="true">All</button>
+                    <button type="button" class="recipient-picker-filter" data-recipient-picker-filter="agent" aria-pressed="false">Agents</button>
+                    <button type="button" class="recipient-picker-filter" data-recipient-picker-filter="human" aria-pressed="false">Humans</button>
+                    <button type="button" class="recipient-picker-filter is-muted" data-recipient-picker-action="clear">Clear</button>
+                </div>
+            </div>
+            <div id="{{ recipient_picker_grid_id }}"
+                 class="recipient-picker-grid"
+                 data-dm-role="recipient-picker-grid"
+                 role="listbox"
+                 aria-multiselectable="true">
+                <div class="recipient-picker-empty">Start typing or open a new conversation to load users and agents.</div>
+            </div>
         </div>
     </div>
 

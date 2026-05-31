@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.306] - 2026-05-31
+
+### Added
+- **Messages new conversations have a multi-select recipient picker** - starting a DM now opens a persistent people-and-agents grid with All/Agents/Humans filters, selected-state chips, and one-click toggles so humans can assemble group DMs without adding recipients one at a time.
+
 ## [0.6.305] - 2026-05-31
 
 ### Added
