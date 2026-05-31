@@ -1,9 +1,12 @@
 (function () {
     'use strict';
 
-    const WS_ID_RE = /(^|[\s([{<>'"`])(?:workstream\s*[:=]\s*)?(Ws[A-Fa-f0-9]{12,})(?=$|[\s)\]}>.,;:!?;'"`])/g;
+    const WS_ID_TEXT_RE = /Ws[A-Fa-f0-9]{12,}/;
+    const WS_BRACKET_RE = /\[workstream\s*[:=]\s*(Ws[A-Fa-f0-9]{12,})(?:\s*\|\s*([^\]]{1,140}))?\]/gi;
+    const WS_BARE_RE = /(^|[\s([{<>'"`])(?:workstream\s*[:=]\s*)?(Ws[A-Fa-f0-9]{12,})(?=$|[\s)\]}>.,;:!?;'"`])/g;
     const SCAN_SELECTOR = '.rich-content, .post-content, .message-content, .message-text, [data-post-content="1"], [data-message-content="1"]';
     const SKIP_SELECTOR = 'a,button,textarea,input,select,code,pre,script,style,.canopy-workstream-ref,.canopy-workstream-modal';
+    const workstreamPreviewCache = new Map();
 
     function escapeHtml(value) {
         return String(value || '')
@@ -17,6 +20,13 @@
     function shortId(value) {
         const id = String(value || '').trim();
         return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-5)}` : id;
+    }
+
+    function shortDate(value) {
+        if (!value) return '';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
+        return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     }
 
     function csrfToken() {
@@ -81,10 +91,11 @@
             const actor = e.actor || { id: e.actor_user_id };
             const name = actor.display_name || actor.username || e.actor_user_id || 'Actor';
             const title = e.title || e.event_type || 'Update';
+            const eventState = e.metadata?.event_state || e.status || '';
             return `<article class="canopy-workstream-event" data-type="${escapeHtml(e.event_type || '')}">
                 <div class="canopy-workstream-event-avatar">${userAvatar(actor)}</div>
                 <div class="canopy-workstream-event-body">
-                    <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(name)} · ${escapeHtml(e.created_at || '')}</span></div>
+                    <div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(name)} · ${escapeHtml(shortDate(e.created_at || ''))}${eventState ? ` · ${escapeHtml(eventState)}` : ''}</span></div>
                     ${e.body ? `<p>${escapeHtml(e.body)}</p>` : ''}
                 </div>
             </article>`;
@@ -165,32 +176,109 @@
             if (!response.ok) throw new Error(payload.error || 'Unable to open Workstream');
             content.innerHTML = renderWorkstream(payload);
         } catch (error) {
-            content.innerHTML = `<div class="canopy-workstream-error"><strong>Workstream unavailable</strong><span>${escapeHtml(error.message || error)}</span></div>`;
+            content.innerHTML = `<div class="canopy-workstream-error"><strong>Workstream unavailable</strong><span>${escapeHtml(error.message || error)}</span><em>${escapeHtml(id)}</em></div>`;
         }
+    }
+
+    function workstreamFetchHeaders() {
+        const headers = { 'X-Requested-With': 'XMLHttpRequest' };
+        const token = csrfToken();
+        if (token) headers['X-CSRFToken'] = token;
+        return headers;
+    }
+
+    async function fetchWorkstreamPreview(id) {
+        if (!id) return null;
+        if (workstreamPreviewCache.has(id)) return workstreamPreviewCache.get(id);
+        const promise = fetch(`/api/v1/workstreams/${encodeURIComponent(id)}?summary=1`, { headers: workstreamFetchHeaders() })
+            .then(async (response) => {
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    return { ok: false, id, error: payload.error || 'Private or unavailable Workstream' };
+                }
+                const ws = payload.workstream || {};
+                return {
+                    ok: true,
+                    id,
+                    title: ws.title || id,
+                    status: ws.status || 'active',
+                    priority: ws.priority || 'normal',
+                    updated_at: ws.updated_at || '',
+                    channel_id: ws.channel_id || '',
+                };
+            })
+            .catch((error) => ({ ok: false, id, error: error.message || 'Unable to check Workstream' }));
+        workstreamPreviewCache.set(id, promise);
+        return promise;
+    }
+
+    function applyPreviewToButton(button, preview) {
+        if (!button || !preview) return;
+        const label = button.querySelector('.canopy-workstream-ref-label');
+        const meta = button.querySelector('.canopy-workstream-ref-meta');
+        if (!preview.ok) {
+            button.classList.add('is-unavailable');
+            button.setAttribute('aria-disabled', 'true');
+            button.title = `${preview.error}. ${preview.id}`;
+            if (label) label.textContent = 'Private/unavailable Workstream';
+            if (meta) meta.textContent = shortId(preview.id);
+            return;
+        }
+        button.classList.remove('is-unavailable');
+        button.removeAttribute('aria-disabled');
+        button.title = `${preview.title} · ${preview.status}${preview.updated_at ? ` · ${shortDate(preview.updated_at)}` : ''}`;
+        if (label && !button.dataset.explicitLabel) label.textContent = preview.title;
+        if (meta) meta.textContent = `${preview.status}${preview.updated_at ? ` · ${shortDate(preview.updated_at)}` : ''}`;
+    }
+
+    function hydrateWorkstreamButton(button) {
+        const id = button?.dataset?.workstreamId || '';
+        if (!id || button.dataset.workstreamHydrating === '1') return;
+        button.dataset.workstreamHydrating = '1';
+        fetchWorkstreamPreview(id).then((preview) => applyPreviewToButton(button, preview));
+    }
+
+    function makeWorkstreamButton(id, label) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'canopy-workstream-ref';
+        button.dataset.workstreamId = id;
+        if (label) button.dataset.explicitLabel = '1';
+        button.title = `Checking Workstream ${id}`;
+        button.innerHTML = `<i class="bi bi-kanban"></i><span class="canopy-workstream-ref-text"><strong class="canopy-workstream-ref-label">${escapeHtml(label || 'Workstream ' + shortId(id))}</strong><em class="canopy-workstream-ref-meta">${escapeHtml(shortId(id))}</em></span>`;
+        hydrateWorkstreamButton(button);
+        return button;
     }
 
     function linkifyTextNode(node) {
         const text = node.nodeValue || '';
-        if (!text || !/Ws[A-Fa-f0-9]{12,}/.test(text)) return;
-        WS_ID_RE.lastIndex = 0;
-        if (!WS_ID_RE.test(text)) return;
-        WS_ID_RE.lastIndex = 0;
-        const frag = document.createDocumentFragment();
-        let last = 0;
-        text.replace(WS_ID_RE, (match, prefix, id, offset) => {
-            const prefixLen = prefix ? prefix.length : 0;
-            const start = offset + prefixLen;
-            if (start > last) frag.appendChild(document.createTextNode(text.slice(last, start)));
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'canopy-workstream-ref';
-            button.dataset.workstreamId = id;
-            button.title = `Open Workstream ${id}`;
-            button.innerHTML = `<i class="bi bi-kanban"></i><span>${escapeHtml('Workstream ' + shortId(id))}</span>`;
-            frag.appendChild(button);
-            last = offset + match.length;
+        if (!text || !WS_ID_TEXT_RE.test(text)) return;
+        const matches = [];
+        WS_BRACKET_RE.lastIndex = 0;
+        text.replace(WS_BRACKET_RE, (match, id, label, offset) => {
+            matches.push({ start: offset, end: offset + match.length, id, label: String(label || '').trim() });
             return match;
         });
+        WS_BARE_RE.lastIndex = 0;
+        text.replace(WS_BARE_RE, (match, prefix, id, offset) => {
+            const prefixLen = prefix ? prefix.length : 0;
+            const start = offset + prefixLen;
+            const end = offset + match.length;
+            if (!matches.some((item) => start < item.end && end > item.start)) {
+                matches.push({ start, end, id, label: '' });
+            }
+            return match;
+        });
+        if (!matches.length) return;
+        matches.sort((a, b) => a.start - b.start);
+        const frag = document.createDocumentFragment();
+        let last = 0;
+        for (const match of matches) {
+            const { start, end, id, label } = match;
+            if (start > last) frag.appendChild(document.createTextNode(text.slice(last, start)));
+            frag.appendChild(makeWorkstreamButton(id, label));
+            last = end;
+        }
         if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
         node.parentNode.replaceChild(frag, node);
     }
@@ -202,12 +290,12 @@
         if (root.querySelectorAll) root.querySelectorAll(SCAN_SELECTOR).forEach((el) => roots.push(el));
         roots.forEach((el) => {
             if (el.dataset.workstreamLinkified === '1') return;
-            if (!/Ws[A-Fa-f0-9]{12,}/.test(el.textContent || '')) return;
+            if (!WS_ID_TEXT_RE.test(el.textContent || '')) return;
             const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
                 acceptNode(node) {
                     const parent = node.parentElement;
                     if (!parent || parent.closest(SKIP_SELECTOR)) return NodeFilter.FILTER_REJECT;
-                    return /Ws[A-Fa-f0-9]{12,}/.test(node.nodeValue || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+                    return WS_ID_TEXT_RE.test(node.nodeValue || '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
                 }
             });
             const nodes = [];
@@ -221,6 +309,7 @@
         const ref = event.target.closest?.('.canopy-workstream-ref[data-workstream-id]');
         if (!ref) return;
         event.preventDefault();
+        if (ref.classList.contains('is-unavailable')) return;
         openWorkstream(ref.getAttribute('data-workstream-id') || '');
     });
 

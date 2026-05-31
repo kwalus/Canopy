@@ -157,6 +157,43 @@ class WorkstreamManagerTest(unittest.TestCase):
         self.manager.set_participants(ws.id, actor_user_id='u_owner', participants=[{'user_id': 'u_agent', 'role': 'contributor'}])
         self.assertTrue(self.manager.user_can_edit(ws.id, 'u_agent'))
 
+    def test_claim_preserves_specific_role_and_reviewer_can_contribute(self) -> None:
+        ws = self.manager.create_workstream(
+            title='Review stream',
+            owner_user_id='u_owner',
+            created_by='u_owner',
+            participants=[{'user_id': 'u_agent', 'role': 'reviewer'}],
+        )
+
+        claimed = self.manager.claim_workstream(ws.id, actor_user_id='u_agent')
+        roles = {p.user_id: p.role for p in claimed.participants}
+        self.assertEqual(roles['u_agent'], 'reviewer')
+        self.assertFalse(self.manager.user_can_edit(ws.id, 'u_agent'))
+        self.assertTrue(self.manager.user_can_contribute(ws.id, 'u_agent'))
+
+    def test_blocker_events_store_event_state_without_forcing_status(self) -> None:
+        ws = self.manager.create_workstream(title='Blocked run', owner_user_id='u_owner', created_by='u_owner')
+        blocker = self.manager.add_event(
+            ws.id,
+            actor_user_id='u_owner',
+            event_type='blocker',
+            title='Need source file',
+            dedupe_key='blocker:file',
+        )
+        resolved = self.manager.add_event(
+            ws.id,
+            actor_user_id='u_owner',
+            event_type='blocker',
+            title='Source file attached',
+            event_state='resolved',
+            status='active',
+            dedupe_key='blocker:file:resolved',
+        )
+
+        self.assertEqual(blocker.metadata['event_state'], 'open')
+        self.assertEqual(resolved.metadata['event_state'], 'resolved')
+        self.assertEqual(self.manager.get_workstream(ws.id).status, 'active')
+
 
 class WorkstreamApiTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -199,6 +236,48 @@ class WorkstreamApiTest(unittest.TestCase):
         payload = fetched.get_json()['workstream']
         self.assertEqual(payload['artifacts'][0]['title'], 'Work product')
         self.assertIn('agent_reference', fetched.get_json())
+
+    def test_reviewer_claim_can_add_review_without_role_downgrade(self) -> None:
+        created = self.client.post(
+            '/api/v1/workstreams',
+            json={
+                'title': 'API Review Workstream',
+                'channel_id': 'C1',
+                'participants': [{'user_id': 'u_agent', 'role': 'reviewer'}],
+            },
+            headers={'X-API-Key': 'owner-key'},
+        )
+        self.assertEqual(created.status_code, 201)
+        ws_id = created.get_json()['workstream']['id']
+
+        claimed = self.client.post(f'/api/v1/workstreams/{ws_id}/claim', headers={'X-API-Key': 'agent-key'})
+        self.assertEqual(claimed.status_code, 200)
+        roles = {p['user_id']: p['role'] for p in claimed.get_json()['workstream']['participants']}
+        self.assertEqual(roles['u_agent'], 'reviewer')
+
+        review = self.client.post(
+            f'/api/v1/workstreams/{ws_id}/events',
+            json={'event_type': 'review', 'title': 'Review complete', 'event_state': 'confirmed'},
+            headers={'X-API-Key': 'agent-key'},
+        )
+        self.assertEqual(review.status_code, 201)
+        self.assertEqual(review.get_json()['event']['metadata']['event_state'], 'confirmed')
+
+    def test_summary_get_omits_heavy_details_for_link_preview(self) -> None:
+        created = self.client.post(
+            '/api/v1/workstreams',
+            json={'title': 'Previewable Workstream', 'channel_id': 'C1'},
+            headers={'X-API-Key': 'owner-key'},
+        )
+        self.assertEqual(created.status_code, 201)
+        ws_id = created.get_json()['workstream']['id']
+
+        fetched = self.client.get(f'/api/v1/workstreams/{ws_id}?summary=1', headers={'X-API-Key': 'agent-key'})
+        self.assertEqual(fetched.status_code, 200)
+        payload = fetched.get_json()
+        self.assertEqual(payload['workstream']['title'], 'Previewable Workstream')
+        self.assertNotIn('events', payload['workstream'])
+        self.assertIsNone(payload['agent_reference'])
 
     def test_non_member_cannot_create_channel_workstream(self) -> None:
         response = self.client.post(
