@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.295] - 2026-05-30
+
+### Changed
+- **Vault inline previews now toggle from the file card** - clicking a previewable file a second time closes its in-place preview, while dragging a file closes any open preview before move handling begins.
+- **Vault navigation and selection controls are cleaner** - added a top-level jump button to reach Digestions quickly and made the selected-file action toolbar use consistent Canopy button styling.
+
 ## [0.6.294] - 2026-05-30
 
 ### Added
