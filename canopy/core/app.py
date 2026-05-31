@@ -102,6 +102,7 @@ from ..network.routing import (
 from ..security.file_access import evaluate_file_access, evaluate_file_access_for_peer
 from ..security.encryption import DataEncryptor
 from ..api.routes import create_api_blueprint
+from ..api.workstreams import create_workstream_api_blueprint
 from ..ui.routes import create_ui_blueprint
 
 logger = logging.getLogger('canopy.app')
@@ -391,6 +392,12 @@ def create_app(config: Optional[Config] = None) -> Flask:
         task_manager = TaskManager(db_manager)
         app.config['TASK_MANAGER'] = task_manager
         logger.info("Task manager initialized successfully")
+
+        logger.info("Initializing workstream manager...")
+        from .workstreams import WorkstreamManager
+        workstream_manager = WorkstreamManager(db_manager)
+        app.config['WORKSTREAM_MANAGER'] = workstream_manager
+        logger.info("Workstream manager initialized successfully")
 
         logger.info("Initializing request manager...")
         from .requests import RequestManager
@@ -8464,6 +8471,9 @@ def create_app(config: Optional[Config] = None) -> Flask:
         api_bp = create_api_blueprint()
         app.register_blueprint(api_bp, url_prefix='/api/v1')
         app.register_blueprint(api_bp, url_prefix='/api', name='api_legacy')
+        workstream_api_bp = create_workstream_api_blueprint()
+        app.register_blueprint(workstream_api_bp, url_prefix='/api/v1')
+        app.register_blueprint(workstream_api_bp, url_prefix='/api', name='workstreams_api_legacy')
         logger.info("API blueprint registered successfully")
         
         logger.info("Registering UI blueprint...")

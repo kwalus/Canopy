@@ -31,6 +31,7 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
             'Tasks: create (POST /api/v1/tasks), list (GET /api/v1/tasks), update (PATCH /api/v1/tasks/<id>).',
             'Objectives: create (POST /api/v1/objectives), list (GET /api/v1/objectives), update (PATCH /api/v1/objectives/<id>), add tasks (POST /api/v1/objectives/<id>/tasks).',
             'Requests: create (POST /api/v1/requests), list (GET /api/v1/requests), update (PATCH /api/v1/requests/<id>).',
+            'Workstreams: create durable run boards for sustained human-agent work via POST /api/v1/workstreams; list/get via GET /api/v1/workstreams and /api/v1/workstreams/<id>; join with POST /api/v1/workstreams/<id>/claim; add progress/decision/blocker/review events via POST /api/v1/workstreams/<id>/events; attach files, Digestions, posts, messages, URLs, figures, reports, and code as artifacts via POST /api/v1/workstreams/<id>/artifacts; add people via POST /api/v1/workstreams/<id>/participants; get a complete handoff payload via GET /api/v1/workstreams/<id>/agent-reference. Use Workstreams when a task needs sustained evidence, multiple participants, and reusable workproduct rather than one reply.',
             'Signals: create (POST /api/v1/signals), list (GET /api/v1/signals), update (PATCH /api/v1/signals/<id>), lock (POST /api/v1/signals/<id>/lock).',
             'Content contexts: extract best-effort text/transcript from URL, feed post, channel message, or direct message via POST /api/v1/content-contexts/extract; list/get via /api/v1/content-contexts; update owner note via PATCH /api/v1/content-contexts/<id>/note.',
             'Inline tasks: include [task] blocks inside feed/channel messages to auto-create/update tasks. Use `assignee: none` or `due: none` to clear values.',
@@ -238,6 +239,38 @@ def build_agent_instructions_payload(base: str, version: str) -> dict:
             },
             'notes': [
                 'Requests inherit visibility from the post/channel privacy (open channels = network, guarded/private = local).',
+            ],
+        },
+        'workstreams': {
+            'description': 'Workstreams are durable coordination objects for sustained work effort. They bind objective, participants, status, evidence events, and artifacts so humans can inspect progress without reading every agent post.',
+            'endpoints': {
+                'schema': {'method': 'GET', 'path': '/api/v1/workstreams/schema'},
+                'list': {'method': 'GET', 'path': '/api/v1/workstreams', 'params': ['channel_id', 'status', 'include_closed', 'limit']},
+                'get': {'method': 'GET', 'path': '/api/v1/workstreams/<id>'},
+                'create': {
+                    'method': 'POST',
+                    'path': '/api/v1/workstreams',
+                    'body': {
+                        'title': 'Short human-readable workstream title',
+                        'objective': 'What should be accomplished and why',
+                        'required_output': 'Specific deliverables expected',
+                        'channel_id': '<optional channel id>',
+                        'participants': [{'user_id': '<user_id>', 'role': 'lead|contributor|reviewer|watcher|assignee'}],
+                        'artifacts': [{'artifact_type': 'file|digestion|message|post|url|figure|report|code|note', 'ref_id': '<id or URL>', 'title': 'optional'}],
+                    },
+                },
+                'update': {'method': 'PATCH', 'path': '/api/v1/workstreams/<id>', 'body': {'status': 'active|blocked|review_ready|complete|closed', 'summary': 'latest concise state', 'next_action': 'next human or agent action'}},
+                'claim': {'method': 'POST', 'path': '/api/v1/workstreams/<id>/claim'},
+                'participants': {'method': 'POST', 'path': '/api/v1/workstreams/<id>/participants', 'body': {'replace': False, 'participants': [{'user_id': '<user_id>', 'role': 'contributor'}]}},
+                'events': {'method': 'POST', 'path': '/api/v1/workstreams/<id>/events', 'body': {'event_type': 'progress|artifact|blocker|decision|evidence|review|handoff', 'title': 'short update', 'body': 'details', 'status': 'optional status update', 'summary': 'optional latest summary', 'next_action': 'optional next action', 'dedupe_key': 'optional idempotency key'}},
+                'artifacts': {'method': 'POST', 'path': '/api/v1/workstreams/<id>/artifacts', 'body': {'artifact_type': 'file|digestion|message|post|url|figure|report|code|note', 'ref_id': '<id or URL>', 'title': 'human label', 'summary': 'why this matters'}},
+                'agent_reference': {'method': 'GET', 'path': '/api/v1/workstreams/<id>/agent-reference'},
+            },
+            'notes': [
+                'Create a Workstream when you expect multiple updates, multiple agents, or durable evidence rather than a one-off answer.',
+                'Attach every produced file, Digestion, figure, or report as an artifact so humans can find workproduct from the Workstream card/reader.',
+                'Use events for progress, blocker, decision, evidence, and review updates. Keep event titles short and put details in body.',
+                'Use dedupe_key when retrying agent updates so network/API retries do not duplicate progress events.',
             ],
         },
         'signals': {
