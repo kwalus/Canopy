@@ -223,6 +223,30 @@
         border-color: transparent;
         color: #fff;
     }
+    .vault-jump-digestions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.42rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary) 42%, var(--canopy-border));
+        border-radius: 12px;
+        padding: 0.44rem 0.75rem;
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 16%, transparent), color-mix(in srgb, var(--canopy-secondary) 10%, transparent)),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
+        color: var(--canopy-text-primary);
+        font-size: 0.84rem;
+        font-weight: 850;
+        box-shadow: 0 10px 24px color-mix(in srgb, var(--canopy-shadow) 38%, transparent);
+    }
+    .vault-jump-digestions:hover,
+    .vault-jump-digestions:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-secondary) 64%, var(--canopy-border));
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 22%, transparent), color-mix(in srgb, var(--canopy-secondary) 16%, transparent)),
+            color-mix(in srgb, var(--canopy-bg-card) 86%, transparent);
+        color: var(--canopy-text-primary);
+        transform: translateY(-1px);
+    }
     .vault-explorer-bar {
         display: flex;
         flex-wrap: wrap;
@@ -390,6 +414,48 @@
         align-items: center;
         flex: 1 1 auto;
     }
+    .vault-selection-actions .btn,
+    .vault-selection-toolbar-btn {
+        min-height: 2.18rem;
+        border-radius: 12px;
+        padding: 0.34rem 0.66rem;
+        font-size: 0.8rem;
+        font-weight: 850;
+        letter-spacing: -0.01em;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.34rem;
+        box-shadow: none;
+    }
+    .vault-selection-actions .btn-outline-secondary,
+    .vault-selection-toolbar-btn {
+        border-color: color-mix(in srgb, var(--canopy-border) 90%, transparent);
+        background: color-mix(in srgb, var(--canopy-bg-card) 72%, transparent);
+        color: var(--canopy-text-secondary);
+    }
+    .vault-selection-actions .btn-outline-secondary:hover,
+    .vault-selection-actions .btn-outline-secondary:focus-visible,
+    .vault-selection-toolbar-btn:hover,
+    .vault-selection-toolbar-btn:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-secondary) 48%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 12%, var(--canopy-bg-card));
+        color: var(--canopy-text-primary);
+    }
+    .vault-selection-actions .btn-primary,
+    .vault-selection-actions .btn-outline-primary {
+        border-color: color-mix(in srgb, var(--canopy-primary) 58%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary) 16%, var(--canopy-bg-card));
+        color: var(--canopy-text-primary);
+    }
+    .vault-selection-actions .btn-primary:hover,
+    .vault-selection-actions .btn-primary:focus-visible,
+    .vault-selection-actions .btn-outline-primary:hover,
+    .vault-selection-actions .btn-outline-primary:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-secondary) 62%, var(--canopy-primary));
+        background: var(--canopy-gradient-primary);
+        color: #fff;
+    }
     .vault-selection-digestion-target,
     .vault-selection-move-target {
         position: relative;
@@ -503,6 +569,13 @@
     .vault-selection-danger {
         border-color: color-mix(in srgb, var(--canopy-danger, #ef4444) 45%, var(--canopy-border));
         color: color-mix(in srgb, var(--canopy-danger, #ef4444) 86%, var(--canopy-text-primary));
+        background: color-mix(in srgb, var(--canopy-danger, #ef4444) 8%, var(--canopy-bg-card));
+    }
+    .vault-selection-danger:hover,
+    .vault-selection-danger:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-danger, #ef4444) 62%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-danger, #ef4444) 16%, var(--canopy-bg-card));
+        color: color-mix(in srgb, var(--canopy-danger, #ef4444) 90%, var(--canopy-text-primary));
     }
     .vault-selection-delete-confirm {
         flex: 1 1 100%;
@@ -3766,6 +3839,9 @@
             <button class="vault-filter" type="button" data-vault-filter="video">Video</button>
             <button class="vault-filter" type="button" data-vault-filter="audio">Audio</button>
             <button class="vault-filter" type="button" data-vault-filter="other">Other</button>
+            <button class="vault-jump-digestions" type="button" id="vault-jump-digestions">
+                <i class="bi bi-diagram-3"></i> Digestions <i class="bi bi-arrow-down-short"></i>
+            </button>
         </div>
     </section>
 
@@ -3773,7 +3849,7 @@
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
             <div>
                 <h2 class="h5 mb-1" style="color: var(--canopy-text-primary);">Your files</h2>
-                <div class="small text-muted vault-file-panel-subtitle">Click a file to open it. Use the Vault button in a channel, feed, or DM composer to attach these files. Drag files onto this list to upload into the current folder.</div>
+                <div class="small text-muted vault-file-panel-subtitle">Click a file to preview it; click again to close. Use the Vault button in a channel, feed, or DM composer to attach these files. Drag files onto this list to upload into the current folder.</div>
             </div>
             <div class="vault-list-tools">
                 <button class="btn btn-outline-secondary btn-sm vault-file-collapse-btn" type="button" id="vault-file-panel-collapse" aria-expanded="true" aria-controls="vault-file-panel-body">
@@ -3831,17 +3907,17 @@
                 <span class="text-muted small ms-1">Move, delete, link, or build Digestions from selected files.</span>
             </div>
             <div class="vault-selection-actions">
-	                <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-selection-open">
+	                <button class="btn btn-sm btn-outline-secondary vault-selection-toolbar-btn" type="button" id="vault-selection-open">
 	                    <i class="bi bi-eye"></i> Preview first
 	                </button>
-                <button class="btn btn-sm btn-primary" type="button" id="vault-selection-copy">
+                <button class="btn btn-sm btn-primary vault-selection-toolbar-btn" type="button" id="vault-selection-copy">
                     <i class="bi bi-markdown"></i> Copy links
                 </button>
-                <button class="btn btn-sm btn-outline-primary" type="button" id="vault-selection-digest">
+                <button class="btn btn-sm btn-outline-primary vault-selection-toolbar-btn" type="button" id="vault-selection-digest">
                     <i class="bi bi-diagram-3"></i> New Digestion
                 </button>
                 <div class="vault-selection-move-target" id="vault-selection-move-target">
-                    <button class="btn btn-sm btn-outline-secondary"
+                    <button class="btn btn-sm btn-outline-secondary vault-selection-toolbar-btn"
                             type="button"
                             id="vault-selection-move"
                             aria-expanded="false"
@@ -3855,7 +3931,7 @@
                          hidden></div>
                 </div>
                 <div class="vault-selection-digestion-target" id="vault-selection-digestion-target">
-                    <button class="btn btn-sm btn-outline-primary"
+                    <button class="btn btn-sm btn-outline-primary vault-selection-toolbar-btn"
                             type="button"
                             id="vault-selection-add-existing"
                             aria-expanded="false"
@@ -3871,7 +3947,7 @@
                 <button class="btn btn-sm btn-outline-danger vault-selection-danger" type="button" id="vault-selection-delete" aria-expanded="false" aria-controls="vault-selection-delete-confirm">
                     <i class="bi bi-trash"></i> Delete selected
                 </button>
-                <button class="btn btn-sm btn-outline-secondary" type="button" id="vault-selection-clear">
+                <button class="btn btn-sm btn-outline-secondary vault-selection-toolbar-btn" type="button" id="vault-selection-clear">
                     Clear
                 </button>
                 <div class="vault-selection-delete-confirm" id="vault-selection-delete-confirm" hidden>
@@ -4172,7 +4248,7 @@
         </div>
     </section>
 
-    <section class="vault-panel vault-digestion-panel" aria-label="Vault Digestions">
+    <section class="vault-panel vault-digestion-panel" id="vault-digestion-panel" aria-label="Vault Digestions" tabindex="-1">
         <div class="vault-digestion-head">
             <div class="vault-digestion-head-main">
                 <h2 class="h5 vault-digestion-title">Digestions</h2>

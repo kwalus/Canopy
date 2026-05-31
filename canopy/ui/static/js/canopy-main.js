@@ -2276,6 +2276,8 @@
                 const newFolderCancel = document.getElementById('vault-new-folder-cancel');
                 const newFolderError = document.getElementById('vault-new-folder-error');
                 const rootBtn = document.getElementById('vault-root-btn');
+                const jumpDigestionsBtn = document.getElementById('vault-jump-digestions');
+                const digestionPanel = document.getElementById('vault-digestion-panel');
                 const selectionBar = document.getElementById('vault-selection-bar');
                 const selectionCount = document.getElementById('vault-selection-count');
 	                const selectionOpen = document.getElementById('vault-selection-open');
@@ -2648,11 +2650,15 @@
 	                    }
 	                }
 
-	                function openVaultFile(file) {
+	                function openVaultFile(file, options = {}) {
 	                    if (isVaultInlinePreviewable(file)) {
 	                        const id = vaultFileId(file);
 	                        if (id && state.openPreviewFileIds.has(id)) {
-	                            emphasizeVaultInlinePreview(id);
+                                if (options.toggleInline) {
+                                    closeVaultInlinePreview(id);
+                                } else {
+                                    emphasizeVaultInlinePreview(id);
+                                }
 	                            return;
 	                        }
 	                        previewVaultFileInline(file);
@@ -8123,6 +8129,16 @@
                     });
                 }
                 if (rootBtn) rootBtn.addEventListener('click', () => navigateToFolder(''));
+                if (jumpDigestionsBtn && digestionPanel) {
+                    jumpDigestionsBtn.addEventListener('click', () => {
+                        digestionPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        global.setTimeout(() => {
+                            if (typeof digestionPanel.focus === 'function') {
+                                digestionPanel.focus({ preventScroll: true });
+                            }
+                        }, 220);
+                    });
+                }
                 if (newFolderBtn) {
                     newFolderBtn.addEventListener('click', showNewFolderForm);
                 }
@@ -8845,6 +8861,7 @@
                         draggingFileIds = state.selectedIds.has(draggingFileId)
                             ? selectedVaultFiles().map(vaultFileId).filter(Boolean)
                             : [draggingFileId].filter(Boolean);
+                        draggingFileIds.forEach(id => closeVaultInlinePreview(id));
                         suppressNextCardOpen = false;
                         card.classList.add('is-dragging');
                         card.setAttribute('aria-grabbed', 'true');
@@ -9028,7 +9045,7 @@
                         if (fileCard && grid.contains(fileCard)) {
                             const id = fileCard.getAttribute('data-vault-file-id') || '';
                             const file = state.files.find(candidate => vaultFileId(candidate) === id);
-                            if (file) openVaultFile(file);
+                            if (file) openVaultFile(file, { toggleInline: true });
                         }
                     });
                     grid.addEventListener('input', (event) => {
@@ -9083,7 +9100,7 @@
                         }
                         const fileId = card.getAttribute('data-vault-file-id') || '';
                         const file = state.files.find(candidate => vaultFileId(candidate) === fileId);
-                        if (file) openVaultFile(file);
+                        if (file) openVaultFile(file, { toggleInline: true });
                     });
                 }
             }
