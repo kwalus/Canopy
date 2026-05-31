@@ -1940,6 +1940,89 @@ class TestDigestions(unittest.TestCase):
         self.assertTrue(vision_progress['details']['all_failed'])
         self.assertEqual(vision_progress['details']['errors'][0]['figure_index'], 1)
 
+    def test_pdf_figure_vision_treats_empty_descriptions_as_benign_skips(self) -> None:
+        source = self._save_text(
+            'vision-empty-description-corpus.txt',
+            'Figure 1. Team avatar. Figure 2. Decorative logo. Figure 3. Source thumbnail.',
+        )
+        images = [
+            self._save_image('vision-empty-description-001.png'),
+            self._save_image('vision-empty-description-002.png'),
+            self._save_image('vision-empty-description-003.png'),
+        ]
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Vision empty description digest',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        for index, image in enumerate(images, start=1):
+            self.digestion_manager._insert_pdf_figure({
+                'digestion_id': digestion['id'],
+                'source_file_id': source.id,
+                'source_checksum': source.checksum,
+                'figure_index': index,
+                'page_number': 1,
+                'page_label': 'p. 1',
+                'image_file_id': image.id,
+                'image_name': image.original_name,
+                'content_type': image.content_type,
+                'width': 640,
+                'height': 360,
+                'byte_size': image.size,
+                'caption': f'Figure {index}. Non-data image fixture.',
+                'context_text': 'The nearby text does not include interpretable datapoints.',
+                'vision_description': '',
+                'extraction_method': 'test.fixture',
+                'metadata': {'vision_status': 'not_run', 'source_file_name': source.original_name},
+            })
+
+        empty_payload = json.dumps({
+            'figure_type': 'other',
+            'datapoints': [],
+            'observations': [],
+            'limitations': [],
+            'warnings': ['non_data_image'],
+        })
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_figure_vision_llm_context',
+            return_value=self._fake_figure_vision_llm_context(),
+        ), patch.object(
+            self.digestion_manager,
+            '_call_figure_vision_llm',
+            return_value=empty_payload,
+        ):
+            result = self.digestion_manager.enrich_figures_with_vision(
+                digestion['id'],
+                'owner-user',
+                max_figures=3,
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['analyzed_count'], 0)
+        self.assertEqual(result['error_count'], 0)
+        self.assertEqual(result['skipped_count'], 3)
+        self.assertEqual(result['pending_count'], 0)
+        self.assertTrue(result['all_failed'])
+        self.assertEqual(result['skipped'][0]['reason'], 'figure_vision_no_source_grounded_description')
+        figures = self.digestion_manager.list_figures(digestion['id'], 'owner-user')
+        self.assertEqual(figures['count'], 3)
+        self.assertEqual(
+            {figure['metadata'].get('vision_status') for figure in figures['figures']},
+            {'skipped'},
+        )
+        stats = self.digestion_manager.stats(digestion['id'])
+        self.assertEqual(stats['figure_vision_eligible_count'], 3)
+        self.assertEqual(stats['figure_vision_pending_count'], 0)
+        self.assertEqual(stats['figure_vision_analyzed_count'], 0)
+        progress = self.digestion_manager.get_operation_progress(digestion['id'], 'owner-user')
+        self.assertEqual(progress['operations']['figure_vision']['phase'], 'completed_with_issues')
+        self.assertEqual(progress['operations']['figure_vision']['details']['skipped_count'], 3)
+        output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'pdf_figures')
+        self.assertIn('vision-empty-description-001.png', output['content'])
+
     def test_generated_pdf_figure_images_are_placed_in_digestion_subfolder(self) -> None:
         source = self._save_text(
             'source-paper.txt',

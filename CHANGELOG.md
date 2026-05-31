@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.303] - 2026-05-31
+
+### Changed
+- **Digestion figure vision treats empty descriptions as benign skips** - image-model responses that contain no source-grounded description now mark the figure as skipped with per-figure metadata instead of repeatedly failing the same image or leaving it pending forever.
+- **Figure vision no longer forces noisy output refreshes** - Vault figure analysis quietly refreshes reusable outputs only when the outputs panel is already open, preventing secondary "outputs endpoint" errors from obscuring a completed-with-issues run.
+- **Figure vision guidance handles non-source images** - the vision prompt now explicitly tells the model how to handle avatars, logos, decorative images, or thumbnails without inventing datapoints.
+
 ## [0.6.302] - 2026-05-31
 
 ### Added

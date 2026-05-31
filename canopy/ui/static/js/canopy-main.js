@@ -3932,13 +3932,16 @@
                     const errors = Array.isArray(payload.errors) ? payload.errors : [];
                     const skipped = Array.isArray(payload.skipped) ? payload.skipped : [];
                     const issues = [...errors, ...skipped];
-                    return issues.slice(0, 3).map((issue) => {
+                    return issues.slice(0, 5).map((issue) => {
                         const figureLabel = [
                             issue && (issue.source_file_name || issue.source_file_id || issue.image_file_name || issue.image_file_id || 'Figure'),
                             issue && issue.page_label,
                             issue && issue.figure_index ? `fig ${issue.figure_index}` : '',
                         ].filter(Boolean).join(' · ');
-                        const reason = String(issue && (issue.reason || issue.message || issue.error) || 'issue').replace(/_/g, ' ');
+                        const rawReason = String(issue && (issue.reason || issue.message || issue.error) || 'issue');
+                        const reason = rawReason === 'figure_vision_no_source_grounded_description'
+                            ? 'No source-grounded description'
+                            : rawReason.replace(/_/g, ' ');
                         const message = String(issue && (issue.message || issue.error || '') || '').trim();
                         return {
                             label: figureLabel,
@@ -5171,7 +5174,11 @@
                                 stopDigestionProgressWatch(digestionId, operation);
                                 loadDigestions().catch((error) => console.warn('Digestion refresh after progress failed:', error));
                                 if ((operation === 'datapoints' || operation === 'structured_records' || operation === 'figure_vision') && status === 'completed') {
-                                    loadDigestionOutputs(digestionId, null, { force: true }).catch((error) => console.warn('Digestion outputs refresh failed:', error));
+                                    loadDigestionOutputs(digestionId, null, {
+                                        force: true,
+                                        quiet: operation === 'figure_vision',
+                                        onlyIfVisible: operation === 'figure_vision',
+                                    }).catch((error) => console.warn('Digestion outputs refresh failed:', error));
                                 }
                             }
                         } catch (error) {
@@ -5659,7 +5666,9 @@
                     const outputsEl = document.querySelector(`[data-vault-digestion-outputs="${vaultCssEscape(digestionId)}"]`);
                     if (!outputsEl) return;
                     const force = !!(options && options.force);
+                    const quiet = !!(options && options.quiet);
                     const visible = outputsEl.classList.contains('is-visible');
+                    if (options && options.onlyIfVisible && !visible) return;
                     if (visible && outputsEl.dataset.loaded === '1' && !force) {
                         outputsEl.classList.remove('is-visible');
                         return;
@@ -5687,7 +5696,7 @@
                             : '<div class="small text-muted">No reusable outputs are available yet. Build this Digestion first.</div>';
                     } catch (error) {
                         outputsEl.innerHTML = `<div class="small text-danger">${vaultEscape(error.error || 'Could not load Digestion outputs.')}</div>`;
-                        if (typeof showAlert === 'function') showAlert(error.error || 'Could not load Digestion outputs.', 'danger');
+                        if (!quiet && typeof showAlert === 'function') showAlert(error.error || 'Could not load Digestion outputs.', 'danger');
                     } finally {
                         if (button) {
                             button.disabled = false;
@@ -5846,7 +5855,7 @@
                         try {
                             await refreshDigestionProgress(digestionId);
                         } catch (_) {}
-                        await loadDigestionOutputs(digestionId, null, { force: true });
+                        await loadDigestionOutputs(digestionId, null, { force: true, quiet: true, onlyIfVisible: true });
                         loadDigestions({ preservePanels: true }).catch(() => {});
                     } catch (error) {
                         if (typeof showAlert === 'function') {

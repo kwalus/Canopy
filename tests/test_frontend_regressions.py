@@ -713,6 +713,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("builder_profile", main_js)
         self.assertIn("data-vault-digestion-builder-remove", main_js)
         self.assertIn('async function loadDigestionOutputs(digestionId, button, options = {})', main_js)
+        self.assertIn('const quiet = !!(options && options.quiet);', main_js)
+        self.assertIn('options && options.onlyIfVisible && !visible', main_js)
         self.assertIn('async function exportDigestionOutput(digestionId, outputRef, button)', main_js)
         self.assertIn('function digestionAgentReferenceText(digestion)', main_js)
         self.assertIn('function digestionSourceCount(digestion, stats)', main_js)
@@ -745,6 +747,8 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn('sourceIssues.length', main_js)
         self.assertIn("source issue${sourceIssues.length === 1 ? '' : 's'}", main_js)
         self.assertIn('First issue:', main_js)
+        self.assertIn('figure_vision_no_source_grounded_description', main_js)
+        self.assertIn('No source-grounded description', main_js)
         self.assertIn('.vault-digestion-output-summary', vault_template)
         self.assertIn('.vault-digestion-agent-tools', vault_template)
         self.assertIn('.vault-digestion-package-handoff', vault_template)
@@ -4332,7 +4336,7 @@ console.log(JSON.stringify({{
 
     def test_api_reference_tracks_recent_dm_collab_and_privacy_surfaces(self) -> None:
         api_ref = (ROOT / 'docs' / 'API_REFERENCE.md').read_text(encoding='utf-8')
-        self.assertIn('0.6.302', api_ref)
+        self.assertIn('0.6.303', api_ref)
         self.assertIn('/agents/me/collab-cards', api_ref)
         self.assertIn('/collab-cards/<card_id>/responses', api_ref)
         self.assertIn('/collab-cards/<card_id>/telemetry', api_ref)
