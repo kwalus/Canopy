@@ -1789,6 +1789,82 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(stats['figure_vision_pending_count'], 0)
         self.assertEqual(stats['figure_vision_analyzed_count'], 1)
 
+    def test_pdf_figure_vision_accepts_realistic_alias_and_partial_response_shapes(self) -> None:
+        source = self._save_text(
+            'vision-alias-corpus.txt',
+            'Figure 1. Layout diagram. Figure 2. Measurement bars.',
+        )
+        images = [self._save_image('vision-alias-001.png'), self._save_image('vision-alias-002.png')]
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Vision alias digest',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        for index, image in enumerate(images, start=1):
+            self.digestion_manager._insert_pdf_figure({
+                'digestion_id': digestion['id'],
+                'source_file_id': source.id,
+                'source_checksum': source.checksum,
+                'figure_index': index,
+                'page_number': index,
+                'page_label': f'p. {index}',
+                'image_file_id': image.id,
+                'image_name': image.original_name,
+                'content_type': image.content_type,
+                'width': 640,
+                'height': 360,
+                'byte_size': image.size,
+                'caption': f'Figure {index}. Test source figure.',
+                'context_text': 'The nearby text describes the source figure.',
+                'vision_description': '',
+                'extraction_method': 'test.fixture',
+                'metadata': {'vision_status': 'not_run', 'source_file_name': source.original_name},
+            })
+        alias_response = json.dumps({
+            'analysis': {
+                'figure_description': 'The figure shows a compact labelled layout diagram.',
+                'visual_type': 'diagram',
+                'purpose': 'Show how labelled blocks relate to each other.',
+                'key_observations': ['Two labelled regions are connected by arrows.'],
+            }
+        })
+        synthesized_response = json.dumps({
+            'visual_analysis': {
+                'figure_type': 'chart',
+                'observations': ['A bar-like visual compares two visible categories.'],
+                'values': [{'label': 'category A', 'value_text': '12', 'unit': 'units'}],
+                'quality_limitations': ['Axis text is not fully legible in the extracted image.'],
+                'confidence': 0.63,
+            }
+        })
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_figure_vision_llm_context',
+            return_value=self._fake_figure_vision_llm_context(),
+        ), patch.object(
+            self.digestion_manager,
+            '_call_figure_vision_llm',
+            side_effect=[alias_response, synthesized_response],
+        ):
+            result = self.digestion_manager.enrich_figures_with_vision(
+                digestion['id'],
+                'owner-user',
+                max_figures=2,
+            )
+
+        self.assertEqual(result['analyzed_count'], 2)
+        self.assertEqual(result['error_count'], 0)
+        figures = self.digestion_manager.list_figures(digestion['id'], 'owner-user')['figures']
+        descriptions = [figure['vision_description'] for figure in figures]
+        self.assertTrue(any('compact labelled layout diagram' in item for item in descriptions))
+        self.assertTrue(any('Observations: A bar-like visual compares' in item for item in descriptions))
+        synthesized = next(figure for figure in figures if 'Observations:' in figure['vision_description'])
+        self.assertIn('description_synthesized_from_structured_fields', synthesized['metadata']['vision_warnings'])
+        self.assertEqual(synthesized['metadata']['vision_datapoints'][0]['label'], 'category A')
+
     def test_pdf_figure_vision_reports_per_figure_failures_and_pending_counts(self) -> None:
         source = self._save_text(
             'vision-errors-corpus.txt',

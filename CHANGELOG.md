@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.301] - 2026-05-31
+
+### Changed
+- **Digestion figure vision accepts realistic model response shapes** - figure analysis now recognizes common aliases such as `figure_description`, `visual_description`, nested `analysis` objects, observations, values, and limitations instead of failing every figure when the provider omits the exact `description` key.
+- **Figure vision preserves partial useful output** - if a model returns observations/datapoints/limitations but no dedicated description, Canopy synthesizes a bounded description from those structured fields and records a warning rather than discarding the paid provider result.
+
 ## [0.6.300] - 2026-05-31
 
 ### Changed
