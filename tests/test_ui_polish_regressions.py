@@ -83,6 +83,18 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("max-width: 3.8rem;", messages)
         self.assertIn("text-overflow: ellipsis;", messages)
 
+    def test_dm_composer_has_channel_style_quick_mention_toolbar(self) -> None:
+        messages = (ROOT / "canopy" / "ui" / "templates" / "messages.html").read_text(encoding="utf-8")
+        composer = (ROOT / "canopy" / "ui" / "templates" / "_messages_composer.html").read_text(encoding="utf-8")
+        self.assertIn('id="dm-quick-mention-row"', composer)
+        self.assertIn('id="dm-quick-mention-rail"', composer)
+        self.assertIn(".dm-quick-mention-chip", messages)
+        self.assertIn("function renderDmQuickMentionRail()", messages)
+        self.assertIn("function insertDmQuickMentionAtIndex", messages)
+        self.assertIn("event.dataTransfer.setData('application/x-canopy-mention', handle);", messages)
+        self.assertIn("getDmTextareaDropCaretIndex(textarea, event)", messages)
+        self.assertIn("renderDmQuickMentionRail();", messages)
+
     def test_dm_thread_empty_state_has_icon(self) -> None:
         thread_body = (ROOT / "canopy" / "ui" / "templates" / "_messages_thread_body.html").read_text(encoding="utf-8")
         self.assertIn("bi bi-chat-square-text", thread_body)

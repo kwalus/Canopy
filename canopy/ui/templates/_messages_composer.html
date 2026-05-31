@@ -69,6 +69,14 @@
         </div>
     </div>
 
+    {% if not dm_is_deck %}
+    <div class="dm-quick-mention-row" id="dm-quick-mention-row">
+        <div id="dm-quick-mention-rail"
+             class="dm-quick-mention-rail"
+             aria-label="Quick mention DM participants and commonly referenced users"></div>
+    </div>
+    {% endif %}
+
     <div class="dm-composer-input-wrap position-relative">
         <textarea class="form-control dm-composer-textarea"
                   id="{{ textarea_id }}"
