@@ -3033,15 +3033,38 @@ class DigestionManager:
                         max_output_tokens=max_output_tokens,
                     )
                     parsed = self._parse_figure_vision_json(raw)
-                    updated = self._update_figure_vision_row(
-                        row,
-                        parsed,
-                        llm_context=llm_context,
-                        lens=effective_lens,
-                        max_image_bytes=max_image_bytes,
-                        image_byte_size=image_size,
-                    )
-                    analyzed.append(updated)
+                    if not self._llm_scalar(parsed.get("description"), limit=2800):
+                        skipped_row = self._mark_figure_vision_skipped(
+                            row,
+                            reason="figure_vision_no_source_grounded_description",
+                            message="The vision model returned no source-grounded figure description; the figure was preserved but not enriched.",
+                            llm_context=llm_context,
+                            lens=effective_lens,
+                            max_image_bytes=max_image_bytes,
+                            image_byte_size=image_size,
+                            parsed=parsed,
+                        )
+                        skipped.append({
+                            "figure_id": skipped_row.get("id") or figure.get("id") or "",
+                            "source_file_id": skipped_row.get("source_file_id") or figure.get("source_file_id") or "",
+                            "source_file_name": skipped_row.get("source_file_name") or figure.get("source_file_name") or "",
+                            "page_label": skipped_row.get("page_label") or figure.get("page_label") or "",
+                            "figure_index": skipped_row.get("figure_index") or figure.get("figure_index") or index,
+                            "image_file_id": image_file_id,
+                            "image_file_name": skipped_row.get("image_name") or figure.get("vault_image_name") or figure.get("image_name") or "",
+                            "reason": "figure_vision_no_source_grounded_description",
+                            "message": "The vision model returned no source-grounded description for this image.",
+                        })
+                    else:
+                        updated = self._update_figure_vision_row(
+                            row,
+                            parsed,
+                            llm_context=llm_context,
+                            lens=effective_lens,
+                            max_image_bytes=max_image_bytes,
+                            image_byte_size=image_size,
+                        )
+                        analyzed.append(updated)
                 except DigestionError as exc:
                     errors.append({
                         "figure_id": figure.get("id") or "",
@@ -3123,6 +3146,8 @@ class DigestionManager:
         first_reason = str(first_issue.get("reason") or "").replace("_", " ")
         detail_suffix = f" First issue: {first_reason}." if first_reason and all_failed else ""
         issue_suffix = f"; {', '.join(issue_bits)}" if issue_bits else ""
+        current_stats = self.stats(digestion.id)
+        current_pending_count = int(current_stats.get("figure_vision_pending_count") or 0)
         self._set_operation_progress(
             digestion.id,
             "figure_vision",
@@ -3139,7 +3164,7 @@ class DigestionManager:
             details={
                 "figure_count": total,
                 "eligible_count": total,
-                "pending_count": total,
+                "pending_count": current_pending_count,
                 "analyzed_count": len(analyzed),
                 "skipped_count": len(skipped),
                 "error_count": len(errors),
@@ -3164,13 +3189,13 @@ class DigestionManager:
             "skipped_count": len(skipped),
             "error_count": len(errors),
             "eligible_count": total,
-            "pending_count": total,
+            "pending_count": current_pending_count,
             "all_failed": all_failed,
             "skipped": skipped,
             "errors": errors,
             "figures": analyzed,
             "progress": self._progress_snapshot(digestion.id).get("figure_vision", {}),
-            "stats": self.stats(digestion.id),
+            "stats": current_stats,
         }
 
     def list_visual_evidence(
@@ -4947,7 +4972,11 @@ class DigestionManager:
                     digestion_id,
                     COUNT(*) AS count,
                     COALESCE(SUM(CASE WHEN COALESCE(image_file_id, '') != '' THEN 1 ELSE 0 END), 0) AS image_count,
-                    COALESCE(SUM(CASE WHEN COALESCE(image_file_id, '') != '' AND COALESCE(vision_description, '') = '' THEN 1 ELSE 0 END), 0) AS pending_vision_count,
+                    COALESCE(SUM(CASE
+                        WHEN COALESCE(image_file_id, '') != ''
+                         AND COALESCE(vision_description, '') = ''
+                         AND COALESCE(metadata_json, '') NOT LIKE '%"vision_status"%skipped%'
+                        THEN 1 ELSE 0 END), 0) AS pending_vision_count,
                     COALESCE(SUM(CASE WHEN COALESCE(vision_description, '') != '' THEN 1 ELSE 0 END), 0) AS analyzed_vision_count
                 FROM digestion_pdf_figures
                 WHERE digestion_id IN ({placeholders})
@@ -7776,7 +7805,10 @@ class DigestionManager:
     def _figure_vision_candidate_rows(self, digestion_id: str, *, limit: int, overwrite: bool = False) -> list[Any]:
         where = "WHERE f.digestion_id = ? AND COALESCE(f.image_file_id, '') != ''"
         if not overwrite:
-            where += " AND COALESCE(f.vision_description, '') = ''"
+            where += (
+                " AND COALESCE(f.vision_description, '') = ''"
+                " AND COALESCE(f.metadata_json, '') NOT LIKE '%\"vision_status\"%skipped%'"
+            )
         with self.db.get_connection() as conn:
             return conn.execute(
                 f"""
@@ -7811,6 +7843,7 @@ Rules:
 - Stay source-grounded. Do not infer values, labels, causal claims, or author intent that are not visible in the figure/caption/context.
 - Extract quantitative datapoints only when values, units, axes, legends, labels, or annotations are legible. Mark approximate values as approximate.
 - If the figure is a diagram or photograph rather than a chart, describe structure, labels, relationships, and qualitative observations instead of inventing datapoints.
+- If the image appears to be an avatar, logo, decorative image, thumbnail, or otherwise not a source-data figure, say that plainly in description, use figure_type "other", leave datapoints empty, and include a limitation instead of failing.
 - Include limitations when text is illegible, axes are missing, values are approximate, or the figure is only partially interpretable.
 
 Required JSON shape:
@@ -8086,6 +8119,85 @@ Required JSON shape:
                 WHERE digestion_id = ? AND id = ?
                 """,
                 (description, json.dumps(metadata, ensure_ascii=False, sort_keys=True), digestion_id, figure_id),
+            )
+            updated = conn.execute(
+                """
+                SELECT
+                    f.*,
+                    s.file_name AS source_file_name,
+                    s.content_type AS source_content_type,
+                    img.original_name AS vault_image_name,
+                    img.size AS vault_image_size
+                FROM digestion_pdf_figures f
+                LEFT JOIN digestion_sources s
+                  ON s.digestion_id = f.digestion_id
+                 AND s.file_id = f.source_file_id
+                LEFT JOIN files img ON img.id = f.image_file_id
+                WHERE f.digestion_id = ? AND f.id = ?
+                """,
+                (digestion_id, figure_id),
+            ).fetchone()
+            conn.commit()
+        return self._figure_row_to_dict(updated or row)
+
+    def _mark_figure_vision_skipped(
+        self,
+        row: Any,
+        *,
+        reason: str,
+        message: str,
+        llm_context: dict[str, Any],
+        lens: str,
+        max_image_bytes: int,
+        image_byte_size: int = 0,
+        parsed: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Persist a benign no-analysis outcome so non-figures do not retry forever."""
+        figure_id = str(self._row_get(row, "id", "") or "")
+        digestion_id = str(self._row_get(row, "digestion_id", "") or "")
+        try:
+            metadata = json.loads(self._row_get(row, "metadata_json", "{}") or "{}")
+        except Exception:
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        parsed_payload = parsed if isinstance(parsed, dict) else {}
+        metadata.update({
+            "vision_status": "skipped",
+            "vision_schema_version": PDF_FIGURE_VISION_SCHEMA_VERSION,
+            "vision_skip_reason": str(reason or "figure_vision_skipped"),
+            "vision_skip_message": str(message or "")[:500],
+            "vision_provider": str(llm_context.get("provider") or ""),
+            "vision_model": str(llm_context.get("model") or ""),
+            "vision_credential_source": str(llm_context.get("credential_source") or ""),
+            "vision_updated_at": self._now(),
+            "vision_lens": str(lens or "")[:800],
+            "vision_figure_type": parsed_payload.get("figure_type") or "other",
+            "vision_author_intent": parsed_payload.get("author_intent") or "",
+            "vision_datapoints": parsed_payload.get("datapoints") if isinstance(parsed_payload.get("datapoints"), list) else [],
+            "vision_observations": parsed_payload.get("observations") if isinstance(parsed_payload.get("observations"), list) else [],
+            "vision_limitations": parsed_payload.get("limitations") if isinstance(parsed_payload.get("limitations"), list) else [],
+            "vision_warnings": [
+                *(
+                    parsed_payload.get("warnings")
+                    if isinstance(parsed_payload.get("warnings"), list)
+                    else []
+                ),
+                str(reason or "figure_vision_skipped"),
+            ],
+            "vision_confidence": parsed_payload.get("confidence"),
+            "vision_image_bytes": int(image_byte_size or 0),
+            "vision_max_image_bytes": int(max_image_bytes or 0),
+            "vision_source_boundary": "source-derived figure image, caption, and context only; raw PDF was not exported",
+        })
+        with self.db.get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE digestion_pdf_figures
+                SET metadata_json = ?
+                WHERE digestion_id = ? AND id = ?
+                """,
+                (json.dumps(metadata, ensure_ascii=False, sort_keys=True), digestion_id, figure_id),
             )
             updated = conn.execute(
                 """
