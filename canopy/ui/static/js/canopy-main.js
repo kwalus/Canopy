@@ -23758,6 +23758,56 @@
                 renderDeckDigestionChart(host);
             }
 
+            function setDeckDigestionFocus(host, mode) {
+                const workspace = host && host.querySelector('.deck-digestion-workspace');
+                if (!workspace) return;
+                const normalized = mode === 'figures' || mode === 'chart' ? mode : '';
+                workspace.dataset.deckDigestionFocus = normalized;
+                workspace.classList.toggle('is-figures-focus', normalized === 'figures');
+                workspace.classList.toggle('is-chart-focus', normalized === 'chart');
+                workspace.querySelectorAll('[data-deck-digestion-focus]').forEach((button) => {
+                    const target = button.getAttribute('data-deck-digestion-focus') || '';
+                    const active = !!normalized && target === normalized;
+                    button.classList.toggle('is-active', active);
+                    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+                    button.innerHTML = active
+                        ? '<i class="bi bi-fullscreen-exit"></i> Exit focus'
+                        : '<i class="bi bi-arrows-fullscreen"></i> Focus';
+                });
+                if (normalized === 'chart') {
+                    window.requestAnimationFrame(() => renderDeckDigestionChart(host));
+                }
+                const statusEl = host.querySelector('[data-deck-digestion-status]');
+                if (statusEl) {
+                    statusEl.textContent = normalized
+                        ? `${normalized === 'figures' ? 'Visual evidence' : 'Datapoint chart'} focus mode enabled.`
+                        : 'Digestion workspace restored.';
+                }
+            }
+
+            function deckDigestionFigureCorrectionText(figure, sourceName, caption, vision, metaBits) {
+                const figureNumber = Number(figure && figure.figure_index || 0) || '';
+                const imageFileId = String(figure && figure.image_file_id || '').trim();
+                const sourceFileId = String(figure && figure.source_file_id || '').trim();
+                return [
+                    'Please review or correct this Digestion figure analysis.',
+                    '',
+                    `Figure: ${figureNumber || 'unlabeled'}`,
+                    `Source: ${sourceName || 'unknown source'}`,
+                    metaBits ? `Context: ${metaBits}` : '',
+                    sourceFileId ? `Source file ID: ${sourceFileId}` : '',
+                    imageFileId ? `Image file ID: ${imageFileId}` : '',
+                    '',
+                    'Detected caption/context:',
+                    caption || 'No caption detected.',
+                    '',
+                    'Current AI visual analysis:',
+                    vision || 'No visual analysis yet.',
+                    '',
+                    'Suggested correction:',
+                ].filter((line) => line !== '').join('\n');
+            }
+
             function renderDeckDigestionFigures(host, data) {
                 const listEl = host && host.querySelector('[data-deck-digestion-figures-list]');
                 const summaryEl = host && host.querySelector('[data-deck-digestion-figures-summary]');
@@ -23797,11 +23847,16 @@
                     const vision = String(figure.vision_description || '').trim();
                     const metadata = figure.metadata && typeof figure.metadata === 'object' ? figure.metadata : {};
                     const visionType = String(metadata.vision_figure_type || metadata.figure_type || '').replace(/_/g, ' ');
+                    const visionStatus = String(metadata.vision_status || metadata.status || '').replace(/_/g, ' ');
+                    const visionModel = String(metadata.vision_model || metadata.model || metadata.provider || '').trim();
                     const page = String(figure.page_label || '');
                     const sizeBits = [
                         page,
                         Number(figure.width || 0) && Number(figure.height || 0) ? `${Number(figure.width)}x${Number(figure.height)}` : '',
                     ].filter(Boolean).join(' · ');
+                    const analysisLabel = [visionType, visionStatus].filter(Boolean).join(' · ') || 'analysis';
+                    const analysisMeta = [sourceName, page, visionModel].filter(Boolean).join(' · ');
+                    const correctionText = deckDigestionFigureCorrectionText(figure, sourceName, caption, vision, analysisMeta || sizeBits);
                     return `
                         <article class="deck-digestion-figure-card">
                             ${imageUrl ? `
@@ -23813,7 +23868,27 @@
                                 <strong>Figure ${Number(figure.figure_index || 0) || ''}</strong>
                                 <span>${escapeEmbedHtml(sizeBits || sourceName)}</span>
                                 <p>${escapeEmbedHtml(caption)}</p>
-                                ${vision ? `<p class="deck-digestion-figure-vision"><i class="bi bi-eye"></i>${visionType ? `${escapeEmbedHtml(visionType)}: ` : ''}${escapeEmbedHtml(vision)}</p>` : ''}
+                                ${vision ? `
+                                    <div class="deck-digestion-figure-analysis">
+                                        <div class="deck-digestion-figure-analysis-head">
+                                            <strong><i class="bi bi-eye"></i> AI analysis</strong>
+                                            <span>${escapeEmbedHtml(analysisLabel)}</span>
+                                        </div>
+                                        <p class="deck-digestion-figure-analysis-body">${escapeEmbedHtml(vision)}</p>
+                                        ${analysisMeta ? `<div class="deck-digestion-figure-analysis-meta">${escapeEmbedHtml(analysisMeta)}</div>` : ''}
+                                        <div class="deck-digestion-figure-actions">
+                                            <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-copy-figure-analysis="${escapeEmbedAttr(correctionText)}"><i class="bi bi-pencil-square"></i> Correction draft</button>
+                                        </div>
+                                    </div>
+                                ` : `
+                                    <div class="deck-digestion-figure-analysis">
+                                        <div class="deck-digestion-figure-analysis-head">
+                                            <strong><i class="bi bi-eye-slash"></i> AI analysis</strong>
+                                            <span>not analyzed</span>
+                                        </div>
+                                        <p class="deck-digestion-figure-analysis-body">No model-generated visual description is stored for this figure yet. Managers can run a capped figure-vision pass from Build controls.</p>
+                                    </div>
+                                `}
                             </div>
                         </article>
                     `;
@@ -24159,7 +24234,10 @@
 		                                                <strong><i class="bi bi-images"></i> Visual evidence</strong>
 		                                                <span data-deck-digestion-figures-summary>${figureCount ? `${figureCount} extracted figure${figureCount === 1 ? '' : 's'}` : 'Load extracted figure previews'}</span>
 		                                            </div>
-		                                            <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-load-figures>Load</button>
+                                                    <div class="deck-digestion-panel-actions">
+		                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-load-figures>Load</button>
+                                                        <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-focus="figures" aria-pressed="false"><i class="bi bi-arrows-fullscreen"></i> Focus</button>
+                                                    </div>
 		                                        </div>
 		                                        <div class="deck-digestion-figures-list" data-deck-digestion-figures-list>
 		                                            <div class="deck-digestion-figure-empty">Extracted figures, captions, and image IDs will appear here after build.</div>
@@ -24167,12 +24245,15 @@
 		                                    </section>
 		                                ` : ''}
 		                                <section class="deck-digestion-chart-panel">
-	                                    <div class="deck-digestion-chart-head">
-                                        <div>
-                                            <strong>Datapoint chart</strong>
-                                            <span data-deck-digestion-result-count>Search structured datapoints to plot quantitative results.</span>
-                                        </div>
-	                                    </div>
+		                                    <div class="deck-digestion-chart-head">
+	                                        <div>
+	                                            <strong>Datapoint chart</strong>
+	                                            <span data-deck-digestion-result-count>Search structured datapoints to plot quantitative results.</span>
+	                                        </div>
+                                            <div class="deck-digestion-panel-actions">
+                                                <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-focus="chart" aria-pressed="false"><i class="bi bi-arrows-fullscreen"></i> Focus</button>
+                                            </div>
+		                                    </div>
 	                                    <details class="deck-digestion-chart-options">
 	                                        <summary>
 	                                            <span><i class="bi bi-bar-chart"></i> Chart controls</span>
@@ -24243,13 +24324,36 @@
                     } catch (_) {}
                     deckDigestionChartPanState = null;
                 }
-                host.addEventListener('pointerup', clearDeckDigestionChartPan);
-                host.addEventListener('pointercancel', clearDeckDigestionChartPan);
-                host.addEventListener('click', (event) => {
-                    const opBtn = event.target.closest('[data-deck-digestion-op]');
-	                    if (opBtn) {
-	                        event.preventDefault();
-	                        const rawOp = opBtn.getAttribute('data-deck-digestion-op');
+	                host.addEventListener('pointerup', clearDeckDigestionChartPan);
+	                host.addEventListener('pointercancel', clearDeckDigestionChartPan);
+	                host.addEventListener('click', (event) => {
+                    const focusBtn = event.target.closest('[data-deck-digestion-focus]');
+                    if (focusBtn) {
+                        event.preventDefault();
+                        const target = focusBtn.getAttribute('data-deck-digestion-focus') || '';
+                        const workspace = host.querySelector('.deck-digestion-workspace');
+                        const alreadyFocused = !!workspace && workspace.dataset.deckDigestionFocus === target;
+                        setDeckDigestionFocus(host, alreadyFocused ? '' : target);
+                        return;
+                    }
+                    const copyFigureBtn = event.target.closest('[data-deck-digestion-copy-figure-analysis]');
+                    if (copyFigureBtn) {
+                        event.preventDefault();
+                        const text = copyFigureBtn.getAttribute('data-deck-digestion-copy-figure-analysis') || '';
+                        const statusEl = host.querySelector('[data-deck-digestion-status]');
+                        copyText(text, 'Figure correction draft').then((copied) => {
+                            if (statusEl) statusEl.textContent = copied
+                                ? 'Copied a structured correction draft for this figure analysis.'
+                                : 'Could not copy the figure correction draft.';
+                        }).catch(() => {
+                            if (statusEl) statusEl.textContent = 'Could not copy the figure correction draft.';
+                        });
+                        return;
+                    }
+	                    const opBtn = event.target.closest('[data-deck-digestion-op]');
+		                    if (opBtn) {
+		                        event.preventDefault();
+		                        const rawOp = opBtn.getAttribute('data-deck-digestion-op');
 	                        const op = rawOp === 'build' ? 'build' : (rawOp === 'vision' ? 'vision' : 'extract');
 	                        runDeckDigestionOperation(host, item, op, opBtn);
 	                        return;
