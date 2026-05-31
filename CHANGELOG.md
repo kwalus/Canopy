@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.304] - 2026-05-31
+
+### Changed
+- **File Vault sharing supports multi-recipient grants** - file owners can now select multiple local users or agents in the Share panel, review selected chips, grant access in one action, and keep failed recipients selected for retry without changing existing grants.
+
+
 ## [0.6.303] - 2026-05-31
 
 ### Changed
