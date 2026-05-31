@@ -3897,6 +3897,7 @@
                         message: String(item.message || ''),
                         elapsed_seconds: Math.max(0, Number(item.elapsed_seconds || 0)),
                         details: item.details && typeof item.details === 'object' ? item.details : {},
+                        recoverable: !!(item.details && item.details.recoverable),
                     };
                 }
 
@@ -3909,6 +3910,12 @@
                     return String(progress && progress.status || '') === 'running';
                 }
 
+                function digestionProgressRecoverable(progress, operation) {
+                    const status = String(progress && progress.status || '').toLowerCase();
+                    if (status === 'stalled') return true;
+                    return status === 'running' && String(operation || '') === 'datapoints';
+                }
+
                 function formatVaultDuration(seconds) {
                     const total = Math.max(0, Number(seconds || 0));
                     if (total < 60) return `${Math.floor(total)}s`;
@@ -3917,17 +3924,22 @@
                     return `${mins}m ${secs}s`;
                 }
 
-                function renderDigestionProgress(operation, label, progress) {
+                function renderDigestionProgress(operation, label, progress, options = {}) {
                     const safeProgress = progress || {};
                     const visible = digestionProgressVisible(safeProgress);
                     const percent = Math.round(Math.max(0, Math.min(Number(safeProgress.percent || 0), 100)));
                     const processed = Number(safeProgress.processed || 0);
                     const total = Number(safeProgress.total || 0);
                     const status = String(safeProgress.status || 'idle');
+                    const statusLower = status.toLowerCase();
                     const message = String(safeProgress.message || '').trim() || (status === 'completed' ? `${label} complete.` : `${label} queued.`);
                     const countText = total > 0 ? `${processed}/${total}` : '';
+                    const canCancel = !!options.canManage && digestionProgressRecoverable(safeProgress, operation);
+                    const digestionId = String(options.digestionId || '');
+                    const cancelLabel = statusLower === 'stalled' ? 'Reset' : 'Cancel';
+                    const statusClass = statusLower === 'stalled' ? ' is-stalled' : (statusLower === 'cancelled' ? ' is-cancelled' : '');
                     return `
-                        <div class="vault-digestion-progress${visible ? ' is-visible' : ''}"
+                        <div class="vault-digestion-progress${visible ? ' is-visible' : ''}${statusClass}"
                              data-vault-digestion-progress="${vaultEscape(operation)}"
                              aria-live="polite"
                              ${visible ? '' : 'hidden'}>
@@ -3936,7 +3948,19 @@
                                     ${digestionProgressActive(safeProgress) ? '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>' : ''}
                                     ${vaultEscape(label)} · ${vaultEscape(message)}
                                 </div>
-                                <div class="vault-digestion-progress-percent">${percent}%</div>
+                                <div class="vault-digestion-progress-actions">
+                                    <div class="vault-digestion-progress-percent">${percent}%</div>
+                                    ${canCancel ? `
+                                        <button class="btn btn-sm btn-outline-warning vault-digestion-progress-cancel"
+                                                type="button"
+                                                data-vault-digestion-action="cancel-operation"
+                                                data-vault-digestion-id="${vaultEscape(digestionId)}"
+                                                data-vault-digestion-operation="${vaultEscape(operation)}"
+                                                title="${statusLower === 'stalled' ? 'Reset this stale progress state so you can rerun the operation.' : 'Request cancellation and reset this operation before the next batch.'}">
+                                            <i class="bi bi-x-octagon"></i> ${cancelLabel}
+                                        </button>
+                                    ` : ''}
+                                </div>
                             </div>
                             <div class="vault-digestion-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" aria-label="${vaultEscape(label)}">
                                 <div class="vault-digestion-progress-fill" style="width:${percent}%"></div>
@@ -4499,9 +4523,9 @@
                                 ${canManage ? renderDigestionMergePanel(digestion) : ''}
                                 ${canManage ? renderDigestionRenamePanel(digestion) : ''}
                                 ${canDelete ? renderDigestionDeletePanel(digestion) : ''}
-                                ${renderDigestionProgress('build', 'Build', buildProgress)}
-                                ${renderDigestionProgress('datapoints', 'Datapoint extraction', datapointProgress)}
-                                ${renderDigestionProgress('structured_records', 'Structured records', structuredRecordProgress)}
+                                ${renderDigestionProgress('build', 'Build', buildProgress, { canManage, digestionId: id })}
+                                ${renderDigestionProgress('datapoints', 'Datapoint extraction', datapointProgress, { canManage, digestionId: id })}
+                                ${renderDigestionProgress('structured_records', 'Structured records', structuredRecordProgress, { canManage, digestionId: id })}
                                 ${renderDigestionContributionsPanel(digestion)}
 	                            ${canManage ? `
                                     <div class="vault-digestion-options" data-vault-digestion-extract-options="${id}" hidden>
@@ -4688,7 +4712,8 @@
                         const progressEl = card.querySelector(`[data-vault-digestion-progress="${operation}"]`);
                         if (!progressEl) return;
                         const progress = operations && operations[operation] ? operations[operation] : { operation, status: 'idle' };
-                        progressEl.outerHTML = renderDigestionProgress(operation, label, progress);
+                        const canManage = card.getAttribute('data-vault-digestion-can-manage') === 'true';
+                        progressEl.outerHTML = renderDigestionProgress(operation, label, progress, { canManage, digestionId });
                     });
                 }
 
@@ -4976,6 +5001,36 @@
                     if (!digestionId) return {};
                     const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/progress`);
                     return applyDigestionProgressPayload(digestionId, data);
+                }
+
+                async function cancelDigestionOperation(digestionId, operation, button) {
+                    const id = String(digestionId || '').trim();
+                    const op = String(operation || '').trim();
+                    if (!id || !op) return;
+                    const original = button ? button.innerHTML : '';
+                    if (button) {
+                        button.disabled = true;
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Resetting';
+                    }
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(id)}/operations/${encodeURIComponent(op)}/cancel`, {
+                            method: 'POST',
+                            body: JSON.stringify({}),
+                        });
+                        stopDigestionProgressWatch(id, op);
+                        applyDigestionProgressPayload(id, data);
+                        if (typeof showAlert === 'function') {
+                            showAlert('Digestion operation reset. You can rerun it when ready.', 'warning');
+                        }
+                    } catch (error) {
+                        const message = error && (error.error || error.message) ? (error.error || error.message) : 'Could not reset Digestion operation.';
+                        if (typeof showAlert === 'function') showAlert(message, 'danger');
+                    } finally {
+                        if (button) {
+                            button.disabled = false;
+                            button.innerHTML = original;
+                        }
+                    }
                 }
 
                 function stopDigestionProgressWatch(digestionId, operation) {
@@ -8574,6 +8629,12 @@
                             reviewDigestionContribution(actionBtn);
                         } else if (action === 'extract-datapoints') {
                             extractDigestionDatapoints(digestionId, actionBtn);
+                        } else if (action === 'cancel-operation') {
+                            cancelDigestionOperation(
+                                digestionId,
+                                actionBtn.getAttribute('data-vault-digestion-operation') || '',
+                                actionBtn,
+                            );
                         } else if (action === 'extract-options') {
                             toggleDigestionExtractOptions(digestionId);
 	                        } else if (action === 'export-package') {

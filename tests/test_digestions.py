@@ -2628,6 +2628,29 @@ class TestDigestions(unittest.TestCase):
             self.assertEqual(progress_response.status_code, 200)
             self.assertEqual(progress_response.get_json()['operations']['build']['status'], 'completed')
 
+            self.digestion_manager._set_operation_progress(
+                digestion_id,
+                'datapoints',
+                status='running',
+                phase='llm_batch',
+                percent=73,
+                processed=11,
+                total=15,
+                message='Extracting datapoints batch 12 of 15.',
+                details={'estimated_batches': 15},
+                actor_user_id='owner-user',
+            )
+            cancel_response = client.post(
+                f'/api/v1/digestions/{digestion_id}/operations/datapoints/cancel',
+                json={},
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(cancel_response.status_code, 200)
+            cancel_payload = cancel_response.get_json() or {}
+            self.assertTrue(cancel_payload['success'])
+            self.assertEqual(cancel_payload['operations']['datapoints']['status'], 'cancelled')
+            self.assertTrue(cancel_payload['operations']['datapoints']['details']['cancel_requested'])
+
             blocked_query = client.post(
                 f'/api/v1/digestions/{digestion_id}/query',
                 json={'query': 'document corpus'},
@@ -3388,6 +3411,81 @@ class TestDigestions(unittest.TestCase):
         self.assertNotIn('progress-content.txt', reader_build['message'])
         self.assertNotIn('errors', reader_build['details'])
         self.assertEqual(reader_build['details']['chunk_count'], 2)
+
+    def test_stale_digestion_operation_can_be_reset_by_manager(self) -> None:
+        """Interrupted operations should surface as stalled and be resettable without DB surgery."""
+        source = self._save_text('stalled-datapoints.txt', 'A long corpus extraction can be interrupted by restart.')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Stalled extraction test',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_manage=False,
+        )
+        self.digestion_manager._set_operation_progress(
+            digestion['id'],
+            'datapoints',
+            status='running',
+            phase='llm_batch',
+            percent=73,
+            processed=11,
+            total=15,
+            current_label='Batch 12 of 15',
+            message='Extracting datapoints batch 12 of 15.',
+            details={'estimated_batches': 15},
+            actor_user_id='owner-user',
+        )
+        self.conn.execute(
+            """
+            UPDATE digestion_operations
+            SET updated_at = ?, started_at = ?
+            WHERE digestion_id = ? AND operation = ?
+            """,
+            ('2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00', digestion['id'], 'datapoints'),
+        )
+        self.conn.commit()
+        self.digestion_manager._operation_progress.pop(digestion['id'], None)
+
+        owner_progress = self.digestion_manager.get_operation_progress(digestion['id'], 'owner-user')
+        datapoints = owner_progress['operations']['datapoints']
+        self.assertEqual(datapoints['status'], 'stalled')
+        self.assertEqual(datapoints['percent'], 73)
+        self.assertTrue(datapoints['details']['recoverable'])
+        self.assertGreater(datapoints['details']['stale_seconds'], 0)
+
+        reader_progress = self.digestion_manager.get_operation_progress(digestion['id'], 'reader-user')
+        self.assertEqual(reader_progress['operations']['datapoints']['status'], 'stalled')
+        self.assertEqual(reader_progress['operations']['datapoints']['current_label'], '')
+        self.assertIn('can be reset', reader_progress['operations']['datapoints']['message'])
+
+        with self.assertRaises(DigestionError) as denied:
+            self.digestion_manager.cancel_operation(digestion['id'], 'reader-user', 'datapoints')
+        self.assertEqual(denied.exception.status_code, 403)
+
+        cancelled = self.digestion_manager.cancel_operation(digestion['id'], 'owner-user', 'datapoints')
+        self.assertTrue(cancelled['success'])
+        self.assertEqual(cancelled['operations']['datapoints']['status'], 'cancelled')
+        self.assertTrue(cancelled['operations']['datapoints']['details']['cancel_requested'])
+
+        restarted = self.digestion_manager._set_operation_progress(
+            digestion['id'],
+            'datapoints',
+            status='running',
+            phase='starting_batches',
+            percent=5,
+            processed=0,
+            total=2,
+            message='Preparing fresh datapoint extraction.',
+            actor_user_id='owner-user',
+        )
+        self.assertEqual(restarted['status'], 'running')
+        self.assertFalse(self.digestion_manager._operation_cancel_requested(digestion['id'], 'datapoints'))
 
     def test_structured_records_append_search_and_persisted_progress(self) -> None:
         """Agents can append source-grounded chart records and owners can see persisted progress."""

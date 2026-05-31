@@ -7456,6 +7456,21 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI progress error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not load Digestion progress'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/operations/<operation>/cancel', methods=['POST'])
+    @require_login
+    def ajax_cancel_digestion_operation(digestion_id: str, operation: str):
+        """Cancel/reset a stale or running Digestion operation."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.cancel_operation(digestion_id, get_current_user(), operation))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI operation cancel error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not cancel Digestion operation'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/sources', methods=['POST'])
     @require_login
     def ajax_add_digestion_sources(digestion_id: str):

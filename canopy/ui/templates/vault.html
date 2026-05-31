@@ -1295,6 +1295,16 @@
             linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary) 10%, transparent), transparent),
             color-mix(in srgb, var(--canopy-bg-card) 88%, transparent);
     }
+    .vault-digestion-progress.is-stalled {
+        border-color: color-mix(in srgb, var(--canopy-warning, #f59e0b) 58%, var(--canopy-border));
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-warning, #f59e0b) 14%, transparent), transparent),
+            color-mix(in srgb, var(--canopy-bg-card) 90%, transparent);
+    }
+    .vault-digestion-progress.is-cancelled {
+        border-color: color-mix(in srgb, var(--canopy-warning, #f59e0b) 42%, var(--canopy-border));
+        opacity: 0.92;
+    }
     .vault-digestion-progress.is-visible {
         display: grid;
     }
@@ -1316,10 +1326,27 @@
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+    .vault-digestion-progress-actions {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 0.45rem;
+        min-width: 0;
+    }
     .vault-digestion-progress-percent {
         flex: 0 0 auto;
         color: var(--canopy-primary);
         font-variant-numeric: tabular-nums;
+    }
+    .vault-digestion-progress-cancel {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.28rem;
+        min-height: 1.75rem;
+        padding: 0.24rem 0.58rem;
+        border-radius: 11px;
+        font-size: 0.74rem;
+        font-weight: 820;
     }
     .vault-digestion-progress-track {
         height: 0.58rem;

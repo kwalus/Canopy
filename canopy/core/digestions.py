@@ -39,6 +39,8 @@ DEFAULT_LOCAL_EMBEDDING_MODEL = "local-hash-v1"
 DEFAULT_LOCAL_DIMENSIONS = 256
 DEFAULT_CHUNK_SIZE = 1800
 DEFAULT_CHUNK_OVERLAP = 220
+DEFAULT_OPERATION_STALE_SECONDS = 2 * 60 * 60
+CANCELLABLE_OPERATIONS = {"build", "datapoints", "structured_records"}
 MAX_CHUNK_SIZE = 8000
 MAX_CHUNK_OVERLAP = 2000
 MAX_QUERY_TOP_K = 20
@@ -185,6 +187,7 @@ class DigestionManager:
         self.config = config
         self._progress_lock = RLock()
         self._operation_progress: dict[str, dict[str, dict[str, Any]]] = {}
+        self._operation_cancel_requests: set[tuple[str, str]] = set()
         self._ensure_tables()
 
     # ------------------------------------------------------------------
@@ -2665,6 +2668,44 @@ class DigestionManager:
             ),
         }
 
+    def cancel_operation(self, digestion_id: str, actor_user_id: str, operation: str) -> dict[str, Any]:
+        """Request cancellation/reset for a long-running Digestion operation."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        operation_clean = self._normalize_operation_name(operation)
+        with self._progress_lock:
+            self._operation_cancel_requests.add((digestion.id, operation_clean))
+        current = self._progress_snapshot(digestion.id).get(operation_clean, self._idle_progress(operation_clean))
+        details = dict(current.get("details") or {})
+        details.update({
+            "cancel_requested": True,
+            "cancelled_by": actor_user_id,
+            "cancelled_at": self._now(),
+        })
+        payload = self._set_operation_progress(
+            digestion.id,
+            operation_clean,
+            status="cancelled",
+            phase="cancel_requested",
+            percent=int(current.get("percent") or 0),
+            processed=int(current.get("processed") or 0),
+            total=int(current.get("total") or 0),
+            current_label=str(current.get("current_label") or ""),
+            message=(
+                "Operation cancellation/reset was requested. "
+                "If a provider call is already in flight, it will stop before the next batch."
+            ),
+            details=details,
+            actor_user_id=actor_user_id,
+        )
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "operation": operation_clean,
+            "progress": payload,
+            "operations": self._progress_snapshot(digestion.id),
+            "stats": self.stats(digestion.id),
+        }
+
     def list_sources(self, digestion_id: str, *, user_id: str = "") -> list[dict[str, Any]]:
         if user_id:
             digestion = self._get_digestion_obj(digestion_id)
@@ -4870,12 +4911,14 @@ class DigestionManager:
         )
 
         try:
+            self._raise_if_operation_cancelled(digestion.id, "datapoints")
             extraction = self._extract_structured_datapoints_with_llm(
                 digestion,
                 rows,
                 llm_context=llm_context,
                 lens=effective_lens,
                 datapoint_limit=datapoint_limit,
+                cancel_check=lambda: self._operation_cancel_requested(digestion.id, "datapoints"),
                 progress_callback=lambda payload: self._set_operation_progress(
                     digestion.id,
                     "datapoints",
@@ -4889,6 +4932,28 @@ class DigestionManager:
                     details=payload.get("details") if isinstance(payload.get("details"), dict) else {},
                 ),
             )
+        except DigestionError as exc:
+            if getattr(exc, "reason", "") == "operation_cancelled":
+                self._set_operation_progress(
+                    digestion.id,
+                    "datapoints",
+                    status="cancelled",
+                    phase="cancelled",
+                    percent=self._progress_snapshot(digestion.id).get("datapoints", {}).get("percent", 0),
+                    message="Structured datapoint extraction was cancelled before completion.",
+                    details={"reason": "operation_cancelled", "cancel_requested": True},
+                )
+                raise
+            self._set_operation_progress(
+                digestion.id,
+                "datapoints",
+                status="failed",
+                phase="extraction_failed",
+                percent=0,
+                message=str(exc)[:1000],
+                details={"reason": getattr(exc, "reason", "datapoint_extraction_failed")},
+            )
+            raise
         except Exception as exc:
             self._set_operation_progress(
                 digestion.id,
@@ -7147,6 +7212,7 @@ class DigestionManager:
         llm_context: dict[str, Any],
         lens: str,
         datapoint_limit: int,
+        cancel_check: Optional[Any] = None,
         progress_callback: Optional[Any] = None,
     ) -> dict[str, Any]:
         parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
@@ -7167,6 +7233,8 @@ class DigestionManager:
         system_prompt = self._structured_datapoint_system_prompt()
         total_batches = len(batches)
         for batch_index, batch in enumerate(batches, start=1):
+            if callable(cancel_check) and cancel_check():
+                raise DigestionError("Digestion operation cancelled by user.", status_code=409, reason="operation_cancelled")
             batch_refs = {str(entry["source_ref"]) for entry in batch}
             processed_refs.update(batch_refs)
             source_map = {str(entry["source_ref"]): entry for entry in batch}
@@ -7199,6 +7267,8 @@ class DigestionManager:
                     batch_record_limit=batch_record_limit,
                 )
                 raw = self._call_datapoint_llm(llm_context, system_prompt=system_prompt, prompt=prompt)
+                if callable(cancel_check) and cancel_check():
+                    raise DigestionError("Digestion operation cancelled by user.", status_code=409, reason="operation_cancelled")
                 parsed = self._parse_datapoint_llm_json(raw, llm_context=llm_context, system_prompt=system_prompt)
                 normalized, record_refs = self._normalize_llm_datapoints(
                     parsed.get("datapoints") if isinstance(parsed, dict) else [],
@@ -8278,6 +8348,56 @@ Use this as a permissioned retrieval capability, not as raw file access.
             )
             conn.commit()
 
+    def _normalize_operation_name(self, operation: Any) -> str:
+        operation_clean = str(operation or "").strip().lower()
+        if operation_clean not in CANCELLABLE_OPERATIONS:
+            raise DigestionError("Unsupported Digestion operation.", status_code=400, reason="unsupported_digestion_operation")
+        return operation_clean
+
+    @staticmethod
+    def _operation_stale_seconds() -> int:
+        try:
+            raw = int(os.getenv("CANOPY_DIGESTION_OPERATION_STALE_SECONDS", str(DEFAULT_OPERATION_STALE_SECONDS)) or DEFAULT_OPERATION_STALE_SECONDS)
+        except Exception:
+            raw = DEFAULT_OPERATION_STALE_SECONDS
+        return max(300, min(raw, 24 * 60 * 60))
+
+    def _operation_cancel_requested(self, digestion_id: str, operation: str) -> bool:
+        key = (self._clean_id(digestion_id), str(operation or "").strip().lower())
+        with self._progress_lock:
+            return key in self._operation_cancel_requests
+
+    def _raise_if_operation_cancelled(self, digestion_id: str, operation: str) -> None:
+        if not self._operation_cancel_requested(digestion_id, operation):
+            return
+        raise DigestionError("Digestion operation cancelled by user.", status_code=409, reason="operation_cancelled")
+
+    def _stale_operation_payload(self, payload: dict[str, Any], now: str) -> dict[str, Any]:
+        if str(payload.get("status") or "").lower() != "running":
+            return payload
+        updated_at = str(payload.get("updated_at") or "")
+        stale_after = self._operation_stale_seconds()
+        silent_seconds = self._elapsed_seconds(updated_at, now) if updated_at else 0
+        if silent_seconds < stale_after:
+            return payload
+        stale = dict(payload)
+        details = dict(stale.get("details") or {})
+        details.update({
+            "stale": True,
+            "recoverable": True,
+            "stale_seconds": silent_seconds,
+            "stale_after_seconds": stale_after,
+        })
+        stale["status"] = "stalled"
+        stale["phase"] = str(stale.get("phase") or "stalled")
+        stale["message"] = (
+            "This operation has not reported progress recently. "
+            "It may have been interrupted by a restart or provider timeout; reset it and rerun when ready."
+        )
+        stale["details"] = details
+        stale["elapsed_seconds"] = self._elapsed_seconds(str(stale.get("started_at") or ""), now) if stale.get("started_at") else 0
+        return stale
+
     def _set_operation_progress(
         self,
         digestion_id: str,
@@ -8302,6 +8422,16 @@ Use this as a permissioned retrieval capability, not as raw file access.
             existing = dict(by_operation.get(operation) or {})
             next_status = str(status or "running").lower()
             existing_status = str(existing.get("status") or "").lower()
+            if next_status == "running" and existing_status in {"completed", "failed", "cancelled", "idle"}:
+                self._operation_cancel_requests.discard((digestion_id, operation))
+            if next_status == "running" and (digestion_id, operation) in self._operation_cancel_requests:
+                next_status = "cancelled"
+                status = "cancelled"
+                phase = phase or "cancel_requested"
+                message = message or "Operation cancellation/reset was requested."
+                next_details = dict(details if isinstance(details, dict) else dict(existing.get("details") or {}))
+                next_details["cancel_requested"] = True
+                details = next_details
             if next_status == "running" and existing_status in {"completed", "failed", "cancelled", "idle"}:
                 started_at = now
             else:
@@ -8404,7 +8534,7 @@ Use this as a permissioned retrieval capability, not as raw file access.
                 details = {}
             started_at = str(row["started_at"] or "")
             updated_at = str(row["updated_at"] or "")
-            operations[operation] = {
+            payload = {
                 "operation": operation,
                 "status": str(row["status"] or "idle"),
                 "phase": str(row["phase"] or ""),
@@ -8420,6 +8550,7 @@ Use this as a permissioned retrieval capability, not as raw file access.
                 "details": details,
                 "actor_user_id": self._clean_id(row["actor_user_id"] or ""),
             }
+            operations[operation] = self._stale_operation_payload(payload, now)
         return operations
 
     def _progress_snapshot(self, digestion_id: str, *, include_source_details: bool = True) -> dict[str, Any]:
@@ -8430,6 +8561,11 @@ Use this as a permissioned retrieval capability, not as raw file access.
                 str(operation): dict(payload or {})
                 for operation, payload in (self._operation_progress.get(digestion_id) or {}).items()
             })
+        now = self._now()
+        operations = {
+            operation: self._stale_operation_payload(payload, now)
+            for operation, payload in operations.items()
+        }
         for operation in ("build", "datapoints", "structured_records"):
             operations.setdefault(operation, self._idle_progress(operation))
         if not include_source_details:
@@ -8486,6 +8622,11 @@ Use this as a permissioned retrieval capability, not as raw file access.
             "new_or_updated_record_count",
             "updated_record_count",
             "skipped_count",
+            "stale",
+            "recoverable",
+            "stale_seconds",
+            "stale_after_seconds",
+            "cancel_requested",
         }
         public["details"] = {key: details[key] for key in allowed_keys if key in details}
         return public
@@ -8503,6 +8644,10 @@ Use this as a permissioned retrieval capability, not as raw file access.
             return "Operation completed."
         if status == "failed":
             return "Operation failed."
+        if status == "cancelled":
+            return "Operation was reset/cancelled."
+        if status == "stalled":
+            return "Operation appears stalled and can be reset."
         if operation == "build":
             return f"Building Digestion source {processed + 1} of {total}." if total else "Building Digestion."
         if operation == "datapoints":
