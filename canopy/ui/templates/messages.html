@@ -1494,6 +1494,217 @@
         font-size: 0.82rem;
     }
 
+    .recipient-picker-panel {
+        display: grid;
+        gap: 0.62rem;
+        margin-top: 0.62rem;
+        padding: 0.7rem;
+        border-radius: 18px;
+        border: 1px solid color-mix(in srgb, var(--dm-success-border) 68%, var(--dm-panel-border));
+        background:
+            radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary) 12%, transparent), transparent 38%),
+            color-mix(in srgb, var(--dm-surface-soft) 84%, transparent);
+        min-width: 0;
+    }
+
+    .recipient-picker-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.8rem;
+        min-width: 0;
+    }
+
+    .recipient-picker-head strong {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.86rem;
+        line-height: 1.15;
+    }
+
+    .recipient-picker-head small {
+        display: block;
+        margin-top: 0.16rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.73rem;
+    }
+
+    .recipient-picker-filterbar {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.34rem;
+        flex-wrap: wrap;
+        flex: 0 0 auto;
+    }
+
+    .recipient-picker-filter {
+        border: 1px solid var(--dm-accent-border);
+        border-radius: 11px;
+        background: var(--dm-surface-soft);
+        color: var(--canopy-text-secondary);
+        padding: 0.26rem 0.48rem;
+        font-size: 0.72rem;
+        font-weight: 750;
+        line-height: 1.1;
+    }
+
+    .recipient-picker-filter.is-active {
+        color: var(--canopy-primary-contrast);
+        background: var(--canopy-gradient-primary);
+        border-color: color-mix(in srgb, var(--canopy-primary) 62%, var(--dm-accent-border));
+        box-shadow: 0 10px 20px color-mix(in srgb, var(--canopy-primary) 14%, transparent);
+    }
+
+    .recipient-picker-filter.is-muted {
+        color: var(--canopy-text-muted);
+    }
+
+    .recipient-picker-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+        gap: 0.45rem;
+        max-height: min(32vh, 280px);
+        min-height: 0;
+        overflow: auto;
+        padding-right: 0.12rem;
+        scrollbar-gutter: stable;
+    }
+
+    .recipient-picker-card {
+        appearance: none;
+        border: 1px solid color-mix(in srgb, var(--dm-accent-border) 72%, transparent);
+        border-radius: 15px;
+        background: color-mix(in srgb, var(--dm-surface-soft) 88%, transparent);
+        color: var(--canopy-text-primary);
+        padding: 0.5rem;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.52rem;
+        align-items: center;
+        min-width: 0;
+        text-align: left;
+        cursor: pointer;
+        transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .recipient-picker-card:hover,
+    .recipient-picker-card:focus-visible {
+        border-color: color-mix(in srgb, var(--canopy-primary) 48%, var(--dm-accent-border));
+        background: color-mix(in srgb, var(--canopy-primary) 10%, var(--dm-surface-soft));
+        transform: translateY(-1px);
+        outline: none;
+    }
+
+    .recipient-picker-card.is-selected {
+        border-color: color-mix(in srgb, var(--canopy-success) 58%, var(--dm-success-border));
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-success) 14%, transparent), transparent),
+            color-mix(in srgb, var(--dm-surface-strong) 82%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--canopy-success) 26%, transparent);
+    }
+
+    .recipient-picker-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 13px;
+        overflow: hidden;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--dm-avatar-bg);
+        border: 1px solid var(--dm-avatar-border);
+        color: var(--canopy-text-primary);
+        font-size: 0.78rem;
+        font-weight: 800;
+        flex: 0 0 auto;
+    }
+
+    .recipient-picker-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .recipient-picker-meta {
+        display: grid;
+        gap: 0.08rem;
+        min-width: 0;
+    }
+
+    .recipient-picker-name,
+    .recipient-picker-handle {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .recipient-picker-name {
+        font-size: 0.82rem;
+        font-weight: 820;
+    }
+
+    .recipient-picker-handle {
+        color: var(--canopy-text-secondary);
+        font-size: 0.72rem;
+    }
+
+    .recipient-picker-badges {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.24rem;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
+    .recipient-picker-role,
+    .recipient-picker-presence,
+    .recipient-picker-check {
+        border-radius: 999px;
+        border: 1px solid var(--dm-accent-border);
+        background: var(--dm-surface-soft);
+        color: var(--canopy-text-secondary);
+        font-size: 0.62rem;
+        line-height: 1;
+        font-weight: 850;
+        padding: 0.22rem 0.36rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .recipient-picker-role.agent {
+        color: var(--canopy-accent);
+        border-color: color-mix(in srgb, var(--canopy-accent) 44%, var(--dm-accent-border));
+    }
+
+    .recipient-picker-role.human {
+        color: var(--canopy-success);
+        border-color: color-mix(in srgb, var(--canopy-success) 42%, var(--dm-success-border));
+    }
+
+    .recipient-picker-check {
+        display: none;
+        color: var(--canopy-success);
+        border-color: color-mix(in srgb, var(--canopy-success) 48%, var(--dm-success-border));
+    }
+
+    .recipient-picker-card.is-selected .recipient-picker-check {
+        display: inline-flex;
+    }
+
+    .recipient-picker-empty {
+        grid-column: 1 / -1;
+        border: 1px dashed var(--dm-accent-border);
+        border-radius: 15px;
+        padding: 0.9rem;
+        color: var(--canopy-text-secondary);
+        text-align: center;
+        font-size: 0.84rem;
+        background: color-mix(in srgb, var(--dm-surface-soft) 72%, transparent);
+    }
+
     .dm-quick-mention-row {
         display: none;
         width: 100%;
@@ -2471,6 +2682,20 @@
         .recipient-suggestions {
             max-height: min(44vh, 320px);
         }
+
+        .recipient-picker-head {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .recipient-picker-filterbar {
+            justify-content: flex-start;
+        }
+
+        .recipient-picker-grid {
+            grid-template-columns: 1fr;
+            max-height: min(42vh, 340px);
+        }
     }
 
     @media (max-width: 420px) {
@@ -2580,6 +2805,7 @@
     let recipientMatches = [];
     let recipientActiveIndex = -1;
     let recipientLookupSerial = 0;
+    let recipientPickerFilter = 'all';
     let selectedRecipients = Array.isArray(INITIAL_RECIPIENTS) ? [...INITIAL_RECIPIENTS] : [];
     let dmChannelCandidates = null;
     let dmChannelLoading = false;
@@ -3205,8 +3431,14 @@
         clearReplyContext();
         updateComposerTarget();
         const textarea = document.getElementById('messageContent');
+        const recipientInput = document.getElementById('messageRecipient');
         restoreDmComposerDraft({ replace: true, clearWhenMissing: true });
-        if (textarea) {
+        fetchRecipientDirectory({ forceRefresh: true, limit: 120 }).then(() => {
+            renderRecipientPicker();
+        });
+        if (recipientInput) {
+            recipientInput.focus();
+        } else if (textarea) {
             textarea.focus();
         }
     }
@@ -3250,6 +3482,9 @@
                 input.focus();
                 updateRecipientSuggestions(normalizeRecipientInput(input.value || ''), { silentEmpty: false });
             }
+            fetchRecipientDirectory({ forceRefresh: !recipientDirectory.length, limit: 120 }).then(() => {
+                renderRecipientPicker();
+            });
         } else if (ACTIVE_THREAD && matchesInitialRecipients()) {
             composerUsesActiveThread = true;
         }
@@ -4680,6 +4915,7 @@
                 removeRecipient(this.getAttribute('data-uid'));
             });
         });
+        syncRecipientPickerCards();
         renderDmQuickMentionRail();
     }
 
@@ -4687,6 +4923,7 @@
         selectedRecipients = selectedRecipients.filter(r => r.user_id !== userId);
         composerUsesActiveThread = false;
         updateRecipientChips();
+        renderRecipientPicker();
         updateComposerTarget();
     }
 
@@ -4695,6 +4932,7 @@
         selectedRecipients.push(rec);
         composerUsesActiveThread = false;
         updateRecipientChips();
+        renderRecipientPicker();
         updateComposerTarget();
     }
 
@@ -4710,6 +4948,176 @@
         if (!parts.length) return '?';
         if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
         return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+
+    function recipientDisplayName(rec) {
+        return String((rec && (rec.display_name || rec.username || rec.user_id)) || '').trim();
+    }
+
+    function recipientHandleText(rec) {
+        const handle = String((rec && (rec.handle || rec.username || rec.user_id)) || '').trim().replace(/^@+/, '');
+        return handle ? `@${handle}` : '';
+    }
+
+    function recipientAccountType(rec) {
+        const raw = String((rec && rec.account_type) || '').trim().toLowerCase();
+        if (raw.includes('agent')) return 'agent';
+        if (raw.includes('human')) return 'human';
+        return 'user';
+    }
+
+    function normalizeRecipientRecord(rec) {
+        if (!rec || !rec.user_id) return null;
+        const userId = String(rec.user_id || '').trim();
+        if (!userId) return null;
+        return {
+            user_id: userId,
+            display_name: rec.display_name || rec.username || userId,
+            username: rec.username || rec.handle || userId,
+            handle: rec.handle || rec.username || userId,
+            avatar_url: rec.avatar_url || null,
+            account_type: rec.account_type || 'human',
+            presence_label: rec.presence_label || '',
+            presence_state: rec.presence_state || '',
+            unknown: !!rec.unknown,
+        };
+    }
+
+    function recipientPickerDirectory() {
+        const merged = new Map();
+        (Array.isArray(recipientDirectory) ? recipientDirectory : []).forEach((rec) => {
+            const normalized = normalizeRecipientRecord(rec);
+            if (normalized) merged.set(normalized.user_id, normalized);
+        });
+        selectedRecipients.forEach((rec) => {
+            const normalized = normalizeRecipientRecord(rec);
+            if (normalized && !merged.has(normalized.user_id)) merged.set(normalized.user_id, normalized);
+        });
+        return Array.from(merged.values());
+    }
+
+    function recipientMatchesPickerFilter(rec, term) {
+        if (!rec || !rec.user_id) return false;
+        if (recipientPickerFilter === 'agent' && recipientAccountType(rec) !== 'agent') return false;
+        if (recipientPickerFilter === 'human' && recipientAccountType(rec) !== 'human') return false;
+        const needle = String(term || '').trim().toLowerCase();
+        if (!needle) return true;
+        return [
+            rec.user_id,
+            rec.username,
+            rec.handle,
+            rec.display_name,
+            rec.presence_label,
+            rec.account_type,
+        ].some((value) => String(value || '').toLowerCase().includes(needle));
+    }
+
+    function renderRecipientPicker() {
+        const grid = document.getElementById('recipient-picker-grid');
+        const countEl = document.getElementById('recipient-picker-count');
+        if (!grid) return;
+        const input = document.getElementById('messageRecipient');
+        const term = normalizeRecipientInput((input && input.value) || '');
+        const selectedIds = new Set(selectedRecipients.map(rec => rec.user_id).filter(Boolean));
+        const directory = recipientPickerDirectory();
+        const visible = directory
+            .filter(rec => recipientMatchesPickerFilter(rec, term))
+            .sort((a, b) => {
+                const aSelected = selectedIds.has(a.user_id) ? 0 : 1;
+                const bSelected = selectedIds.has(b.user_id) ? 0 : 1;
+                if (aSelected !== bSelected) return aSelected - bSelected;
+                const aType = recipientAccountType(a) === 'agent' ? 0 : 1;
+                const bType = recipientAccountType(b) === 'agent' ? 0 : 1;
+                if (aType !== bType) return aType - bType;
+                return recipientDisplayName(a).localeCompare(recipientDisplayName(b));
+            })
+            .slice(0, 96);
+        if (countEl) {
+            const selectedText = selectedIds.size ? `${selectedIds.size} selected` : 'No recipients selected';
+            const filterText = recipientPickerFilter === 'all' ? 'all' : `${recipientPickerFilter}s`;
+            countEl.textContent = `${selectedText} · ${visible.length} shown (${filterText})`;
+        }
+        if (!directory.length) {
+            grid.innerHTML = '<div class="recipient-picker-empty">Loading people and agents...</div>';
+            return;
+        }
+        if (!visible.length) {
+            grid.innerHTML = '<div class="recipient-picker-empty">No matching recipients. Try another name, handle, or filter.</div>';
+            return;
+        }
+        grid.innerHTML = visible.map((rec) => {
+            const selected = selectedIds.has(rec.user_id);
+            const label = recipientDisplayName(rec) || rec.user_id;
+            const safeId = escapeHtml(rec.user_id);
+            const safeLabel = escapeHtml(label);
+            const handle = escapeHtml(recipientHandleText(rec) || rec.user_id);
+            const type = recipientAccountType(rec);
+            const roleLabel = type === 'agent' ? 'Agent' : (type === 'human' ? 'Human' : 'User');
+            const presence = String(rec.presence_label || '').trim();
+            const initials = escapeHtml(getRecipientInitials(label));
+            const avatar = rec.avatar_url && String(rec.avatar_url).startsWith('/')
+                ? `<span class="recipient-picker-avatar"><img src="${escapeHtml(rec.avatar_url)}" alt="${safeLabel}"></span>`
+                : `<span class="recipient-picker-avatar">${initials}</span>`;
+            return `
+                <button type="button"
+                        class="recipient-picker-card${selected ? ' is-selected' : ''}"
+                        role="option"
+                        aria-selected="${selected ? 'true' : 'false'}"
+                        aria-pressed="${selected ? 'true' : 'false'}"
+                        title="${safeLabel} ${handle}"
+                        data-recipient-picker-user-id="${safeId}">
+                    ${avatar}
+                    <span class="recipient-picker-meta">
+                        <span class="recipient-picker-name">${safeLabel}</span>
+                        <span class="recipient-picker-handle">${handle}</span>
+                    </span>
+                    <span class="recipient-picker-badges">
+                        <span class="recipient-picker-role ${escapeHtml(type)}">${escapeHtml(roleLabel)}</span>
+                        ${presence ? `<span class="recipient-picker-presence">${escapeHtml(presence)}</span>` : ''}
+                        <span class="recipient-picker-check"><i class="bi bi-check2"></i></span>
+                    </span>
+                </button>
+            `;
+        }).join('');
+    }
+
+    function syncRecipientPickerCards() {
+        const grid = document.getElementById('recipient-picker-grid');
+        if (!grid) return;
+        const selectedIds = new Set(selectedRecipients.map(rec => rec.user_id).filter(Boolean));
+        grid.querySelectorAll('[data-recipient-picker-user-id]').forEach((button) => {
+            const selected = selectedIds.has(button.getAttribute('data-recipient-picker-user-id'));
+            button.classList.toggle('is-selected', selected);
+            button.setAttribute('aria-selected', selected ? 'true' : 'false');
+            button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
+        const countEl = document.getElementById('recipient-picker-count');
+        if (countEl) {
+            const shown = grid.querySelectorAll('[data-recipient-picker-user-id]').length;
+            const filterText = recipientPickerFilter === 'all' ? 'all' : `${recipientPickerFilter}s`;
+            countEl.textContent = `${selectedIds.size ? `${selectedIds.size} selected` : 'No recipients selected'} · ${shown} shown (${filterText})`;
+        }
+    }
+
+    function toggleRecipientPickerUser(userId) {
+        const normalizedId = String(userId || '').trim();
+        if (!normalizedId) return;
+        if (isRecipientSelected(normalizedId)) {
+            removeRecipient(normalizedId);
+            return;
+        }
+        const match = recipientPickerDirectory().find(rec => rec.user_id === normalizedId);
+        if (match) addRecipient(match);
+    }
+
+    function setRecipientPickerFilter(filter) {
+        recipientPickerFilter = ['all', 'agent', 'human'].includes(String(filter || '')) ? String(filter) : 'all';
+        document.querySelectorAll('[data-recipient-picker-filter]').forEach((button) => {
+            const active = button.getAttribute('data-recipient-picker-filter') === recipientPickerFilter;
+            button.classList.toggle('is-active', active);
+            button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+        renderRecipientPicker();
     }
 
     function renderRecipientSuggestions() {
@@ -4765,6 +5173,7 @@
         recipientMatches = [];
         recipientActiveIndex = -1;
         renderRecipientSuggestions();
+        renderRecipientPicker();
     }
 
     function filterRecipientMatches(query) {
@@ -4793,12 +5202,13 @@
         } else if (!opts.silentEmpty) {
             renderRecipientSuggestionState(term ? 'Searching people…' : 'Loading people…');
         }
+        renderRecipientPicker();
         if (!opts.skipRefresh) {
             const lookupSerial = ++recipientLookupSerial;
             fetchRecipientDirectory({
                 forceRefresh: !recipientDirectory.length,
                 query: term,
-                limit: term ? 8 : 12,
+                limit: term ? 32 : 120,
             }).then((matches) => {
                 if (lookupSerial !== recipientLookupSerial) return;
                 const serverMatches = Array.isArray(matches)
@@ -4811,6 +5221,7 @@
                 } else {
                     renderRecipientSuggestionState(term ? 'No matching users found yet.' : 'No users available.');
                 }
+                renderRecipientPicker();
             });
         }
     }
@@ -4907,6 +5318,8 @@
         const input = document.getElementById('messageRecipient');
         const wrapper = document.querySelector('.recipient-input-wrap');
         if (!input || !wrapper) return;
+        const pickerGrid = document.getElementById('recipient-picker-grid');
+        const pickerPanel = document.getElementById('recipient-picker-panel');
 
         input.addEventListener('input', (e) => {
             composerUsesActiveThread = false;
@@ -4922,8 +5335,39 @@
         document.addEventListener('click', (e) => {
             if (!wrapper.contains(e.target)) showRecipientSuggestions(false);
         });
-        fetchRecipientDirectory().then(() => {
+        if (pickerGrid) {
+            pickerGrid.addEventListener('click', (event) => {
+                const card = event.target.closest('[data-recipient-picker-user-id]');
+                if (!card) return;
+                event.preventDefault();
+                toggleRecipientPickerUser(card.getAttribute('data-recipient-picker-user-id'));
+                input.focus();
+            });
+        }
+        if (pickerPanel) {
+            pickerPanel.addEventListener('click', (event) => {
+                const filter = event.target.closest('[data-recipient-picker-filter]');
+                if (filter) {
+                    event.preventDefault();
+                    setRecipientPickerFilter(filter.getAttribute('data-recipient-picker-filter'));
+                    input.focus();
+                    return;
+                }
+                const clearBtn = event.target.closest('[data-recipient-picker-action="clear"]');
+                if (clearBtn) {
+                    event.preventDefault();
+                    selectedRecipients = [];
+                    composerUsesActiveThread = false;
+                    updateRecipientChips();
+                    renderRecipientPicker();
+                    updateComposerTarget();
+                    input.focus();
+                }
+            });
+        }
+        fetchRecipientDirectory({ limit: 120 }).then(() => {
             updateRecipientSuggestions('', { skipRefresh: true, silentEmpty: true });
+            renderRecipientPicker();
             renderDmQuickMentionRail();
         });
     }
