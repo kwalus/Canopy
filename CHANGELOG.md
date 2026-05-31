@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.305] - 2026-05-31
+
+### Added
+- **Digestion Deck panels can be focused** - Visual evidence and Datapoint chart panels now have a Focus mode that gives the selected panel the full Digestion Deck workspace while preserving the normal split view on exit.
+- **Figure analysis cards are more reviewable** - extracted figures now present model analysis as a structured AI-analysis block with source/page/model context and a correction-draft copy action so humans can report or refine mistakes without pretending unsaved inline edits are persisted.
+
 ## [0.6.304] - 2026-05-31
 
 ### Changed

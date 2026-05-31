@@ -3411,6 +3411,26 @@
             min-width: 0;
         }
 
+        .deck-digestion-workspace.is-figures-focus .deck-digestion-main,
+        .deck-digestion-workspace.is-chart-focus .deck-digestion-main {
+            grid-template-columns: minmax(0, 1fr) !important;
+        }
+
+        .deck-digestion-workspace.is-figures-focus .deck-digestion-search-panel,
+        .deck-digestion-workspace.is-figures-focus .deck-digestion-tune,
+        .deck-digestion-workspace.is-figures-focus .deck-digestion-chart-panel,
+        .deck-digestion-workspace.is-chart-focus .deck-digestion-search-panel,
+        .deck-digestion-workspace.is-chart-focus .deck-digestion-tune,
+        .deck-digestion-workspace.is-chart-focus .deck-digestion-figures-panel {
+            display: none !important;
+        }
+
+        .deck-digestion-workspace.is-figures-focus .deck-digestion-insight-rail,
+        .deck-digestion-workspace.is-chart-focus .deck-digestion-insight-rail {
+            grid-template-rows: minmax(0, 1fr) auto !important;
+            overflow: hidden;
+        }
+
         .deck-digestion-search-panel {
             display: grid;
             grid-template-rows: auto auto minmax(0, 1fr);
@@ -3741,12 +3761,33 @@
             overflow: hidden;
         }
 
+        .deck-digestion-workspace.is-figures-focus .deck-digestion-figures-panel,
+        .deck-digestion-workspace.is-chart-focus .deck-digestion-chart-panel {
+            min-height: 0;
+            height: 100%;
+        }
+
         .deck-digestion-figures-head {
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: 8px;
             min-width: 0;
+        }
+
+        .deck-digestion-panel-actions {
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+            flex: 0 0 auto;
+        }
+
+        .deck-digestion-panel-actions .deck-digestion-mini-btn.is-active {
+            background: var(--canopy-gradient-primary);
+            color: var(--canopy-primary-contrast);
+            border-color: color-mix(in srgb, var(--canopy-primary) 62%, var(--canopy-border));
+            box-shadow: 0 10px 20px color-mix(in srgb, var(--canopy-primary) 18%, transparent);
         }
 
         .deck-digestion-figures-head > div {
@@ -3780,6 +3821,16 @@
             scrollbar-color: color-mix(in srgb, var(--canopy-primary) 54%, var(--canopy-border)) transparent;
         }
 
+        .deck-digestion-workspace.is-figures-focus .deck-digestion-figures-list {
+            grid-auto-flow: row;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+            grid-auto-columns: unset;
+            align-content: start;
+            overflow: auto;
+            min-height: 0;
+            padding-right: 4px;
+        }
+
         .deck-digestion-figure-card {
             display: grid;
             grid-template-rows: 88px auto;
@@ -3788,6 +3839,10 @@
             border: 1px solid var(--canopy-deck-border);
             background: var(--canopy-deck-subpanel-bg);
             overflow: hidden;
+        }
+
+        .deck-digestion-workspace.is-figures-focus .deck-digestion-figure-card {
+            grid-template-rows: minmax(170px, 34vh) auto;
         }
 
         .deck-digestion-figure-thumb {
@@ -3808,7 +3863,7 @@
 
         .deck-digestion-figure-copy {
             display: grid;
-            gap: 2px;
+            gap: 5px;
             min-width: 0;
             padding: 7px;
         }
@@ -3848,6 +3903,88 @@
             color: var(--canopy-accent);
         }
 
+        .deck-digestion-figure-analysis {
+            display: grid;
+            gap: 6px;
+            margin-top: 2px;
+            padding: 7px;
+            border-radius: 12px;
+            border: 1px solid color-mix(in srgb, var(--canopy-accent) 38%, var(--canopy-deck-border));
+            background: color-mix(in srgb, var(--canopy-accent) 12%, var(--canopy-deck-subpanel-bg));
+            min-width: 0;
+        }
+
+        .deck-digestion-figure-analysis-head,
+        .deck-digestion-figure-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .deck-digestion-figure-analysis-head strong {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--canopy-text-primary);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .deck-digestion-figure-analysis-head span {
+            border: 1px solid color-mix(in srgb, var(--canopy-accent) 42%, var(--canopy-deck-border));
+            border-radius: 999px;
+            padding: 2px 7px;
+            background: color-mix(in srgb, var(--canopy-accent) 12%, transparent);
+            color: var(--canopy-text-secondary);
+            font-size: 0.64rem;
+            font-weight: 900;
+            max-width: 48%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .deck-digestion-figure-analysis-body {
+            margin: 0;
+            color: var(--canopy-text-secondary);
+            font-size: 0.73rem;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 5;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            overflow-wrap: anywhere;
+        }
+
+        .deck-digestion-figure-analysis-meta {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex-wrap: wrap;
+            color: var(--canopy-text-muted);
+            font-size: 0.66rem;
+        }
+
+        .deck-digestion-figure-actions {
+            justify-content: flex-start;
+        }
+
+        .deck-digestion-figure-actions .deck-digestion-mini-btn {
+            min-height: 30px;
+            padding: 5px 8px;
+            border-radius: 10px;
+            font-size: 0.68rem;
+        }
+
+        .deck-digestion-workspace.is-figures-focus .deck-digestion-figure-copy p,
+        .deck-digestion-workspace.is-figures-focus .deck-digestion-figure-analysis-body {
+            -webkit-line-clamp: unset;
+            overflow: visible;
+        }
+
         .deck-digestion-check {
             display: inline-flex;
             align-items: center;
@@ -3875,6 +4012,10 @@
             gap: 7px;
             min-height: 0;
             overflow: hidden;
+        }
+
+        .deck-digestion-workspace.is-chart-focus .deck-digestion-chart {
+            min-height: clamp(340px, 58vh, 820px);
         }
 
         .deck-digestion-chart-head {
@@ -4195,6 +4336,8 @@
                 flex-direction: column;
             }
 
+            .deck-digestion-panel-actions,
+            .deck-digestion-panel-actions .deck-digestion-mini-btn,
             .deck-digestion-figures-head .deck-digestion-mini-btn {
                 width: 100%;
             }
