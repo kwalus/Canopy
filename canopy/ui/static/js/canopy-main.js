@@ -3598,6 +3598,9 @@
                         chunks: Number(stats.chunks ?? item.chunk_count ?? item.indexed_chunks ?? 0),
                         token_estimate: Number(stats.token_estimate ?? item.token_estimate ?? 0),
                             figures: Number(stats.figures ?? item.figure_count ?? 0),
+                            figure_vision_eligible_count: Number(stats.figure_vision_eligible_count ?? item.figure_vision_eligible_count ?? stats.figures ?? item.figure_count ?? 0),
+                            figure_vision_pending_count: Number(stats.figure_vision_pending_count ?? item.figure_vision_pending_count ?? stats.figures ?? item.figure_count ?? 0),
+                            figure_vision_analyzed_count: Number(stats.figure_vision_analyzed_count ?? item.figure_vision_analyzed_count ?? 0),
                             outputs: Number(stats.outputs ?? stats.output_count ?? item.output_count ?? 0),
                             source_count: Number(stats.source_count ?? item.source_count ?? 0),
                             datapoint_count: Number(stats.datapoint_count ?? item.datapoint_count ?? progressDetails.datapoint_count ?? 0),
@@ -3924,6 +3927,46 @@
                     return `${mins}m ${secs}s`;
                 }
 
+                function digestionProgressIssues(details) {
+                    const payload = details && typeof details === 'object' ? details : {};
+                    const errors = Array.isArray(payload.errors) ? payload.errors : [];
+                    const skipped = Array.isArray(payload.skipped) ? payload.skipped : [];
+                    const issues = [...errors, ...skipped];
+                    return issues.slice(0, 3).map((issue) => {
+                        const figureLabel = [
+                            issue && (issue.source_file_name || issue.source_file_id || issue.image_file_name || issue.image_file_id || 'Figure'),
+                            issue && issue.page_label,
+                            issue && issue.figure_index ? `fig ${issue.figure_index}` : '',
+                        ].filter(Boolean).join(' · ');
+                        const reason = String(issue && (issue.reason || issue.message || issue.error) || 'issue').replace(/_/g, ' ');
+                        const message = String(issue && (issue.message || issue.error || '') || '').trim();
+                        return {
+                            label: figureLabel,
+                            reason,
+                            message,
+                        };
+                    });
+                }
+
+                function digestionFigureVisionResultMessage(data) {
+                    const payload = data && typeof data === 'object' ? data : {};
+                    const analyzed = Number(payload.analyzed_count || 0);
+                    const skipped = Number(payload.skipped_count || 0);
+                    const errors = Number(payload.error_count || 0);
+                    const eligible = Number(payload.eligible_count || payload.pending_count || 0);
+                    const bits = [`${analyzed} figure${analyzed === 1 ? '' : 's'} analyzed`];
+                    if (eligible) bits.unshift(`${eligible} eligible`);
+                    if (skipped) bits.push(`${skipped} skipped`);
+                    if (errors) bits.push(`${errors} issue${errors === 1 ? '' : 's'}`);
+                    const issues = digestionProgressIssues({
+                        errors: Array.isArray(payload.errors) ? payload.errors : [],
+                        skipped: Array.isArray(payload.skipped) ? payload.skipped : [],
+                    });
+                    const first = issues[0];
+                    const detail = first ? ` First issue: ${first.reason}${first.message && first.message !== first.reason ? ` - ${first.message}` : ''}.` : '';
+                    return `Figure vision complete: ${bits.join(', ')}.${detail}`;
+                }
+
                 function renderDigestionProgress(operation, label, progress, options = {}) {
                     const safeProgress = progress || {};
                     const visible = digestionProgressVisible(safeProgress);
@@ -3938,6 +3981,7 @@
                     const digestionId = String(options.digestionId || '');
                     const cancelLabel = statusLower === 'stalled' ? 'Reset' : 'Cancel';
                     const statusClass = statusLower === 'stalled' ? ' is-stalled' : (statusLower === 'cancelled' ? ' is-cancelled' : '');
+                    const issueRows = digestionProgressIssues(safeProgress.details);
                     return `
                         <div class="vault-digestion-progress${visible ? ' is-visible' : ''}${statusClass}"
                              data-vault-digestion-progress="${vaultEscape(operation)}"
@@ -3971,6 +4015,17 @@
                                 ${safeProgress.elapsed_seconds ? `<span><i class="bi bi-clock"></i>${formatVaultDuration(safeProgress.elapsed_seconds)}</span>` : ''}
                                 ${safeProgress.phase ? `<span><i class="bi bi-gear"></i>${vaultEscape(String(safeProgress.phase).replace(/_/g, ' '))}</span>` : ''}
                             </div>
+                            ${issueRows.length ? `
+                                <div class="vault-digestion-progress-issues" aria-label="${vaultEscape(label)} issues">
+                                    ${issueRows.map(issue => `
+                                        <div class="vault-digestion-progress-issue">
+                                            <strong>${vaultEscape(issue.reason)}</strong>
+                                            <span>${vaultEscape(issue.label)}</span>
+                                            ${issue.message ? `<small>${vaultEscape(issue.message)}</small>` : ''}
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
                         </div>
                     `;
                 }
@@ -4410,6 +4465,9 @@
                             const structuredRecordCount = Number(stats.structured_record_count || 0);
                             const quantitativeCount = Number(stats.quantitative_result_count || 0);
                             const figureCount = Number(stats.figures || 0);
+                            const figureVisionEligibleCount = Number(stats.figure_vision_eligible_count || figureCount || 0);
+                            const figureVisionPendingCount = Number(stats.figure_vision_pending_count ?? figureVisionEligibleCount);
+                            const figureVisionAnalyzedCount = Number(stats.figure_vision_analyzed_count || 0);
 		                    const sourceCount = digestionSourceCount(digestion, stats);
                             const contributionCounts = digestionContributionCounts(digestion, stats);
                             const contributionCount = contributionCounts.total;
@@ -4444,13 +4502,19 @@
                     const figureVisionProgress = digestionOperationProgress(digestion, 'figure_vision');
                     const maxChunksDefault = defaultDatapointMaxChunks(digestion);
                     const maxDatapointsDefault = Math.min(400, Math.max(50, maxChunksDefault * 4));
-                    const maxFigureVisionDefault = Math.max(1, Math.min(figureCount || 5, 25));
+                    const maxFigureVisionDefault = Math.max(1, Math.min(figureVisionPendingCount || figureVisionEligibleCount || figureCount || 5, 25));
+                    const figureVisionRunCount = Math.max(0, Math.min(figureVisionPendingCount || figureVisionEligibleCount || figureCount || 0, maxFigureVisionDefault));
                     const figureVisionDisabled = !figureCount || !canReadSources;
+                    const figureVisionButtonLabel = figureVisionPendingCount > 0
+                        ? `Analyze ${figureVisionRunCount.toLocaleString()} figure${figureVisionRunCount === 1 ? '' : 's'}`
+                        : (figureVisionAnalyzedCount > 0 ? 'Analyze 0 pending' : 'Analyze figures');
                     const figureVisionTitle = !figureCount
                         ? 'Build this Digestion first to extract PDF figures before running vision enrichment.'
                         : (!canReadSources
                             ? 'Figure vision requires source metadata access because extracted source images are sent to the configured provider.'
-                            : 'Run an opt-in, capped image-model pass over extracted figures. This is separate from normal build so it never spends tokens automatically.');
+                            : (figureVisionPendingCount > 0
+                                ? `Run an opt-in, capped image-model pass over ${figureVisionRunCount} of ${figureVisionPendingCount.toLocaleString()} pending extracted figure${figureVisionPendingCount === 1 ? '' : 's'}. This never spends vision tokens automatically.`
+                                : 'No pending figures need vision enrichment. Open Tune and enable Re-analyze existing descriptions if you intentionally want to run vision again.'));
                     return `
                         <article class="vault-digestion-card${state.digestionDensity === 'compact' ? ' is-compact' : ''}" data-vault-digestion-id="${id}" data-vault-digestion-can-manage="${canManage ? 'true' : 'false'}" data-vault-digestion-can-drop="${canDropSources ? 'true' : 'false'}" draggable="${canDropSources ? 'true' : 'false'}" aria-label="Digestion ${name}. ${canDropSources ? 'Drop Vault files or another Digestion here to expand it.' : 'Read-only or shared Digestion.'}">
                             <div class="vault-digestion-card-main">
@@ -4463,6 +4527,7 @@
 		                                ${datapointCount ? `<span class="vault-digestion-pill is-primary" title="${datapointCount.toLocaleString()} structured datapoints extracted${quantitativeCount ? `; ${quantitativeCount.toLocaleString()} quantitative value${quantitativeCount === 1 ? '' : 's'}` : ''}."><i class="bi bi-grid-3x3-gap"></i><span>${datapointCount.toLocaleString()} point${datapointCount === 1 ? '' : 's'}</span></span>` : ''}
                                         ${structuredRecordCount ? `<span class="vault-digestion-pill is-primary" title="${structuredRecordCount.toLocaleString()} profile-specific structured record${structuredRecordCount === 1 ? '' : 's'} available for source-of-truth searches."><i class="bi bi-card-checklist"></i><span>${structuredRecordCount.toLocaleString()} record${structuredRecordCount === 1 ? '' : 's'}</span></span>` : ''}
                                         ${figureCount ? `<span class="vault-digestion-pill" title="${figureCount.toLocaleString()} extracted PDF figure preview${figureCount === 1 ? '' : 's'}."><i class="bi bi-images"></i><span>${figureCount.toLocaleString()} fig${figureCount === 1 ? '' : 's'}</span></span>` : ''}
+                                        ${figureVisionPendingCount ? `<span class="vault-digestion-pill is-primary" title="${figureVisionPendingCount.toLocaleString()} extracted figure image${figureVisionPendingCount === 1 ? '' : 's'} pending opt-in vision analysis."><i class="bi bi-eye"></i><span>${figureVisionPendingCount.toLocaleString()} vision pending</span></span>` : ''}
 		                                <span class="vault-digestion-pill"><i class="bi bi-file-earmark-text"></i><span>${tokens.toLocaleString()} tok</span></span>
 		                                <span class="vault-digestion-pill"><i class="bi bi-cpu"></i><span>${provider}</span></span>
 		                                ${sourceIssues.length ? `<span class="vault-digestion-pill text-warning" title="${vaultEscape(sourceIssueTitle)}"><i class="bi bi-file-earmark-x"></i>${sourceIssues.length} source issue${sourceIssues.length === 1 ? '' : 's'}</span>` : ''}
@@ -4494,7 +4559,7 @@
 	                                    <i class="bi bi-grid-3x3-gap"></i> Extract datapoints
 	                                </button>
                                     <button class="btn btn-sm btn-outline-info vault-digestion-btn" type="button" data-vault-digestion-action="analyze-figures" data-vault-digestion-id="${id}" aria-label="Analyze extracted figures for ${name}" title="${figureVisionTitle}" ${figureVisionDisabled ? 'disabled' : ''}>
-                                        <i class="bi bi-eye"></i> Analyze figures
+                                        <i class="bi bi-eye"></i> ${figureVisionButtonLabel}
                                     </button>
                                     <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="extract-options" data-vault-digestion-id="${id}" aria-label="Tune extraction scope for ${name}" title="Set extraction depth, maximum records, and the datapoint lens before running.">
                                         <i class="bi bi-sliders"></i> Tune
@@ -5662,7 +5727,7 @@
                     const lensEl = document.querySelector(`[data-vault-digestion-vision-lens="${id}"]`);
                     const digestion = findDigestion(digestionId) || {};
                     const stats = digestionStats(digestion);
-                    const fallbackFigures = Math.max(1, Math.min(Number(stats.figures || 0) || 5, 25));
+                    const fallbackFigures = Math.max(1, Math.min(Number(stats.figure_vision_pending_count || stats.figure_vision_eligible_count || stats.figures || 0) || 5, 25));
                     const parsed = parseInt(maxFiguresEl && maxFiguresEl.value, 10);
                     return {
                         max_figures: Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 25)) : fallbackFigures,
@@ -5734,13 +5799,9 @@
                             body: JSON.stringify(options)
                         });
                         if (typeof showAlert === 'function') {
-                            const analyzed = Number(data.analyzed_count || 0);
-                            const skipped = Number(data.skipped_count || 0);
                             const errors = Number(data.error_count || 0);
-                            const bits = [`${analyzed} figure${analyzed === 1 ? '' : 's'} analyzed`];
-                            if (skipped) bits.push(`${skipped} skipped`);
-                            if (errors) bits.push(`${errors} issue${errors === 1 ? '' : 's'}`);
-                            showAlert(`Figure vision complete: ${bits.join(', ')}.`, errors ? 'warning' : 'success');
+                            const skipped = Number(data.skipped_count || 0);
+                            showAlert(digestionFigureVisionResultMessage(data), (errors || skipped) ? 'warning' : 'success');
                         }
                         try {
                             await refreshDigestionProgress(digestionId);
@@ -23785,7 +23846,13 @@
                             const analyzed = Number(data.analyzed_count || 0);
                             const skipped = Number(data.skipped_count || 0);
                             const errors = Number(data.error_count || 0);
-                            statusEl.textContent = `Figure vision complete: ${analyzed} analyzed${skipped ? `, ${skipped} skipped` : ''}${errors ? `, ${errors} issues` : ''}.`;
+                            const eligible = Number(data.eligible_count || data.pending_count || 0);
+                            const issues = Array.isArray(data.errors) && data.errors.length
+                                ? data.errors
+                                : (Array.isArray(data.skipped) ? data.skipped : []);
+                            const firstIssue = issues[0] || {};
+                            const firstReason = String(firstIssue.reason || firstIssue.message || firstIssue.error || '').replace(/_/g, ' ');
+                            statusEl.textContent = `Figure vision complete: ${eligible ? `${eligible} eligible, ` : ''}${analyzed} analyzed${skipped ? `, ${skipped} skipped` : ''}${errors ? `, ${errors} issues` : ''}.${firstReason ? ` First issue: ${firstReason}.` : ''}`;
 	                        } else {
 	                            const count = Number(data.datapoint_count || 0);
 	                            const newCount = Number(data.new_datapoint_count || 0);
@@ -23834,6 +23901,9 @@
                 const chunkCount = Number(stats.chunks || 0);
                 const tokenCount = Number(stats.token_estimate || 0);
                 const figureCount = Number(stats.figures || 0);
+                const figureVisionEligibleCount = Number(stats.figure_vision_eligible_count || figureCount || 0);
+                const figureVisionPendingCount = Number(stats.figure_vision_pending_count ?? figureVisionEligibleCount);
+                const figureVisionRunCount = Math.max(0, Math.min(figureVisionPendingCount || figureVisionEligibleCount || figureCount || 0, 25));
                 const structuredRecordCount = Number(stats.structured_record_count || 0);
                 const initialMode = deckDigestionMode(digestion.initial_mode || 'rag');
                 const initialQuery = String(digestion.initial_query || '');
@@ -23888,14 +23958,14 @@
 			                                                <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
 			                                                <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
 			                                                <label>Scope <select data-deck-digestion-scope><option value="new" selected>New docs only</option><option value="all">All indexed docs</option></select></label>
-                                                            <label>Figures <input type="number" min="1" max="25" value="${Math.max(1, Math.min(figureCount || 5, 25))}" data-deck-digestion-vision-max-figures></label>
+			                                                <label>Figures <input type="number" min="1" max="25" value="${Math.max(1, Math.min(figureVisionPendingCount || figureVisionEligibleCount || figureCount || 5, 25))}" data-deck-digestion-vision-max-figures></label>
 			                                                <label class="is-wide">Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
                                                             <label class="deck-digestion-check"><input type="checkbox" data-deck-digestion-vision-overwrite> Re-analyze figures</label>
 			                                            </div>
 		                                            <div class="deck-digestion-actions">
 		                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="build"><i class="bi bi-hammer"></i> Build / refresh index</button>
 		                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="extract"><i class="bi bi-grid-3x3-gap"></i> Extract datapoints</button>
-                                                        <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="vision" ${figureCount ? '' : 'disabled'} title="Run an explicit, capped vision-model pass over extracted figures."><i class="bi bi-eye"></i> Analyze figures</button>
+                                                        <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="vision" ${figureCount ? '' : 'disabled'} title="${figureVisionPendingCount ? `Run an explicit, capped vision-model pass over ${figureVisionRunCount} of ${figureVisionPendingCount} pending extracted figures.` : 'No pending figures need vision enrichment. Enable Re-analyze figures if you intentionally want to run vision again.'}"><i class="bi bi-eye"></i> ${figureVisionPendingCount ? `Analyze ${figureVisionRunCount} figure${figureVisionRunCount === 1 ? '' : 's'}` : 'Analyze 0 pending'}</button>
 		                                            </div>
 		                                            <div class="deck-digestion-tune-status" data-deck-digestion-tune-status aria-live="polite">Extraction settings apply when you run Extract datapoints.</div>
 		                                        </div>

@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.299] - 2026-05-31
+
+### Changed
+- **Digestion figure vision now reports eligible counts and real failure details** - Vault and Deck "Analyze figures" controls show how many extracted figures can be processed, and completed runs surface bounded per-figure skipped/error reasons instead of only saying `0 processed, 3 errors`.
+- **Digestion stats now track figure vision readiness** - Digestion summaries include eligible, pending, and already-analyzed figure counts so humans and agents can tell whether vision work remains before spending model tokens.
+- **Agent/API guidance now reflects figure-vision diagnostics** - REST and agent instructions document the new count/error fields so agents report provider/model/image failures directly.
+
 ## [0.6.298] - 2026-05-31
 
 ### Changed

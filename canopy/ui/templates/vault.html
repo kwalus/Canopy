@@ -1385,6 +1385,37 @@
     .vault-digestion-progress-meta span i {
         flex: 0 0 auto;
     }
+    .vault-digestion-progress-issues {
+        display: grid;
+        gap: 0.38rem;
+        min-width: 0;
+    }
+    .vault-digestion-progress-issue {
+        display: grid;
+        gap: 0.14rem;
+        min-width: 0;
+        padding: 0.48rem 0.55rem;
+        border-radius: 12px;
+        border: 1px solid color-mix(in srgb, var(--canopy-warning, #f59e0b) 42%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-warning, #f59e0b) 9%, var(--canopy-bg-secondary));
+        color: var(--canopy-text-primary);
+        font-size: 0.74rem;
+        line-height: 1.25;
+    }
+    .vault-digestion-progress-issue strong {
+        color: color-mix(in srgb, var(--canopy-warning, #f59e0b) 82%, var(--canopy-text-primary));
+        text-transform: uppercase;
+        letter-spacing: 0.045em;
+        font-size: 0.68rem;
+    }
+    .vault-digestion-progress-issue span,
+    .vault-digestion-progress-issue small {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+    .vault-digestion-progress-issue small {
+        color: var(--canopy-text-muted);
+    }
     .vault-digestion-options {
         display: none;
         gap: 0.55rem;

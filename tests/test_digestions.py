@@ -1783,6 +1783,86 @@ class TestDigestions(unittest.TestCase):
             )
         self.assertEqual(skipped['reason'], 'no_candidates')
         self.assertEqual(skipped['analyzed_count'], 0)
+        stats = self.digestion_manager.stats(digestion['id'])
+        self.assertEqual(stats['figures'], 1)
+        self.assertEqual(stats['figure_vision_eligible_count'], 1)
+        self.assertEqual(stats['figure_vision_pending_count'], 0)
+        self.assertEqual(stats['figure_vision_analyzed_count'], 1)
+
+    def test_pdf_figure_vision_reports_per_figure_failures_and_pending_counts(self) -> None:
+        source = self._save_text(
+            'vision-errors-corpus.txt',
+            'Figure 1. First chart. Figure 2. Second chart.',
+        )
+        image_one = self._save_image('vision-error-001.png')
+        image_two = self._save_image('vision-error-002.png')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Vision error digest',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        for index, image in enumerate((image_one, image_two), start=1):
+            self.digestion_manager._insert_pdf_figure({
+                'digestion_id': digestion['id'],
+                'source_file_id': source.id,
+                'source_checksum': source.checksum,
+                'figure_index': index,
+                'page_number': index,
+                'page_label': f'p. {index}',
+                'image_file_id': image.id,
+                'image_name': image.original_name,
+                'content_type': image.content_type,
+                'width': 640,
+                'height': 360,
+                'byte_size': image.size,
+                'caption': f'Figure {index}. Test chart.',
+                'context_text': 'Test figure context.',
+                'vision_description': '',
+                'extraction_method': 'test.fixture',
+                'metadata': {'vision_status': 'not_run', 'source_file_name': source.original_name},
+            })
+        stats = self.digestion_manager.stats(digestion['id'])
+        self.assertEqual(stats['figures'], 2)
+        self.assertEqual(stats['figure_vision_eligible_count'], 2)
+        self.assertEqual(stats['figure_vision_pending_count'], 2)
+        self.assertEqual(stats['figure_vision_analyzed_count'], 0)
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_figure_vision_llm_context',
+            return_value=self._fake_figure_vision_llm_context(),
+        ), patch.object(
+            self.digestion_manager,
+            '_call_figure_vision_llm',
+            side_effect=DigestionError(
+                'OpenAI returned no figure-vision output text after retry.',
+                status_code=502,
+                reason='figure_vision_provider_empty_response',
+            ),
+        ):
+            result = self.digestion_manager.enrich_figures_with_vision(
+                digestion['id'],
+                'owner-user',
+                max_figures=2,
+            )
+
+        self.assertTrue(result['success'])
+        self.assertTrue(result['all_failed'])
+        self.assertEqual(result['eligible_count'], 2)
+        self.assertEqual(result['analyzed_count'], 0)
+        self.assertEqual(result['error_count'], 2)
+        self.assertEqual(result['errors'][0]['source_file_name'], source.original_name)
+        self.assertEqual(result['errors'][0]['page_label'], 'p. 1')
+        self.assertEqual(result['errors'][0]['reason'], 'figure_vision_provider_empty_response')
+        progress = self.digestion_manager.get_operation_progress(digestion['id'], 'owner-user')
+        vision_progress = progress['operations']['figure_vision']
+        self.assertEqual(vision_progress['status'], 'completed')
+        self.assertEqual(vision_progress['phase'], 'completed_with_issues')
+        self.assertEqual(vision_progress['details']['eligible_count'], 2)
+        self.assertTrue(vision_progress['details']['all_failed'])
+        self.assertEqual(vision_progress['details']['errors'][0]['figure_index'], 1)
 
     def test_generated_pdf_figure_images_are_placed_in_digestion_subfolder(self) -> None:
         source = self._save_text(

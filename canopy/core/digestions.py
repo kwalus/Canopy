@@ -2875,6 +2875,16 @@ class DigestionManager:
             overwrite=overwrite,
         )
         if not rows:
+            stats = self.stats(digestion.id)
+            figure_count = int(stats.get("figures") or 0)
+            eligible_count = int(stats.get("figure_vision_eligible_count") or 0)
+            analyzed_count = int(stats.get("figure_vision_analyzed_count") or 0)
+            pending_count = int(stats.get("figure_vision_pending_count") or 0)
+            message = (
+                "No extracted figure images need vision enrichment."
+                if figure_count
+                else "No extracted figure images are available for vision enrichment."
+            )
             self._set_operation_progress(
                 digestion.id,
                 "figure_vision",
@@ -2883,10 +2893,13 @@ class DigestionManager:
                 percent=100,
                 processed=0,
                 total=0,
-                message="No extracted figure images need vision enrichment.",
+                message=message,
                 details={
-                    "figure_count": 0,
+                    "figure_count": figure_count,
+                    "eligible_count": eligible_count,
+                    "pending_count": pending_count,
                     "analyzed_count": 0,
+                    "previously_analyzed_count": analyzed_count,
                     "skipped_count": 0,
                     "max_figures": figure_limit,
                     "max_image_bytes": max_image_bytes,
@@ -2900,10 +2913,13 @@ class DigestionManager:
                 "digestion_id": digestion.id,
                 "analyzed_count": 0,
                 "skipped_count": 0,
+                "eligible_count": eligible_count,
+                "pending_count": pending_count,
+                "previously_analyzed_count": analyzed_count,
                 "errors": [],
                 "figures": [],
                 "progress": self._progress_snapshot(digestion.id).get("figure_vision", {}),
-                "stats": self.stats(digestion.id),
+                "stats": stats,
                 "reason": "no_candidates",
             }
 
@@ -2965,19 +2981,42 @@ class DigestionManager:
                 )
                 image_file_id = str(figure.get("image_file_id") or "")
                 if not image_file_id:
-                    skipped.append({"figure_id": figure.get("id") or "", "reason": "missing_image_file_id"})
+                    skipped.append({
+                        "figure_id": figure.get("id") or "",
+                        "source_file_id": figure.get("source_file_id") or "",
+                        "source_file_name": figure.get("source_file_name") or "",
+                        "page_label": figure.get("page_label") or "",
+                        "figure_index": figure.get("figure_index") or index,
+                        "reason": "missing_image_file_id",
+                        "message": "This extracted figure does not have a stored image file ID.",
+                    })
                     continue
                 file_data = self.file_manager.get_file_data(image_file_id)
                 if not file_data:
-                    skipped.append({"figure_id": figure.get("id") or "", "image_file_id": image_file_id, "reason": "image_file_unavailable"})
+                    skipped.append({
+                        "figure_id": figure.get("id") or "",
+                        "source_file_id": figure.get("source_file_id") or "",
+                        "source_file_name": figure.get("source_file_name") or "",
+                        "page_label": figure.get("page_label") or "",
+                        "figure_index": figure.get("figure_index") or index,
+                        "image_file_id": image_file_id,
+                        "reason": "image_file_unavailable",
+                        "message": "The extracted figure image could not be read from the local Vault.",
+                    })
                     continue
                 image_bytes, image_info = file_data
                 image_size = len(image_bytes)
                 if image_size > max_image_bytes:
                     skipped.append({
                         "figure_id": figure.get("id") or "",
+                        "source_file_id": figure.get("source_file_id") or "",
+                        "source_file_name": figure.get("source_file_name") or "",
+                        "page_label": figure.get("page_label") or "",
+                        "figure_index": figure.get("figure_index") or index,
                         "image_file_id": image_file_id,
+                        "image_file_name": figure.get("vault_image_name") or figure.get("image_name") or "",
                         "reason": "image_too_large",
+                        "message": "The extracted figure image exceeds the configured vision byte cap.",
                         "size": image_size,
                         "max_image_bytes": max_image_bytes,
                     })
@@ -3006,9 +3045,15 @@ class DigestionManager:
                 except DigestionError as exc:
                     errors.append({
                         "figure_id": figure.get("id") or "",
+                        "source_file_id": figure.get("source_file_id") or "",
+                        "source_file_name": figure.get("source_file_name") or "",
+                        "page_label": figure.get("page_label") or "",
+                        "figure_index": figure.get("figure_index") or index,
                         "image_file_id": image_file_id,
+                        "image_file_name": figure.get("vault_image_name") or figure.get("image_name") or "",
                         "reason": getattr(exc, "reason", "figure_vision_failed"),
                         "error": str(exc)[:500],
+                        "message": str(exc)[:500],
                     })
                 self._set_operation_progress(
                     digestion.id,
@@ -3025,6 +3070,10 @@ class DigestionManager:
                         "analyzed_count": len(analyzed),
                         "skipped_count": len(skipped),
                         "error_count": len(errors),
+                        "errors": errors[-3:],
+                        "skipped": skipped[-3:],
+                        "recent_errors": errors[-3:],
+                        "recent_skipped": skipped[-3:],
                         "max_image_bytes": max_image_bytes,
                         "provider": llm_context.get("provider") or "",
                         "model": llm_context.get("model") or "",
@@ -3064,23 +3113,41 @@ class DigestionManager:
             self._upsert_output(digestion, actor_user_id, *self._build_pdf_figures_output(digestion))
         except Exception as exc:
             logger.debug("Could not refresh PDF figure output after figure vision enrichment: %s", exc)
+        all_failed = total > 0 and not analyzed and bool(errors or skipped)
+        issue_bits: list[str] = []
+        if skipped:
+            issue_bits.append(f"{len(skipped)} skipped")
+        if errors:
+            issue_bits.append(f"{len(errors)} errors")
+        first_issue = (errors or skipped or [{}])[0] if (errors or skipped) else {}
+        first_reason = str(first_issue.get("reason") or "").replace("_", " ")
+        detail_suffix = f" First issue: {first_reason}." if first_reason and all_failed else ""
+        issue_suffix = f"; {', '.join(issue_bits)}" if issue_bits else ""
         self._set_operation_progress(
             digestion.id,
             "figure_vision",
             status="completed",
-            phase="completed",
+            phase="completed_with_issues" if issue_bits else "completed",
             percent=100,
             processed=total,
             total=total,
             message=(
                 f"Analyzed {len(analyzed)} figure{'' if len(analyzed) == 1 else 's'}"
-                f"{f'; {len(skipped)} skipped' if skipped else ''}{f'; {len(errors)} errors' if errors else ''}."
+                f"{issue_suffix}."
+                f"{detail_suffix}"
             ),
             details={
                 "figure_count": total,
+                "eligible_count": total,
+                "pending_count": total,
                 "analyzed_count": len(analyzed),
                 "skipped_count": len(skipped),
                 "error_count": len(errors),
+                "all_failed": all_failed,
+                "errors": errors[:8],
+                "skipped": skipped[:8],
+                "first_error": errors[0] if errors else None,
+                "first_skipped": skipped[0] if skipped else None,
                 "max_figures": figure_limit,
                 "max_image_bytes": max_image_bytes,
                 "provider": llm_context.get("provider") or "",
@@ -3096,6 +3163,9 @@ class DigestionManager:
             "analyzed_count": len(analyzed),
             "skipped_count": len(skipped),
             "error_count": len(errors),
+            "eligible_count": total,
+            "pending_count": total,
+            "all_failed": all_failed,
             "skipped": skipped,
             "errors": errors,
             "figures": analyzed,
@@ -4813,6 +4883,9 @@ class DigestionManager:
             "chunks": 0,
             "token_estimate": 0,
             "figures": 0,
+            "figure_vision_eligible_count": 0,
+            "figure_vision_pending_count": 0,
+            "figure_vision_analyzed_count": 0,
             "visual_evidence": 0,
             "outputs": 0,
             "source_count": 0,
@@ -4870,7 +4943,12 @@ class DigestionManager:
             ).fetchall()
             figure_rows = conn.execute(
                 f"""
-                SELECT digestion_id, COUNT(*) AS count
+                SELECT
+                    digestion_id,
+                    COUNT(*) AS count,
+                    COALESCE(SUM(CASE WHEN COALESCE(image_file_id, '') != '' THEN 1 ELSE 0 END), 0) AS image_count,
+                    COALESCE(SUM(CASE WHEN COALESCE(image_file_id, '') != '' AND COALESCE(vision_description, '') = '' THEN 1 ELSE 0 END), 0) AS pending_vision_count,
+                    COALESCE(SUM(CASE WHEN COALESCE(vision_description, '') != '' THEN 1 ELSE 0 END), 0) AS analyzed_vision_count
                 FROM digestion_pdf_figures
                 WHERE digestion_id IN ({placeholders})
                 GROUP BY digestion_id
@@ -4930,6 +5008,9 @@ class DigestionManager:
             if digestion_id not in stats_by_id:
                 continue
             stats_by_id[digestion_id]["figures"] = int(row["count"] or 0)
+            stats_by_id[digestion_id]["figure_vision_eligible_count"] = int(row["image_count"] or 0)
+            stats_by_id[digestion_id]["figure_vision_pending_count"] = int(row["pending_vision_count"] or 0)
+            stats_by_id[digestion_id]["figure_vision_analyzed_count"] = int(row["analyzed_vision_count"] or 0)
         for row in visual_evidence_rows:
             digestion_id = str(row["digestion_id"] or "")
             if digestion_id not in stats_by_id:
@@ -9215,12 +9296,16 @@ Use this as a permissioned retrieval capability, not as raw file access.
             "new_or_updated_record_count",
             "updated_record_count",
             "analyzed_count",
+            "eligible_count",
             "error_count",
+            "pending_count",
+            "previously_analyzed_count",
             "max_figures",
             "max_image_bytes",
             "max_output_tokens",
             "overwrite",
             "skipped_count",
+            "all_failed",
             "stale",
             "recoverable",
             "stale_seconds",
