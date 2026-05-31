@@ -15633,8 +15633,10 @@
                 const rawLabel = String(label || fallbackLabel).replace(/\s+/g, ' ').trim() || fallbackLabel;
                 const safeLabel = _escapeHtml(rawLabel);
                 return '<a class="canopy-entity-link canopy-digestion-ref" href="/vault?digestion=' + encodeURIComponent(id) + '" ' +
-                    'data-canopy-digestion-id="' + safeId + '" title="Open Digestion ' + safeId + '">' +
-                    '<i class="bi bi-diagram-3" aria-hidden="true"></i><span>' + safeLabel + '</span></a>';
+                    'data-canopy-digestion-id="' + safeId + '" data-canopy-digestion-ref="1" ' +
+                    (label ? 'data-explicit-label="1" ' : '') +
+                    'title="Open Digestion ' + safeId + '">' +
+                    '<i class="bi bi-diagram-3" aria-hidden="true"></i><span data-canopy-digestion-ref-label="1">' + safeLabel + '</span></a>';
             }
 
             function cleanCanopyEntityRefLabel(value, fallback = '') {

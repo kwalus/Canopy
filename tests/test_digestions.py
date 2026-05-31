@@ -3113,6 +3113,17 @@ class TestDigestions(unittest.TestCase):
             )
             self.assertEqual(progress_response.status_code, 200)
             self.assertEqual(progress_response.get_json()['operations']['build']['status'], 'completed')
+            summary_response = client.get(
+                f'/api/v1/digestions/{digestion_id}?summary=1',
+                headers={'X-API-Key': 'owner-key'},
+            )
+            self.assertEqual(summary_response.status_code, 200)
+            summary_payload = summary_response.get_json() or {}
+            self.assertTrue(summary_payload['summary'])
+            self.assertEqual(summary_payload['digestion']['name'], 'API corpus renamed')
+            self.assertGreaterEqual(summary_payload['stats']['source_count'], 1)
+            self.assertNotIn('sources', summary_payload['digestion'])
+            self.assertNotIn('sources', summary_payload)
 
             self.digestion_manager._set_operation_progress(
                 digestion_id,

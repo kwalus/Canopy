@@ -1,0 +1,178 @@
+.canopy-entity-link.canopy-digestion-ref,
+.canopy-digestion-ref {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.44rem;
+    max-width: min(34rem, 100%);
+    border: 1px solid color-mix(in srgb, var(--canopy-accent, #22d3ee) 52%, var(--canopy-border, #334155));
+    border-radius: 0.48rem;
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--canopy-accent, #22d3ee) 17%, var(--canopy-bg-tertiary, #111827)),
+        color-mix(in srgb, var(--canopy-primary, #22c55e) 9%, var(--canopy-bg-card, #101827)));
+    color: color-mix(in srgb, var(--canopy-accent, #22d3ee) 80%, var(--canopy-text-primary, #f8fafc));
+    padding: 0.16rem 0.5rem;
+    font-weight: 850;
+    line-height: 1.12;
+    cursor: pointer;
+    vertical-align: middle;
+    text-align: left;
+    text-decoration: none;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.canopy-digestion-ref > i { flex: 0 0 auto; font-size: 0.95em; }
+.canopy-digestion-ref-text { min-width: 0; display: grid; gap: 0.06rem; }
+.canopy-digestion-ref :is(strong, span[data-canopy-digestion-ref-label="1"]) {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: inherit;
+    font-size: 0.91em;
+}
+.canopy-digestion-ref-meta {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--canopy-text-muted, #8da2b8);
+    font-size: 0.72em;
+    font-style: normal;
+    font-weight: 760;
+}
+.canopy-entity-link.canopy-digestion-ref:hover,
+.canopy-entity-link.canopy-digestion-ref:focus-visible,
+.canopy-digestion-ref:hover,
+.canopy-digestion-ref:focus-visible {
+    border-color: color-mix(in srgb, var(--canopy-accent, #22d3ee) 72%, var(--canopy-border, #334155));
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--canopy-accent, #22d3ee) 24%, var(--canopy-bg-tertiary, #111827)),
+        color-mix(in srgb, var(--canopy-primary, #22c55e) 15%, var(--canopy-bg-card, #101827)));
+    color: var(--canopy-text-primary, #fff);
+    text-decoration: none;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--canopy-accent, #22d3ee) 22%, transparent);
+}
+.canopy-digestion-ref.is-unavailable {
+    border-color: color-mix(in srgb, #f59e0b 48%, var(--canopy-border, #334155));
+    background: color-mix(in srgb, #f59e0b 10%, var(--canopy-bg-card, #101827));
+    color: #fbbf24;
+    cursor: default;
+}
+.canopy-digestion-ref.is-unavailable:hover,
+.canopy-digestion-ref.is-unavailable:focus-visible { box-shadow: none; }
+.canopy-digestion-modal { position: fixed; inset: 0; z-index: 10090; display: none; }
+.canopy-digestion-modal.is-open { display: block; }
+.canopy-digestion-modal-backdrop { position: absolute; inset: 0; background: rgba(3, 10, 18, 0.68); backdrop-filter: blur(14px); }
+.canopy-digestion-modal-card {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(860px, calc(100vw - 2rem));
+    max-height: min(760px, calc(100vh - 2rem));
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--canopy-accent, #22d3ee) 35%, rgba(255,255,255,0.12));
+    border-radius: 1.2rem;
+    background: linear-gradient(145deg, color-mix(in srgb, var(--canopy-bg-card, #0f172a) 92%, #063642), var(--canopy-bg, #090f1f));
+    color: var(--canopy-text-primary, #f8fafc);
+    box-shadow: 0 32px 90px rgba(0,0,0,0.45);
+}
+.canopy-digestion-modal-close {
+    position: absolute;
+    right: 1rem;
+    top: 1rem;
+    z-index: 2;
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 0.7rem;
+    border: 1px solid var(--canopy-border, rgba(255,255,255,0.15));
+    color: var(--canopy-text-primary, #fff);
+    background: color-mix(in srgb, var(--canopy-bg-card, #101827) 80%, transparent);
+}
+.canopy-digestion-modal-content { max-height: inherit; overflow: auto; }
+.canopy-digestion-reader { padding: 1.25rem; }
+.canopy-digestion-reader-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(170px, auto);
+    gap: 1rem;
+    padding: 1rem;
+    border: 1px solid color-mix(in srgb, var(--canopy-accent, #22d3ee) 24%, var(--canopy-border, #334155));
+    border-radius: 1rem;
+    background: color-mix(in srgb, var(--canopy-accent, #22d3ee) 8%, transparent);
+}
+.canopy-digestion-kicker { color: var(--canopy-accent, #22d3ee); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 950; }
+.canopy-digestion-reader h2,
+.canopy-digestion-reader p { margin: 0; }
+.canopy-digestion-reader h2 { margin-top: 0.25rem; font-size: clamp(1.35rem, 2vw, 2rem); }
+.canopy-digestion-reader p { color: var(--canopy-text-secondary, #b6c2d2); margin-top: 0.35rem; }
+.canopy-digestion-status-block { display: grid; gap: 0.45rem; min-width: 0; }
+.canopy-digestion-status-block span,
+.canopy-digestion-status-block code {
+    border: 1px solid var(--canopy-border, #334155);
+    border-radius: 0.65rem;
+    padding: 0.42rem 0.65rem;
+    background: color-mix(in srgb, var(--canopy-bg-card, #101827) 74%, transparent);
+    color: var(--canopy-text-primary, #fff);
+    font-weight: 850;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.canopy-digestion-status-block span { color: var(--canopy-accent, #22d3ee); text-transform: uppercase; }
+.canopy-digestion-stats {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0.65rem;
+    margin-top: 1rem;
+}
+.canopy-digestion-stats span,
+.canopy-digestion-access,
+.canopy-digestion-action {
+    border: 1px solid var(--canopy-border, #334155);
+    border-radius: 0.8rem;
+    background: color-mix(in srgb, var(--canopy-bg-card, #101827) 74%, transparent);
+}
+.canopy-digestion-stats span { display: grid; gap: 0.15rem; padding: 0.72rem; }
+.canopy-digestion-stats strong { font-size: 1.05rem; }
+.canopy-digestion-stats em { color: var(--canopy-text-muted, #8da2b8); font-size: 0.72rem; font-style: normal; font-weight: 850; text-transform: uppercase; letter-spacing: 0.08em; }
+.canopy-digestion-access {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.8rem;
+    margin-top: 1rem;
+}
+.canopy-digestion-access strong { margin-right: 0.3rem; }
+.canopy-digestion-access span { color: var(--canopy-text-secondary, #b6c2d2); font-weight: 800; }
+.canopy-digestion-access .bi-check-circle { color: var(--canopy-success, #22c55e); }
+.canopy-digestion-access .bi-dash-circle { color: var(--canopy-text-muted, #8da2b8); }
+.canopy-digestion-reader-foot { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 0.65rem; margin-top: 1rem; }
+.canopy-digestion-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.42rem;
+    color: var(--canopy-text-primary, #fff);
+    padding: 0.6rem 0.85rem;
+    text-decoration: none;
+    font-weight: 850;
+}
+.canopy-digestion-action:hover { color: var(--canopy-text-primary, #fff); border-color: color-mix(in srgb, var(--canopy-accent, #22d3ee) 50%, var(--canopy-border)); }
+.canopy-digestion-loading,
+.canopy-digestion-error { padding: 1rem; color: var(--canopy-text-secondary, #b6c2d2); }
+.canopy-digestion-error { display: grid; gap: 0.35rem; }
+.canopy-digestion-error em { color: var(--canopy-text-muted, #8da2b8); font-style: normal; overflow-wrap: anywhere; }
+html:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) body .canopy-entity-link.canopy-digestion-ref,
+html:is([data-theme="light"], [data-theme="outlook"], [data-theme="teams"], [data-theme="custom"][data-custom-theme-scheme="light"]) body .canopy-digestion-ref {
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--canopy-accent, #0ea5e9) 11%, var(--canopy-bg-card, #fff)),
+        color-mix(in srgb, var(--canopy-primary, #16a34a) 8%, var(--canopy-bg-card, #fff))) !important;
+    color: var(--canopy-info-text, #075985) !important;
+}
+@media (max-width: 720px) {
+    .canopy-digestion-modal-card { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+    .canopy-digestion-reader { padding: 0.85rem; }
+    .canopy-digestion-reader-head { grid-template-columns: 1fr; }
+    .canopy-digestion-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .canopy-digestion-access { display: grid; }
+}

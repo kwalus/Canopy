@@ -2607,7 +2607,14 @@ class DigestionManager:
             result.append(item)
         return result
 
-    def get_digestion(self, digestion_id: str, *, owner_user_id: Optional[str] = None, user_id: Optional[str] = None) -> Optional[dict[str, Any]]:
+    def get_digestion(
+        self,
+        digestion_id: str,
+        *,
+        owner_user_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        include_sources: bool = True,
+    ) -> Optional[dict[str, Any]]:
         viewer = self._clean_id(owner_user_id or user_id or "")
         with self.db.get_connection() as conn:
             row = conn.execute(
@@ -2626,11 +2633,11 @@ class DigestionManager:
         if viewer and not access.get("can_query") and not access.get("can_manage"):
             return None
         data = digestion.to_dict(access=access)
-        data["sources"] = self.list_sources(digestion.id, user_id=viewer) if viewer and access.get("can_read_sources") else []
+        data["sources"] = self.list_sources(digestion.id, user_id=viewer) if include_sources and viewer and access.get("can_read_sources") else []
         data["stats"] = self.stats(digestion.id)
         data["operation_progress"] = self._progress_snapshot(
             digestion.id,
-            include_source_details=bool(access.get("can_read_sources")),
+            include_source_details=bool(include_sources and access.get("can_read_sources")),
         )
         return data
 

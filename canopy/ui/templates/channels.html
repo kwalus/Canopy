@@ -15204,13 +15204,15 @@ function renderAgentRunCapsuleArtifactLink(artifact) {
     }
     if (artifact && artifact.kind === 'digestion-ref' && artifact.digestionId) {
         const href = `/vault?digestion=${encodeURIComponent(artifact.digestionId)}`;
-        return `<a class="agent-run-capsule-artifact-name"
+        return `<a class="agent-run-capsule-artifact-name canopy-digestion-ref"
                    href="${escapeAttr(href)}"
                    target="_blank"
                    rel="noopener noreferrer"
                    data-agent-run-artifact-name="1"
+                   data-canopy-digestion-id="${escapeAttr(artifact.digestionId)}"
+                   data-canopy-digestion-ref="1"
                    title="Open Digestion ${escapeAttr(artifact.digestionId)}">
-            <span data-agent-run-artifact-label="1">${escapeHtml(label)}</span>
+            <span data-agent-run-artifact-label="1" data-canopy-digestion-ref-label="1">${escapeHtml(label)}</span>
         </a>`;
     }
     if (artifact && artifact.fileId) {
