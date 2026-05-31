@@ -1,0 +1,132 @@
+.canopy-workstream-ref {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid color-mix(in srgb, var(--accent-color, #35e080) 55%, transparent);
+    border-radius: 0.45rem;
+    background: color-mix(in srgb, var(--accent-color, #35e080) 16%, var(--panel-bg, #101827));
+    color: var(--accent-color, #35e080);
+    padding: 0.12rem 0.42rem;
+    font-weight: 800;
+    line-height: 1.25;
+    cursor: pointer;
+    vertical-align: baseline;
+}
+.canopy-workstream-ref:hover,
+.canopy-workstream-ref:focus-visible {
+    background: color-mix(in srgb, var(--accent-color, #35e080) 24%, var(--panel-bg, #101827));
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color, #35e080) 25%, transparent);
+}
+.canopy-workstream-modal { position: fixed; inset: 0; z-index: 10080; display: none; }
+.canopy-workstream-modal.is-open { display: block; }
+.canopy-workstream-modal-backdrop { position: absolute; inset: 0; background: rgba(3, 10, 18, 0.68); backdrop-filter: blur(14px); }
+.canopy-workstream-modal-card {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: min(1040px, calc(100vw - 2rem));
+    max-height: min(880px, calc(100vh - 2rem));
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--accent-color, #35e080) 35%, rgba(255,255,255,0.12));
+    border-radius: 1.25rem;
+    background: linear-gradient(145deg, color-mix(in srgb, var(--panel-bg, #0f172a) 92%, #04291f), var(--main-bg, #090f1f));
+    color: var(--text-primary, #f8fafc);
+    box-shadow: 0 32px 90px rgba(0,0,0,0.45);
+}
+.canopy-workstream-modal-close {
+    position: absolute;
+    right: 1rem;
+    top: 1rem;
+    z-index: 2;
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 0.7rem;
+    border: 1px solid var(--border-color, rgba(255,255,255,0.15));
+    color: var(--text-primary, #fff);
+    background: color-mix(in srgb, var(--panel-bg, #101827) 80%, transparent);
+}
+.canopy-workstream-modal-content { max-height: inherit; overflow: auto; }
+.canopy-workstream-reader { padding: 1.25rem; }
+.canopy-workstream-reader-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1rem;
+    padding: 1rem;
+    border: 1px solid color-mix(in srgb, var(--accent-color, #35e080) 22%, var(--border-color, #334155));
+    border-radius: 1rem;
+    background: color-mix(in srgb, var(--accent-color, #35e080) 8%, transparent);
+}
+.canopy-workstream-kicker { color: var(--accent-color, #35e080); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 900; }
+.canopy-workstream-reader h2,
+.canopy-workstream-reader h3,
+.canopy-workstream-reader p { margin: 0; }
+.canopy-workstream-reader h2 { margin-top: 0.25rem; font-size: clamp(1.35rem, 2vw, 2rem); }
+.canopy-workstream-reader p { color: var(--text-secondary, #b6c2d2); margin-top: 0.35rem; }
+.canopy-workstream-status-block { display: grid; gap: 0.45rem; min-width: 180px; }
+.canopy-workstream-status-block span,
+.canopy-workstream-status-block code {
+    border: 1px solid var(--border-color, #334155);
+    border-radius: 0.65rem;
+    padding: 0.42rem 0.65rem;
+    background: color-mix(in srgb, var(--panel-bg, #101827) 74%, transparent);
+    color: var(--text-primary, #fff);
+    font-weight: 800;
+}
+.canopy-workstream-status { color: var(--accent-color, #35e080) !important; text-transform: uppercase; }
+.canopy-workstream-required {
+    display: grid;
+    gap: 0.35rem;
+    margin: 1rem 0;
+    padding: 0.8rem 1rem;
+    border-radius: 0.85rem;
+    background: color-mix(in srgb, #f59e0b 13%, var(--panel-bg, #101827));
+    border: 1px solid color-mix(in srgb, #f59e0b 38%, transparent);
+}
+.canopy-workstream-grid { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 1rem; margin-top: 1rem; }
+.canopy-workstream-panel { border: 1px solid var(--border-color, #334155); border-radius: 1rem; padding: 1rem; background: color-mix(in srgb, var(--panel-bg, #101827) 82%, transparent); }
+.canopy-workstream-panel-wide { grid-column: 1 / -1; }
+.canopy-workstream-panel h3 { font-size: 0.86rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary, #b6c2d2); margin-bottom: 0.75rem; }
+.canopy-workstream-participants,
+.canopy-workstream-artifacts,
+.canopy-workstream-events { display: grid; gap: 0.6rem; }
+.canopy-workstream-person,
+.canopy-workstream-artifact,
+.canopy-workstream-event {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-width: 0;
+    border: 1px solid color-mix(in srgb, var(--border-color, #334155) 80%, transparent);
+    border-radius: 0.8rem;
+    padding: 0.65rem;
+    background: color-mix(in srgb, var(--panel-bg, #101827) 70%, transparent);
+    color: var(--text-primary, #fff);
+    text-decoration: none;
+}
+.canopy-workstream-person strong,
+.canopy-workstream-artifact strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canopy-workstream-person span,
+.canopy-workstream-artifact em,
+.canopy-workstream-event span { display: block; color: var(--text-muted, #8da2b8); font-style: normal; font-size: 0.82rem; }
+.canopy-workstream-avatar,
+.canopy-workstream-event-avatar { flex: 0 0 auto; width: 2.25rem; height: 2.25rem; border-radius: 0.75rem; overflow: hidden; display: grid; place-items: center; background: color-mix(in srgb, var(--accent-color, #35e080) 20%, var(--panel-bg, #101827)); color: var(--accent-color, #35e080); font-weight: 900; }
+.canopy-workstream-avatar img,
+.canopy-workstream-event-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.canopy-workstream-artifact i { color: var(--accent-color, #35e080); font-size: 1.25rem; }
+.canopy-workstream-event { align-items: flex-start; }
+.canopy-workstream-event-body { min-width: 0; flex: 1; }
+.canopy-workstream-event-body p { margin-top: 0.35rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.canopy-workstream-reader-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; color: var(--text-secondary, #b6c2d2); }
+.canopy-workstream-copy { border: 1px solid var(--border-color, #334155); border-radius: 0.7rem; padding: 0.55rem 0.8rem; background: color-mix(in srgb, var(--accent-color, #35e080) 10%, var(--panel-bg, #101827)); color: var(--text-primary, #fff); font-weight: 800; }
+.canopy-workstream-loading,
+.canopy-workstream-error,
+.canopy-workstream-empty { padding: 1rem; color: var(--text-secondary, #b6c2d2); }
+@media (max-width: 720px) {
+    .canopy-workstream-modal-card { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+    .canopy-workstream-reader { padding: 0.85rem; }
+    .canopy-workstream-reader-head,
+    .canopy-workstream-grid { grid-template-columns: 1fr; }
+    .canopy-workstream-status-block { min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .canopy-workstream-status-block code { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; }
+}

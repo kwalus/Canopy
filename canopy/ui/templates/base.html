@@ -188,6 +188,7 @@
     <!-- KaTeX (equation rendering, local-first vendor asset) -->
     <link rel="stylesheet"
           href="{{ url_for('ui.static', filename='vendor/katex/0.16.9/katex.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('ui.static', filename='css/workstreams.css') }}?v={{ canopy_version }}">
 
     <style>
         /* Keep display equations usable on narrow/mobile viewports. */
@@ -15116,6 +15117,7 @@
     </script>
     <script src="{{ url_for('ui.static', filename='js/canopy-sheet.js') }}?v={{ canopy_version }}"></script>
     <script src="{{ url_for('ui.static', filename='js/canopy-main.js') }}?v={{ canopy_version }}"></script>
+    <script src="{{ url_for('ui.static', filename='js/workstreams.js') }}?v={{ canopy_version }}"></script>
     <script>
         (function() {
             function escapeHtml(value) {
