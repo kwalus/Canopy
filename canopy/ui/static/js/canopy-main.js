@@ -3913,7 +3913,7 @@
                 function digestionProgressRecoverable(progress, operation) {
                     const status = String(progress && progress.status || '').toLowerCase();
                     if (status === 'stalled') return true;
-                    return status === 'running' && String(operation || '') === 'datapoints';
+                    return status === 'running' && ['datapoints', 'figure_vision'].includes(String(operation || ''));
                 }
 
                 function formatVaultDuration(seconds) {
@@ -4441,8 +4441,16 @@
                     const buildProgress = digestionOperationProgress(digestion, 'build');
                     const datapointProgress = digestionOperationProgress(digestion, 'datapoints');
                     const structuredRecordProgress = digestionOperationProgress(digestion, 'structured_records');
+                    const figureVisionProgress = digestionOperationProgress(digestion, 'figure_vision');
                     const maxChunksDefault = defaultDatapointMaxChunks(digestion);
                     const maxDatapointsDefault = Math.min(400, Math.max(50, maxChunksDefault * 4));
+                    const maxFigureVisionDefault = Math.max(1, Math.min(figureCount || 5, 25));
+                    const figureVisionDisabled = !figureCount || !canReadSources;
+                    const figureVisionTitle = !figureCount
+                        ? 'Build this Digestion first to extract PDF figures before running vision enrichment.'
+                        : (!canReadSources
+                            ? 'Figure vision requires source metadata access because extracted source images are sent to the configured provider.'
+                            : 'Run an opt-in, capped image-model pass over extracted figures. This is separate from normal build so it never spends tokens automatically.');
                     return `
                         <article class="vault-digestion-card${state.digestionDensity === 'compact' ? ' is-compact' : ''}" data-vault-digestion-id="${id}" data-vault-digestion-can-manage="${canManage ? 'true' : 'false'}" data-vault-digestion-can-drop="${canDropSources ? 'true' : 'false'}" draggable="${canDropSources ? 'true' : 'false'}" aria-label="Digestion ${name}. ${canDropSources ? 'Drop Vault files or another Digestion here to expand it.' : 'Read-only or shared Digestion.'}">
                             <div class="vault-digestion-card-main">
@@ -4485,6 +4493,9 @@
 	                                <button class="btn btn-sm btn-outline-info vault-digestion-btn" type="button" data-vault-digestion-action="extract-datapoints" data-vault-digestion-id="${id}" aria-label="Extract structured datapoints for ${name}" title="${extractTitle}" ${extractDisabled ? 'disabled' : ''}>
 	                                    <i class="bi bi-grid-3x3-gap"></i> Extract datapoints
 	                                </button>
+                                    <button class="btn btn-sm btn-outline-info vault-digestion-btn" type="button" data-vault-digestion-action="analyze-figures" data-vault-digestion-id="${id}" aria-label="Analyze extracted figures for ${name}" title="${figureVisionTitle}" ${figureVisionDisabled ? 'disabled' : ''}>
+                                        <i class="bi bi-eye"></i> Analyze figures
+                                    </button>
                                     <button class="btn btn-sm btn-outline-secondary vault-digestion-btn" type="button" data-vault-digestion-action="extract-options" data-vault-digestion-id="${id}" aria-label="Tune extraction scope for ${name}" title="Set extraction depth, maximum records, and the datapoint lens before running.">
                                         <i class="bi bi-sliders"></i> Tune
                                     </button>
@@ -4526,11 +4537,12 @@
                                 ${renderDigestionProgress('build', 'Build', buildProgress, { canManage, digestionId: id })}
                                 ${renderDigestionProgress('datapoints', 'Datapoint extraction', datapointProgress, { canManage, digestionId: id })}
                                 ${renderDigestionProgress('structured_records', 'Structured records', structuredRecordProgress, { canManage, digestionId: id })}
+                                ${renderDigestionProgress('figure_vision', 'Figure vision', figureVisionProgress, { canManage, digestionId: id })}
                                 ${renderDigestionContributionsPanel(digestion)}
 	                            ${canManage ? `
                                     <div class="vault-digestion-options" data-vault-digestion-extract-options="${id}" hidden>
                                         <div class="vault-digestion-options-copy">
-                                            Control cost and depth before LLM extraction. Chunks are sent in batches from this Digestion only; lower limits are faster, higher limits scan more of the corpus.
+                                            Control cost and depth before LLM extraction. Datapoint extraction sends indexed chunks; figure vision sends only extracted figure images/captions and is capped separately.
                                         </div>
                                         <div class="vault-digestion-options-grid">
                                             <label>
@@ -4568,6 +4580,29 @@
                                                        maxlength="240"
                                                        placeholder="e.g. methods, metrics, limits, costs"
                                                        data-vault-digestion-extract-lens="${id}">
+                                            </label>
+                                            <label>
+                                                Figure vision cap
+                                                <input class="form-control form-control-sm"
+                                                       type="number"
+                                                       min="1"
+                                                       max="25"
+                                                       step="1"
+                                                       value="${maxFigureVisionDefault}"
+                                                       data-vault-digestion-vision-max-figures="${id}">
+                                            </label>
+                                            <label>
+                                                Figure vision lens
+                                                <input class="form-control form-control-sm"
+                                                       type="text"
+                                                       maxlength="240"
+                                                       placeholder="e.g. axes, chart values, qualitative trend"
+                                                       data-vault-digestion-vision-lens="${id}">
+                                            </label>
+                                            <label class="vault-digestion-options-check">
+                                                <input type="checkbox"
+                                                       data-vault-digestion-vision-overwrite="${id}">
+                                                Re-analyze existing descriptions
                                             </label>
                                         </div>
                                     </div>
@@ -4698,6 +4733,9 @@
                         if (digestionProgressActive(digestionOperationProgress(digestion, 'structured_records'))) {
                             watchDigestionProgress(digestionId, 'structured_records');
                         }
+                        if (digestionProgressActive(digestionOperationProgress(digestion, 'figure_vision'))) {
+                            watchDigestionProgress(digestionId, 'figure_vision');
+                        }
                     });
                 }
 
@@ -4708,6 +4746,7 @@
                         ['build', 'Build'],
                         ['datapoints', 'Datapoint extraction'],
                         ['structured_records', 'Structured records'],
+                        ['figure_vision', 'Figure vision'],
                     ].forEach(([operation, label]) => {
                         const progressEl = card.querySelector(`[data-vault-digestion-progress="${operation}"]`);
                         if (!progressEl) return;
@@ -5055,7 +5094,7 @@
                             if (status && status !== 'running' && pollCount > 1) {
                                 stopDigestionProgressWatch(digestionId, operation);
                                 loadDigestions().catch((error) => console.warn('Digestion refresh after progress failed:', error));
-                                if ((operation === 'datapoints' || operation === 'structured_records') && status === 'completed') {
+                                if ((operation === 'datapoints' || operation === 'structured_records' || operation === 'figure_vision') && status === 'completed') {
                                     loadDigestionOutputs(digestionId, null, { force: true }).catch((error) => console.warn('Digestion outputs refresh failed:', error));
                                 }
                             }
@@ -5616,6 +5655,22 @@
 	                    };
                 }
 
+                function readDigestionVisionOptions(digestionId) {
+                    const id = vaultCssEscape(digestionId);
+                    const maxFiguresEl = document.querySelector(`[data-vault-digestion-vision-max-figures="${id}"]`);
+                    const overwriteEl = document.querySelector(`[data-vault-digestion-vision-overwrite="${id}"]`);
+                    const lensEl = document.querySelector(`[data-vault-digestion-vision-lens="${id}"]`);
+                    const digestion = findDigestion(digestionId) || {};
+                    const stats = digestionStats(digestion);
+                    const fallbackFigures = Math.max(1, Math.min(Number(stats.figures || 0) || 5, 25));
+                    const parsed = parseInt(maxFiguresEl && maxFiguresEl.value, 10);
+                    return {
+                        max_figures: Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 25)) : fallbackFigures,
+                        overwrite: !!(overwriteEl && overwriteEl.checked),
+                        lens: String(lensEl && lensEl.value || '').trim(),
+                    };
+                }
+
                 async function extractDigestionDatapoints(digestionId, button) {
                     if (!digestionId) return;
                     const original = button ? button.innerHTML : '';
@@ -5653,6 +5708,55 @@
                                 message = 'Extract datapoints requires source-read access. Ask the owner to grant source metadata access for this Digestion.';
                             } else if (reason === 'datapoint_missing_api_key' || reason === 'datapoint_llm_disabled') {
                                 message = 'Digestion AI extraction is not configured. Add credentials in Profile > Digestion AI Extraction, or ask an admin to enable instance Digestion fallback.';
+                            }
+                            showAlert(message, 'danger');
+                        }
+                    } finally {
+                        if (button) {
+                            button.disabled = false;
+                            button.innerHTML = original;
+                        }
+                    }
+                }
+
+                async function analyzeDigestionFigures(digestionId, button) {
+                    if (!digestionId) return;
+                    const original = button ? button.innerHTML : '';
+                    if (button) {
+                        button.disabled = true;
+                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Analyzing';
+                    }
+                    const options = readDigestionVisionOptions(digestionId);
+                    watchDigestionProgress(digestionId, 'figure_vision');
+                    try {
+                        const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/figures/vision`, {
+                            method: 'POST',
+                            body: JSON.stringify(options)
+                        });
+                        if (typeof showAlert === 'function') {
+                            const analyzed = Number(data.analyzed_count || 0);
+                            const skipped = Number(data.skipped_count || 0);
+                            const errors = Number(data.error_count || 0);
+                            const bits = [`${analyzed} figure${analyzed === 1 ? '' : 's'} analyzed`];
+                            if (skipped) bits.push(`${skipped} skipped`);
+                            if (errors) bits.push(`${errors} issue${errors === 1 ? '' : 's'}`);
+                            showAlert(`Figure vision complete: ${bits.join(', ')}.`, errors ? 'warning' : 'success');
+                        }
+                        try {
+                            await refreshDigestionProgress(digestionId);
+                        } catch (_) {}
+                        await loadDigestionOutputs(digestionId, null, { force: true });
+                        loadDigestions({ preservePanels: true }).catch(() => {});
+                    } catch (error) {
+                        if (typeof showAlert === 'function') {
+                            const reason = String((error && error.reason) || '').trim();
+                            let message = (error && error.error) || 'Could not analyze extracted figures.';
+                            if (reason === 'figure_vision_source_metadata_denied' || reason === 'source_metadata_denied') {
+                                message = 'Figure vision requires source metadata access because source-derived figure images are sent to the configured provider.';
+                            } else if (reason === 'figure_vision_missing_api_key' || reason === 'figure_vision_llm_disabled') {
+                                message = 'Digestion AI figure vision is not configured. Add OpenAI credentials in Profile > Digestion AI Extraction, or ask an admin to enable instance Digestion fallback.';
+                            } else if (reason === 'figure_vision_unsupported_llm_provider') {
+                                message = 'Figure vision currently supports OpenAI vision-capable Responses models. Switch Digestion AI provider to OpenAI for this run.';
                             }
                             showAlert(message, 'danger');
                         }
@@ -8629,6 +8733,8 @@
                             reviewDigestionContribution(actionBtn);
                         } else if (action === 'extract-datapoints') {
                             extractDigestionDatapoints(digestionId, actionBtn);
+                        } else if (action === 'analyze-figures') {
+                            analyzeDigestionFigures(digestionId, actionBtn);
                         } else if (action === 'cancel-operation') {
                             cancelDigestionOperation(
                                 digestionId,
@@ -23437,6 +23543,9 @@
                     const fullUrl = String(figure.image_url || imageUrl || '').trim();
                     const sourceName = String(figure.source_file_name || figure.image_name || 'PDF figure');
                     const caption = String(figure.caption || figure.context_text || 'No caption detected yet.');
+                    const vision = String(figure.vision_description || '').trim();
+                    const metadata = figure.metadata && typeof figure.metadata === 'object' ? figure.metadata : {};
+                    const visionType = String(metadata.vision_figure_type || metadata.figure_type || '').replace(/_/g, ' ');
                     const page = String(figure.page_label || '');
                     const sizeBits = [
                         page,
@@ -23453,6 +23562,7 @@
                                 <strong>Figure ${Number(figure.figure_index || 0) || ''}</strong>
                                 <span>${escapeEmbedHtml(sizeBits || sourceName)}</span>
                                 <p>${escapeEmbedHtml(caption)}</p>
+                                ${vision ? `<p class="deck-digestion-figure-vision"><i class="bi bi-eye"></i>${visionType ? `${escapeEmbedHtml(visionType)}: ` : ''}${escapeEmbedHtml(vision)}</p>` : ''}
                             </div>
                         </article>
                     `;
@@ -23621,11 +23731,16 @@
                     return;
                 }
                 const original = button ? button.innerHTML : '';
+                const opLabel = operation === 'build' ? 'Building' : (operation === 'vision' ? 'Analyzing' : 'Extracting');
                 if (button) {
                     button.disabled = true;
-                    button.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${operation === 'build' ? 'Building' : 'Extracting'}`;
+                    button.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>${opLabel}`;
                 }
-                if (statusEl) statusEl.textContent = operation === 'build' ? 'Building source index...' : 'Extracting structured datapoints...';
+                if (statusEl) {
+                    statusEl.textContent = operation === 'build'
+                        ? 'Building source index...'
+                        : (operation === 'vision' ? 'Analyzing extracted figures...' : 'Extracting structured datapoints...');
+                }
                 if (operation === 'extract') {
                     setDeckDigestionTuneStatus(host, 'Applying these extraction settings...', 'applying');
                 }
@@ -23633,15 +23748,23 @@
                     const urls = deckDigestionUrls();
                     const endpoint = operation === 'build'
                         ? `${urls.digestions}/${encodeURIComponent(digestionId)}/build`
-                        : `${urls.digestions}/${encodeURIComponent(digestionId)}/datapoints/extract`;
+                        : (operation === 'vision'
+                            ? `${urls.digestions}/${encodeURIComponent(digestionId)}/figures/vision`
+                            : `${urls.digestions}/${encodeURIComponent(digestionId)}/datapoints/extract`);
 	                    const body = operation === 'build'
 	                        ? { rebuild: false }
-	                        : {
+                            : (operation === 'vision'
+                                ? {
+                                    max_figures: Number(host.querySelector('[data-deck-digestion-vision-max-figures]')?.value || 5),
+                                    overwrite: !!host.querySelector('[data-deck-digestion-vision-overwrite]')?.checked,
+                                    lens: String(host.querySelector('[data-deck-digestion-lens]')?.value || '').trim(),
+                                }
+                                : {
 	                            max_chunks: Number(host.querySelector('[data-deck-digestion-max-chunks]')?.value || 80),
 	                            max_datapoints: Number(host.querySelector('[data-deck-digestion-max-datapoints]')?.value || 400),
 	                            scope: String(host.querySelector('[data-deck-digestion-scope]')?.value || 'new') === 'all' ? 'all' : 'new',
 	                            lens: String(host.querySelector('[data-deck-digestion-lens]')?.value || '').trim(),
-	                        };
+                                });
                     const data = await apiCall(endpoint, {
                         method: 'POST',
                         body: JSON.stringify(body),
@@ -23649,6 +23772,11 @@
                     if (statusEl) {
                         if (operation === 'build') {
                             statusEl.textContent = data.success === false ? 'Build completed with issues.' : 'Build complete.';
+                        } else if (operation === 'vision') {
+                            const analyzed = Number(data.analyzed_count || 0);
+                            const skipped = Number(data.skipped_count || 0);
+                            const errors = Number(data.error_count || 0);
+                            statusEl.textContent = `Figure vision complete: ${analyzed} analyzed${skipped ? `, ${skipped} skipped` : ''}${errors ? `, ${errors} issues` : ''}.`;
 	                        } else {
 	                            const count = Number(data.datapoint_count || 0);
 	                            const newCount = Number(data.new_datapoint_count || 0);
@@ -23662,13 +23790,13 @@
 	                            );
                         }
                     }
-                    if (operation === 'build') {
+                    if (operation === 'build' || operation === 'vision') {
                         loadDeckDigestionFigures(host, item);
                     }
                 } catch (error) {
                     const message = error && (error.error || error.message)
                         ? (error.error || error.message)
-                        : `Could not ${operation === 'build' ? 'build Digestion' : 'extract datapoints'}.`;
+                        : `Could not ${operation === 'build' ? 'build Digestion' : (operation === 'vision' ? 'analyze figures' : 'extract datapoints')}.`;
                     if (statusEl) statusEl.textContent = message;
                     if (operation === 'extract') {
                         setDeckDigestionTuneStatus(host, 'Extraction settings were not applied because extraction failed.', 'error');
@@ -23751,11 +23879,14 @@
 			                                                <label>Chunks <input type="number" min="1" max="240" value="80" data-deck-digestion-max-chunks></label>
 			                                                <label>Datapoints <input type="number" min="1" max="1200" value="400" data-deck-digestion-max-datapoints></label>
 			                                                <label>Scope <select data-deck-digestion-scope><option value="new" selected>New docs only</option><option value="all">All indexed docs</option></select></label>
+                                                            <label>Figures <input type="number" min="1" max="25" value="${Math.max(1, Math.min(figureCount || 5, 25))}" data-deck-digestion-vision-max-figures></label>
 			                                                <label class="is-wide">Lens <input type="text" maxlength="240" placeholder="metrics, methods, materials, failures..." data-deck-digestion-lens></label>
+                                                            <label class="deck-digestion-check"><input type="checkbox" data-deck-digestion-vision-overwrite> Re-analyze figures</label>
 			                                            </div>
 		                                            <div class="deck-digestion-actions">
 		                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="build"><i class="bi bi-hammer"></i> Build / refresh index</button>
 		                                                <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="extract"><i class="bi bi-grid-3x3-gap"></i> Extract datapoints</button>
+                                                        <button type="button" class="deck-digestion-secondary-btn" data-deck-digestion-op="vision" ${figureCount ? '' : 'disabled'} title="Run an explicit, capped vision-model pass over extracted figures."><i class="bi bi-eye"></i> Analyze figures</button>
 		                                            </div>
 		                                            <div class="deck-digestion-tune-status" data-deck-digestion-tune-status aria-live="polite">Extraction settings apply when you run Extract datapoints.</div>
 		                                        </div>
@@ -23858,7 +23989,8 @@
                     const opBtn = event.target.closest('[data-deck-digestion-op]');
 	                    if (opBtn) {
 	                        event.preventDefault();
-	                        const op = opBtn.getAttribute('data-deck-digestion-op') === 'build' ? 'build' : 'extract';
+	                        const rawOp = opBtn.getAttribute('data-deck-digestion-op');
+	                        const op = rawOp === 'build' ? 'build' : (rawOp === 'vision' ? 'vision' : 'extract');
 	                        runDeckDigestionOperation(host, item, op, opBtn);
 	                        return;
 	                    }

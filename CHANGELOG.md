@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.297] - 2026-05-31
+
+### Added
+- **Digestion figures now support opt-in vision enrichment** - managers with source access can run a bounded OpenAI vision pass over extracted PDF figure images to capture source-grounded descriptions, visible datapoints, observations, limitations, and figure intent without making normal builds spend vision tokens.
+- **Figure vision is exposed in Vault, Deck, REST, and MCP** - the Digestion UI adds capped "Analyze figures" controls and progress reporting; agents can use `POST /digestions/<id>/figures/vision` or MCP `canopy_digest_figure_vision`.
+
+### Changed
+- **Digestion AI settings include vision-specific caps** - admins/users can bound figure count, image byte size, and output-token budget separately from structured datapoint extraction.
+- **Agent Digestion guidance now distinguishes figure inspection from figure vision** - agents are instructed to inspect existing captions/figures first and only run image-model enrichment when it is cost-justified and explicitly useful.
+
 ## [0.6.296] - 2026-05-31
 
 ### Added

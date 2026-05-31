@@ -198,6 +198,21 @@ class TestDigestions(unittest.TestCase):
             },
         }
 
+    def _fake_figure_vision_llm_context(self) -> dict:
+        return {
+            'manager': object(),
+            'provider': 'openai',
+            'model': 'gpt-vision-test',
+            'api_key': 'test-key',
+            'credential_source': 'user',
+            'default_lens': 'chart values and qualitative figure intent',
+            'parameters': {
+                'vision_max_figures': 5,
+                'vision_max_image_bytes': 1_500_000,
+                'vision_max_output_tokens': 1200,
+            },
+        }
+
     def test_digestion_package_file_preview_is_bounded_reader_payload(self) -> None:
         payload = {
             'kind': 'canopy_digestion_package_v1',
@@ -1647,6 +1662,127 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(granted_image_access.reason, 'digestion-source-metadata')
         reader_output = self.digestion_manager.get_output(digestion['id'], 'reader-user', 'pdf_figures')
         self.assertIn(image.id, reader_output['content'])
+
+    def test_pdf_figure_vision_enrichment_is_bounded_source_gated_and_reusable(self) -> None:
+        source = self._save_text(
+            'vision-figure-corpus.txt',
+            'Figure 2. Current-voltage curve showing a threshold near 3.2 V and a plateau.',
+        )
+        image = self._save_image('vision-figure-002.png')
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Vision figure digest',
+            source_file_ids=[source.id],
+            provider='local_hash',
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        self.digestion_manager._insert_pdf_figure({
+            'digestion_id': digestion['id'],
+            'source_file_id': source.id,
+            'source_checksum': source.checksum,
+            'figure_index': 2,
+            'page_number': 4,
+            'page_label': 'p. 4',
+            'image_file_id': image.id,
+            'image_name': image.original_name,
+            'content_type': image.content_type,
+            'width': 640,
+            'height': 360,
+            'byte_size': image.size,
+            'caption': 'Figure 2. Current-voltage curve showing a threshold near 3.2 V.',
+            'context_text': 'The caption says the curve demonstrates the voltage threshold.',
+            'vision_description': '',
+            'extraction_method': 'test.fixture',
+            'metadata': {'vision_status': 'not_run', 'source_file_name': source.original_name},
+        })
+        fake_response = json.dumps({
+            'description': 'The figure shows current rising after an apparent threshold near 3.2 V.',
+            'figure_type': 'chart',
+            'author_intent': 'Demonstrate the voltage threshold and current response.',
+            'datapoints': [
+                {
+                    'label': 'threshold voltage',
+                    'value_text': '3.2',
+                    'unit': 'V',
+                    'series': 'main trace',
+                    'evidence': 'caption and axis annotation',
+                    'approximate': True,
+                }
+            ],
+            'observations': ['Current is low before the threshold and rises afterward.'],
+            'limitations': ['Tiny test image limits actual visual resolution.'],
+            'warnings': [],
+            'confidence': 0.82,
+        })
+
+        self.digestion_manager.grant_access(
+            digestion['id'],
+            'owner-user',
+            'reader-user',
+            can_query=True,
+            can_read_sources=True,
+        )
+        with self.assertRaises(DigestionError) as reader_denied:
+            self.digestion_manager.enrich_figures_with_vision(digestion['id'], 'reader-user')
+        self.assertEqual(reader_denied.exception.reason, 'manage_denied')
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_figure_vision_llm_context',
+            return_value=self._fake_figure_vision_llm_context(),
+        ), patch.object(
+            self.digestion_manager,
+            '_call_figure_vision_llm',
+            return_value=fake_response,
+        ) as mocked_call:
+            result = self.digestion_manager.enrich_figures_with_vision(
+                digestion['id'],
+                'owner-user',
+                max_figures=1,
+                lens='voltage thresholds only',
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['schema_version'], 'canopy_pdf_figure_vision_v1')
+        self.assertEqual(result['analyzed_count'], 1)
+        self.assertEqual(result['skipped_count'], 0)
+        mocked_call.assert_called_once()
+        figures = self.digestion_manager.list_figures(digestion['id'], 'owner-user')
+        figure = figures['figures'][0]
+        self.assertIn('threshold near 3.2 V', figure['vision_description'])
+        metadata = figure['metadata']
+        self.assertEqual(metadata['vision_status'], 'completed')
+        self.assertEqual(metadata['vision_schema_version'], 'canopy_pdf_figure_vision_v1')
+        self.assertEqual(metadata['vision_figure_type'], 'chart')
+        self.assertEqual(metadata['vision_provider'], 'openai')
+        self.assertEqual(metadata['vision_lens'], 'voltage thresholds only')
+        self.assertEqual(metadata['vision_datapoints'][0]['label'], 'threshold voltage')
+        self.assertEqual(metadata['vision_datapoints'][0]['unit'], 'V')
+        progress = self.digestion_manager.get_operation_progress(digestion['id'], 'owner-user')
+        self.assertEqual(progress['operations']['figure_vision']['status'], 'completed')
+        self.assertEqual(progress['operations']['figure_vision']['percent'], 100)
+        self.assertEqual(progress['operations']['figure_vision']['details']['analyzed_count'], 1)
+        output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'pdf_figures')
+        self.assertIn('"vision_description"', output['content'])
+        self.assertIn('threshold near 3.2 V', output['content'])
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_figure_vision_llm_context',
+            return_value=self._fake_figure_vision_llm_context(),
+        ), patch.object(
+            self.digestion_manager,
+            '_call_figure_vision_llm',
+            side_effect=AssertionError('already enriched figures should be skipped when overwrite=false'),
+        ):
+            skipped = self.digestion_manager.enrich_figures_with_vision(
+                digestion['id'],
+                'owner-user',
+                max_figures=1,
+                overwrite=False,
+            )
+        self.assertEqual(skipped['reason'], 'no_candidates')
+        self.assertEqual(skipped['analyzed_count'], 0)
 
     def test_generated_pdf_figure_images_are_placed_in_digestion_subfolder(self) -> None:
         source = self._save_text(

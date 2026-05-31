@@ -40,7 +40,7 @@ DEFAULT_LOCAL_DIMENSIONS = 256
 DEFAULT_CHUNK_SIZE = 1800
 DEFAULT_CHUNK_OVERLAP = 220
 DEFAULT_OPERATION_STALE_SECONDS = 2 * 60 * 60
-CANCELLABLE_OPERATIONS = {"build", "datapoints", "structured_records"}
+CANCELLABLE_OPERATIONS = {"build", "datapoints", "structured_records", "figure_vision"}
 MAX_CHUNK_SIZE = 8000
 MAX_CHUNK_OVERLAP = 2000
 MAX_QUERY_TOP_K = 20
@@ -108,12 +108,19 @@ DATAPOINT_MIN_TERM_OVERLAP = float(os.getenv("CANOPY_DIGESTION_DATAPOINT_MIN_TER
 MAX_STRUCTURED_RECORDS_PER_APPEND = int(os.getenv("CANOPY_DIGESTION_MAX_STRUCTURED_RECORDS_PER_APPEND", "500"))
 PDF_FIGURE_OUTPUT_KIND = "pdf_figures"
 PDF_FIGURE_SCHEMA_VERSION = "canopy_pdf_figures_v1"
+PDF_FIGURE_VISION_SCHEMA_VERSION = "canopy_pdf_figure_vision_v1"
 VISUAL_EVIDENCE_OUTPUT_KIND = "visual_evidence"
 VISUAL_EVIDENCE_SCHEMA_VERSION = "canopy_visual_evidence_v1"
 MAX_PDF_FIGURES_PER_SOURCE = int(os.getenv("CANOPY_DIGESTION_MAX_PDF_FIGURES_PER_SOURCE", "80"))
 MAX_PDF_VISUAL_EVIDENCE_PER_SOURCE = int(os.getenv("CANOPY_DIGESTION_MAX_PDF_VISUAL_EVIDENCE_PER_SOURCE", "120"))
 MAX_PDF_FIGURE_BYTES = int(os.getenv("CANOPY_DIGESTION_MAX_PDF_FIGURE_BYTES", str(8 * 1024 * 1024)))
 MIN_PDF_FIGURE_DIMENSION = int(os.getenv("CANOPY_DIGESTION_MIN_PDF_FIGURE_DIMENSION", "64"))
+DEFAULT_FIGURE_VISION_LIMIT = int(os.getenv("CANOPY_DIGESTION_FIGURE_VISION_DEFAULT_LIMIT", "5"))
+MAX_FIGURE_VISION_LIMIT = int(os.getenv("CANOPY_DIGESTION_FIGURE_VISION_MAX_LIMIT", "25"))
+DEFAULT_FIGURE_VISION_IMAGE_BYTES = int(os.getenv("CANOPY_DIGESTION_FIGURE_VISION_IMAGE_BYTES", str(1536 * 1024)))
+MAX_FIGURE_VISION_IMAGE_BYTES = int(os.getenv("CANOPY_DIGESTION_FIGURE_VISION_MAX_IMAGE_BYTES", str(6 * 1024 * 1024)))
+DEFAULT_FIGURE_VISION_OUTPUT_TOKENS = int(os.getenv("CANOPY_DIGESTION_FIGURE_VISION_OUTPUT_TOKENS", "1200"))
+MAX_FIGURE_VISION_OUTPUT_TOKENS = int(os.getenv("CANOPY_DIGESTION_FIGURE_VISION_MAX_OUTPUT_TOKENS", "4000"))
 _SOURCE_REVEALING_OUTPUT_KINDS = {
     "manifest",
     "human_brief",
@@ -2782,6 +2789,317 @@ class DigestionManager:
             "schema_version": PDF_FIGURE_SCHEMA_VERSION,
             "count": len(figures),
             "figures": figures,
+            "stats": self.stats(digestion.id),
+        }
+
+    def enrich_figures_with_vision(
+        self,
+        digestion_id: str,
+        actor_user_id: str,
+        *,
+        max_figures: Optional[int] = None,
+        overwrite: bool = False,
+        lens: str = "",
+    ) -> dict[str, Any]:
+        """Run an opt-in, bounded vision model pass over extracted PDF figures."""
+        digestion = self._require_digestion(digestion_id, actor_user_id, manage=True)
+        access = self._access_for(digestion, actor_user_id)
+        self._set_operation_progress(
+            digestion.id,
+            "figure_vision",
+            status="running",
+            phase="preflight",
+            percent=2,
+            processed=0,
+            total=0,
+            message="Checking source access and Digestion AI figure-vision settings.",
+            details={},
+            actor_user_id=actor_user_id,
+        )
+        if not access.get("can_read_sources"):
+            self._set_operation_progress(
+                digestion.id,
+                "figure_vision",
+                status="failed",
+                phase="source_access_denied",
+                percent=0,
+                message="Source-read access is required for figure vision enrichment.",
+                details={"reason": "source_metadata_denied"},
+                actor_user_id=actor_user_id,
+            )
+            raise DigestionError(
+                "Figure vision enrichment sends extracted source images and captions to the configured LLM provider. Source metadata access is required.",
+                status_code=403,
+                reason="figure_vision_source_metadata_denied",
+            )
+        try:
+            llm_context = self._resolve_figure_vision_llm_context(actor_user_id)
+        except DigestionError as exc:
+            self._set_operation_progress(
+                digestion.id,
+                "figure_vision",
+                status="failed",
+                phase="llm_unavailable",
+                percent=0,
+                message=str(exc),
+                details={"reason": getattr(exc, "reason", "figure_vision_llm_unavailable")},
+                actor_user_id=actor_user_id,
+            )
+            raise
+
+        parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
+        figure_limit = self._bounded_int(
+            max_figures,
+            int(parameters.get("vision_max_figures") or DEFAULT_FIGURE_VISION_LIMIT),
+            1,
+            MAX_FIGURE_VISION_LIMIT,
+        )
+        max_image_bytes = self._bounded_int(
+            parameters.get("vision_max_image_bytes"),
+            DEFAULT_FIGURE_VISION_IMAGE_BYTES,
+            100_000,
+            MAX_FIGURE_VISION_IMAGE_BYTES,
+        )
+        max_output_tokens = self._bounded_int(
+            parameters.get("vision_max_output_tokens"),
+            DEFAULT_FIGURE_VISION_OUTPUT_TOKENS,
+            300,
+            MAX_FIGURE_VISION_OUTPUT_TOKENS,
+        )
+        effective_lens = str(lens or "").strip() or str(llm_context.get("default_lens") or "").strip()
+        if len(effective_lens) > 800:
+            effective_lens = effective_lens[:800]
+        rows = self._figure_vision_candidate_rows(
+            digestion.id,
+            limit=figure_limit,
+            overwrite=overwrite,
+        )
+        if not rows:
+            self._set_operation_progress(
+                digestion.id,
+                "figure_vision",
+                status="completed",
+                phase="no_candidates",
+                percent=100,
+                processed=0,
+                total=0,
+                message="No extracted figure images need vision enrichment.",
+                details={
+                    "figure_count": 0,
+                    "analyzed_count": 0,
+                    "skipped_count": 0,
+                    "max_figures": figure_limit,
+                    "max_image_bytes": max_image_bytes,
+                    "provider": llm_context.get("provider") or "",
+                    "model": llm_context.get("model") or "",
+                },
+                actor_user_id=actor_user_id,
+            )
+            return {
+                "success": True,
+                "digestion_id": digestion.id,
+                "analyzed_count": 0,
+                "skipped_count": 0,
+                "errors": [],
+                "figures": [],
+                "progress": self._progress_snapshot(digestion.id).get("figure_vision", {}),
+                "stats": self.stats(digestion.id),
+                "reason": "no_candidates",
+            }
+
+        total = len(rows)
+        self._set_operation_progress(
+            digestion.id,
+            "figure_vision",
+            status="running",
+            phase="starting",
+            percent=5,
+            processed=0,
+            total=total,
+            message=f"Preparing to analyze {total} extracted figure{'' if total == 1 else 's'} with an image-capable model.",
+            details={
+                "figure_count": total,
+                "max_figures": figure_limit,
+                "max_image_bytes": max_image_bytes,
+                "max_output_tokens": max_output_tokens,
+                "provider": llm_context.get("provider") or "",
+                "model": llm_context.get("model") or "",
+                "credential_source": llm_context.get("credential_source") or "",
+                "overwrite": bool(overwrite),
+            },
+            actor_user_id=actor_user_id,
+        )
+
+        analyzed: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        system_prompt = self._figure_vision_system_prompt()
+        try:
+            for index, row in enumerate(rows, start=1):
+                self._raise_if_operation_cancelled(digestion.id, "figure_vision")
+                figure = self._figure_row_to_dict(row)
+                label = (
+                    f"{figure.get('source_file_name') or 'PDF'} "
+                    f"{figure.get('page_label') or ''} fig {figure.get('figure_index') or index}"
+                ).strip()
+                self._set_operation_progress(
+                    digestion.id,
+                    "figure_vision",
+                    status="running",
+                    phase="analyzing",
+                    percent=min(96, 8 + int(((index - 1) / max(1, total)) * 86)),
+                    processed=index - 1,
+                    total=total,
+                    current_label=label,
+                    message=f"Analyzing figure {index} of {total}.",
+                    details={
+                        "figure_count": total,
+                        "analyzed_count": len(analyzed),
+                        "skipped_count": len(skipped),
+                        "error_count": len(errors),
+                        "max_image_bytes": max_image_bytes,
+                        "provider": llm_context.get("provider") or "",
+                        "model": llm_context.get("model") or "",
+                    },
+                    actor_user_id=actor_user_id,
+                )
+                image_file_id = str(figure.get("image_file_id") or "")
+                if not image_file_id:
+                    skipped.append({"figure_id": figure.get("id") or "", "reason": "missing_image_file_id"})
+                    continue
+                file_data = self.file_manager.get_file_data(image_file_id)
+                if not file_data:
+                    skipped.append({"figure_id": figure.get("id") or "", "image_file_id": image_file_id, "reason": "image_file_unavailable"})
+                    continue
+                image_bytes, image_info = file_data
+                image_size = len(image_bytes)
+                if image_size > max_image_bytes:
+                    skipped.append({
+                        "figure_id": figure.get("id") or "",
+                        "image_file_id": image_file_id,
+                        "reason": "image_too_large",
+                        "size": image_size,
+                        "max_image_bytes": max_image_bytes,
+                    })
+                    continue
+                image_content_type = str(getattr(image_info, "content_type", "") or figure.get("content_type") or "image/png")
+                prompt = self._figure_vision_user_prompt(digestion, figure, lens=effective_lens)
+                try:
+                    raw = self._call_figure_vision_llm(
+                        llm_context,
+                        system_prompt=system_prompt,
+                        prompt=prompt,
+                        image_bytes=image_bytes,
+                        image_content_type=image_content_type,
+                        max_output_tokens=max_output_tokens,
+                    )
+                    parsed = self._parse_figure_vision_json(raw)
+                    updated = self._update_figure_vision_row(
+                        row,
+                        parsed,
+                        llm_context=llm_context,
+                        lens=effective_lens,
+                        max_image_bytes=max_image_bytes,
+                        image_byte_size=image_size,
+                    )
+                    analyzed.append(updated)
+                except DigestionError as exc:
+                    errors.append({
+                        "figure_id": figure.get("id") or "",
+                        "image_file_id": image_file_id,
+                        "reason": getattr(exc, "reason", "figure_vision_failed"),
+                        "error": str(exc)[:500],
+                    })
+                self._set_operation_progress(
+                    digestion.id,
+                    "figure_vision",
+                    status="running",
+                    phase="analyzed",
+                    percent=min(98, 8 + int((index / max(1, total)) * 86)),
+                    processed=index,
+                    total=total,
+                    current_label=label,
+                    message=f"Analyzed {len(analyzed)} figure{'' if len(analyzed) == 1 else 's'} so far.",
+                    details={
+                        "figure_count": total,
+                        "analyzed_count": len(analyzed),
+                        "skipped_count": len(skipped),
+                        "error_count": len(errors),
+                        "max_image_bytes": max_image_bytes,
+                        "provider": llm_context.get("provider") or "",
+                        "model": llm_context.get("model") or "",
+                    },
+                    actor_user_id=actor_user_id,
+                )
+        except DigestionError as exc:
+            if getattr(exc, "reason", "") == "operation_cancelled":
+                self._set_operation_progress(
+                    digestion.id,
+                    "figure_vision",
+                    status="cancelled",
+                    phase="cancelled",
+                    percent=self._progress_snapshot(digestion.id).get("figure_vision", {}).get("percent", 0),
+                    processed=len(analyzed),
+                    total=total,
+                    message="Figure vision enrichment was cancelled before completion.",
+                    details={"reason": "operation_cancelled", "cancel_requested": True},
+                    actor_user_id=actor_user_id,
+                )
+                raise
+            self._set_operation_progress(
+                digestion.id,
+                "figure_vision",
+                status="failed",
+                phase="failed",
+                percent=0,
+                processed=len(analyzed),
+                total=total,
+                message=str(exc)[:1000],
+                details={"reason": getattr(exc, "reason", "figure_vision_failed")},
+                actor_user_id=actor_user_id,
+            )
+            raise
+
+        try:
+            self._upsert_output(digestion, actor_user_id, *self._build_pdf_figures_output(digestion))
+        except Exception as exc:
+            logger.debug("Could not refresh PDF figure output after figure vision enrichment: %s", exc)
+        self._set_operation_progress(
+            digestion.id,
+            "figure_vision",
+            status="completed",
+            phase="completed",
+            percent=100,
+            processed=total,
+            total=total,
+            message=(
+                f"Analyzed {len(analyzed)} figure{'' if len(analyzed) == 1 else 's'}"
+                f"{f'; {len(skipped)} skipped' if skipped else ''}{f'; {len(errors)} errors' if errors else ''}."
+            ),
+            details={
+                "figure_count": total,
+                "analyzed_count": len(analyzed),
+                "skipped_count": len(skipped),
+                "error_count": len(errors),
+                "max_figures": figure_limit,
+                "max_image_bytes": max_image_bytes,
+                "provider": llm_context.get("provider") or "",
+                "model": llm_context.get("model") or "",
+                "credential_source": llm_context.get("credential_source") or "",
+            },
+            actor_user_id=actor_user_id,
+        )
+        return {
+            "success": True,
+            "digestion_id": digestion.id,
+            "schema_version": PDF_FIGURE_VISION_SCHEMA_VERSION,
+            "analyzed_count": len(analyzed),
+            "skipped_count": len(skipped),
+            "error_count": len(errors),
+            "skipped": skipped,
+            "errors": errors,
+            "figures": analyzed,
+            "progress": self._progress_snapshot(digestion.id).get("figure_vision", {}),
             "stats": self.stats(digestion.id),
         }
 
@@ -7204,6 +7522,281 @@ class DigestionManager:
             "parameters": settings.get("parameters") if isinstance(settings.get("parameters"), dict) else {},
         }
 
+    def _resolve_figure_vision_llm_context(self, actor_user_id: str) -> dict[str, Any]:
+        from .canopy_ai import CanopyLLMError, CanopyLLMManager
+
+        try:
+            secret_key = getattr(self.config, "secret_key", "") if self.config is not None else ""
+            manager = CanopyLLMManager(self.db, secret_key or os.getenv("CANOPY_SECRET_KEY", ""))
+            settings = manager._resolve_effective_digestion_settings(actor_user_id)
+        except CanopyLLMError as exc:
+            raise DigestionError(
+                f"LLM-backed figure vision is not configured: {exc}",
+                status_code=int(getattr(exc, "status_code", 400) or 400),
+                reason=f"figure_vision_{getattr(exc, 'reason', 'llm_unavailable')}",
+            ) from exc
+        provider = str(settings.get("provider") or "openai").strip().lower()
+        if provider != "openai":
+            raise DigestionError(
+                "Figure vision enrichment currently requires an OpenAI Responses vision-capable model. "
+                "Bedrock can be added once a bounded image-payload path is validated.",
+                status_code=400,
+                reason="figure_vision_unsupported_llm_provider",
+            )
+        return {
+            "manager": manager,
+            "provider": provider,
+            "api_key": str(settings.get("api_key") or ""),
+            "model": str(settings.get("model") or "gpt-5-mini"),
+            "credential_source": str(settings.get("credential_source") or "user"),
+            "default_lens": str(settings.get("default_lens") or ""),
+            "parameters": settings.get("parameters") if isinstance(settings.get("parameters"), dict) else {},
+        }
+
+    def _figure_vision_candidate_rows(self, digestion_id: str, *, limit: int, overwrite: bool = False) -> list[Any]:
+        where = "WHERE f.digestion_id = ? AND COALESCE(f.image_file_id, '') != ''"
+        if not overwrite:
+            where += " AND COALESCE(f.vision_description, '') = ''"
+        with self.db.get_connection() as conn:
+            return conn.execute(
+                f"""
+                SELECT
+                    f.*,
+                    s.file_name AS source_file_name,
+                    s.content_type AS source_content_type,
+                    img.original_name AS vault_image_name,
+                    img.content_type AS vault_image_content_type,
+                    img.size AS vault_image_size
+                FROM digestion_pdf_figures f
+                LEFT JOIN digestion_sources s
+                  ON s.digestion_id = f.digestion_id
+                 AND s.file_id = f.source_file_id
+                LEFT JOIN files img ON img.id = f.image_file_id
+                {where}
+                ORDER BY COALESCE(s.file_name, f.source_file_id) COLLATE NOCASE,
+                         f.source_file_id, f.page_number, f.figure_index
+                LIMIT ?
+                """,
+                (self._clean_id(digestion_id), max(1, min(int(limit or 1), MAX_FIGURE_VISION_LIMIT))),
+            ).fetchall()
+
+    @staticmethod
+    def _figure_vision_system_prompt() -> str:
+        return """You are Canopy's source-grounded PDF figure vision enrichment engine.
+
+Interpret exactly one extracted source figure image using only the image plus the supplied source metadata, caption, and context. The goal is to make the figure reusable for humans and agents without pretending to read the whole paper.
+
+Rules:
+- Return one valid JSON object only. No markdown fences, prose, comments, or trailing text.
+- Stay source-grounded. Do not infer values, labels, causal claims, or author intent that are not visible in the figure/caption/context.
+- Extract quantitative datapoints only when values, units, axes, legends, labels, or annotations are legible. Mark approximate values as approximate.
+- If the figure is a diagram or photograph rather than a chart, describe structure, labels, relationships, and qualitative observations instead of inventing datapoints.
+- Include limitations when text is illegible, axes are missing, values are approximate, or the figure is only partially interpretable.
+
+Required JSON shape:
+{
+  "description": "concise source-grounded description of what the figure shows",
+  "figure_type": "chart|diagram|table|screenshot|photograph|schematic|other",
+  "author_intent": "what the figure appears intended to demonstrate, if supported",
+  "datapoints": [
+    {"label":"visible metric or item", "value_text":"visible value or approximate value", "unit":"visible unit", "series":"optional series/legend", "evidence":"visible label/caption basis", "approximate": false}
+  ],
+  "observations": ["important qualitative observations"],
+  "limitations": ["what could not be read or verified"],
+  "warnings": ["optional safety/citation caveats"],
+  "confidence": 0.0
+}
+""".strip()
+
+    def _figure_vision_user_prompt(self, digestion: Digestion, figure: dict[str, Any], *, lens: str = "") -> str:
+        payload = {
+            "digestion_id": digestion.id,
+            "digestion_name": digestion.name,
+            "digestion_purpose": digestion.purpose or digestion.description or "",
+            "source_file_id": figure.get("source_file_id") or "",
+            "source_file_name": figure.get("source_file_name") or "",
+            "figure_id": figure.get("id") or "",
+            "figure_index": figure.get("figure_index") or 0,
+            "page_label": figure.get("page_label") or "",
+            "width": figure.get("width") or 0,
+            "height": figure.get("height") or 0,
+            "caption": str(figure.get("caption") or "")[:1200],
+            "context_text": str(figure.get("context_text") or "")[:1800],
+            "lens": str(lens or "")[:800],
+        }
+        return (
+            "Analyze this extracted PDF figure for a Canopy Digestion.\n"
+            "Use the image and this metadata/caption/context only:\n"
+            f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
+            "Return the required JSON object now."
+        )
+
+    def _call_figure_vision_llm(
+        self,
+        llm_context: dict[str, Any],
+        *,
+        system_prompt: str,
+        prompt: str,
+        image_bytes: bytes,
+        image_content_type: str,
+        max_output_tokens: int,
+    ) -> str:
+        from .canopy_ai import CanopyLLMError
+
+        manager = llm_context.get("manager")
+        provider = str(llm_context.get("provider") or "openai").strip().lower()
+        try:
+            if provider == "openai":
+                return manager._call_openai_vision(
+                    api_key=str(llm_context.get("api_key") or ""),
+                    model=str(llm_context.get("model") or "gpt-5-mini"),
+                    system_prompt=system_prompt,
+                    prompt=prompt,
+                    image_bytes=image_bytes,
+                    image_content_type=image_content_type,
+                    max_output_tokens=max_output_tokens,
+                )
+        except CanopyLLMError as exc:
+            raise DigestionError(
+                f"LLM figure vision failed: {exc}",
+                status_code=int(getattr(exc, "status_code", 502) or 502),
+                reason=f"figure_vision_{getattr(exc, 'reason', 'llm_error')}",
+            ) from exc
+        raise DigestionError("Unsupported figure vision LLM provider.", status_code=400, reason="figure_vision_unsupported_llm_provider")
+
+    def _parse_figure_vision_json(self, raw_text: str) -> dict[str, Any]:
+        try:
+            parsed = self._extract_json_object(str(raw_text or ""))
+            if isinstance(parsed, dict):
+                return self._normalize_figure_vision_payload(parsed)
+        except Exception:
+            pass
+        fallback = self._llm_scalar(raw_text, limit=2800)
+        if not fallback:
+            raise DigestionError("LLM returned no usable figure vision description.", status_code=502, reason="figure_vision_empty_output")
+        return {
+            "description": fallback,
+            "figure_type": "other",
+            "author_intent": "",
+            "datapoints": [],
+            "observations": [],
+            "limitations": ["The provider response was not valid JSON, so only a plain-text description was retained."],
+            "warnings": ["non_json_provider_response"],
+            "confidence": None,
+        }
+
+    def _normalize_figure_vision_payload(self, parsed: dict[str, Any]) -> dict[str, Any]:
+        description = self._llm_scalar(
+            parsed.get("description") or parsed.get("summary") or parsed.get("caption_summary"),
+            limit=2800,
+        )
+        figure_type = self._llm_scalar(parsed.get("figure_type") or parsed.get("type"), limit=80).lower() or "other"
+        author_intent = self._llm_scalar(parsed.get("author_intent") or parsed.get("intent"), limit=900)
+        observations = self._llm_string_list(parsed.get("observations") or parsed.get("qualitative_observations"), limit=16, item_limit=500)
+        limitations = self._llm_string_list(parsed.get("limitations") or parsed.get("uncertainty"), limit=12, item_limit=500)
+        warnings = self._llm_string_list(parsed.get("warnings") or parsed.get("caveats"), limit=8, item_limit=400)
+        datapoints: list[dict[str, Any]] = []
+        raw_datapoints = parsed.get("datapoints") or parsed.get("data_points") or parsed.get("quantitative_results") or []
+        if isinstance(raw_datapoints, dict):
+            raw_datapoints = [raw_datapoints]
+        if isinstance(raw_datapoints, list):
+            for item in raw_datapoints[:80]:
+                if isinstance(item, dict):
+                    record = {
+                        "label": self._llm_scalar(item.get("label") or item.get("metric") or item.get("measurement_label"), limit=240),
+                        "value_text": self._llm_scalar(item.get("value_text") or item.get("value") or item.get("number"), limit=240),
+                        "unit": self._llm_scalar(item.get("unit"), limit=80),
+                        "series": self._llm_scalar(item.get("series") or item.get("group") or item.get("legend"), limit=160),
+                        "evidence": self._llm_scalar(item.get("evidence") or item.get("basis") or item.get("source_label"), limit=500),
+                        "approximate": bool(item.get("approximate") or item.get("estimated")),
+                    }
+                    if any(record.get(key) for key in ("label", "value_text", "evidence")):
+                        datapoints.append(record)
+                else:
+                    text = self._llm_scalar(item, limit=400)
+                    if text:
+                        datapoints.append({"label": "visible datapoint", "value_text": text, "unit": "", "series": "", "evidence": text, "approximate": False})
+        confidence = self._normalize_confidence(parsed.get("confidence"))
+        return {
+            "description": description,
+            "figure_type": figure_type,
+            "author_intent": author_intent,
+            "datapoints": datapoints,
+            "observations": observations,
+            "limitations": limitations,
+            "warnings": warnings,
+            "confidence": confidence,
+        }
+
+    def _update_figure_vision_row(
+        self,
+        row: Any,
+        parsed: dict[str, Any],
+        *,
+        llm_context: dict[str, Any],
+        lens: str,
+        max_image_bytes: int,
+        image_byte_size: int,
+    ) -> dict[str, Any]:
+        figure_id = str(self._row_get(row, "id", "") or "")
+        digestion_id = str(self._row_get(row, "digestion_id", "") or "")
+        description = self._llm_scalar(parsed.get("description"), limit=2800)
+        if not description:
+            raise DigestionError("LLM returned no figure description.", status_code=502, reason="figure_vision_missing_description")
+        try:
+            metadata = json.loads(self._row_get(row, "metadata_json", "{}") or "{}")
+        except Exception:
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata.update({
+            "vision_status": "completed",
+            "vision_schema_version": PDF_FIGURE_VISION_SCHEMA_VERSION,
+            "vision_provider": str(llm_context.get("provider") or ""),
+            "vision_model": str(llm_context.get("model") or ""),
+            "vision_credential_source": str(llm_context.get("credential_source") or ""),
+            "vision_updated_at": self._now(),
+            "vision_lens": str(lens or "")[:800],
+            "vision_figure_type": parsed.get("figure_type") or "other",
+            "vision_author_intent": parsed.get("author_intent") or "",
+            "vision_datapoints": parsed.get("datapoints") if isinstance(parsed.get("datapoints"), list) else [],
+            "vision_observations": parsed.get("observations") if isinstance(parsed.get("observations"), list) else [],
+            "vision_limitations": parsed.get("limitations") if isinstance(parsed.get("limitations"), list) else [],
+            "vision_warnings": parsed.get("warnings") if isinstance(parsed.get("warnings"), list) else [],
+            "vision_confidence": parsed.get("confidence"),
+            "vision_image_bytes": int(image_byte_size or 0),
+            "vision_max_image_bytes": int(max_image_bytes or 0),
+            "vision_source_boundary": "source-derived figure image, caption, and context only; raw PDF was not exported",
+        })
+        with self.db.get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE digestion_pdf_figures
+                SET vision_description = ?, metadata_json = ?
+                WHERE digestion_id = ? AND id = ?
+                """,
+                (description, json.dumps(metadata, ensure_ascii=False, sort_keys=True), digestion_id, figure_id),
+            )
+            updated = conn.execute(
+                """
+                SELECT
+                    f.*,
+                    s.file_name AS source_file_name,
+                    s.content_type AS source_content_type,
+                    img.original_name AS vault_image_name,
+                    img.size AS vault_image_size
+                FROM digestion_pdf_figures f
+                LEFT JOIN digestion_sources s
+                  ON s.digestion_id = f.digestion_id
+                 AND s.file_id = f.source_file_id
+                LEFT JOIN files img ON img.id = f.image_file_id
+                WHERE f.digestion_id = ? AND f.id = ?
+                """,
+                (digestion_id, figure_id),
+            ).fetchone()
+            conn.commit()
+        return self._figure_row_to_dict(updated or row)
+
     def _extract_structured_datapoints_with_llm(
         self,
         digestion: Digestion,
@@ -8076,7 +8669,7 @@ Use this as a permissioned retrieval capability, not as raw file access.
             "reuse_guidance": [
                 "Use caption, context_text, page_label, and image_file_id together; extracted figure images are source-derived artifacts.",
                 "Agents with source metadata access can call the figures endpoint or fetch image_file_id through approved file endpoints for visual analysis.",
-                "Vision descriptions are empty until an image-capable model pass is explicitly run in a later pipeline stage.",
+                "vision_description and metadata.vision_* are populated only after an explicit, opt-in figure vision enrichment pass; normal builds do not spend vision-model tokens.",
             ],
             "generated_at": self._now(),
         }
@@ -8566,7 +9159,7 @@ Use this as a permissioned retrieval capability, not as raw file access.
             operation: self._stale_operation_payload(payload, now)
             for operation, payload in operations.items()
         }
-        for operation in ("build", "datapoints", "structured_records"):
+        for operation in ("build", "datapoints", "structured_records", "figure_vision"):
             operations.setdefault(operation, self._idle_progress(operation))
         if not include_source_details:
             operations = {
@@ -8621,6 +9214,12 @@ Use this as a permissioned retrieval capability, not as raw file access.
             "record_count",
             "new_or_updated_record_count",
             "updated_record_count",
+            "analyzed_count",
+            "error_count",
+            "max_figures",
+            "max_image_bytes",
+            "max_output_tokens",
+            "overwrite",
             "skipped_count",
             "stale",
             "recoverable",
@@ -8658,6 +9257,10 @@ Use this as a permissioned retrieval capability, not as raw file access.
             if total:
                 return f"Updating structured record {min(processed + 1, total)} of {total}."
             return "Updating structured records."
+        if operation == "figure_vision":
+            if total:
+                return f"Analyzing extracted figure {min(processed + 1, total)} of {total}."
+            return "Analyzing extracted figures."
         return "Operation running."
 
     @staticmethod

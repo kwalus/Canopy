@@ -7744,6 +7744,28 @@ def create_ui_blueprint() -> Blueprint:
             logger.error("Digestion UI figures error: %s", e, exc_info=True)
             return jsonify({'success': False, 'error': 'Could not load Digestion PDF figures'}), 500
 
+    @ui.route('/ajax/digestions/<digestion_id>/figures/vision', methods=['POST'])
+    @require_login
+    def ajax_digestion_figures_vision(digestion_id: str):
+        """Opt-in bounded vision enrichment for extracted PDF figures."""
+        manager = current_app.config.get('DIGESTION_MANAGER')
+        if not manager:
+            return jsonify({'success': False, 'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.enrich_figures_with_vision(
+                digestion_id,
+                get_current_user(),
+                max_figures=_ajax_optional_int(data.get('max_figures') or data.get('limit'), minimum=1, maximum=25),
+                overwrite=_ui_as_bool(data.get('overwrite') or data.get('reanalyze')),
+                lens=str(data.get('lens') or data.get('focus') or ''),
+            ))
+        except DigestionError as exc:
+            return _ajax_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion UI figure vision error: %s", e, exc_info=True)
+            return jsonify({'success': False, 'error': 'Could not analyze Digestion figures'}), 500
+
     @ui.route('/ajax/digestions/<digestion_id>/visual-evidence', methods=['GET'])
     @require_login
     def ajax_digestion_visual_evidence(digestion_id: str):

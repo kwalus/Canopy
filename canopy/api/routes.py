@@ -12022,6 +12022,32 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API figures failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/figures/vision', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def digestion_figures_vision_api(digestion_id: str):
+        """Run opt-in bounded vision enrichment over extracted PDF figures."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        data = request.get_json(silent=True) or {}
+        try:
+            return jsonify(manager.enrich_figures_with_vision(
+                digestion_id,
+                g.api_key_info.user_id,
+                max_figures=(
+                    _api_int_param(data.get('max_figures') or data.get('limit'), default=5, minimum=1, maximum=25)
+                    if (data.get('max_figures') is not None or data.get('limit') is not None)
+                    else None
+                ),
+                overwrite=str(data.get('overwrite') or data.get('reanalyze') or '').strip().lower() in {'1', 'true', 'yes', 'on'},
+                lens=str(data.get('lens') or data.get('focus') or ''),
+            ))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API figure vision failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/visual-evidence', methods=['GET'])
     @require_auth(Permission.READ_FILES)
     def digestion_visual_evidence_api(digestion_id: str):

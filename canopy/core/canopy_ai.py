@@ -100,6 +100,9 @@ CANOPY_DIGESTION_LLM_PARAMETER_LIMITS = {
     'chunk_chars': {'default': 2800, 'min': 800, 'max': 8000},
     'batch_records': {'default': 40, 'min': 1, 'max': 120},
     'max_output_tokens': {'default': 7000, 'min': 1200, 'max': 20000},
+    'vision_max_figures': {'default': 5, 'min': 1, 'max': 25},
+    'vision_max_image_bytes': {'default': 1572864, 'min': 100000, 'max': 6291456},
+    'vision_max_output_tokens': {'default': 1200, 'min': 300, 'max': 4000},
 }
 MAX_DIGESTION_LLM_LENS_CHARS = 800
 DEFAULT_DIGESTION_LLM_LENS = (
@@ -2686,6 +2689,108 @@ class CanopyLLMManager:
         raise CanopyLLMError(
             'OpenAI returned no output text after retry. Please try Generate again or turn off web search for this draft.'
             + detail,
+            status_code=502,
+            reason='provider_empty_response',
+        )
+
+    def _call_openai_vision(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        system_prompt: str,
+        prompt: str,
+        image_bytes: bytes,
+        image_content_type: str,
+        max_output_tokens: Optional[int] = None,
+        timeout_seconds: Optional[float] = None,
+    ) -> str:
+        """Call OpenAI Responses with one bounded source image.
+
+        This is intentionally separate from composer/web-search calls so Digestion
+        figure interpretation can stay opt-in, non-streaming, and budget-capped.
+        """
+        if not api_key:
+            raise CanopyLLMError('OpenAI API key is required for Digestion figure vision.', status_code=400, reason='missing_api_key')
+        if not image_bytes:
+            raise CanopyLLMError('Figure image bytes are required for vision extraction.', status_code=400, reason='missing_image')
+        content_type = str(image_content_type or 'image/png').split(';', 1)[0].strip().lower() or 'image/png'
+        if content_type in {'image/jpg', 'image/pjpeg'}:
+            content_type = 'image/jpeg'
+        if content_type not in {'image/png', 'image/jpeg', 'image/webp', 'image/gif'}:
+            raise CanopyLLMError(
+                f'Unsupported figure image type for OpenAI vision: {content_type}',
+                status_code=400,
+                reason='unsupported_image_type',
+            )
+        base_url = os.getenv('CANOPY_OPENAI_BASE_URL', 'https://api.openai.com/v1').strip().rstrip('/')
+        timeout = float(timeout_seconds) if timeout_seconds is not None else float(os.getenv('CANOPY_LLM_VISION_TIMEOUT_SECONDS', os.getenv('CANOPY_LLM_TIMEOUT_SECONDS', '90')) or '90')
+        if max_output_tokens is None:
+            max_output_tokens = self._bounded_int_env(
+                'CANOPY_DIGESTION_FIGURE_VISION_OUTPUT_TOKENS',
+                default=1200,
+                minimum=300,
+                maximum=4000,
+            )
+        else:
+            max_output_tokens = max(300, min(int(max_output_tokens or 1200), 4000))
+        encoded = base64.b64encode(image_bytes).decode('ascii')
+        image_url = f'data:{content_type};base64,{encoded}'
+        base_content = [
+            {'type': 'input_text', 'text': prompt},
+            {'type': 'input_image', 'image_url': image_url},
+        ]
+        payload = {
+            'model': model,
+            'instructions': system_prompt,
+            'input': [{'role': 'user', 'content': base_content}],
+            'max_output_tokens': max_output_tokens,
+            'store': False,
+        }
+        attempts = 1 + self._bounded_int_env('CANOPY_LLM_EMPTY_RETRY_ATTEMPTS', default=1, minimum=0, maximum=2)
+        last_summary = ''
+        for attempt in range(attempts):
+            attempt_payload = dict(payload)
+            if attempt > 0:
+                retry_content = [
+                    {
+                        'type': 'input_text',
+                        'text': (
+                            f'{prompt}\n\nReturn the required JSON object now. '
+                            'Do not return only reasoning or a tool call.'
+                        ),
+                    },
+                    {'type': 'input_image', 'image_url': image_url},
+                ]
+                attempt_payload['input'] = [{'role': 'user', 'content': retry_content}]
+            data = self._create_openai_response(
+                base_url=base_url,
+                api_key=api_key,
+                payload=attempt_payload,
+                timeout=timeout,
+            )
+            data = self._resolve_openai_response_if_pending(
+                base_url=base_url,
+                api_key=api_key,
+                data=data,
+                timeout=timeout,
+            )
+            provider_error = self._extract_response_error_message(data)
+            if provider_error:
+                raise CanopyLLMError(provider_error, status_code=502, reason='provider_response_error')
+            text = self._extract_response_text(data)
+            if text:
+                return text
+            last_summary = self._summarize_response_shape(data)
+            logger.warning(
+                'OpenAI Digestion figure vision response had no output text on attempt %s/%s: %s',
+                attempt + 1,
+                attempts,
+                last_summary,
+            )
+        detail = f' Response shape: {last_summary}' if last_summary else ''
+        raise CanopyLLMError(
+            'OpenAI returned no figure-vision output text after retry.' + detail,
             status_code=502,
             reason='provider_empty_response',
         )
