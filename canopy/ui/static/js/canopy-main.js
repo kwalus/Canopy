@@ -15430,9 +15430,11 @@
 
             function linkifyCanopyEntityRefs(html) {
                 const value = String(html || '');
+                const bareCanopyFileIdPattern = /(^|[\s([{<>"'`])F(?=[A-Fa-f0-9])[A-Za-z0-9_-]{9,}(?=$|[\s)\]}>.,;:!?])/;
                 const hasFileSignal = value.includes('/files/')
                     || value.includes('/file-ref/')
                     || /[`'"]F[A-Za-z0-9_-]{6,}[`'"]/.test(value)
+                    || bareCanopyFileIdPattern.test(value)
                     || /\b(?:file(?:\s*id)?|file_id|source_file_id|vault_file_id|attachment_id|origin_file_id|image_file_id|pdf|figure|image|attachment|output|artifact)\s*[:=]\s*['"`]?F[A-Za-z0-9_-]{6,}/i.test(value)
                     || /(^|[\s>])[^()\s<>]{1,140}\.(?:pdf|docx?|xlsx?|csv|tsv|json|md|txt|py|ipynb|js|ts|tsx|jsx|html?|css|tex|bib|ya?ml|png|jpe?g|gif|webp|svg|tiff?|zip|tar|gz|mp4|mov|m4v|mp3|wav|wasm)\s*\(\s*F[A-Za-z0-9_-]{6,}\s*(?:,\s*[^)]{0,120})?\)/i.test(value)
                     || /\b(?:pdf|deck|presentation|slides?|report|figure|image|chart|diagram|layout|artifact|output|work\s*product|source)[^()\n<>]{0,120}\(\s*F[A-Za-z0-9_-]{6,}\s*(?:,\s*[^)]{0,120})?\)/i.test(value);
@@ -15441,6 +15443,7 @@
                     return value;
                 }
                 const fileId = '(F[A-Za-z0-9_-]{6,})';
+                const bareFileId = '(F(?=[A-Fa-f0-9])[A-Za-z0-9_-]{9,})';
                 const digestionId = '(Dg[A-Za-z0-9_-]{6,})';
                 const fileRefTokens = [];
                 const digestionRefTokens = [];
@@ -15516,6 +15519,12 @@
                 });
                 working = working.replace(new RegExp("(^|[\\s([{<>\"'`])" + digestionId + "(?=$|[\\s)\\]}>\\'\",.;:!?])", 'g'), function(match, prefix, id) {
                     return (prefix || '') + canopyDigestionRefToken(id, 'Digestion ' + shortCanopyEntityId(id));
+                });
+                // Agents sometimes cite a raw Vault file ID at the start of a line instead
+                // of attaching the file or writing a /file-ref/ link. Convert only stronger
+                // Canopy-shaped IDs here, then hydrate the visible label to the filename.
+                working = working.replace(new RegExp("(^|[\\s([{<>\"'`])" + bareFileId + "(?=$|[\\s)\\]}>\\'\",.;:!?])", 'g'), function(match, prefix, id) {
+                    return (prefix || '') + canopyFileRefToken(id, 'file:' + shortCanopyEntityId(id));
                 });
                 // Users sometimes paste a rendered Canopy file pill, which arrives as a partial
                 // anchor attribute tail after the href has already been linkified. Collapse that
@@ -15957,7 +15966,7 @@
 		                const rawText = (storedRawText || el.textContent || '').trim();
 		                if (!rawText) return;
 		                // Process if it contains a URL worth embedding, markdown image, or code blocks
-		                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText) || hasCanopyMarkdownSyntax(rawText) || containsMathDelimiters(rawText) || isCanopyDigestionAgentReferenceText(rawText);
+		                var shouldProcess = /https?:\/\//.test(rawText) || /\]\(\/files\//.test(rawText) || /!\[/.test(rawText) || /```/.test(rawText) || /(?:^|[\s([{<>"'`])(?:F(?=[A-Fa-f0-9])[A-Za-z0-9_-]{9,}|Dg[A-Za-z0-9_-]{6,})(?=$|[\s)\]}>.,;:!?])/.test(rawText) || hasCanopyMarkdownSyntax(rawText) || containsMathDelimiters(rawText) || isCanopyDigestionAgentReferenceText(rawText);
 		                if (shouldProcess) {
 		                    const rendered = renderRichContent(rawText);
 		                    if (el.tagName === 'P') {

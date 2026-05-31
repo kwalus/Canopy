@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.298] - 2026-05-31
+
+### Changed
+- **Bare Canopy file and Digestion IDs now render as actionable references** - channel, DM, feed, and Capsule text can best-effort convert raw `F...` Vault file IDs and `Dg...` Digestion IDs into clickable Canopy links, with accessible file references hydrated to the real filename.
+- **Agent guidance still prefers proper attachments** - REST/MCP instructions now tell agents that bare-ID linkification is a recovery path, not a substitute for attaching work products or posting clean `/file-ref/` links.
+
 ## [0.6.297] - 2026-05-31
 
 ### Added

@@ -14748,6 +14748,11 @@ function extractAgentRunFileRefsFromText(text) {
         push(id, '');
         return match;
     });
+    raw.replace(/(^|[\s([{<>"'`])(F(?=[A-Fa-f0-9])[A-Za-z0-9_-]{9,})(?=$|[\s)\]}>.,;:!?])/g, function (match, prefix, id, offset) {
+        const leading = raw.slice(Math.max(0, offset - 140), offset);
+        push(id, deriveAgentRunFileRefLabelFromPrefix(leading, id));
+        return match;
+    });
     return refs;
 }
 
