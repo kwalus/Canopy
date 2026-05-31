@@ -1324,6 +1324,11 @@
         box-shadow: 0 0 0 1px rgba(46, 214, 125, 0.24);
     }
 
+    .dm-composer.is-mention-drop-target .dm-composer-input-wrap {
+        border-radius: 18px;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--canopy-primary) 28%, transparent);
+    }
+
     .dm-composer-topline {
         display: flex;
         align-items: center;
@@ -1487,6 +1492,140 @@
         padding: 0.75rem 0.85rem;
         color: var(--canopy-text-secondary);
         font-size: 0.82rem;
+    }
+
+    .dm-quick-mention-row {
+        display: none;
+        width: 100%;
+    }
+
+    .dm-quick-mention-row.has-quick-mentions {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .dm-quick-mention-rail {
+        display: none;
+        align-items: center;
+        gap: 0.28rem;
+        flex: 1 1 100%;
+        min-width: 0;
+        max-width: 100%;
+        overflow-x: auto;
+        scrollbar-width: thin;
+        padding: 0.14rem 0.34rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 76%, var(--canopy-primary) 24%);
+        border-radius: 14px;
+        background:
+            linear-gradient(90deg, color-mix(in srgb, var(--canopy-primary) 12%, transparent), transparent 36%),
+            color-mix(in srgb, var(--canopy-bg-card) 78%, transparent);
+        box-shadow: inset 0 1px 0 color-mix(in srgb, var(--canopy-text-primary) 8%, transparent);
+    }
+
+    .dm-quick-mention-rail.is-visible {
+        display: flex;
+    }
+
+    .dm-quick-mention-rail::-webkit-scrollbar {
+        height: 4px;
+    }
+
+    .dm-quick-mention-rail::-webkit-scrollbar-thumb {
+        background: color-mix(in srgb, var(--canopy-primary) 52%, transparent);
+        border-radius: 999px;
+    }
+
+    .dm-quick-mention-kicker {
+        flex: 0 0 auto;
+        color: color-mix(in srgb, var(--canopy-primary) 78%, var(--canopy-text-secondary) 22%);
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        padding: 0 0.14rem;
+        white-space: nowrap;
+    }
+
+    .dm-quick-mention-chip {
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 80%, transparent);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
+        color: var(--canopy-text-primary);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.26rem;
+        min-width: 0;
+        max-width: 8.3rem;
+        height: 1.74rem;
+        padding: 0.12rem 0.38rem 0.12rem 0.16rem;
+        cursor: grab;
+        flex: 0 0 auto;
+        transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .dm-quick-mention-chip:hover,
+    .dm-quick-mention-chip:focus-visible {
+        transform: translateY(-1px);
+        border-color: color-mix(in srgb, var(--canopy-primary) 62%, var(--canopy-border) 38%);
+        background: color-mix(in srgb, var(--canopy-primary) 18%, var(--canopy-bg-tertiary) 82%);
+        box-shadow: 0 10px 22px color-mix(in srgb, var(--canopy-primary) 18%, transparent);
+        outline: none;
+    }
+
+    .dm-quick-mention-chip:active,
+    .dm-quick-mention-chip.is-dragging {
+        cursor: grabbing;
+        transform: scale(0.97);
+    }
+
+    .dm-quick-mention-chip.is-dragging {
+        opacity: 0.72;
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--canopy-primary) 34%, transparent);
+    }
+
+    .dm-quick-mention-rail.is-reordering {
+        border-color: color-mix(in srgb, var(--canopy-primary) 64%, var(--canopy-border) 36%);
+        background:
+            linear-gradient(90deg, color-mix(in srgb, var(--canopy-primary) 18%, transparent), transparent 42%),
+            color-mix(in srgb, var(--canopy-bg-card) 84%, transparent);
+    }
+
+    .dm-quick-mention-chip.is-agent {
+        border-color: color-mix(in srgb, #38bdf8 38%, var(--canopy-border) 62%);
+    }
+
+    .dm-quick-mention-avatar {
+        width: 1.34rem;
+        height: 1.34rem;
+        border-radius: 7px;
+        overflow: hidden;
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--canopy-primary) 20%, var(--canopy-bg-tertiary) 80%);
+        color: var(--canopy-text-primary);
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 70%, transparent);
+        font-size: 0.6rem;
+        font-weight: 900;
+    }
+
+    .dm-quick-mention-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .dm-quick-mention-name {
+        display: inline-block;
+        max-width: 6.35rem;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.735rem;
+        font-weight: 800;
+        line-height: 1.05;
     }
 
     .dm-composer-input-wrap {
@@ -2064,6 +2203,20 @@
             font-size: 0.9rem;
         }
 
+        .dm-quick-mention-rail {
+            min-height: 1.72rem;
+            padding-inline: 0.3rem;
+        }
+
+        .dm-quick-mention-kicker {
+            display: none;
+        }
+
+        .dm-quick-mention-name {
+            max-width: 5.2rem;
+            font-size: 0.7rem;
+        }
+
         .dm-composer-textarea {
             min-height: 76px;
             max-height: 176px;
@@ -2159,6 +2312,20 @@
 
         .dm-bubble-wrap {
             gap: 0.35rem;
+        }
+
+        .dm-quick-mention-chip {
+            height: 1.68rem;
+            padding-right: 0.34rem;
+        }
+
+        .dm-quick-mention-avatar {
+            width: 1.26rem;
+            height: 1.26rem;
+        }
+
+        .dm-quick-mention-name {
+            max-width: 4.8rem;
         }
 
         .dm-composer.composer-expanded .dm-composer-textarea {
@@ -2443,7 +2610,11 @@
     const DM_WORKSPACE_EVENT_TYPES = ['dm.message.created', 'dm.message.edited', 'dm.message.deleted', 'attachment.available'];
     const DM_SEARCH_QUERY = {{ search_query|tojson }};
     const DM_MAX_CONTENT_CHARS = {{ dm_max_message_length|default(4096)|int }};
+    const DM_QUICK_MENTION_ORDER_STORAGE_KEY = `canopy.dm_quick_mentions_order.v1.${CURRENT_USER_ID || 'anon'}`;
     let dmLongTextOfferDismissedFor = '';
+    let dmQuickMentionRailSignature = '';
+    let dmQuickMentionSuppressClickUntil = 0;
+    let dmQuickMentionMeasureCanvas = null;
 
     function isDmSearchActive() {
         if (String(DM_SEARCH_QUERY || '').trim()) {
@@ -2840,6 +3011,7 @@
         }
         restoreThreadScrollState(previousScroll, opts);
         syncDmMobileLayoutState();
+        renderDmQuickMentionRail();
 
         if (opts.pushHistory && typeof opts.targetUrl === 'string' && opts.targetUrl) {
             window.history.replaceState({}, '', opts.targetUrl);
@@ -3101,6 +3273,7 @@
             if (panel && selectedRecipients.length === INITIAL_RECIPIENTS.length) {
                 panel.style.display = 'none';
             }
+            renderDmQuickMentionRail();
             return;
         }
 
@@ -3116,6 +3289,523 @@
             title.textContent = 'New conversation';
             subtitle.textContent = 'Select one or more recipients to begin';
         }
+        renderDmQuickMentionRail();
+    }
+
+    function normalizeDmQuickMentionHandle(value) {
+        return String(value || '')
+            .trim()
+            .replace(/^@+/, '')
+            .replace(/\s+/g, '_')
+            .replace(/[^A-Za-z0-9_.-]/g, '');
+    }
+
+    function dmQuickMentionLabel(user) {
+        return String((user && (user.display_name || user.username || user.user_id)) || '').trim();
+    }
+
+    function dmQuickMentionHandle(user) {
+        return normalizeDmQuickMentionHandle((user && (user.username || user.display_name || user.user_id)) || '');
+    }
+
+    function dmQuickMentionStorageKey(userOrEntry) {
+        const user = userOrEntry && userOrEntry.user ? userOrEntry.user : userOrEntry;
+        const userId = user && user.user_id ? String(user.user_id) : '';
+        if (userId) return `user:${userId}`;
+        const handle = userOrEntry && userOrEntry.handle
+            ? String(userOrEntry.handle)
+            : dmQuickMentionHandle(user);
+        return handle ? `handle:${handle}` : '';
+    }
+
+    function dmQuickMentionContextKey() {
+        return dmDraftContextToken();
+    }
+
+    function getStoredDmQuickMentionOrders() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(DM_QUICK_MENTION_ORDER_STORAGE_KEY) || '{}');
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (_) {
+            return {};
+        }
+    }
+
+    function getDmQuickMentionOrder(contextKey = dmQuickMentionContextKey()) {
+        const key = String(contextKey || '');
+        if (!key) return [];
+        const orders = getStoredDmQuickMentionOrders();
+        return Array.isArray(orders[key]) ? orders[key].map(value => String(value || '')).filter(Boolean) : [];
+    }
+
+    function setDmQuickMentionOrder(keys, contextKey = dmQuickMentionContextKey()) {
+        const key = String(contextKey || '');
+        if (!key) return;
+        const cleanKeys = Array.from(new Set((keys || []).map(value => String(value || '')).filter(Boolean)));
+        const orders = getStoredDmQuickMentionOrders();
+        if (cleanKeys.length) {
+            orders[key] = cleanKeys;
+        } else {
+            delete orders[key];
+        }
+        try {
+            localStorage.setItem(DM_QUICK_MENTION_ORDER_STORAGE_KEY, JSON.stringify(orders));
+        } catch (_) {}
+    }
+
+    function applyDmQuickMentionOrder(entries) {
+        const order = getDmQuickMentionOrder();
+        if (!order.length) return entries;
+        const orderMap = new Map(order.map((key, index) => [key, index]));
+        return (entries || [])
+            .map((entry, index) => ({ entry, index, key: dmQuickMentionStorageKey(entry) }))
+            .sort((a, b) => {
+                const aRank = orderMap.has(a.key) ? orderMap.get(a.key) : Number.POSITIVE_INFINITY;
+                const bRank = orderMap.has(b.key) ? orderMap.get(b.key) : Number.POSITIVE_INFINITY;
+                if (aRank !== bRank) return aRank - bRank;
+                return a.index - b.index;
+            })
+            .map(item => item.entry);
+    }
+
+    function persistDmQuickMentionOrderFromRail(rail) {
+        if (!rail || !rail.querySelectorAll) return;
+        const keys = Array.from(rail.querySelectorAll('.dm-quick-mention-chip'))
+            .map(chip => chip.getAttribute('data-mention-order-key') || '')
+            .filter(Boolean);
+        setDmQuickMentionOrder(keys);
+        dmQuickMentionRailSignature = '';
+    }
+
+    function normalizeDmQuickMentionUser(rawUser) {
+        if (!rawUser || !rawUser.user_id) return null;
+        const directoryMatch = (Array.isArray(recipientDirectory) ? recipientDirectory : [])
+            .find(user => user && String(user.user_id || '') === String(rawUser.user_id || ''));
+        const merged = Object.assign({}, directoryMatch || {}, rawUser || {});
+        const userId = String(merged.user_id || '').trim();
+        if (!userId || userId === String(CURRENT_USER_ID || '')) return null;
+        const label = dmQuickMentionLabel(merged) || userId;
+        const handle = dmQuickMentionHandle(merged);
+        if (!handle) return null;
+        return {
+            user_id: userId,
+            display_name: merged.display_name || label,
+            username: merged.username || userId,
+            avatar_url: merged.avatar_url || null,
+            account_type: merged.account_type || merged.type || '',
+            unknown: !!merged.unknown,
+        };
+    }
+
+    function addDmQuickMentionCandidate(map, rawUser, baseScore = 0) {
+        const user = normalizeDmQuickMentionUser(rawUser);
+        if (!user) return;
+        const existing = map.get(user.user_id) || {};
+        map.set(user.user_id, Object.assign({}, existing, user, {
+            _baseScore: Math.max(Number(existing._baseScore || 0), Number(baseScore || 0)),
+        }));
+    }
+
+    function getDmRecentMessageRows(limit = 140) {
+        const rows = Array.from(document.querySelectorAll('#dm-thread-body .dm-message-row[data-message-id]'));
+        return rows.slice(-limit).map((row, index) => {
+            const textNode = row.querySelector('[data-message-copy-text="1"]') || row.querySelector('.dm-message-text') || row;
+            return {
+                index,
+                userId: String(row.getAttribute('data-user-id') || '').trim(),
+                text: String(textNode ? textNode.textContent || '' : '').trim(),
+            };
+        });
+    }
+
+    function dmQuickMentionHandlesForUser(user) {
+        return Array.from(new Set([
+            user && user.username,
+            user && user.display_name,
+            user && user.user_id,
+            dmQuickMentionHandle(user),
+        ].map(normalizeDmQuickMentionHandle).filter(Boolean)));
+    }
+
+    function dmQuickMentionTextReferencesUser(text, user) {
+        const content = String(text || '');
+        if (!content) return false;
+        const escapeRegex = value => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return dmQuickMentionHandlesForUser(user).some(handle => {
+            const pattern = new RegExp(`(^|[^A-Za-z0-9_.\\-@])@${escapeRegex(handle)}(?=$|[^A-Za-z0-9_.\\-])`, 'i');
+            return pattern.test(content);
+        });
+    }
+
+    function scoreDmQuickMentionCandidate(user, recentRows) {
+        if (!user || !user.user_id || user.user_id === CURRENT_USER_ID) return null;
+        const handle = dmQuickMentionHandle(user);
+        const label = dmQuickMentionLabel(user) || handle;
+        if (!handle || !label) return null;
+        const rows = Array.isArray(recentRows) ? recentRows : [];
+        const handles = dmQuickMentionHandlesForUser(user);
+        const escapeRegex = value => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let mentionScore = 0;
+        let authorScore = 0;
+        rows.forEach((row, index) => {
+            const recency = rows.length ? (index + 1) / rows.length : 0;
+            if (String(row.userId || '') === String(user.user_id || '')) {
+                authorScore += 0.7 + recency;
+            }
+            const text = String(row.text || '');
+            if (!text) return;
+            handles.forEach(candidateHandle => {
+                const pattern = new RegExp(`(^|[^A-Za-z0-9_.\\-@])@${escapeRegex(candidateHandle)}(?=$|[^A-Za-z0-9_.\\-])`, 'gi');
+                const matches = text.match(pattern);
+                if (matches && matches.length) {
+                    mentionScore += matches.length * (8 + (4 * recency));
+                }
+            });
+        });
+        const accountType = String(user.account_type || '').toLowerCase();
+        const typeBoost = accountType === 'agent' ? 0.45 : 0.25;
+        const score = Number(user._baseScore || 0) + mentionScore + authorScore + typeBoost;
+        if (score <= 0.25) return null;
+        return {
+            user,
+            handle,
+            label,
+            accountType,
+            score,
+            mentionScore,
+            authorScore,
+        };
+    }
+
+    function getDmQuickMentionUsers(limit = 10) {
+        const candidateMap = new Map();
+        const useActiveThreadContext = !!(composerUsesActiveThread && ACTIVE_THREAD);
+        if (useActiveThreadContext) {
+            (Array.isArray(INITIAL_RECIPIENTS) ? INITIAL_RECIPIENTS : []).forEach(user => {
+                addDmQuickMentionCandidate(candidateMap, user, 12);
+            });
+        }
+        (Array.isArray(selectedRecipients) ? selectedRecipients : []).forEach(user => {
+            addDmQuickMentionCandidate(candidateMap, user, 14);
+        });
+
+        const recentRows = useActiveThreadContext ? getDmRecentMessageRows() : [];
+        const directory = Array.isArray(recipientDirectory) ? recipientDirectory : [];
+        const directoryById = new Map(directory.filter(user => user && user.user_id).map(user => [String(user.user_id), user]));
+        recentRows.forEach(row => {
+            if (row.userId && row.userId !== CURRENT_USER_ID && directoryById.has(row.userId)) {
+                addDmQuickMentionCandidate(candidateMap, directoryById.get(row.userId), 1.5);
+            }
+        });
+        directory.forEach(user => {
+            if (!user || !user.user_id || candidateMap.has(user.user_id)) return;
+            if (recentRows.some(row => dmQuickMentionTextReferencesUser(row.text, user))) {
+                addDmQuickMentionCandidate(candidateMap, user, 0.5);
+            }
+        });
+
+        const scored = Array.from(candidateMap.values())
+            .map(user => scoreDmQuickMentionCandidate(user, recentRows))
+            .filter(Boolean);
+        scored.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            if (b.mentionScore !== a.mentionScore) return b.mentionScore - a.mentionScore;
+            if (b.authorScore !== a.authorScore) return b.authorScore - a.authorScore;
+            if (a.accountType !== b.accountType) return a.accountType === 'agent' ? -1 : 1;
+            return a.label.localeCompare(b.label);
+        });
+        return applyDmQuickMentionOrder(scored).slice(0, limit);
+    }
+
+    function getDmQuickMentionAvatar(user, label) {
+        const avatarUrl = String(user && user.avatar_url || '').trim();
+        if (avatarUrl) {
+            return `<span class="dm-quick-mention-avatar"><img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(label)}"></span>`;
+        }
+        return `<span class="dm-quick-mention-avatar">${escapeHtml(getRecipientInitials(label))}</span>`;
+    }
+
+    function dmQuickMentionAlreadyPresent(content, handle) {
+        const clean = normalizeDmQuickMentionHandle(handle);
+        if (!clean) return true;
+        const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp(`(^|[^A-Za-z0-9_.\\-@])@${escaped}($|[^A-Za-z0-9_.\\-])`, 'i');
+        return pattern.test(String(content || ''));
+    }
+
+    function getDmMentionMeasureContext(font) {
+        if (!dmQuickMentionMeasureCanvas) {
+            dmQuickMentionMeasureCanvas = document.createElement('canvas');
+        }
+        const context = dmQuickMentionMeasureCanvas && dmQuickMentionMeasureCanvas.getContext
+            ? dmQuickMentionMeasureCanvas.getContext('2d')
+            : null;
+        if (context && font) context.font = font;
+        return context;
+    }
+
+    function measureDmMentionText(context, text) {
+        const value = String(text || '');
+        if (context && context.measureText) return context.measureText(value).width;
+        return value.length * 8;
+    }
+
+    function getDmTextareaStyleMetrics(textarea) {
+        const style = window.getComputedStyle ? window.getComputedStyle(textarea) : {};
+        const fontSize = parseFloat(style.fontSize) || 15;
+        const lineHeight = parseFloat(style.lineHeight) || (fontSize * 1.35);
+        const paddingLeft = parseFloat(style.paddingLeft) || 0;
+        const paddingRight = parseFloat(style.paddingRight) || 0;
+        const paddingTop = parseFloat(style.paddingTop) || 0;
+        const font = [
+            style.fontStyle,
+            style.fontVariant,
+            style.fontWeight,
+            style.fontSize,
+            style.fontFamily,
+        ].filter(Boolean).join(' ');
+        return {
+            context: getDmMentionMeasureContext(font),
+            lineHeight,
+            paddingLeft,
+            paddingRight,
+            paddingTop,
+            usableWidth: Math.max(24, textarea.clientWidth - paddingLeft - paddingRight),
+        };
+    }
+
+    function findDmTextareaWrapEnd(text, start, end, maxWidth, context) {
+        if (start >= end) return start;
+        let low = start + 1;
+        let high = end;
+        let best = start + 1;
+        while (low <= high) {
+            const mid = Math.floor((low + high) / 2);
+            const width = measureDmMentionText(context, text.slice(start, mid));
+            if (width <= maxWidth || mid === start + 1) {
+                best = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+        return Math.max(start + 1, Math.min(best, end));
+    }
+
+    function getDmTextareaVisualRows(textarea, metrics) {
+        const text = textarea.value || '';
+        const rows = [];
+        let lineStart = 0;
+        while (lineStart <= text.length) {
+            const newlineIndex = text.indexOf('\n', lineStart);
+            const lineEnd = newlineIndex === -1 ? text.length : newlineIndex;
+            if (lineStart === lineEnd) {
+                rows.push({ start: lineStart, end: lineEnd });
+            } else {
+                let rowStart = lineStart;
+                while (rowStart < lineEnd) {
+                    const rowEnd = findDmTextareaWrapEnd(text, rowStart, lineEnd, metrics.usableWidth, metrics.context);
+                    rows.push({ start: rowStart, end: rowEnd });
+                    rowStart = rowEnd;
+                }
+            }
+            if (newlineIndex === -1) break;
+            lineStart = newlineIndex + 1;
+            if (lineStart === text.length) {
+                rows.push({ start: lineStart, end: lineStart });
+                break;
+            }
+        }
+        return rows.length ? rows : [{ start: 0, end: 0 }];
+    }
+
+    function getDmTextareaCaretIndexInRow(text, row, x, context) {
+        if (!row || row.start >= row.end || x <= 0) return row ? row.start : 0;
+        const rowWidth = measureDmMentionText(context, text.slice(row.start, row.end));
+        if (x >= rowWidth) return row.end;
+        let previousWidth = 0;
+        for (let index = row.start + 1; index <= row.end; index += 1) {
+            const width = measureDmMentionText(context, text.slice(row.start, index));
+            if (width >= x) {
+                return (x - previousWidth) < (width - x) ? index - 1 : index;
+            }
+            previousWidth = width;
+        }
+        return row.end;
+    }
+
+    function getDmTextareaDropCaretIndex(textarea, event) {
+        if (!textarea || !event) return null;
+        const rect = textarea.getBoundingClientRect();
+        const metrics = getDmTextareaStyleMetrics(textarea);
+        const x = Math.max(0, event.clientX - rect.left - metrics.paddingLeft + textarea.scrollLeft);
+        const y = Math.max(0, event.clientY - rect.top - metrics.paddingTop + textarea.scrollTop);
+        const rows = getDmTextareaVisualRows(textarea, metrics);
+        const rowIndex = Math.max(0, Math.min(rows.length - 1, Math.floor(y / metrics.lineHeight)));
+        return getDmTextareaCaretIndexInRow(textarea.value || '', rows[rowIndex], x, metrics.context);
+    }
+
+    function insertDmQuickMentionAtIndex(handle, index, options = {}) {
+        const textarea = document.getElementById('messageContent');
+        if (!textarea) return false;
+        const clean = normalizeDmQuickMentionHandle(handle);
+        if (!clean) return false;
+        const value = textarea.value || '';
+        if (dmQuickMentionAlreadyPresent(value, clean)) {
+            textarea.focus();
+            return false;
+        }
+        const hasExplicitIndex = Number.isFinite(index);
+        const start = hasExplicitIndex
+            ? Math.max(0, Math.min(value.length, Math.floor(index)))
+            : (typeof textarea.selectionStart === 'number' ? textarea.selectionStart : value.length);
+        const end = hasExplicitIndex && options.replaceSelection === false
+            ? start
+            : (typeof textarea.selectionEnd === 'number' ? textarea.selectionEnd : start);
+        const before = value.slice(0, start);
+        const after = value.slice(end);
+        const prefix = before && !/\s$/.test(before) ? ' ' : '';
+        const suffix = after && /^\s/.test(after) ? '' : ' ';
+        const mentionText = `${prefix}@${clean}${suffix}`;
+        textarea.value = before + mentionText + after;
+        const cursor = before.length + mentionText.length;
+        textarea.focus();
+        textarea.setSelectionRange(cursor, cursor);
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        saveDmComposerDraft();
+        return true;
+    }
+
+    function insertDmQuickMention(handle) {
+        return insertDmQuickMentionAtIndex(handle, null, { replaceSelection: true });
+    }
+
+    function isDmQuickMentionDrag(event) {
+        const types = event && event.dataTransfer && event.dataTransfer.types
+            ? Array.from(event.dataTransfer.types)
+            : [];
+        return types.includes('application/x-canopy-mention');
+    }
+
+    function getDmQuickMentionFromDataTransfer(dataTransfer) {
+        if (!dataTransfer) return '';
+        const direct = normalizeDmQuickMentionHandle(dataTransfer.getData('application/x-canopy-mention'));
+        if (direct) return direct;
+        const plain = String(dataTransfer.getData('text/plain') || '').trim();
+        const match = /^@?([A-Za-z0-9_.-]{2,80})\s*$/.exec(plain);
+        return match ? normalizeDmQuickMentionHandle(match[1]) : '';
+    }
+
+    function bindDmQuickMentionRail(rail) {
+        if (!rail || rail.dataset.quickMentionBound === '1') return;
+        rail.dataset.quickMentionBound = '1';
+        rail.addEventListener('click', (event) => {
+            if (Date.now() < dmQuickMentionSuppressClickUntil) {
+                event.preventDefault();
+                return;
+            }
+            const chip = event.target && event.target.closest ? event.target.closest('.dm-quick-mention-chip') : null;
+            if (!chip || !rail.contains(chip)) return;
+            insertDmQuickMention(chip.getAttribute('data-mention-handle') || '');
+        });
+        rail.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            const chip = event.target && event.target.closest ? event.target.closest('.dm-quick-mention-chip') : null;
+            if (!chip || !rail.contains(chip)) return;
+            event.preventDefault();
+            insertDmQuickMention(chip.getAttribute('data-mention-handle') || '');
+        });
+        rail.addEventListener('dragstart', (event) => {
+            const chip = event.target && event.target.closest ? event.target.closest('.dm-quick-mention-chip') : null;
+            if (!chip || !rail.contains(chip)) return;
+            const handle = chip.getAttribute('data-mention-handle') || '';
+            chip.classList.add('is-dragging');
+            rail.classList.add('is-reordering');
+            if (!event.dataTransfer) return;
+            event.dataTransfer.effectAllowed = 'copyMove';
+            event.dataTransfer.setData('application/x-canopy-mention', handle);
+            event.dataTransfer.setData('application/x-canopy-mention-order-key', chip.getAttribute('data-mention-order-key') || '');
+            event.dataTransfer.setData('text/plain', `@${handle} `);
+        });
+        rail.addEventListener('dragover', (event) => {
+            if (!isDmQuickMentionDrag(event)) return;
+            const dragged = rail.querySelector('.dm-quick-mention-chip.is-dragging');
+            if (!dragged) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+            const overChip = event.target && event.target.closest ? event.target.closest('.dm-quick-mention-chip') : null;
+            if (!overChip || overChip === dragged || !rail.contains(overChip)) return;
+            const rect = overChip.getBoundingClientRect();
+            const before = event.clientX < (rect.left + rect.width / 2);
+            rail.insertBefore(dragged, before ? overChip : overChip.nextSibling);
+        });
+        rail.addEventListener('drop', (event) => {
+            if (!isDmQuickMentionDrag(event)) return;
+            const dragged = rail.querySelector('.dm-quick-mention-chip.is-dragging');
+            if (!dragged) return;
+            event.preventDefault();
+            event.stopPropagation();
+            rail.classList.remove('is-reordering');
+            dragged.classList.remove('is-dragging');
+            dmQuickMentionSuppressClickUntil = Date.now() + 450;
+            persistDmQuickMentionOrderFromRail(rail);
+            renderDmQuickMentionRail();
+        });
+        rail.addEventListener('dragend', (event) => {
+            const chip = event.target && event.target.closest ? event.target.closest('.dm-quick-mention-chip') : null;
+            if (chip) chip.classList.remove('is-dragging');
+            rail.classList.remove('is-reordering');
+        });
+    }
+
+    function renderDmQuickMentionRail() {
+        const rail = document.getElementById('dm-quick-mention-rail');
+        const row = document.getElementById('dm-quick-mention-row');
+        if (!rail || !row) return;
+        const entries = getDmQuickMentionUsers(10);
+        if (!entries.length) {
+            rail.classList.remove('is-visible');
+            row.classList.remove('has-quick-mentions');
+            rail.innerHTML = '';
+            dmQuickMentionRailSignature = '';
+            return;
+        }
+        const signature = `${dmQuickMentionContextKey()}|${entries.map(entry => [
+            entry.user && entry.user.user_id || '',
+            entry.handle || '',
+            entry.label || '',
+            entry.accountType || '',
+            Number(entry.score || 0).toFixed(3),
+        ].join(':')).join('|')}`;
+        if (dmQuickMentionRailSignature === signature && rail.dataset.quickMentionBound === '1') {
+            rail.classList.add('is-visible');
+            row.classList.add('has-quick-mentions');
+            return;
+        }
+        const chips = entries.map(entry => {
+            const { user, handle, label, accountType, mentionScore, authorScore } = entry;
+            const orderKey = dmQuickMentionStorageKey(entry);
+            const title = mentionScore > 0 || authorScore > 0
+                ? `Mention ${label}; active in this DM`
+                : `Mention ${label}`;
+            return `<button type="button"
+                        class="dm-quick-mention-chip ${accountType === 'agent' ? 'is-agent' : ''}"
+                        draggable="true"
+                        data-mention-handle="${escapeHtml(handle)}"
+                        data-mention-order-key="${escapeHtml(orderKey)}"
+                        data-mention-user-id="${escapeHtml(user.user_id || '')}"
+                        title="${escapeHtml(title)}"
+                        aria-label="Mention ${escapeHtml(label)}">
+                ${getDmQuickMentionAvatar(user, label)}
+                <span class="dm-quick-mention-name">${escapeHtml(label)}</span>
+            </button>`;
+        }).join('');
+        rail.innerHTML = `<span class="dm-quick-mention-kicker" title="Quick mentions">@</span>${chips}`;
+        dmQuickMentionRailSignature = signature;
+        rail.classList.add('is-visible');
+        row.classList.add('has-quick-mentions');
+        bindDmQuickMentionRail(rail);
     }
 
     function isCompactDmViewport() {
@@ -3814,6 +4504,12 @@
         composer.classList.toggle('dragover', !!active);
     }
 
+    function setDmComposerMentionDragState(active) {
+        const composer = document.getElementById('dm-composer');
+        if (!composer) return;
+        composer.classList.toggle('is-mention-drop-target', !!active);
+    }
+
     function setupMessageDropzone() {
         const composer = document.getElementById('dm-composer');
         if (!composer) return;
@@ -3826,6 +4522,11 @@
         };
 
         composer.addEventListener('dragenter', (event) => {
+            if (isDmQuickMentionDrag(event)) {
+                event.preventDefault();
+                setDmComposerMentionDragState(true);
+                return;
+            }
             if (!dragHasFiles(event)) return;
             event.preventDefault();
             dmComposerDragDepth += 1;
@@ -3833,6 +4534,12 @@
         });
 
         composer.addEventListener('dragover', (event) => {
+            if (isDmQuickMentionDrag(event)) {
+                event.preventDefault();
+                if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+                setDmComposerMentionDragState(true);
+                return;
+            }
             if (!dragHasFiles(event)) return;
             event.preventDefault();
             if (event.dataTransfer) {
@@ -3842,6 +4549,12 @@
         });
 
         composer.addEventListener('dragleave', (event) => {
+            if (isDmQuickMentionDrag(event)) {
+                if (!event.relatedTarget || !composer.contains(event.relatedTarget)) {
+                    setDmComposerMentionDragState(false);
+                }
+                return;
+            }
             if (!dragHasFiles(event)) return;
             event.preventDefault();
             dmComposerDragDepth = Math.max(0, dmComposerDragDepth - 1);
@@ -3851,10 +4564,21 @@
         });
 
         composer.addEventListener('drop', (event) => {
+            const mentionHandle = getDmQuickMentionFromDataTransfer(event.dataTransfer);
+            if (mentionHandle) {
+                event.preventDefault();
+                setDmComposerMentionDragState(false);
+                const textarea = document.getElementById('messageContent');
+                const target = event.target && event.target.closest ? event.target.closest('#messageContent') : null;
+                const dropIndex = target ? getDmTextareaDropCaretIndex(textarea, event) : null;
+                insertDmQuickMentionAtIndex(mentionHandle, dropIndex, { replaceSelection: false });
+                return;
+            }
             if (!dragHasFiles(event)) return;
             event.preventDefault();
             dmComposerDragDepth = 0;
             setDmComposerDragState(false);
+            setDmComposerMentionDragState(false);
             const files = Array.from(event.dataTransfer?.files || []);
             if (!files.length) return;
             addMessageFiles(files);
@@ -3956,6 +4680,7 @@
                 removeRecipient(this.getAttribute('data-uid'));
             });
         });
+        renderDmQuickMentionRail();
     }
 
     function removeRecipient(userId) {
@@ -4197,7 +4922,10 @@
         document.addEventListener('click', (e) => {
             if (!wrapper.contains(e.target)) showRecipientSuggestions(false);
         });
-        fetchRecipientDirectory().then(() => updateRecipientSuggestions('', { skipRefresh: true, silentEmpty: true }));
+        fetchRecipientDirectory().then(() => {
+            updateRecipientSuggestions('', { skipRefresh: true, silentEmpty: true });
+            renderDmQuickMentionRail();
+        });
     }
 
     function getDmChannelContext(textarea) {
@@ -5460,6 +6188,7 @@
         setupMessagePasteHandler();
         setupMessageDropzone();
         setupRecipientPicker();
+        renderDmQuickMentionRail();
         applyDmRichContent();
         const dmThreadBody = document.getElementById('dm-thread-body');
         if (dmThreadBody) {

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.302] - 2026-05-31
+
+### Added
+- **DM composer quick mention chips** - the Messages page now shows a compact, draggable mention rail for active DM participants and commonly referenced thread users, matching the channel composer interaction so humans can quickly address agents or teammates without typing full handles.
+- **DM mention drops respect placement** - dragging a DM mention chip into the message editor inserts it at the drop/caret position, while dragging within the rail reorders chips and remembers that order per conversation context.
+
 ## [0.6.301] - 2026-05-31
 
 ### Changed
