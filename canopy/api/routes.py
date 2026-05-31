@@ -11872,6 +11872,21 @@ def create_api_blueprint() -> Blueprint:
             logger.error("Digestion API progress failed: %s", e, exc_info=True)
             return jsonify({'error': 'Internal server error'}), 500
 
+    @api.route('/digestions/<digestion_id>/operations/<operation>/cancel', methods=['POST'])
+    @require_auth(Permission.WRITE_FILES)
+    def digestion_operation_cancel_api(digestion_id: str, operation: str):
+        """Cancel/reset a stale or running Digestion operation."""
+        manager = _api_get_digestion_manager()
+        if not manager:
+            return jsonify({'error': 'Digestion manager unavailable'}), 503
+        try:
+            return jsonify(manager.cancel_operation(digestion_id, g.api_key_info.user_id, operation))
+        except DigestionError as exc:
+            return _api_digestion_error(exc)
+        except Exception as e:
+            logger.error("Digestion API operation cancel failed: %s", e, exc_info=True)
+            return jsonify({'error': 'Internal server error'}), 500
+
     @api.route('/digestions/<digestion_id>/query', methods=['POST'])
     @require_auth(Permission.READ_FILES)
     def query_digestion_api(digestion_id: str):

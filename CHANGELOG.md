@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.296] - 2026-05-31
+
+### Added
+- **Digestion operations now expose stuck-job recovery** - build, datapoint extraction, and structured-record progress that stops reporting for too long is shown as stalled instead of silently running forever.
+- **Digestion managers can reset stalled work from Vault** - recoverable progress bars now include a reset/cancel control, backed by UI and REST endpoints so humans and agents can recover interrupted extraction jobs without database surgery.
+
+### Changed
+- **Structured datapoint extraction honors cancellation between LLM batches** - active datapoint runs can be reset safely, while provider calls already in flight are allowed to finish before the next cancellation checkpoint.
+- **Agent Digestion instructions now cover stalled progress** - agents are told how to poll progress, recognize stalled operations, and use the reset endpoint only when they have manage access or a human asks them to recover the job.
+
 ## [0.6.295] - 2026-05-30
 
 ### Changed

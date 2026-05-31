@@ -5958,6 +5958,8 @@ class CanopyMCPServer:
                         "POST /api/v1/digestions/<digestion_id>/evidence/search with {query, status, tag, limit}; search the Digestion truth-maintenance layer instead of ordinary chunks",
                         "POST /api/v1/digestions/<digestion_id>/evidence/<evidence_id>/reviews with {action:'support|challenge|refine|supersede|mark_stale|request_source|confirm', note, evidence_refs}; critically review an evidence record",
                         "POST /api/v1/digestions/<digestion_id>/build",
+                        "GET /api/v1/digestions/<digestion_id>/progress; status=stalled means a build/datapoints/structured_records operation likely survived a restart or provider timeout",
+                        "POST /api/v1/digestions/<digestion_id>/operations/<operation>/cancel; operation is build, datapoints, or structured_records and requires Digestion manage access; use to reset a stalled operation before rerun",
                         "POST /api/v1/digestions/<digestion_id>/query with {query, top_k}",
                         "POST /api/v1/digestions/<digestion_id>/context with {query, top_k}",
                         "POST /api/v1/digestions/<digestion_id>/datapoints/extract with {lens, max_chunks, max_datapoints, scope:'new'|'all'}; scope defaults to new docs only and requires source-metadata access plus configured Canopy AI provider for LLM-normalized extraction",
