@@ -42,6 +42,16 @@ WORKSTREAM_EVENT_TYPES = (
     'comment',
     'handoff',
 )
+WORKSTREAM_EVENT_STATES = (
+    'open',
+    'resolved',
+    'candidate',
+    'confirmed',
+    'stale',
+    'superseded',
+    'waiting',
+    'complete',
+)
 WORKSTREAM_ARTIFACT_TYPES = (
     'file',
     'digestion',
@@ -54,6 +64,7 @@ WORKSTREAM_ARTIFACT_TYPES = (
     'note',
 )
 _EDIT_ROLES = {'owner', 'lead', 'contributor', 'assignee'}
+_CONTRIBUTE_ROLES = {'owner', 'lead', 'contributor', 'assignee', 'reviewer'}
 
 
 def _now_iso() -> str:
@@ -96,6 +107,11 @@ def _json_loads(value: Any) -> Dict[str, Any]:
 def _normalize_choice(value: Any, allowed: Sequence[str], default: str) -> str:
     clean = str(value or default).strip().lower().replace(' ', '_')
     return clean if clean in allowed else default
+
+
+def _normalize_optional_choice(value: Any, allowed: Sequence[str]) -> Optional[str]:
+    clean = str(value or '').strip().lower().replace(' ', '_')
+    return clean if clean in allowed else None
 
 
 def _new_id(prefix: str) -> str:
@@ -657,6 +673,28 @@ class WorkstreamManager:
                 return False
             return bool(row['owner_user_id'] == user_id or row['created_by'] == user_id or (row['role'] in _EDIT_ROLES))
 
+    def user_can_contribute(self, workstream_id: str, user_id: Optional[str]) -> bool:
+        if not workstream_id or not user_id:
+            return False
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT w.owner_user_id, w.created_by, wp.role
+                FROM workstreams w
+                LEFT JOIN workstream_participants wp
+                  ON wp.workstream_id = w.id AND wp.user_id = ? AND wp.status != 'removed'
+                WHERE w.id = ?
+                """,
+                (user_id, workstream_id),
+            ).fetchone()
+            if not row:
+                return False
+            return bool(
+                row['owner_user_id'] == user_id
+                or row['created_by'] == user_id
+                or (row['role'] in _CONTRIBUTE_ROLES)
+            )
+
     def update_workstream(self, workstream_id: str, *, actor_user_id: str, updates: Dict[str, Any]) -> Optional[Workstream]:
         allowed_fields = {
             'title', 'objective', 'required_output', 'status', 'priority',
@@ -730,6 +768,48 @@ class WorkstreamManager:
             row = conn.execute("SELECT * FROM workstreams WHERE id = ?", (workstream_id,)).fetchone()
             return self._hydrate(conn, self._row_to_workstream(row)) if row else None
 
+    def claim_workstream(self, workstream_id: str, *, actor_user_id: str) -> Optional[Workstream]:
+        """Add the actor to a Workstream without downgrading an existing role."""
+        now = _now_iso()
+        with self.db.get_connection() as conn:
+            row = conn.execute("SELECT * FROM workstreams WHERE id = ?", (workstream_id,)).fetchone()
+            if not row:
+                return None
+            existing = conn.execute(
+                """
+                SELECT role, status FROM workstream_participants
+                WHERE workstream_id = ? AND user_id = ?
+                """,
+                (workstream_id, actor_user_id),
+            ).fetchone()
+            role = 'contributor'
+            if existing and existing['status'] != 'removed':
+                existing_role = _normalize_choice(existing['role'], WORKSTREAM_ROLES, 'contributor')
+                role = 'contributor' if existing_role == 'watcher' else existing_role
+            self._upsert_participant_conn(conn, workstream_id, actor_user_id, role, actor_user_id, now)
+            conn.execute("UPDATE workstreams SET updated_at = ?, updated_by = ? WHERE id = ?", (now, actor_user_id, workstream_id))
+            conn.execute(
+                """
+                INSERT INTO workstream_events (
+                    id, workstream_id, event_type, actor_user_id, title, body,
+                    status, metadata_json, dedupe_key, created_at
+                ) VALUES (?, ?, 'progress', ?, 'Workstream claimed', ?, NULL, ?, ?, ?)
+                ON CONFLICT(workstream_id, dedupe_key) DO NOTHING
+                """,
+                (
+                    _new_id('Wse'),
+                    workstream_id,
+                    actor_user_id,
+                    f'Actor joined or opened this workstream as {role}.',
+                    _json_dumps({'role': role}),
+                    f'claim:{actor_user_id}',
+                    now,
+                ),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM workstreams WHERE id = ?", (workstream_id,)).fetchone()
+            return self._hydrate(conn, self._row_to_workstream(row)) if row else None
+
     def add_event(
         self,
         workstream_id: str,
@@ -743,9 +823,16 @@ class WorkstreamManager:
         next_action: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         dedupe_key: Optional[str] = None,
+        event_state: Optional[str] = None,
     ) -> WorkstreamEvent:
         event_type_clean = _normalize_choice(event_type, WORKSTREAM_EVENT_TYPES, 'progress')
         status_clean = _normalize_choice(status, WORKSTREAM_STATUSES, '') if status else None
+        event_state_clean = _normalize_optional_choice(event_state, WORKSTREAM_EVENT_STATES)
+        if not event_state_clean and event_type_clean == 'blocker':
+            event_state_clean = 'open'
+        metadata_clean = dict(metadata or {})
+        if event_state_clean:
+            metadata_clean['event_state'] = event_state_clean
         now = _now_iso()
         event_id = _new_id('Wse')
         with self.db.get_connection() as conn:
@@ -782,7 +869,7 @@ class WorkstreamManager:
                     _coerce_text(title, limit=300),
                     _coerce_text(body, limit=16000),
                     status_clean,
-                    _json_dumps(metadata),
+                    _json_dumps(metadata_clean),
                     _coerce_text(dedupe_key, limit=200),
                     now,
                 ),

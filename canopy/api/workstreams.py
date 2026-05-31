@@ -14,6 +14,7 @@ from flask import Blueprint, current_app, g, jsonify, request, session
 
 from ..core.workstreams import (
     WORKSTREAM_ARTIFACT_TYPES,
+    WORKSTREAM_EVENT_STATES,
     WORKSTREAM_EVENT_TYPES,
     WORKSTREAM_PRIORITIES,
     WORKSTREAM_ROLES,
@@ -107,6 +108,7 @@ def create_workstream_api_blueprint() -> Blueprint:
             'priorities': list(WORKSTREAM_PRIORITIES),
             'roles': list(WORKSTREAM_ROLES),
             'event_types': list(WORKSTREAM_EVENT_TYPES),
+            'event_states': list(WORKSTREAM_EVENT_STATES),
             'artifact_types': list(WORKSTREAM_ARTIFACT_TYPES),
         })
 
@@ -189,10 +191,14 @@ def create_workstream_api_blueprint() -> Blueprint:
         user_id = _request_user_id()
         if not manager.user_can_view(workstream_id, user_id):
             return jsonify({'error': 'Not found or not shared with this user'}), 404
-        ws = manager.get_workstream(workstream_id)
+        summary_only = _coerce_bool(request.args.get('summary'))
+        ws = manager.get_workstream(workstream_id, event_limit=8 if summary_only else 50)
         if not ws:
             return jsonify({'error': 'Not found'}), 404
-        return jsonify({'workstream': ws.to_dict(), 'agent_reference': manager.to_agent_reference(workstream_id)})
+        return jsonify({
+            'workstream': ws.to_dict(include_details=not summary_only),
+            'agent_reference': None if summary_only else manager.to_agent_reference(workstream_id),
+        })
 
     @api.route('/workstreams/<workstream_id>', methods=['PATCH'])
     @_require_auth(Permission.WRITE_FEED)
@@ -241,19 +247,7 @@ def create_workstream_api_blueprint() -> Blueprint:
         actor_id = _request_user_id()
         if not manager.user_can_view(workstream_id, actor_id):
             return jsonify({'error': 'Not found or not shared with this user'}), 404
-        ws = manager.set_participants(
-            workstream_id,
-            actor_user_id=actor_id,
-            participants=[{'user_id': actor_id, 'role': 'contributor'}],
-            replace=False,
-        )
-        manager.add_event(
-            workstream_id,
-            actor_user_id=actor_id,
-            event_type='progress',
-            title='Workstream claimed',
-            body='Actor joined this workstream as a contributor.',
-        )
+        ws = manager.claim_workstream(workstream_id, actor_user_id=actor_id)
         return jsonify({'workstream': ws.to_dict() if ws else None})
 
     @api.route('/workstreams/<workstream_id>/events', methods=['POST'])
@@ -263,9 +257,10 @@ def create_workstream_api_blueprint() -> Blueprint:
         if not manager:
             return jsonify({'error': 'Workstream manager unavailable'}), 500
         actor_id = _request_user_id()
-        if not manager.user_can_edit(workstream_id, actor_id):
-            return jsonify({'error': 'Permission denied', 'code': 'workstream_edit_denied'}), 403
+        if not manager.user_can_contribute(workstream_id, actor_id):
+            return jsonify({'error': 'Permission denied', 'code': 'workstream_contribute_denied'}), 403
         data = _json_body()
+        metadata = data.get('metadata') if isinstance(data.get('metadata'), dict) else None
         try:
             event = manager.add_event(
                 workstream_id,
@@ -276,8 +271,9 @@ def create_workstream_api_blueprint() -> Blueprint:
                 status=data.get('status'),
                 summary=data.get('summary'),
                 next_action=data.get('next_action'),
-                metadata=data.get('metadata') if isinstance(data.get('metadata'), dict) else None,
+                metadata=metadata,
                 dedupe_key=data.get('dedupe_key') or data.get('client_update_id'),
+                event_state=data.get('event_state') or data.get('blocker_state') or (metadata or {}).get('event_state'),
             )
             ws = manager.get_workstream(workstream_id, event_limit=20)
             return jsonify({'event': event.to_dict(), 'workstream': ws.to_dict() if ws else None}), 201
@@ -292,8 +288,8 @@ def create_workstream_api_blueprint() -> Blueprint:
         if not manager:
             return jsonify({'error': 'Workstream manager unavailable'}), 500
         actor_id = _request_user_id()
-        if not manager.user_can_edit(workstream_id, actor_id):
-            return jsonify({'error': 'Permission denied', 'code': 'workstream_edit_denied'}), 403
+        if not manager.user_can_contribute(workstream_id, actor_id):
+            return jsonify({'error': 'Permission denied', 'code': 'workstream_contribute_denied'}), 403
         data = _json_body()
         artifact_data = data.get('artifact') if isinstance(data.get('artifact'), dict) else data
         artifact = manager.add_artifact(workstream_id, actor_user_id=actor_id, artifact=artifact_data)
