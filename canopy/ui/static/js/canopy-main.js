@@ -23808,6 +23808,53 @@
                 ].filter((line) => line !== '').join('\n');
             }
 
+            function openDeckDigestionFigureCorrectionEditor(button, draftText) {
+                if (!button) return;
+                const analysis = button.closest('.deck-digestion-figure-analysis');
+                if (!analysis) return;
+                let editor = analysis.querySelector('[data-deck-digestion-figure-correction-editor]');
+                const safeDraft = escapeEmbedHtml(draftText || '');
+                if (!editor) {
+                    editor = document.createElement('div');
+                    editor.className = 'deck-digestion-figure-correction-editor';
+                    editor.setAttribute('data-deck-digestion-figure-correction-editor', '1');
+                    editor.innerHTML = `
+                        <div class="deck-digestion-figure-correction-head">
+                            <strong><i class="bi bi-pencil-square"></i> Figure correction draft</strong>
+                            <span>Edit here, then copy into a reply or work card.</span>
+                        </div>
+                        <textarea class="form-control deck-digestion-figure-correction-text"
+                                  data-deck-digestion-figure-correction-text
+                                  rows="8"
+                                  spellcheck="true">${safeDraft}</textarea>
+                        <div class="deck-digestion-figure-correction-actions">
+                            <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-copy-figure-correction><i class="bi bi-clipboard"></i> Copy edited draft</button>
+                            <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-close-figure-correction><i class="bi bi-x-lg"></i> Close</button>
+                        </div>
+                    `;
+                    analysis.appendChild(editor);
+                } else {
+                    const textarea = editor.querySelector('[data-deck-digestion-figure-correction-text]');
+                    if (textarea && !String(textarea.value || '').trim()) {
+                        textarea.value = draftText || '';
+                    }
+                    editor.hidden = false;
+                }
+                button.setAttribute('aria-expanded', 'true');
+                const textarea = editor.querySelector('[data-deck-digestion-figure-correction-text]');
+                if (textarea) {
+                    window.requestAnimationFrame(() => {
+                        try {
+                            textarea.focus({ preventScroll: true });
+                        } catch (_) {
+                            textarea.focus();
+                        }
+                        textarea.selectionStart = textarea.value.length;
+                        textarea.selectionEnd = textarea.value.length;
+                    });
+                }
+            }
+
             function renderDeckDigestionFigures(host, data) {
                 const listEl = host && host.querySelector('[data-deck-digestion-figures-list]');
                 const summaryEl = host && host.querySelector('[data-deck-digestion-figures-summary]');
@@ -23877,7 +23924,7 @@
                                         <p class="deck-digestion-figure-analysis-body">${escapeEmbedHtml(vision)}</p>
                                         ${analysisMeta ? `<div class="deck-digestion-figure-analysis-meta">${escapeEmbedHtml(analysisMeta)}</div>` : ''}
                                         <div class="deck-digestion-figure-actions">
-                                            <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-copy-figure-analysis="${escapeEmbedAttr(correctionText)}"><i class="bi bi-pencil-square"></i> Correction draft</button>
+                                            <button type="button" class="deck-digestion-mini-btn" data-deck-digestion-open-figure-correction="${escapeEmbedAttr(correctionText)}" aria-expanded="false"><i class="bi bi-pencil-square"></i> Correction draft</button>
                                         </div>
                                     </div>
                                 ` : `
@@ -24336,18 +24383,48 @@
                         setDeckDigestionFocus(host, alreadyFocused ? '' : target);
                         return;
                     }
-                    const copyFigureBtn = event.target.closest('[data-deck-digestion-copy-figure-analysis]');
-                    if (copyFigureBtn) {
+                    const correctionBtn = event.target.closest('[data-deck-digestion-open-figure-correction]');
+                    if (correctionBtn) {
                         event.preventDefault();
-                        const text = copyFigureBtn.getAttribute('data-deck-digestion-copy-figure-analysis') || '';
+                        event.stopPropagation();
+                        const text = correctionBtn.getAttribute('data-deck-digestion-open-figure-correction') || '';
                         const statusEl = host.querySelector('[data-deck-digestion-status]');
-                        copyText(text, 'Figure correction draft').then((copied) => {
+                        openDeckDigestionFigureCorrectionEditor(correctionBtn, text);
+                        if (statusEl) {
+                            const workspace = host.querySelector('.deck-digestion-workspace');
+                            const inFocusMode = !!(workspace && workspace.dataset.deckDigestionFocus);
+                            statusEl.textContent = inFocusMode
+                                ? 'Correction draft opened for editing. Focus mode remains active.'
+                                : 'Correction draft opened for editing.';
+                        }
+                        return;
+                    }
+                    const copyCorrectionBtn = event.target.closest('[data-deck-digestion-copy-figure-correction]');
+                    if (copyCorrectionBtn) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const editor = copyCorrectionBtn.closest('[data-deck-digestion-figure-correction-editor]');
+                        const textarea = editor && editor.querySelector('[data-deck-digestion-figure-correction-text]');
+                        const statusEl = host.querySelector('[data-deck-digestion-status]');
+                        const text = textarea ? textarea.value : '';
+                        copyText(text, 'Edited figure correction draft').then((copied) => {
                             if (statusEl) statusEl.textContent = copied
-                                ? 'Copied a structured correction draft for this figure analysis.'
-                                : 'Could not copy the figure correction draft.';
+                                ? 'Copied the edited figure correction draft.'
+                                : 'Could not copy the edited figure correction draft.';
                         }).catch(() => {
-                            if (statusEl) statusEl.textContent = 'Could not copy the figure correction draft.';
+                            if (statusEl) statusEl.textContent = 'Could not copy the edited figure correction draft.';
                         });
+                        return;
+                    }
+                    const closeCorrectionBtn = event.target.closest('[data-deck-digestion-close-figure-correction]');
+                    if (closeCorrectionBtn) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const editor = closeCorrectionBtn.closest('[data-deck-digestion-figure-correction-editor]');
+                        if (editor) editor.hidden = true;
+                        const analysis = closeCorrectionBtn.closest('.deck-digestion-figure-analysis');
+                        const opener = analysis && analysis.querySelector('[data-deck-digestion-open-figure-correction]');
+                        if (opener) opener.setAttribute('aria-expanded', 'false');
                         return;
                     }
 	                    const opBtn = event.target.closest('[data-deck-digestion-op]');

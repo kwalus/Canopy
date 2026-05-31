@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.307] - 2026-05-31
+
+### Changed
+- **Digestion figure correction drafts are editable in place** - the Deck visual-evidence correction action now opens an inline editable draft with Copy/Close controls instead of silently copying text, and it preserves figure focus mode while the human reviews or rewrites the correction.
+
 ## [0.6.306] - 2026-05-31
 
 ### Added

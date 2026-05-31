@@ -3979,6 +3979,71 @@
             font-size: 0.68rem;
         }
 
+        .deck-digestion-figure-correction-editor {
+            display: grid;
+            gap: 7px;
+            margin-top: 2px;
+            padding: 8px;
+            border-radius: 12px;
+            border: 1px solid color-mix(in srgb, var(--canopy-success) 42%, var(--canopy-deck-border));
+            background:
+                radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-success) 12%, transparent), transparent 42%),
+                var(--canopy-deck-input-bg);
+            min-width: 0;
+        }
+
+        .deck-digestion-figure-correction-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .deck-digestion-figure-correction-head strong {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--canopy-text-primary);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .deck-digestion-figure-correction-head span {
+            color: var(--canopy-text-secondary);
+            font-size: 0.66rem;
+            text-align: right;
+        }
+
+        .deck-digestion-figure-correction-text {
+            width: 100%;
+            min-height: 120px;
+            max-height: 42vh;
+            resize: vertical;
+            border-radius: 10px;
+            border-color: color-mix(in srgb, var(--canopy-success) 35%, var(--canopy-deck-border));
+            background: color-mix(in srgb, var(--canopy-deck-input-bg) 92%, transparent);
+            color: var(--canopy-text-primary);
+            font-size: 0.72rem;
+            line-height: 1.34;
+            scrollbar-gutter: stable;
+        }
+
+        .deck-digestion-figure-correction-text:focus {
+            border-color: color-mix(in srgb, var(--canopy-success) 62%, var(--canopy-deck-border));
+            box-shadow: 0 0 0 0.18rem color-mix(in srgb, var(--canopy-success) 16%, transparent);
+            background: var(--canopy-deck-input-bg);
+            color: var(--canopy-text-primary);
+        }
+
+        .deck-digestion-figure-correction-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
         .deck-digestion-workspace.is-figures-focus .deck-digestion-figure-copy p,
         .deck-digestion-workspace.is-figures-focus .deck-digestion-figure-analysis-body {
             -webkit-line-clamp: unset;
