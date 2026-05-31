@@ -2775,6 +2775,117 @@ class TestDigestions(unittest.TestCase):
         self.assertEqual(skipped['reason'], 'no_new_chunks')
         self.assertEqual(skipped['datapoint_count'], 2)
 
+    def test_structured_datapoints_checkpoint_and_resume_remaining_chunks(self) -> None:
+        alpha_source = self._save_text(
+            'resume-alpha.txt',
+            'Alpha device current was measured at 10 mA during the first calibration pass.\n\n'
+            'The alpha result was retained for later comparison.',
+        )
+        beta_source = self._save_text(
+            'resume-beta.txt',
+            'Beta device voltage was measured at 5 V during the second calibration pass.\n\n'
+            'The beta result was retained for later comparison.',
+        )
+        digestion = self.digestion_manager.create_digestion(
+            'owner-user',
+            name='Resume datapoints',
+            source_file_ids=[alpha_source.id, beta_source.id],
+            provider='local_hash',
+            chunk_size=240,
+            chunk_overlap=0,
+        )
+        self.digestion_manager.build_digestion(digestion['id'], 'owner-user')
+        context = self._fake_datapoint_llm_context()
+        context['parameters'].update({
+            'max_chunks': 10,
+            'batch_chunks': 1,
+            'batch_chars': 5000,
+            'chunk_chars': 600,
+            'batch_records': 4,
+        })
+        alpha_response = json.dumps({
+            'datapoints': [
+                {
+                    'subject': 'alpha device current',
+                    'claim': 'Alpha device current was measured at 10 mA during the first calibration pass.',
+                    'measurements': ['current'],
+                    'numerical_results': ['Alpha device current was measured at 10 mA during the first calibration pass.'],
+                    'quantitative_results': [{'measurement_label': 'current', 'value_text': '10', 'unit': 'mA'}],
+                    'evidence': [{
+                        'source_ref': 'chunk_0001',
+                        'field': 'numerical_results',
+                        'quote': 'Alpha device current was measured at 10 mA during the first calibration pass.',
+                    }],
+                }
+            ]
+        })
+        beta_response = json.dumps({
+            'datapoints': [
+                {
+                    'subject': 'beta device voltage',
+                    'claim': 'Beta device voltage was measured at 5 V during the second calibration pass.',
+                    'measurements': ['voltage'],
+                    'numerical_results': ['Beta device voltage was measured at 5 V during the second calibration pass.'],
+                    'quantitative_results': [{'measurement_label': 'voltage', 'value_text': '5', 'unit': 'V'}],
+                    'evidence': [{
+                        'source_ref': 'chunk_0001',
+                        'field': 'numerical_results',
+                        'quote': 'Beta device voltage was measured at 5 V during the second calibration pass.',
+                    }],
+                }
+            ]
+        })
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_datapoint_llm_context',
+            return_value=context,
+        ), patch.object(
+            self.digestion_manager,
+            '_call_datapoint_llm',
+            side_effect=[alpha_response, RuntimeError('provider timeout after first batch')],
+        ):
+            with self.assertRaises(RuntimeError):
+                self.digestion_manager.generate_structured_datapoints(digestion['id'], 'owner-user')
+
+        checkpoint = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'structured_datapoints')
+        checkpoint_payload = json.loads(checkpoint['content'])
+        self.assertTrue(checkpoint_payload['stats']['checkpoint'])
+        self.assertEqual(checkpoint_payload['stats']['datapoint_count'], 1)
+        self.assertIn('Alpha device current', checkpoint_payload['datapoints'][0]['claim'])
+        first_chunk_ids = self.digestion_manager._datapoint_source_chunk_ids(checkpoint_payload['datapoints'])
+        self.assertEqual(len(first_chunk_ids), 1)
+
+        with patch.object(
+            self.digestion_manager,
+            '_resolve_datapoint_llm_context',
+            return_value=context,
+        ), patch.object(
+            self.digestion_manager,
+            '_call_datapoint_llm',
+            return_value=beta_response,
+        ) as call_mock:
+            resumed = self.digestion_manager.generate_structured_datapoints(
+                digestion['id'],
+                'owner-user',
+                extraction_scope='resume',
+            )
+
+        self.assertEqual(call_mock.call_count, 1)
+        self.assertEqual(resumed['extraction_scope'], 'resume')
+        self.assertEqual(resumed['preserved_datapoint_count'], 1)
+        self.assertEqual(resumed['new_datapoint_count'], 1)
+        self.assertEqual(resumed['datapoint_count'], 2)
+        final_output = self.digestion_manager.get_output(digestion['id'], 'owner-user', 'structured_datapoints')
+        final_payload = json.loads(final_output['content'])
+        self.assertFalse(final_payload['stats']['checkpoint'])
+        self.assertEqual(final_payload['stats']['datapoint_count'], 2)
+        self.assertEqual(final_payload['stats']['extraction_scope'], 'resume')
+        self.assertEqual(
+            {item['subject'] for item in final_payload['datapoints']},
+            {'alpha device current', 'beta device voltage'},
+        )
+
     def test_digestion_rest_create_build_query_and_acl(self) -> None:
         source = self._save_text('api-corpus.txt', 'Canopy Digestions help agents query a large document corpus with citations.')
         components = (
@@ -3678,7 +3789,7 @@ class TestDigestions(unittest.TestCase):
         reader_progress = self.digestion_manager.get_operation_progress(digestion['id'], 'reader-user')
         self.assertEqual(reader_progress['operations']['datapoints']['status'], 'stalled')
         self.assertEqual(reader_progress['operations']['datapoints']['current_label'], '')
-        self.assertIn('can be reset', reader_progress['operations']['datapoints']['message'])
+        self.assertIn('resume if possible', reader_progress['operations']['datapoints']['message'])
 
         with self.assertRaises(DigestionError) as denied:
             self.digestion_manager.cancel_operation(digestion['id'], 'reader-user', 'datapoints')

@@ -3978,6 +3978,7 @@
                     const message = String(safeProgress.message || '').trim() || (status === 'completed' ? `${label} complete.` : `${label} queued.`);
                     const countText = total > 0 ? `${processed}/${total}` : '';
                     const canCancel = !!options.canManage && digestionProgressRecoverable(safeProgress, operation);
+                    const canResume = !!options.canManage && operation === 'datapoints' && statusLower === 'stalled';
                     const digestionId = String(options.digestionId || '');
                     const cancelLabel = statusLower === 'stalled' ? 'Reset' : 'Cancel';
                     const statusClass = statusLower === 'stalled' ? ' is-stalled' : (statusLower === 'cancelled' ? ' is-cancelled' : '');
@@ -3994,13 +3995,23 @@
                                 </div>
                                 <div class="vault-digestion-progress-actions">
                                     <div class="vault-digestion-progress-percent">${percent}%</div>
+                                    ${canResume ? `
+                                        <button class="btn btn-sm btn-success vault-digestion-progress-resume"
+                                                type="button"
+                                                data-vault-digestion-action="resume-operation"
+                                                data-vault-digestion-id="${vaultEscape(digestionId)}"
+                                                data-vault-digestion-operation="${vaultEscape(operation)}"
+                                                title="Continue from the last checkpoint and preserve any structured datapoints already written.">
+                                            <i class="bi bi-play-circle"></i> Continue
+                                        </button>
+                                    ` : ''}
                                     ${canCancel ? `
                                         <button class="btn btn-sm btn-outline-warning vault-digestion-progress-cancel"
                                                 type="button"
                                                 data-vault-digestion-action="cancel-operation"
                                                 data-vault-digestion-id="${vaultEscape(digestionId)}"
                                                 data-vault-digestion-operation="${vaultEscape(operation)}"
-                                                title="${statusLower === 'stalled' ? 'Reset this stale progress state so you can rerun the operation.' : 'Request cancellation and reset this operation before the next batch.'}">
+                                                title="${statusLower === 'stalled' ? 'Reset this stale progress state. Existing output checkpoints stay available, but the stalled run state is cleared.' : 'Request cancellation and reset this operation before the next batch.'}">
                                             <i class="bi bi-x-octagon"></i> ${cancelLabel}
                                         </button>
                                     ` : ''}
@@ -5736,14 +5747,36 @@
                     };
                 }
 
-                async function extractDigestionDatapoints(digestionId, button) {
+                function resumeDatapointOptions(digestionId) {
+                    const base = readDigestionExtractOptions(digestionId);
+                    const digestion = findDigestion(digestionId) || {};
+                    const progress = digestionOperationProgress(digestion, 'datapoints');
+                    const details = progress.details && typeof progress.details === 'object' ? progress.details : {};
+                    const bounded = (value, fallback, min, max) => {
+                        const parsed = parseInt(value, 10);
+                        return Number.isFinite(parsed) ? Math.max(min, Math.min(parsed, max)) : fallback;
+                    };
+                    return {
+                        ...base,
+                        scope: 'resume',
+                        max_chunks: bounded(details.max_chunks, base.max_chunks, 1, 240),
+                        max_datapoints: bounded(details.max_datapoints, base.max_datapoints, 1, 1200),
+                        lens: String(details.lens || base.lens || '').trim(),
+                    };
+                }
+
+                async function extractDigestionDatapoints(digestionId, button, runOptions = {}) {
                     if (!digestionId) return;
                     const original = button ? button.innerHTML : '';
                     if (button) {
                         button.disabled = true;
-                        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Extracting';
+                        button.innerHTML = runOptions && runOptions.resume
+                            ? '<span class="spinner-border spinner-border-sm me-1"></span>Continuing'
+                            : '<span class="spinner-border spinner-border-sm me-1"></span>Extracting';
                     }
-                    const options = readDigestionExtractOptions(digestionId);
+                    const options = runOptions && runOptions.resume
+                        ? resumeDatapointOptions(digestionId)
+                        : readDigestionExtractOptions(digestionId);
                     watchDigestionProgress(digestionId, 'datapoints');
                     try {
                         const data = await apiCall(`${vaultUrls().digestions}/${encodeURIComponent(digestionId)}/datapoints/extract`, {
@@ -5753,10 +5786,11 @@
 	                        if (typeof showAlert === 'function') {
 	                            const count = Number(data.datapoint_count || 0);
 	                            const newCount = Number(data.new_datapoint_count || 0);
-	                            const skipped = data && data.skipped && data.reason === 'no_new_chunks';
+	                            const skipped = data && data.skipped && (data.reason === 'no_new_chunks' || data.reason === 'no_remaining_chunks');
+	                            const resumed = data && data.extraction_scope === 'resume';
 	                            const message = skipped
-	                                ? `No new documents needed extraction; ${count} existing datapoint${count === 1 ? '' : 's'} kept.`
-	                                : `Structured datapoints extracted: ${newCount || count} new, ${count} total.`;
+	                                ? `${resumed ? 'No remaining chunks needed extraction' : 'No new documents needed extraction'}; ${count} existing datapoint${count === 1 ? '' : 's'} kept.`
+	                                : `${resumed ? 'Resumed extraction' : 'Structured datapoints extracted'}: ${newCount || count} new, ${count} total.`;
 	                            showAlert(message, count ? 'success' : 'warning');
 	                        }
                         try {
@@ -5773,6 +5807,8 @@
                                 message = 'Extract datapoints requires source-read access. Ask the owner to grant source metadata access for this Digestion.';
                             } else if (reason === 'datapoint_missing_api_key' || reason === 'datapoint_llm_disabled') {
                                 message = 'Digestion AI extraction is not configured. Add credentials in Profile > Digestion AI Extraction, or ask an admin to enable instance Digestion fallback.';
+                            } else if (reason === 'no_remaining_chunks') {
+                                message = 'No remaining chunks need extraction; existing checkpointed datapoints were preserved.';
                             }
                             showAlert(message, 'danger');
                         }
@@ -5782,6 +5818,10 @@
                             button.innerHTML = original;
                         }
                     }
+                }
+
+                async function resumeDigestionDatapoints(digestionId, button) {
+                    return extractDigestionDatapoints(digestionId, button, { resume: true });
                 }
 
                 async function analyzeDigestionFigures(digestionId, button) {
@@ -8802,6 +8842,11 @@
                                 actionBtn.getAttribute('data-vault-digestion-operation') || '',
                                 actionBtn,
                             );
+                        } else if (action === 'resume-operation') {
+                            const operation = actionBtn.getAttribute('data-vault-digestion-operation') || '';
+                            if (operation === 'datapoints') {
+                                resumeDigestionDatapoints(digestionId, actionBtn);
+                            }
                         } else if (action === 'extract-options') {
                             toggleDigestionExtractOptions(digestionId);
 	                        } else if (action === 'export-package') {

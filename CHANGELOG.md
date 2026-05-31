@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.300] - 2026-05-31
+
+### Changed
+- **Stalled Digestion datapoint extraction can be resumed** - Vault progress warnings now offer a Continue action for stalled datapoint runs, preserving checkpointed structured datapoints and scanning remaining chunks instead of forcing a destructive reset.
+- **Structured datapoint extraction checkpoints provider work** - successful LLM batches are written into the `structured_datapoints` output during long runs so restarts/timeouts do not silently discard all completed batches.
+- **Agent and MCP guidance now favors resume before reset** - REST docs, MCP schemas, and agent instructions document `scope=resume` alongside `new` and `all` so agents can recover interrupted extraction jobs without reprocessing already checkpointed chunks.
+
 ## [0.6.299] - 2026-05-31
 
 ### Changed

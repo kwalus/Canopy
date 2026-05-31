@@ -5226,31 +5226,39 @@ class DigestionManager:
             else []
         )
         existing_file_ids = self._datapoint_source_file_ids(existing_datapoints)
+        existing_chunk_ids = self._datapoint_source_chunk_ids(existing_datapoints)
         rows = self._datapoint_chunk_rows(
             digestion.id,
             limit=chunk_limit,
             exclude_file_ids=existing_file_ids if scope == "new" and existing_file_ids else None,
+            exclude_chunk_ids=existing_chunk_ids if scope == "resume" and existing_chunk_ids else None,
         )
-        if scope == "new" and existing_datapoints and not rows:
+        if scope in {"new", "resume"} and existing_datapoints and not rows:
             output = self._structured_datapoint_output_row(digestion.id)
             quantitative_result_count = sum(
                 len(item.get("quantitative_results") or [])
                 for item in existing_datapoints
                 if isinstance(item, dict)
             )
+            no_work_message = (
+                "No remaining indexed chunks need datapoint extraction; checkpointed structured datapoints were kept."
+                if scope == "resume"
+                else "No newly indexed sources need datapoint extraction; existing structured datapoints were kept."
+            )
             self._set_operation_progress(
                 digestion.id,
                 "datapoints",
                 status="completed",
-                phase="no_new_chunks",
+                phase="no_remaining_chunks" if scope == "resume" else "no_new_chunks",
                 percent=100,
                 processed=0,
                 total=0,
-                message="No newly indexed sources need datapoint extraction; existing structured datapoints were kept.",
+                message=no_work_message,
                 details={
                     "datapoint_count": len(existing_datapoints),
                     "quantitative_result_count": quantitative_result_count,
                     "existing_datapoints_preserved": len(existing_datapoints),
+                    "existing_chunk_count": len(existing_chunk_ids),
                     "extraction_scope": scope,
                     "max_chunks": chunk_limit,
                     "max_datapoints": datapoint_limit,
@@ -5266,7 +5274,7 @@ class DigestionManager:
                 "preview": existing_datapoints[:3],
                 "progress": self._progress_snapshot(digestion.id).get("datapoints", {}),
                 "skipped": True,
-                "reason": "no_new_chunks",
+                "reason": "no_remaining_chunks" if scope == "resume" else "no_new_chunks",
                 "extraction_scope": scope,
             }
         if not rows:
@@ -5309,6 +5317,61 @@ class DigestionManager:
             },
         )
 
+        scoped_file_ids = {str(row["file_id"] or "") for row in rows if str(row["file_id"] or "")}
+        scoped_chunk_ids = {str(row["chunk_id"] or "") for row in rows if str(row["chunk_id"] or "")}
+        preserved_datapoints: list[dict[str, Any]] = []
+        if scope == "resume":
+            preserved_datapoints = [item for item in existing_datapoints if isinstance(item, dict)]
+        elif scope == "new" and existing_datapoints:
+            preserved_datapoints = [
+                item
+                for item in existing_datapoints
+                if isinstance(item, dict)
+                and not (self._datapoint_source_file_ids([item]) & scoped_file_ids)
+            ]
+
+        static_progress_details = {
+            "max_chunks": chunk_limit,
+            "max_datapoints": datapoint_limit,
+            "provider": provider,
+            "model": llm_context.get("model") or "",
+            "credential_source": llm_context.get("credential_source") or "",
+            "lens": effective_lens[:800],
+            "extraction_scope": scope,
+            "estimated_batches": estimated_batches,
+            "checkpointed_datapoint_count": len(preserved_datapoints),
+            "existing_chunk_count": len(existing_chunk_ids),
+            "remaining_chunk_count": len(rows),
+        }
+
+        def checkpoint_structured_datapoints(payload: dict[str, Any]) -> None:
+            partial = payload.get("datapoints") if isinstance(payload, dict) else []
+            if not isinstance(partial, list):
+                partial = []
+            current_datapoints = [*preserved_datapoints, *[item for item in partial if isinstance(item, dict)]]
+            if not current_datapoints:
+                return
+            extraction_stats = payload.get("stats") if isinstance(payload.get("stats"), dict) else {}
+            errors = payload.get("errors") if isinstance(payload.get("errors"), list) else []
+            self._upsert_structured_datapoint_output(
+                digestion,
+                actor_user_id,
+                llm_context=llm_context,
+                effective_lens=effective_lens,
+                chunk_limit=chunk_limit,
+                datapoint_limit=datapoint_limit,
+                scope=scope,
+                rows_considered=len(rows),
+                datapoints=current_datapoints,
+                new_datapoint_count=len(partial),
+                preserved_datapoint_count=len(preserved_datapoints),
+                extraction_stats=extraction_stats,
+                errors=errors,
+                scoped_file_ids=scoped_file_ids,
+                scoped_chunk_ids=scoped_chunk_ids,
+                checkpoint=True,
+            )
+
         try:
             self._raise_if_operation_cancelled(digestion.id, "datapoints")
             extraction = self._extract_structured_datapoints_with_llm(
@@ -5328,8 +5391,12 @@ class DigestionManager:
                     total=payload.get("total"),
                     current_label=str(payload.get("current_label") or ""),
                     message=str(payload.get("message") or ""),
-                    details=payload.get("details") if isinstance(payload.get("details"), dict) else {},
+                    details={
+                        **static_progress_details,
+                        **(payload.get("details") if isinstance(payload.get("details"), dict) else {}),
+                    },
                 ),
+                checkpoint_callback=checkpoint_structured_datapoints,
             )
         except DigestionError as exc:
             if getattr(exc, "reason", "") == "operation_cancelled":
@@ -5364,110 +5431,26 @@ class DigestionManager:
                 details={"reason": getattr(exc, "reason", "datapoint_extraction_failed")},
             )
             raise
-        scoped_file_ids = {str(row["file_id"] or "") for row in rows if str(row["file_id"] or "")}
         extracted_datapoints = extraction["datapoints"]
-        preserved_datapoints: list[dict[str, Any]] = []
-        if scope == "new" and existing_datapoints:
-            preserved_datapoints = [
-                item
-                for item in existing_datapoints
-                if isinstance(item, dict)
-                and not (self._datapoint_source_file_ids([item]) & scoped_file_ids)
-            ]
         datapoints = [*preserved_datapoints, *extracted_datapoints]
         quantitative_result_count = sum(len(item.get("quantitative_results") or []) for item in datapoints)
-
-        field_counts = self._datapoint_field_counts(datapoints)
-        sources = self._source_summary_rows(digestion.id)
-        digestion_stats = self.stats(digestion.id)
-        payload = {
-            "kind": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
-            "schema_version": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
-            "digestion": {
-                "id": digestion.id,
-                "name": digestion.name,
-                "purpose": digestion.purpose or digestion.description,
-                "status": digestion.status,
-                "built_at": digestion.built_at,
-            },
-            "extractor": {
-                "name": "canopy_llm_structured_datapoint_extractor",
-                "version": "2",
-                "mode": "source_grounded_llm",
-                "provider": llm_context.get("provider") or "",
-                "model": llm_context.get("model") or "",
-                "credential_source": llm_context.get("credential_source") or "",
-                "network_calls": True,
-                "lens": effective_lens[:800],
-                "source_boundary": "only indexed Digestion chunks are sent to the configured LLM provider; raw Vault files are not exported",
-            },
-            "limits": {
-                "max_chunks": chunk_limit,
-                "max_datapoints": datapoint_limit,
-                "batch_chunks": extraction["stats"].get("batch_chunk_limit"),
-                "batch_chars": extraction["stats"].get("batch_char_limit"),
-                "chunk_chars": extraction["stats"].get("chunk_char_limit"),
-                "batch_records": extraction["stats"].get("batch_record_limit"),
-                "max_output_tokens": max_output_tokens,
-                "extraction_scope": scope,
-            },
-            "stats": {
-                "datapoint_count": len(datapoints),
-                "new_datapoint_count": len(extracted_datapoints),
-                "preserved_datapoint_count": len(preserved_datapoints),
-                "quantitative_result_count": quantitative_result_count,
-                "source_count": len(sources),
-                "chunks_considered": len(rows),
-                "total_indexed_chunks": int(digestion_stats.get("chunks") or 0),
-                "batches_considered": extraction["stats"].get("batches_considered", 0),
-                "failed_batches": extraction["stats"].get("failed_batches", 0),
-                "chunks_without_datapoints": extraction["stats"].get("chunks_without_datapoints", 0),
-                "field_counts": field_counts,
-                "errors": extraction["errors"][:8],
-                "extraction_scope": scope,
-                "scoped_source_file_ids": sorted(scoped_file_ids),
-            },
-            "sources": [
-                {
-                    "file_id": item.get("file_id") or "",
-                    "file_name": item.get("file_name") or "",
-                    "source_kind": item.get("source_kind") or "",
-                    "source_label": item.get("source_label") or "",
-                    "chunk_count": item.get("chunk_count") or 0,
-                }
-                for item in sources
-            ],
-            "datapoints": datapoints,
-            "reuse_guidance": [
-                "Treat each datapoint as a cited record, not as a complete reading of the underlying source.",
-                "Use source.file_name, source.page_label, source.chunk_index, and evidence[] when citing or challenging a datapoint.",
-                "If a field is empty, the extractor did not find source-grounded evidence for that field in the supplied chunks.",
-                "For live semantic retrieval, keep using the Digestion query/context endpoints; this output is a reusable structured snapshot.",
-            ],
-            "generated_at": self._now(),
-        }
-        output = self._upsert_output(
+        output, payload = self._upsert_structured_datapoint_output(
             digestion,
             actor_user_id,
-            STRUCTURED_DATAPOINT_OUTPUT_KIND,
-            f"{digestion.name or 'Digestion'} Structured Datapoints",
-            "application/json",
-            json.dumps(payload, indent=2, sort_keys=True),
-            {
-                "schema_version": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
-                "extractor": payload["extractor"],
-                "datapoint_count": len(datapoints),
-                "quantitative_result_count": quantitative_result_count,
-                "chunks_considered": len(rows),
-                "batches_considered": extraction["stats"].get("batches_considered", 0),
-                "failed_batches": extraction["stats"].get("failed_batches", 0),
-                "chunks_without_datapoints": extraction["stats"].get("chunks_without_datapoints", 0),
-                "field_counts": field_counts,
-                "source_count": len(sources),
-                "extraction_scope": scope,
-                "new_datapoint_count": len(extracted_datapoints),
-                "preserved_datapoint_count": len(preserved_datapoints),
-            },
+            llm_context=llm_context,
+            effective_lens=effective_lens,
+            chunk_limit=chunk_limit,
+            datapoint_limit=datapoint_limit,
+            scope=scope,
+            rows_considered=len(rows),
+            datapoints=datapoints,
+            new_datapoint_count=len(extracted_datapoints),
+            preserved_datapoint_count=len(preserved_datapoints),
+            extraction_stats=extraction["stats"],
+            errors=extraction["errors"],
+            scoped_file_ids=scoped_file_ids,
+            scoped_chunk_ids=scoped_chunk_ids,
+            checkpoint=False,
         )
         self._set_operation_progress(
             digestion.id,
@@ -5510,6 +5493,134 @@ class DigestionManager:
             "new_datapoint_count": len(extracted_datapoints),
             "preserved_datapoint_count": len(preserved_datapoints),
         }
+
+    def _upsert_structured_datapoint_output(
+        self,
+        digestion: Digestion,
+        actor_user_id: str,
+        *,
+        llm_context: dict[str, Any],
+        effective_lens: str,
+        chunk_limit: int,
+        datapoint_limit: int,
+        scope: str,
+        rows_considered: int,
+        datapoints: list[dict[str, Any]],
+        new_datapoint_count: int,
+        preserved_datapoint_count: int,
+        extraction_stats: dict[str, Any],
+        errors: list[dict[str, Any]],
+        scoped_file_ids: set[str],
+        scoped_chunk_ids: set[str],
+        checkpoint: bool,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Write the structured datapoint snapshot, including resumable checkpoints."""
+        extraction_stats = extraction_stats if isinstance(extraction_stats, dict) else {}
+        errors = errors if isinstance(errors, list) else []
+        datapoints = [item for item in (datapoints or []) if isinstance(item, dict)]
+        quantitative_result_count = sum(len(item.get("quantitative_results") or []) for item in datapoints)
+        field_counts = self._datapoint_field_counts(datapoints)
+        sources = self._source_summary_rows(digestion.id)
+        digestion_stats = self.stats(digestion.id)
+        parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
+        provider = str(llm_context.get("provider") or "openai").strip().lower()
+        payload = {
+            "kind": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
+            "schema_version": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
+            "digestion": {
+                "id": digestion.id,
+                "name": digestion.name,
+                "purpose": digestion.purpose or digestion.description,
+                "status": digestion.status,
+                "built_at": digestion.built_at,
+            },
+            "extractor": {
+                "name": "canopy_llm_structured_datapoint_extractor",
+                "version": "2",
+                "mode": "source_grounded_llm",
+                "provider": llm_context.get("provider") or "",
+                "model": llm_context.get("model") or "",
+                "credential_source": llm_context.get("credential_source") or "",
+                "network_calls": True,
+                "lens": str(effective_lens or "")[:800],
+                "source_boundary": "only indexed Digestion chunks are sent to the configured LLM provider; raw Vault files are not exported",
+            },
+            "limits": {
+                "max_chunks": int(chunk_limit or 0),
+                "max_datapoints": int(datapoint_limit or 0),
+                "batch_chunks": extraction_stats.get("batch_chunk_limit"),
+                "batch_chars": extraction_stats.get("batch_char_limit"),
+                "chunk_chars": extraction_stats.get("chunk_char_limit"),
+                "batch_records": extraction_stats.get("batch_record_limit"),
+                "max_output_tokens": self._datapoint_max_output_tokens(provider=provider, parameters=parameters),
+                "extraction_scope": scope,
+            },
+            "stats": {
+                "datapoint_count": len(datapoints),
+                "new_datapoint_count": int(new_datapoint_count or 0),
+                "preserved_datapoint_count": int(preserved_datapoint_count or 0),
+                "quantitative_result_count": quantitative_result_count,
+                "source_count": len(sources),
+                "chunks_considered": int(rows_considered or 0),
+                "total_indexed_chunks": int(digestion_stats.get("chunks") or 0),
+                "batches_considered": extraction_stats.get("batches_considered", 0),
+                "failed_batches": extraction_stats.get("failed_batches", 0),
+                "chunks_without_datapoints": extraction_stats.get("chunks_without_datapoints", 0),
+                "field_counts": field_counts,
+                "errors": errors[:8],
+                "extraction_scope": scope,
+                "scoped_source_file_ids": sorted(str(item) for item in (scoped_file_ids or set()) if str(item)),
+                "scoped_chunk_ids": sorted(str(item) for item in (scoped_chunk_ids or set()) if str(item)),
+                "checkpoint": bool(checkpoint),
+                "checkpointed_at": self._now() if checkpoint else "",
+            },
+            "sources": [
+                {
+                    "file_id": item.get("file_id") or "",
+                    "file_name": item.get("file_name") or "",
+                    "source_kind": item.get("source_kind") or "",
+                    "source_label": item.get("source_label") or "",
+                    "chunk_count": item.get("chunk_count") or 0,
+                }
+                for item in sources
+            ],
+            "datapoints": datapoints,
+            "reuse_guidance": [
+                "Treat each datapoint as a cited record, not as a complete reading of the underlying source.",
+                "Use source.file_name, source.page_label, source.chunk_index, and evidence[] when citing or challenging a datapoint.",
+                "If a field is empty, the extractor did not find source-grounded evidence for that field in the supplied chunks.",
+                "For live semantic retrieval, keep using the Digestion query/context endpoints; this output is a reusable structured snapshot.",
+            ],
+            "generated_at": self._now(),
+        }
+        metadata = {
+            "schema_version": STRUCTURED_DATAPOINT_SCHEMA_VERSION,
+            "extractor": payload["extractor"],
+            "datapoint_count": len(datapoints),
+            "quantitative_result_count": quantitative_result_count,
+            "chunks_considered": int(rows_considered or 0),
+            "batches_considered": extraction_stats.get("batches_considered", 0),
+            "failed_batches": extraction_stats.get("failed_batches", 0),
+            "chunks_without_datapoints": extraction_stats.get("chunks_without_datapoints", 0),
+            "field_counts": field_counts,
+            "source_count": len(sources),
+            "extraction_scope": scope,
+            "new_datapoint_count": int(new_datapoint_count or 0),
+            "preserved_datapoint_count": int(preserved_datapoint_count or 0),
+            "checkpoint": bool(checkpoint),
+            "checkpointed_at": payload["stats"].get("checkpointed_at") or "",
+            "scoped_chunk_count": len(scoped_chunk_ids or set()),
+        }
+        output = self._upsert_output(
+            digestion,
+            actor_user_id,
+            STRUCTURED_DATAPOINT_OUTPUT_KIND,
+            f"{digestion.name or 'Digestion'} Structured Datapoints",
+            "application/json",
+            json.dumps(payload, indent=2, sort_keys=True),
+            metadata,
+        )
+        return output, payload
 
     def list_outputs(
         self,
@@ -7472,17 +7583,22 @@ class DigestionManager:
         limit: int,
         file_ids: Optional[Iterable[str]] = None,
         exclude_file_ids: Optional[Iterable[str]] = None,
+        exclude_chunk_ids: Optional[Iterable[str]] = None,
     ) -> list[Any]:
         clauses = ["c.digestion_id = ?"]
         params: list[Any] = [digestion_id]
         include_ids = [self._clean_id(item) for item in (file_ids or []) if self._clean_id(item)]
         exclude_ids = [self._clean_id(item) for item in (exclude_file_ids or []) if self._clean_id(item)]
+        exclude_chunks = [self._clean_id(item) for item in (exclude_chunk_ids or []) if self._clean_id(item)]
         if include_ids:
             clauses.append(f"c.file_id IN ({','.join('?' for _ in include_ids)})")
             params.extend(include_ids)
         if exclude_ids:
             clauses.append(f"c.file_id NOT IN ({','.join('?' for _ in exclude_ids)})")
             params.extend(exclude_ids)
+        if exclude_chunks:
+            clauses.append(f"c.id NOT IN ({','.join('?' for _ in exclude_chunks)})")
+            params.extend(exclude_chunks)
         params.append(max(1, int(limit or 1)))
         where_sql = " AND ".join(clauses)
         with self.db.get_connection() as conn:
@@ -7505,6 +7621,8 @@ class DigestionManager:
         scope = str(value or "").strip().lower().replace("-", "_")
         if scope in {"all", "full", "rebuild", "refresh_all", "all_sources"}:
             return "all"
+        if scope in {"resume", "continue", "recover", "stalled", "remaining"}:
+            return "resume"
         return "new"
 
     def _structured_datapoint_output_row(self, digestion_id: str) -> dict[str, Any]:
@@ -7553,6 +7671,27 @@ class DigestionManager:
                     if isinstance(chunk, dict) and str(chunk.get("file_id") or "").strip():
                         file_ids.add(str(chunk.get("file_id") or "").strip())
         return file_ids
+
+    @staticmethod
+    def _datapoint_source_chunk_ids(datapoints: Iterable[Any]) -> set[str]:
+        chunk_ids: set[str] = set()
+        for item in datapoints or []:
+            if not isinstance(item, dict):
+                continue
+            source = item.get("source")
+            if isinstance(source, dict) and str(source.get("chunk_id") or "").strip():
+                chunk_ids.add(str(source.get("chunk_id") or "").strip())
+            source_chunks = item.get("source_chunks")
+            if isinstance(source_chunks, list):
+                for chunk in source_chunks:
+                    if isinstance(chunk, dict) and str(chunk.get("chunk_id") or "").strip():
+                        chunk_ids.add(str(chunk.get("chunk_id") or "").strip())
+            evidence = item.get("evidence")
+            if isinstance(evidence, list):
+                for ev in evidence:
+                    if isinstance(ev, dict) and str(ev.get("source_chunk_id") or "").strip():
+                        chunk_ids.add(str(ev.get("source_chunk_id") or "").strip())
+        return chunk_ids
 
     @staticmethod
     def _datapoint_field_counts(datapoints: Iterable[dict[str, Any]]) -> dict[str, int]:
@@ -7888,6 +8027,7 @@ Required JSON shape:
         datapoint_limit: int,
         cancel_check: Optional[Any] = None,
         progress_callback: Optional[Any] = None,
+        checkpoint_callback: Optional[Any] = None,
     ) -> dict[str, Any]:
         parameters = llm_context.get("parameters") if isinstance(llm_context.get("parameters"), dict) else {}
         batch_record_limit = self._bounded_int(
@@ -7952,6 +8092,35 @@ Required JSON shape:
                 )
                 datapoints.extend(normalized)
                 touched_refs.update(record_refs)
+                if callable(checkpoint_callback):
+                    checkpoint_callback({
+                        "datapoints": datapoints[:int(datapoint_limit)],
+                        "errors": errors[:],
+                        "stats": {
+                            "batches_considered": batch_index,
+                            "failed_batches": len(errors),
+                            "chunks_without_datapoints": len(processed_refs - touched_refs),
+                            "batch_chunk_limit": self._bounded_int(
+                                parameters.get("batch_chunks"),
+                                6,
+                                1,
+                                24,
+                            ),
+                            "batch_char_limit": self._bounded_int(
+                                parameters.get("batch_chars"),
+                                18000,
+                                4000,
+                                60000,
+                            ),
+                            "chunk_char_limit": self._bounded_int(
+                                parameters.get("chunk_chars"),
+                                2800,
+                                800,
+                                8000,
+                            ),
+                            "batch_record_limit": batch_record_limit,
+                        },
+                    })
                 if callable(progress_callback):
                     progress_callback({
                         "phase": "batch_normalized",
@@ -9311,6 +9480,12 @@ Use this as a permissioned retrieval capability, not as raw file access.
             "stale_seconds",
             "stale_after_seconds",
             "cancel_requested",
+            "checkpoint",
+            "checkpointed_at",
+            "checkpointed_datapoint_count",
+            "existing_chunk_count",
+            "remaining_chunk_count",
+            "scoped_chunk_count",
         }
         public["details"] = {key: details[key] for key in allowed_keys if key in details}
         return public
@@ -9331,7 +9506,7 @@ Use this as a permissioned retrieval capability, not as raw file access.
         if status == "cancelled":
             return "Operation was reset/cancelled."
         if status == "stalled":
-            return "Operation appears stalled and can be reset."
+            return "Operation appears stalled; resume if possible, or reset before rerunning."
         if operation == "build":
             return f"Building Digestion source {processed + 1} of {total}." if total else "Building Digestion."
         if operation == "datapoints":
