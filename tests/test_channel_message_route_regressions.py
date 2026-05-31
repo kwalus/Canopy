@@ -2,6 +2,7 @@
 
 import json
 import os
+import base64
 import sqlite3
 import sys
 import tempfile
@@ -390,6 +391,68 @@ class TestChannelMessageRouteRegressions(unittest.TestCase):
         self.assertEqual(kwargs['attachments'][0]['id'], 'Fvault')
         self.assertEqual(kwargs['attachments'][0]['source'], 'vault')
         self.file_manager.save_file.assert_not_called()
+
+    def test_send_channel_message_auto_files_inline_upload_under_posted_attachments(self) -> None:
+        self.file_manager.normalize_upload_metadata.return_value = ('field-photo.png', 'image/png')
+        self.file_manager.ensure_default_attachment_folder.return_value = 'VpostedImages'
+        self.file_manager.save_file.return_value = types.SimpleNamespace(
+            id='FpostedImage',
+            original_name='field-photo.png',
+            content_type='image/png',
+            size=19,
+            url='/files/FpostedImage',
+        )
+        self.channel_manager.can_user_post_message.return_value = {'allowed': True}
+        sent_message = types.SimpleNamespace(
+            id='M-posted-image',
+            created_at=datetime.now(timezone.utc),
+            attachments=[{
+                'id': 'FpostedImage',
+                'name': 'field-photo.png',
+                'type': 'image/png',
+                'size': 19,
+                'url': '/files/FpostedImage',
+            }],
+            source_layout=None,
+            source_reference=None,
+            repost_policy=None,
+            expires_at=None,
+            parent_message_id=None,
+        )
+        sent_message.to_dict = lambda: {
+            'id': 'M-posted-image',
+            'content': 'posting a field photo',
+            'attachments': sent_message.attachments,
+        }
+        self.channel_manager.send_message.return_value = sent_message
+
+        response = self.client.post(
+            '/ajax/send_channel_message',
+            json={
+                'channel_id': 'general',
+                'content': 'posting a field photo',
+                'attachments': [{
+                    'name': 'field-photo.png',
+                    'type': 'image/png',
+                    'data': base64.b64encode(b'fake image bytes').decode('ascii'),
+                }],
+            },
+            headers={'X-CSRFToken': 'csrf-channel-delete'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.file_manager.ensure_default_attachment_folder.assert_called_once_with(
+            'owner',
+            'field-photo.png',
+            'image/png',
+            root_name='Posted Attachments',
+        )
+        self.file_manager.save_file.assert_called_once()
+        _, _, _, uploaded_by = self.file_manager.save_file.call_args.args
+        self.assertEqual(uploaded_by, 'owner')
+        self.assertEqual(self.file_manager.save_file.call_args.kwargs.get('vault_folder_id'), 'VpostedImages')
+        _, kwargs = self.channel_manager.send_message.call_args
+        self.assertEqual(kwargs['attachments'][0]['id'], 'FpostedImage')
 
     def test_channel_messages_snapshot_refreshes_remote_stream_attachment_status(self) -> None:
         message = MagicMock()

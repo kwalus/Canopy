@@ -664,6 +664,35 @@ def _api_vault_file_entry(file_info: Any) -> dict[str, Any]:
     }
 
 
+def _api_default_vault_attachment_folder_id(
+    file_manager: Any,
+    user_id: str,
+    original_name: Any,
+    content_type: Any,
+    *,
+    root_name: str,
+) -> Optional[str]:
+    resolver = getattr(file_manager, 'ensure_default_attachment_folder', None)
+    if not callable(resolver):
+        return None
+    try:
+        folder_id = resolver(
+            user_id,
+            original_name,
+            content_type,
+            root_name=root_name,
+        )
+    except Exception:
+        logger.debug(
+            "Could not resolve API default Vault attachment folder for user %s / %s",
+            user_id,
+            original_name,
+            exc_info=True,
+        )
+        return None
+    return folder_id if isinstance(folder_id, str) and folder_id.strip() else None
+
+
 def _api_vault_folder_entry(folder: Any) -> dict[str, Any]:
     created_at = getattr(folder, 'created_at', None)
     updated_at = getattr(folder, 'updated_at', None)
@@ -12844,6 +12873,13 @@ def create_api_blueprint() -> Blueprint:
                 if local_file_id and file_manager.get_file(local_file_id):
                     file_id = local_file_id
                 elif source_peer_id and origin_file_id:
+                    save_folder_id = folder_id or _api_default_vault_attachment_folder_id(
+                        file_manager,
+                        user_id,
+                        attachment.get('name') or attachment.get('filename') or origin_file_id,
+                        attachment.get('type') or attachment.get('content_type') or 'application/octet-stream',
+                        root_name='Saved Attachments',
+                    ) or ''
                     if get_large_attachment_download_mode(db_manager) == LARGE_ATTACHMENT_DOWNLOAD_PAUSED:
                         return jsonify({'error': 'Large attachment downloads are paused on this node'}), 409
                     if not p2p_manager:
@@ -12892,7 +12928,7 @@ def create_api_blueprint() -> Blueprint:
                     if isinstance(pending_vault_saves, dict):
                         pending_vault_saves.setdefault(pending_key, []).append({
                             'user_id': user_id,
-                            'folder_id': folder_id,
+                            'folder_id': save_folder_id,
                             'request_id': request_id,
                             'requested_at': time.time(),
                             'source': 'api',
@@ -12925,7 +12961,16 @@ def create_api_blueprint() -> Blueprint:
             )
             if not access.allowed:
                 return jsonify({'error': 'Access denied', 'reason': access.reason}), 403
-            saved = file_manager.copy_file_to_user_vault(file_id, user_id, vault_folder_id=folder_id or None)
+            target_folder_id = folder_id
+            if not target_folder_id and str(getattr(file_info, 'uploaded_by', '') or '') != str(user_id):
+                target_folder_id = _api_default_vault_attachment_folder_id(
+                    file_manager,
+                    user_id,
+                    getattr(file_info, 'original_name', None) or attachment.get('name') or file_id,
+                    getattr(file_info, 'content_type', None) or attachment.get('type') or 'application/octet-stream',
+                    root_name='Saved Attachments',
+                ) or ''
+            saved = file_manager.copy_file_to_user_vault(file_id, user_id, vault_folder_id=target_folder_id or None)
             if not saved:
                 return jsonify({'error': 'Could not save attachment to Vault'}), 500
             entry = _api_vault_file_entry(saved)

@@ -678,6 +678,61 @@ class FileManager:
         """Public helper for routes to normalize generic upload metadata."""
         return self._normalize_incoming_metadata(file_data, original_name, content_type)
 
+    def default_vault_attachment_bucket(self, original_name: Any, content_type: Any) -> str:
+        """Return a human-readable folder bucket for automatic Vault organization."""
+        name = str(original_name or '').strip().lower()
+        ctype = str(content_type or '').strip().lower()
+        ext = Path(name).suffix.lower()
+        if ctype.startswith('image/') or ext in {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.tif', '.tiff', '.heic', '.heif'}:
+            return 'Images'
+        if ctype.startswith('video/') or ext in {'.mp4', '.m4v', '.mov', '.webm', '.ogv', '.avi', '.mkv'}:
+            return 'Videos'
+        if ctype.startswith('audio/') or ext in {'.mp3', '.m4a', '.aac', '.wav', '.ogg', '.oga', '.flac'}:
+            return 'Audio'
+        if ctype in {
+            'application/zip', 'application/x-zip-compressed', 'application/x-tar',
+            'application/gzip', 'application/x-gzip', 'application/x-7z-compressed',
+            'application/vnd.rar',
+        } or ext in {'.zip', '.tar', '.gz', '.tgz', '.7z', '.rar'}:
+            return 'Archives'
+        if ctype in {
+            'text/csv',
+            'text/tab-separated-values',
+            'application/vnd.ms-excel',
+            'application/vnd.ms-excel.sheet.macroenabled.12',
+            'application/vnd.ms-excel.sheet.binary.macroenabled.12',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.oasis.opendocument.spreadsheet',
+            'application/vnd.apple.numbers',
+        } or ext in {'.csv', '.tsv', '.xls', '.xlsx', '.xlsm', '.xlsb', '.ods', '.numbers'}:
+            return 'Spreadsheets'
+        if ctype in {'text/x-python', 'text/html', 'application/json', 'application/xml', 'text/xml'} or ext in {
+            '.py', '.js', '.jsx', '.ts', '.tsx', '.css', '.html', '.htm', '.json', '.xml',
+            '.yaml', '.yml', '.toml', '.sh', '.ps1', '.sql', '.rs', '.go', '.java', '.c',
+            '.cc', '.cpp', '.h', '.hpp', '.cs', '.rb', '.php', '.swift', '.kt', '.m',
+        }:
+            return 'Code'
+        if self._get_file_category(ctype) == 'documents':
+            return 'Documents'
+        return 'Other'
+
+    def ensure_default_attachment_folder(
+        self,
+        user_id: str,
+        original_name: Any,
+        content_type: Any,
+        *,
+        root_name: str = 'Posted Attachments',
+    ) -> Optional[str]:
+        """Create/reuse a default Vault folder for posted or saved attachments."""
+        user_clean = str(user_id or '').strip()
+        root_clean = self._normalize_vault_folder_name(root_name or 'Posted Attachments')
+        if not user_clean:
+            return None
+        bucket = self.default_vault_attachment_bucket(original_name, content_type)
+        folder = self.ensure_user_folder_path(user_clean, [root_clean, bucket])
+        return str(getattr(folder, 'id', '') or '').strip() or None
+
     def _get_file_category(self, content_type: str) -> str:
         """Determine file category based on content type."""
         if content_type.startswith('image/'):

@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ## [Unreleased]
 
+## [0.6.294] - 2026-05-30
+
+### Added
+- **Posted and saved attachments now auto-organize in Vault** - fresh composer uploads land under `Posted Attachments/<media type>` and save-to-Vault copies land under `Saved Attachments/<media type>` when the user has not explicitly chosen a folder.
+
 ## [0.6.293] - 2026-05-30
 
 ### Changed

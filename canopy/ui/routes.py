@@ -2546,15 +2546,61 @@ def create_ui_blueprint() -> Blueprint:
         folder = file_manager.ensure_user_folder_path(user_id, parts, str(root_folder_id or '').strip() or None)
         return str(getattr(folder, 'id', '') or '').strip() or None
 
+    def _default_vault_attachment_folder_id(
+        file_manager: Any,
+        user_id: str,
+        original_name: Any,
+        content_type: Any,
+        *,
+        root_name: str,
+    ) -> Optional[str]:
+        resolver = getattr(file_manager, 'ensure_default_attachment_folder', None)
+        if not callable(resolver):
+            return None
+        try:
+            folder_id = resolver(
+                user_id,
+                original_name,
+                content_type,
+                root_name=root_name,
+            )
+        except Exception:
+            logger.debug(
+                "Could not resolve default Vault attachment folder for user %s / %s",
+                user_id,
+                original_name,
+                exc_info=True,
+            )
+            return None
+        return folder_id if isinstance(folder_id, str) and folder_id.strip() else None
+
     def _save_inline_composer_attachment(file_manager: Any, attachment: dict[str, Any], user_id: str) -> tuple[Optional[dict[str, Any]], Optional[str]]:
         """Persist one base64 composer attachment and return normalized metadata."""
         try:
             file_data = base64.b64decode(attachment.get('data') or '')
+            original_name = attachment.get('name') or attachment.get('filename') or 'attachment'
+            content_type = attachment.get('type') or attachment.get('content_type') or 'application/octet-stream'
+            try:
+                original_name, content_type = file_manager.normalize_upload_metadata(
+                    file_data=file_data,
+                    original_name=original_name,
+                    content_type=content_type,
+                )
+            except Exception:
+                pass
+            folder_id = _default_vault_attachment_folder_id(
+                file_manager,
+                user_id,
+                original_name,
+                content_type,
+                root_name='Posted Attachments',
+            )
             file_info = file_manager.save_file(
                 file_data,
-                attachment.get('name') or attachment.get('filename') or 'attachment',
-                attachment.get('type') or attachment.get('content_type') or 'application/octet-stream',
+                original_name,
+                content_type,
                 user_id,
+                vault_folder_id=folder_id,
             )
             if not file_info:
                 return None, str(attachment.get('name') or attachment.get('filename') or 'attachment')
@@ -8354,6 +8400,13 @@ def create_ui_blueprint() -> Blueprint:
                 if local_file_id and file_manager.get_file(local_file_id):
                     file_id = local_file_id
                 elif origin_file_id and source_peer_id:
+                    save_folder_id = folder_id or _default_vault_attachment_folder_id(
+                        file_manager,
+                        user_id,
+                        attachment.get('name') or attachment.get('filename') or origin_file_id,
+                        attachment.get('type') or attachment.get('content_type') or 'application/octet-stream',
+                        root_name='Saved Attachments',
+                    ) or ''
                     if get_large_attachment_download_mode(db_manager) == LARGE_ATTACHMENT_DOWNLOAD_PAUSED:
                         return jsonify({'success': False, 'error': 'Large attachment downloads are paused on this node'}), 409
                     if not p2p_manager:
@@ -8404,7 +8457,7 @@ def create_ui_blueprint() -> Blueprint:
                     if isinstance(pending_vault_saves, dict):
                         pending_vault_saves.setdefault(pending_key, []).append({
                             'user_id': user_id,
-                            'folder_id': folder_id,
+                            'folder_id': save_folder_id,
                             'request_id': request_id,
                             'requested_at': time.time(),
                         })
@@ -8441,10 +8494,20 @@ def create_ui_blueprint() -> Blueprint:
             if not access.allowed:
                 return jsonify({'success': False, 'error': 'Access denied', 'reason': access.reason}), 403
 
+            target_folder_id = folder_id
+            if not target_folder_id and (str(getattr(file_info, 'uploaded_by', '') or '') != str(user_id) or duplicate_if_owned):
+                target_folder_id = _default_vault_attachment_folder_id(
+                    file_manager,
+                    user_id,
+                    getattr(file_info, 'original_name', None) or attachment.get('name') or file_id,
+                    getattr(file_info, 'content_type', None) or attachment.get('type') or 'application/octet-stream',
+                    root_name='Saved Attachments',
+                ) or ''
+
             saved = file_manager.copy_file_to_user_vault(
                 file_id,
                 user_id,
-                vault_folder_id=folder_id,
+                vault_folder_id=target_folder_id or None,
                 duplicate_if_owned=duplicate_if_owned,
             )
             if not saved:
