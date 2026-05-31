@@ -11303,9 +11303,42 @@ def create_api_blueprint() -> Blueprint:
         manager = _api_get_digestion_manager()
         if not manager:
             return jsonify({'error': 'Digestion manager unavailable'}), 503
-        item = manager.get_digestion(digestion_id, user_id=g.api_key_info.user_id)
+        summary = str(request.args.get('summary') or '').strip().lower() in {'1', 'true', 'yes'}
+        item = manager.get_digestion(
+            digestion_id,
+            user_id=g.api_key_info.user_id,
+            include_sources=not summary,
+        )
         if not item:
             return jsonify({'error': 'Digestion not found or not shared with this key'}), 404
+        if summary:
+            digestion_summary = {
+                'id': item.get('id') or digestion_id,
+                'name': item.get('name') or '',
+                'description': item.get('description') or '',
+                'purpose': item.get('purpose') or '',
+                'status': item.get('status') or '',
+                'provider': item.get('provider') or '',
+                'embedding_model': item.get('embedding_model') or '',
+                'owner_user_id': item.get('owner_user_id') or '',
+                'created_at': item.get('created_at') or '',
+                'updated_at': item.get('updated_at') or '',
+                'built_at': item.get('built_at') or '',
+                'error': item.get('error') or '',
+                'access': item.get('access') or {},
+                'stats': item.get('stats') or {},
+                'operation_progress': item.get('operation_progress') or {},
+            }
+            return jsonify({
+                'success': True,
+                'digestion_id': item.get('id') or digestion_id,
+                'digestion': digestion_summary,
+                'access': digestion_summary['access'],
+                'stats': digestion_summary['stats'],
+                'operation_progress': digestion_summary['operation_progress'],
+                'owner_user_id': digestion_summary['owner_user_id'],
+                'summary': True,
+            })
         return jsonify({
             'success': True,
             'digestion_id': item.get('id') or digestion_id,
