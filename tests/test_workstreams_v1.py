@@ -266,18 +266,28 @@ class WorkstreamApiTest(unittest.TestCase):
 
         digestion_artifact = self.client.post(
             f'/api/v1/workstreams/{ws_id}/artifacts',
-            json={'reference_id': 'Dgalias123456', 'artifact_type': 'digestion', 'title': 'Alias digestion'},
+            json={'reference_id': 'Dgalias123456', 'title': 'Alias digestion'},
             headers={'X-API-Key': 'agent-key'},
         )
         self.assertEqual(digestion_artifact.status_code, 201)
         self.assertEqual(digestion_artifact.get_json()['artifact']['artifact_type'], 'digestion')
         self.assertEqual(digestion_artifact.get_json()['artifact']['ref_id'], 'Dgalias123456')
 
+        ref_file_artifact = self.client.post(
+            f'/api/v1/workstreams/{ws_id}/artifacts',
+            json={'reference_id': 'Frefalias123456', 'title': 'Reference file'},
+            headers={'X-API-Key': 'agent-key'},
+        )
+        self.assertEqual(ref_file_artifact.status_code, 201)
+        self.assertEqual(ref_file_artifact.get_json()['artifact']['artifact_type'], 'file')
+        self.assertEqual(ref_file_artifact.get_json()['artifact']['ref_id'], 'Frefalias123456')
+
         handoff = self.client.get(f'/api/v1/workstreams/{ws_id}/agent-reference', headers={'X-API-Key': 'agent-key'})
         self.assertEqual(handoff.status_code, 200)
         payload = handoff.get_json()
         self.assertGreaterEqual(len(payload['recent_events']), 3)
-        self.assertEqual(len(payload['artifacts']), 2)
+        self.assertEqual(payload['events'], payload['recent_events'])
+        self.assertEqual(len(payload['artifacts']), 3)
 
     def test_reviewer_claim_can_add_review_without_role_downgrade(self) -> None:
         created = self.client.post(

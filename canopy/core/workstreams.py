@@ -128,6 +128,18 @@ def _infer_artifact_type(artifact: Dict[str, Any]) -> str:
         return 'post'
     if artifact.get('url'):
         return 'url'
+    ref_id = _artifact_ref_id(artifact)
+    if ref_id:
+        if ref_id.startswith(('http://', 'https://')):
+            return 'url'
+        if ref_id.startswith('Dg'):
+            return 'digestion'
+        if ref_id.startswith('F'):
+            return 'file'
+        if ref_id.startswith('M'):
+            return 'message'
+        if ref_id.startswith(('P', 'post_')):
+            return 'post'
     return 'note'
 
 
@@ -991,6 +1003,8 @@ class WorkstreamManager:
         ws = self.get_workstream(workstream_id, event_limit=8)
         if not ws:
             return None
+        recent_events = [e.to_dict() for e in ws.events[:5]]
+        artifacts = [a.to_dict() for a in ws.artifacts[:20]]
         return {
             'type': 'canopy_workstream_reference',
             'workstream_id': ws.id,
@@ -1009,6 +1023,8 @@ class WorkstreamManager:
                 'participants': f"/api/v1/workstreams/{ws.id}/participants",
             },
             'participants': [p.to_dict() for p in ws.participants],
-            'recent_events': [e.to_dict() for e in ws.events[:5]],
-            'artifacts': [a.to_dict() for a in ws.artifacts[:20]],
+            'recent_events': recent_events,
+            # Alias for agents that naturally inspect `events` in handoff payloads.
+            'events': recent_events,
+            'artifacts': artifacts,
         }
