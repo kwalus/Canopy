@@ -302,7 +302,11 @@
         document.querySelector('.canopy-digestion-modal')?.classList.remove('is-open');
     }
 
-    async function openDigestion(id) {
+    function vaultDigestionUrl(id) {
+        return `/vault?digestion=${encodeURIComponent(String(id || '').trim())}`;
+    }
+
+    async function openDigestionModal(id) {
         const clean = String(id || '').trim();
         if (!clean) return;
         const modal = ensureModal();
@@ -317,6 +321,33 @@
         } catch (error) {
             content.innerHTML = `<div class="canopy-digestion-error"><strong>Digestion unavailable</strong><span>${escapeHtml(error.message || error)}</span><em>${escapeHtml(clean)}</em></div>`;
         }
+    }
+
+    async function openDigestion(id, sourceEl = null, options = {}) {
+        const clean = String(id || '').trim();
+        if (!clean) return false;
+        const trigger = sourceEl instanceof HTMLElement ? sourceEl : document.body;
+        const deckOpener = typeof window.openCanopyDigestionReferenceDeck === 'function'
+            ? window.openCanopyDigestionReferenceDeck
+            : null;
+        if (deckOpener && trigger) {
+            try {
+                const opened = await deckOpener(clean, trigger, {
+                    fallbackTitle: trigger.dataset.canopyDigestionName || trigger.textContent || `Digestion ${shortId(clean)}`,
+                    initialMode: options.initialMode || 'rag',
+                });
+                if (opened) return true;
+            } catch (error) {
+                console.warn('Unable to open Digestion in Deck', error);
+            }
+        }
+        if (options && options.modalFallback === true) {
+            await openDigestionModal(clean);
+            return true;
+        }
+        if (options && options.navigate === false) return false;
+        window.location.href = trigger?.getAttribute?.('href') || vaultDigestionUrl(clean);
+        return false;
     }
 
     function scan(root) {
@@ -350,11 +381,12 @@
     document.addEventListener('click', (event) => {
         const ref = event.target.closest?.('.canopy-digestion-ref[data-canopy-digestion-id]');
         if (!ref) return;
+        if (event.defaultPrevented) return;
         const isModified = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button === 1;
         if (isModified || ref.getAttribute('data-canopy-open-target') === 'blank') return;
         event.preventDefault();
         if (ref.classList.contains('is-unavailable')) return;
-        openDigestion(ref.getAttribute('data-canopy-digestion-id') || '');
+        openDigestion(ref.getAttribute('data-canopy-digestion-id') || '', ref);
     });
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -369,5 +401,5 @@
         observer.observe(document.body, { childList: true, subtree: true });
     });
 
-    window.CanopyDigestionRefs = { open: openDigestion, scan, hydrate: normalizeExistingRef };
+    window.CanopyDigestionRefs = { open: openDigestion, openModal: openDigestionModal, scan, hydrate: normalizeExistingRef };
 })();
