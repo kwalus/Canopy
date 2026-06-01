@@ -1170,13 +1170,32 @@
         border-radius: 999px;
     }
     .channel-quick-mention-kicker {
+        border: 1px solid color-mix(in srgb, var(--canopy-border) 70%, var(--canopy-primary) 30%);
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 76%, transparent);
         flex: 0 0 auto;
         color: color-mix(in srgb, var(--canopy-primary) 78%, var(--canopy-text-secondary) 22%);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         font-size: 0.74rem;
         font-weight: 800;
         letter-spacing: 0.02em;
-        padding: 0 0.14rem;
+        width: 1.62rem;
+        height: 1.62rem;
+        padding: 0;
         white-space: nowrap;
+        cursor: pointer;
+        transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+    }
+    .channel-quick-mention-kicker:hover,
+    .channel-quick-mention-kicker:focus-visible,
+    .channel-quick-mention-kicker[aria-pressed="true"] {
+        color: #071b14;
+        border-color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-border) 28%);
+        background: color-mix(in srgb, var(--canopy-primary) 76%, white 24%);
+        outline: none;
+        transform: translateY(-1px);
     }
     .channel-quick-mention-chip {
         border: 1px solid color-mix(in srgb, var(--canopy-border) 80%, transparent);
@@ -1192,7 +1211,7 @@
         padding: 0.12rem 0.38rem 0.12rem 0.16rem;
         cursor: grab;
         flex: 0 0 auto;
-        transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+        transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease, max-width 0.16s ease, width 0.16s ease, padding 0.16s ease, gap 0.16s ease;
     }
     .channel-quick-mention-chip:hover,
     .channel-quick-mention-chip:focus-visible {
@@ -1250,10 +1269,43 @@
         font-size: 0.735rem;
         font-weight: 800;
         line-height: 1.05;
+        transition: max-width 0.16s ease, opacity 0.16s ease;
     }
     .channel-quick-mention-chip .bi {
         color: color-mix(in srgb, var(--canopy-primary) 72%, var(--canopy-text-primary) 28%);
         font-size: 0.76rem;
+    }
+    .channel-quick-mention-rail.is-icon-mode {
+        gap: 0.2rem;
+    }
+    .channel-quick-mention-rail.is-icon-mode .channel-quick-mention-chip {
+        width: 1.74rem;
+        max-width: 1.74rem;
+        padding: 0.12rem;
+        gap: 0;
+        justify-content: center;
+        overflow: hidden;
+    }
+    .channel-quick-mention-rail.is-icon-mode .channel-quick-mention-name {
+        max-width: 0;
+        opacity: 0;
+    }
+    .channel-quick-mention-rail.is-icon-mode .channel-quick-mention-chip:hover,
+    .channel-quick-mention-rail.is-icon-mode .channel-quick-mention-chip:focus-visible,
+    .channel-quick-mention-rail.is-icon-mode .channel-quick-mention-chip.is-peeking {
+        width: auto;
+        max-width: 8.75rem;
+        padding-right: 0.38rem;
+        gap: 0.26rem;
+        justify-content: flex-start;
+        overflow: visible;
+        z-index: 2;
+    }
+    .channel-quick-mention-rail.is-icon-mode .channel-quick-mention-chip:hover .channel-quick-mention-name,
+    .channel-quick-mention-rail.is-icon-mode .channel-quick-mention-chip:focus-visible .channel-quick-mention-name,
+    .channel-quick-mention-rail.is-icon-mode .channel-quick-mention-chip.is-peeking .channel-quick-mention-name {
+        max-width: 6.35rem;
+        opacity: 1;
     }
     .channel-composer-lifespan-tool {
         flex: 0 0 auto;
@@ -4931,7 +4983,9 @@
             min-height: 1.72rem;
         }
         .channel-quick-mention-kicker {
-            display: none;
+            width: 1.48rem;
+            height: 1.48rem;
+            font-size: 0.68rem;
         }
         .channel-quick-mention-name {
             max-width: 4.8rem;
@@ -9766,8 +9820,10 @@ const channelMentionCache = {};
 const channelMentionCacheFetchedAt = {};
 const CHANNEL_MENTION_CACHE_TTL_MS = 30000;
 const CHANNEL_QUICK_MENTION_ORDER_STORAGE_KEY = `canopy.channel_quick_mentions_order.v1.${currentUserId || 'anon'}`;
+const CHANNEL_QUICK_MENTION_MODE_STORAGE_KEY = `canopy.quick_mentions_mode.v1.${currentUserId || 'anon'}`;
 let channelQuickMentionRailSignature = '';
 let channelQuickMentionSuppressClickUntil = 0;
+let channelQuickMentionLastPointerType = '';
 let channelQuickMentionMeasureCanvas = null;
 let channelHashCache = null;
 let channelMentionContext = null;
@@ -19271,6 +19327,67 @@ function getChannelQuickMentionStorageKey(userOrEntry) {
     return handle ? `handle:${handle}` : '';
 }
 
+function getChannelQuickMentionMode() {
+    try {
+        return localStorage.getItem(CHANNEL_QUICK_MENTION_MODE_STORAGE_KEY) === 'icons' ? 'icons' : 'full';
+    } catch (_) {
+        return 'full';
+    }
+}
+
+function setChannelQuickMentionMode(mode) {
+    const nextMode = mode === 'icons' ? 'icons' : 'full';
+    try {
+        localStorage.setItem(CHANNEL_QUICK_MENTION_MODE_STORAGE_KEY, nextMode);
+    } catch (_) {}
+    return nextMode;
+}
+
+function applyChannelQuickMentionMode(rail, mode = getChannelQuickMentionMode()) {
+    if (!rail) return;
+    const isIconMode = mode === 'icons';
+    rail.classList.toggle('is-icon-mode', isIconMode);
+    rail.dataset.mentionMode = isIconMode ? 'icons' : 'full';
+    const toggle = rail.querySelector('[data-quick-mention-mode-toggle="channel"]');
+    if (toggle) {
+        toggle.setAttribute('aria-pressed', isIconMode ? 'true' : 'false');
+        toggle.setAttribute('aria-label', isIconMode ? 'Show quick mention names' : 'Show quick mentions as avatars only');
+        toggle.setAttribute('title', isIconMode ? 'Show quick mention names' : 'Compact quick mentions to avatars');
+    }
+}
+
+function clearChannelQuickMentionPeeks(rail, exceptChip = null) {
+    if (!rail || !rail.querySelectorAll) return;
+    rail.querySelectorAll('.channel-quick-mention-chip.is-peeking').forEach(chip => {
+        if (chip === exceptChip) return;
+        chip.classList.remove('is-peeking');
+        delete chip.dataset.peekInsertUntil;
+    });
+}
+
+function peekChannelQuickMentionChip(chip, rail, duration = 1800) {
+    if (!chip) return;
+    clearChannelQuickMentionPeeks(rail, chip);
+    chip.classList.add('is-peeking');
+    chip.dataset.peekInsertUntil = String(Date.now() + duration);
+    window.setTimeout(() => {
+        const until = Number(chip.dataset.peekInsertUntil || 0);
+        if (until && until <= Date.now()) {
+            chip.classList.remove('is-peeking');
+            delete chip.dataset.peekInsertUntil;
+        }
+    }, duration + 40);
+}
+
+function toggleChannelQuickMentionMode(rail) {
+    const current = getChannelQuickMentionMode();
+    const nextMode = setChannelQuickMentionMode(current === 'icons' ? 'full' : 'icons');
+    channelQuickMentionRailSignature = '';
+    if (rail) clearChannelQuickMentionPeeks(rail);
+    renderChannelQuickMentionRail();
+    return nextMode;
+}
+
 function getStoredChannelQuickMentionOrders() {
     try {
         const parsed = JSON.parse(localStorage.getItem(CHANNEL_QUICK_MENTION_ORDER_STORAGE_KEY) || '{}');
@@ -19501,21 +19618,46 @@ function bindChannelQuickMentionRail(rail) {
     if (!rail) return;
     if (rail.dataset.quickMentionBound === '1') return;
     rail.dataset.quickMentionBound = '1';
+    rail.addEventListener('pointerdown', (event) => {
+        channelQuickMentionLastPointerType = event.pointerType || '';
+    });
     rail.addEventListener('click', (event) => {
         if (Date.now() < channelQuickMentionSuppressClickUntil) {
             event.preventDefault();
             return;
         }
+        const toggle = event.target && event.target.closest ? event.target.closest('[data-quick-mention-mode-toggle="channel"]') : null;
+        if (toggle && rail.contains(toggle)) {
+            event.preventDefault();
+            toggleChannelQuickMentionMode(rail);
+            return;
+        }
         const chip = event.target && event.target.closest ? event.target.closest('.channel-quick-mention-chip') : null;
         if (!chip || !rail.contains(chip)) return;
+        if (rail.classList.contains('is-icon-mode') && ['touch', 'pen'].includes(channelQuickMentionLastPointerType)) {
+            const insertReadyUntil = Number(chip.dataset.peekInsertUntil || 0);
+            if (!insertReadyUntil || insertReadyUntil < Date.now()) {
+                event.preventDefault();
+                peekChannelQuickMentionChip(chip, rail, 2200);
+                return;
+            }
+        }
+        clearChannelQuickMentionPeeks(rail);
         const handle = chip.getAttribute('data-mention-handle') || '';
         insertChannelQuickMention(handle);
     });
     rail.addEventListener('keydown', (event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
+        const toggle = event.target && event.target.closest ? event.target.closest('[data-quick-mention-mode-toggle="channel"]') : null;
+        if (toggle && rail.contains(toggle)) {
+            event.preventDefault();
+            toggleChannelQuickMentionMode(rail);
+            return;
+        }
         const chip = event.target && event.target.closest ? event.target.closest('.channel-quick-mention-chip') : null;
         if (!chip || !rail.contains(chip)) return;
         event.preventDefault();
+        clearChannelQuickMentionPeeks(rail);
         insertChannelQuickMention(chip.getAttribute('data-mention-handle') || '');
     });
     rail.addEventListener('dragstart', (event) => {
@@ -19571,7 +19713,8 @@ function renderChannelQuickMentionRail() {
         channelQuickMentionRailSignature = '';
         return;
     }
-    const entries = getChannelQuickMentionUsers(10);
+    const mentionMode = getChannelQuickMentionMode();
+    const entries = getChannelQuickMentionUsers(mentionMode === 'icons' ? 18 : 10);
     if (!entries.length) {
         rail.classList.remove('is-visible');
         if (row) row.classList.remove('has-quick-mentions');
@@ -19579,7 +19722,7 @@ function renderChannelQuickMentionRail() {
         channelQuickMentionRailSignature = '';
         return;
     }
-    const signature = `${currentChannelId}|${entries.map(entry => [
+    const signature = `${currentChannelId}|${mentionMode}|${entries.map(entry => [
         entry.user && entry.user.user_id || '',
         entry.handle || '',
         entry.label || '',
@@ -19587,6 +19730,7 @@ function renderChannelQuickMentionRail() {
         Number(entry.score || 0).toFixed(3),
     ].join(':')).join('|')}`;
     if (channelQuickMentionRailSignature === signature && rail.dataset.quickMentionBound === '1') {
+        applyChannelQuickMentionMode(rail, mentionMode);
         rail.classList.add('is-visible');
         if (row) row.classList.add('has-quick-mentions');
         return;
@@ -19609,8 +19753,15 @@ function renderChannelQuickMentionRail() {
             <span class="channel-quick-mention-name">${escapeHtml(label)}</span>
         </button>`;
     }).join('');
-    rail.innerHTML = `<span class="channel-quick-mention-kicker" title="Quick mentions">@</span>${chips}`;
+    const isIconMode = mentionMode === 'icons';
+    rail.innerHTML = `<button type="button"
+                            class="channel-quick-mention-kicker"
+                            data-quick-mention-mode-toggle="channel"
+                            aria-pressed="${isIconMode ? 'true' : 'false'}"
+                            aria-label="${isIconMode ? 'Show quick mention names' : 'Show quick mentions as avatars only'}"
+                            title="${isIconMode ? 'Show quick mention names' : 'Compact quick mentions to avatars'}">@</button>${chips}`;
     channelQuickMentionRailSignature = signature;
+    applyChannelQuickMentionMode(rail, mentionMode);
     rail.classList.add('is-visible');
     if (row) row.classList.add('has-quick-mentions');
     bindChannelQuickMentionRail(rail);

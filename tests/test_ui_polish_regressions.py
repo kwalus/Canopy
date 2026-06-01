@@ -93,6 +93,11 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("function insertDmQuickMentionAtIndex", messages)
         self.assertIn("event.dataTransfer.setData('application/x-canopy-mention', handle);", messages)
         self.assertIn("getDmTextareaDropCaretIndex(textarea, event)", messages)
+        self.assertIn("DM_QUICK_MENTION_MODE_STORAGE_KEY", messages)
+        self.assertIn("data-quick-mention-mode-toggle=\"dm\"", messages)
+        self.assertIn("function toggleDmQuickMentionMode(rail)", messages)
+        self.assertIn("getDmQuickMentionUsers(mentionMode === 'icons' ? 18 : 10)", messages)
+        self.assertIn(".dm-quick-mention-rail.is-icon-mode .dm-quick-mention-chip", messages)
         self.assertIn("renderDmQuickMentionRail();", messages)
 
     def test_workstream_refs_have_reader_and_deck_workspace(self) -> None:
