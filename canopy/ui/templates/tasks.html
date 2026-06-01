@@ -27,12 +27,6 @@
         gap: 1rem;
         margin-bottom: 1.35rem;
     }
-    .work-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 0.9rem;
-    }
-    .work-summary-card,
     .work-panel {
         border: 1px solid color-mix(in srgb, var(--canopy-border) 78%, var(--canopy-primary, #22c55e));
         background:
@@ -41,21 +35,6 @@
         border-radius: 18px;
         box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
     }
-    .work-summary-card {
-        min-height: 88px;
-        padding: 0.78rem 0.9rem;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        gap: 0.45rem;
-    }
-    .work-summary-card.is-workstream {
-        border-color: color-mix(in srgb, #38bdf8 45%, var(--canopy-border));
-    }
-    .work-summary-card.is-digestion {
-        border-color: color-mix(in srgb, #22d3ee 45%, var(--canopy-border));
-    }
-    .work-summary-kicker,
     .work-panel-kicker {
         color: var(--canopy-text-secondary);
         font-size: 0.72rem;
@@ -63,44 +42,9 @@
         letter-spacing: 0.1em;
         text-transform: uppercase;
     }
-    .work-summary-main {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 0.8rem;
-    }
-    .work-summary-main strong {
-        display: block;
-        font-size: clamp(1.35rem, 2.4vw, 1.8rem);
-        line-height: 1;
-    }
-    .work-summary-main span {
-        color: var(--canopy-text-secondary);
-        font-size: 0.82rem;
-    }
-    .work-summary-icon {
-        width: 34px;
-        height: 34px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 12px;
-        border: 1px solid color-mix(in srgb, var(--canopy-primary, #22c55e) 38%, var(--canopy-border));
-        color: var(--canopy-accent, #5eead4);
-        background: color-mix(in srgb, var(--canopy-bg-tertiary) 86%, transparent);
-        flex: 0 0 auto;
-    }
-    .work-summary-meta {
-        color: var(--canopy-text-secondary);
-        font-size: 0.76rem;
-        min-height: 1rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
     .work-panels {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 0.9rem;
     }
     .work-panel {
@@ -253,83 +197,133 @@
     .task-create-card .form-control::placeholder {
         color: var(--canopy-text-secondary);
     }
-    .assignee-suggestions {
-        position: absolute;
-        top: calc(100% + 6px);
-        left: 0;
-        right: 0;
-        background: var(--canopy-bg-secondary);
+    .task-picker {
+        display: grid;
+        gap: 0.6rem;
+        padding: 0.75rem;
         border: 1px solid var(--canopy-border);
-        border-radius: 12px;
-        z-index: 20;
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 76%, transparent);
+    }
+    .task-picker-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        align-items: center;
+        color: var(--canopy-text-secondary);
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+    .task-picker-users {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.45rem;
         max-height: 220px;
         overflow-y: auto;
-        display: none;
+        padding-right: 0.15rem;
     }
-    .assignee-suggestion {
-        padding: 0.55rem 0.75rem;
-        cursor: pointer;
-        display: flex;
+    .task-picker-user {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
         align-items: center;
-        gap: 0.6rem;
+        gap: 0.55rem;
+        min-width: 0;
+        padding: 0.52rem 0.58rem;
+        border: 1px solid var(--canopy-border);
+        border-radius: 13px;
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 82%, transparent);
         color: var(--canopy-text-primary);
+        text-align: left;
     }
-    .assignee-suggestion:hover {
-        background: var(--canopy-bg-tertiary);
+    .task-picker-user:hover,
+    .task-picker-user.is-selected {
+        border-color: color-mix(in srgb, var(--canopy-primary, #22c55e) 62%, var(--canopy-border));
+        background: color-mix(in srgb, var(--canopy-primary, #22c55e) 14%, var(--canopy-bg-secondary));
     }
-    .assignee-suggestion .suggestion-avatar {
-        width: 28px;
-        height: 28px;
+    .task-picker-avatar {
+        width: 32px;
+        height: 32px;
         border-radius: 50%;
-        background: rgba(255,255,255,0.08);
-        display: flex;
+        overflow: hidden;
+        background: color-mix(in srgb, var(--canopy-primary, #22c55e) 20%, var(--canopy-bg-tertiary));
+        display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-weight: 600;
-        overflow: hidden;
+        font-weight: 800;
     }
-    .assignee-suggestion img {
+    .task-picker-avatar img {
         width: 100%;
         height: 100%;
         object-fit: cover;
     }
-    .task-board {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(220px, 1fr));
-        gap: 1rem;
+    .task-picker-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 800;
+        font-size: 0.86rem;
     }
-    .task-column {
-        background: var(--canopy-bg-secondary);
+    .task-picker-handle {
+        color: var(--canopy-text-secondary);
+        font-size: 0.72rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .task-picker-check {
+        color: var(--canopy-primary, #22c55e);
+        opacity: 0;
+    }
+    .task-picker-user.is-selected .task-picker-check {
+        opacity: 1;
+    }
+    .task-board-shell {
         border: 1px solid var(--canopy-border);
-        border-radius: 18px;
-        padding: 0.75rem;
-        min-height: 200px;
+        border-radius: 20px;
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 88%, transparent);
+        padding: 0.8rem;
+        min-width: 0;
     }
-    .task-column-header {
+    .task-board-toolbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 0.75rem;
+        flex-wrap: wrap;
         margin-bottom: 0.75rem;
     }
-    .task-column-title {
-        font-weight: 600;
-        font-size: 0.95rem;
-    }
-    .task-count {
-        font-size: 0.75rem;
-        padding: 0.15rem 0.5rem;
-        border-radius: 999px;
-        background: rgba(255,255,255,0.08);
-        color: var(--canopy-text-secondary);
-    }
-    .task-column-body {
+    .task-board-filters {
         display: flex;
-        flex-direction: column;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+    }
+    .task-filter-btn {
+        border: 1px solid var(--canopy-border);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
+        color: var(--canopy-text-secondary);
+        padding: 0.32rem 0.58rem;
+        font-size: 0.78rem;
+        font-weight: 800;
+    }
+    .task-filter-btn.is-active {
+        border-color: color-mix(in srgb, var(--canopy-primary, #22c55e) 64%, var(--canopy-border));
+        color: var(--canopy-text-primary);
+        background: color-mix(in srgb, var(--canopy-primary, #22c55e) 16%, var(--canopy-bg-tertiary));
+    }
+    .task-board-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
         gap: 0.75rem;
     }
     .task-card {
-        background: linear-gradient(150deg, rgba(25, 35, 55, 0.9), rgba(20, 24, 40, 0.85));
-        border: 1px solid rgba(255,255,255,0.08);
+        background:
+            linear-gradient(150deg, color-mix(in srgb, var(--canopy-bg-tertiary) 94%, var(--canopy-primary, #22c55e) 6%), color-mix(in srgb, var(--canopy-bg-secondary) 96%, transparent)),
+            var(--canopy-bg-secondary);
+        border: 1px solid var(--canopy-border);
         border-radius: 16px;
         padding: 0.85rem;
         position: relative;
@@ -580,7 +574,6 @@
         padding: 1rem 0.5rem;
     }
     @media (max-width: 1200px) {
-        .work-summary-grid,
         .work-panels {
             grid-template-columns: 1fr;
         }
@@ -589,9 +582,6 @@
         }
         .task-create-card {
             position: static;
-        }
-        .task-board {
-            grid-template-columns: repeat(2, minmax(220px, 1fr));
         }
     }
     @media (max-width: 768px) {
@@ -602,7 +592,8 @@
             grid-column: 1 / -1;
             justify-content: flex-end;
         }
-        .task-board {
+        .task-picker-users,
+        .task-board-list {
             grid-template-columns: 1fr;
         }
         .tasks-hero h1 {
@@ -624,7 +615,7 @@
 <div class="tasks-hero">
     <div>
         <h1>Work</h1>
-        <p>One place to see active tasks, sustained Workstreams, and reusable Digestions before jumping into the right tool or Deck workspace.</p>
+        <p>One place to manage execution items, requests, objectives, live cards, Workstreams, and reusable Digestions before jumping into the right tool or Deck workspace.</p>
     </div>
     <div class="d-flex gap-2">
         <button class="btn btn-outline-light" id="task-refresh-btn"><i class="bi bi-arrow-repeat me-1"></i>Refresh work</button>
@@ -632,42 +623,6 @@
 </div>
 
 <section class="work-overview" aria-label="Work overview">
-    <div class="work-summary-grid">
-        <article class="work-summary-card" data-work-summary-card="tasks">
-            <div class="work-summary-main">
-                <div>
-                    <div class="work-summary-kicker">Task board</div>
-                    <strong data-work-summary-count="tasks">0</strong>
-                    <span>active execution items</span>
-                </div>
-                <span class="work-summary-icon"><i class="bi bi-check2-square"></i></span>
-            </div>
-            <div class="work-summary-meta" data-work-summary-meta="tasks">Loading task board...</div>
-        </article>
-        <article class="work-summary-card is-workstream" data-work-summary-card="workstreams">
-            <div class="work-summary-main">
-                <div>
-                    <div class="work-summary-kicker">Workstreams</div>
-                    <strong data-work-summary-count="workstreams">0</strong>
-                    <span>active collaboration lanes</span>
-                </div>
-                <span class="work-summary-icon"><i class="bi bi-kanban"></i></span>
-            </div>
-            <div class="work-summary-meta" data-work-summary-meta="workstreams">Loading Workstreams...</div>
-        </article>
-        <article class="work-summary-card is-digestion" data-work-summary-card="digestions">
-            <div class="work-summary-main">
-                <div>
-                    <div class="work-summary-kicker">Digestions</div>
-                    <strong data-work-summary-count="digestions">0</strong>
-                    <span>source contexts</span>
-                </div>
-                <span class="work-summary-icon"><i class="bi bi-diagram-3"></i></span>
-            </div>
-            <div class="work-summary-meta" data-work-summary-meta="digestions">Loading Digestions...</div>
-        </article>
-    </div>
-
     <div class="work-panels">
         <article class="work-panel" aria-labelledby="workstreams-panel-title">
             <div class="work-panel-head">
@@ -698,13 +653,28 @@
                 <div class="work-empty">Loading Digestions...</div>
             </div>
         </article>
+
+        <article class="work-panel" aria-labelledby="structured-work-panel-title">
+            <div class="work-panel-head">
+                <div>
+                    <span class="work-panel-kicker">Structured cards</span>
+                    <h2 id="structured-work-panel-title">Requests, Objectives, Signals</h2>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-light" id="structured-work-refresh-btn">
+                    <i class="bi bi-arrow-repeat me-1"></i>Refresh
+                </button>
+            </div>
+            <div class="work-object-list" id="structured-work-list">
+                <div class="work-empty">Loading structured work...</div>
+            </div>
+        </article>
     </div>
 </section>
 
 <div class="work-section-title">
     <div>
-        <h2>Task Board</h2>
-        <p>Fast execution items still live here. Use Workstreams for longer runs and Digestions for durable source context.</p>
+        <h2>Execution Items</h2>
+        <p>Tasks remain the fast, assignable layer. Pick one or more assignees, update status in place, or open details for cleanup.</p>
     </div>
 </div>
 
@@ -724,10 +694,16 @@
                     <label class="form-label">Details</label>
                     <textarea class="form-control" id="task-description" rows="3" placeholder="Key steps, links, and context..."></textarea>
                 </div>
-                <div style="position: relative;">
-                    <label class="form-label">Assignee (optional)</label>
-                    <input type="text" class="form-control" id="task-assignee" placeholder="Start typing a name...">
-                    <div class="assignee-suggestions" id="task-assignee-suggestions"></div>
+                <div>
+                    <label class="form-label">Assignees (optional)</label>
+                    <div class="task-picker" data-task-picker="create">
+                        <div class="task-picker-head">
+                            <span>Pick people</span>
+                            <span id="task-create-assignee-count">0 selected</span>
+                        </div>
+                        <input type="search" class="form-control" id="task-assignee-search" placeholder="Search agents and teammates">
+                        <div class="task-picker-users" id="task-assignee-picker"></div>
+                    </div>
                 </div>
                 <div class="row g-2">
                     <div class="col-6">
@@ -769,35 +745,22 @@
         </div>
     </div>
 
-    <div class="task-board" id="task-board">
-        <div class="task-column" data-status="open">
-            <div class="task-column-header">
-                <span class="task-column-title">Open</span>
-                <span class="task-count">0</span>
+    <div class="task-board-shell">
+        <div class="task-board-toolbar">
+            <div>
+                <strong id="task-board-count">Loading tasks...</strong>
+                <div class="text-muted small">Filtered by status without losing the assignee context.</div>
             </div>
-            <div class="task-column-body"></div>
-        </div>
-        <div class="task-column" data-status="in_progress">
-            <div class="task-column-header">
-                <span class="task-column-title">In Progress</span>
-                <span class="task-count">0</span>
+            <div class="task-board-filters" aria-label="Task filters">
+                <button type="button" class="task-filter-btn is-active" data-task-filter="active">Active</button>
+                <button type="button" class="task-filter-btn" data-task-filter="all">All</button>
+                <button type="button" class="task-filter-btn" data-task-filter="open">Open</button>
+                <button type="button" class="task-filter-btn" data-task-filter="in_progress">In progress</button>
+                <button type="button" class="task-filter-btn" data-task-filter="blocked">Blocked</button>
+                <button type="button" class="task-filter-btn" data-task-filter="done">Done</button>
             </div>
-            <div class="task-column-body"></div>
         </div>
-        <div class="task-column" data-status="blocked">
-            <div class="task-column-header">
-                <span class="task-column-title">Blocked</span>
-                <span class="task-count">0</span>
-            </div>
-            <div class="task-column-body"></div>
-        </div>
-        <div class="task-column" data-status="done">
-            <div class="task-column-header">
-                <span class="task-column-title">Done</span>
-                <span class="task-count">0</span>
-            </div>
-            <div class="task-column-body"></div>
-        </div>
+        <div class="task-board-list" id="task-board"></div>
     </div>
 </div>
 
@@ -822,11 +785,18 @@
                     <label class="form-label" for="task-detail-description">Details</label>
                     <textarea class="form-control" id="task-detail-description" rows="5"></textarea>
                 </div>
-                <div class="row g-2">
-                    <div class="col-md-6">
-                        <label class="form-label" for="task-detail-assignee">Assignee</label>
-                        <select class="form-select" id="task-detail-assignee"></select>
+                <div>
+                    <label class="form-label" for="task-detail-assignee-search">Assignees</label>
+                    <div class="task-picker" data-task-picker="detail">
+                        <div class="task-picker-head">
+                            <span>Task assignees</span>
+                            <span id="task-detail-assignee-count">0 selected</span>
+                        </div>
+                        <input type="search" class="form-control" id="task-detail-assignee-search" placeholder="Search agents and teammates">
+                        <div class="task-picker-users" id="task-detail-assignee-picker"></div>
                     </div>
+                </div>
+                <div class="row g-2">
                     <div class="col-md-6">
                         <label class="form-label" for="task-detail-status">Status</label>
                         <select class="form-select" id="task-detail-status">
@@ -899,10 +869,14 @@
     let digestionCache = new Map();
     let workstreamOverviewLoaded = false;
     let digestionOverviewLoaded = false;
+    let structuredWorkLoaded = false;
     let mentionSuggestions = [];
     let mentionSuggestionsLoading = false;
     let mentionSuggestionsFetchedAt = 0;
     let pendingOpenTaskId = new URLSearchParams(window.location.search).get('task') || '';
+    let taskBoardFilter = 'active';
+    let selectedCreateAssignees = new Set();
+    let selectedDetailAssignees = new Set();
     const TASK_MENTION_CACHE_TTL_MS = 30000;
 
     function escapeHtml(text) {
@@ -939,13 +913,14 @@
         return isNaN(date) ? String(timestamp) : date.toLocaleString();
     }
 
-    function setWorkSummary(kind, count, meta) {
-        const countEl = document.querySelector(`[data-work-summary-count="${kind}"]`);
-        const metaEl = document.querySelector(`[data-work-summary-meta="${kind}"]`);
-        const nextCount = Number(count || 0).toLocaleString();
-        const nextMeta = meta || '';
-        if (countEl && countEl.textContent !== nextCount) countEl.textContent = nextCount;
-        if (metaEl && metaEl.textContent !== nextMeta) metaEl.textContent = nextMeta;
+    function workSourceHref(sourceType, sourceId) {
+        const type = String(sourceType || '').trim();
+        const id = String(sourceId || '').trim();
+        if (!id) return '';
+        if (type === 'channel_message') return `/channels/locate?message_id=${encodeURIComponent(id)}`;
+        if (type === 'feed_post') return `/feed?post=${encodeURIComponent(id)}`;
+        if (type === 'direct_message') return `/messages?message=${encodeURIComponent(id)}`;
+        return '';
     }
 
     function workObjectEmpty(label, detail) {
@@ -1116,39 +1091,31 @@
     }
 
     function renderTaskBoard(tasks) {
-        const grouped = {
-            open: [],
-            in_progress: [],
-            blocked: [],
-            done: []
-        };
         taskCache = new Map();
-        (tasks || []).forEach(task => {
+        const items = Array.isArray(tasks) ? tasks.filter(Boolean) : [];
+        items.forEach(task => {
             if (task && task.id) taskCache.set(task.id, task);
-            const status = TASK_STATUSES.includes(task.status) ? task.status : 'open';
-            grouped[status].push(task);
         });
-        const activeCount = grouped.open.length + grouped.in_progress.length + grouped.blocked.length;
-        const taskMeta = [
-            `${grouped.in_progress.length} in progress`,
-            `${grouped.blocked.length} blocked`,
-            `${grouped.done.length} done`,
-        ].join(' · ');
-        setWorkSummary('tasks', activeCount, taskMeta);
-
-        document.querySelectorAll('.task-column').forEach(column => {
-            const status = column.dataset.status;
-            const list = grouped[status] || [];
-            column.querySelector('.task-count').textContent = list.length;
-            const body = column.querySelector('.task-column-body');
-            body.innerHTML = '';
-            if (!list.length) {
-                body.innerHTML = `<div class="task-empty">No tasks yet.</div>`;
-                return;
-            }
-            list.forEach(task => {
-                body.appendChild(createTaskCard(task));
-            });
+        let visible = items;
+        if (taskBoardFilter === 'active') {
+            visible = items.filter(task => task.status !== 'done');
+        } else if (taskBoardFilter !== 'all') {
+            visible = items.filter(task => task.status === taskBoardFilter);
+        }
+        const board = document.getElementById('task-board');
+        const countEl = document.getElementById('task-board-count');
+        if (countEl) {
+            const activeCount = items.filter(task => task.status !== 'done').length;
+            countEl.textContent = `${visible.length.toLocaleString()} shown · ${activeCount.toLocaleString()} active · ${items.length.toLocaleString()} total`;
+        }
+        if (!board) return;
+        board.innerHTML = '';
+        if (!visible.length) {
+            board.innerHTML = '<div class="work-empty">No tasks match this filter.</div>';
+            return;
+        }
+        visible.forEach(task => {
+            board.appendChild(createTaskCard(task));
         });
     }
 
@@ -1156,9 +1123,6 @@
         const listEl = document.getElementById('workstream-overview-list');
         const items = Array.isArray(workstreams) ? workstreams.filter(Boolean) : [];
         workstreamCache = new Map(items.filter(item => item.id).map(item => [String(item.id), item]));
-        const active = items.filter(item => !['closed', 'archived', 'cancelled'].includes(String(item.status || '').toLowerCase()));
-        const blocked = items.filter(item => String(item.status || '').toLowerCase() === 'blocked').length;
-        setWorkSummary('workstreams', active.length, `${blocked} blocked · ${items.length} visible`);
         if (!listEl) return;
         if (!items.length) {
             setWorkListHtml(listEl, workObjectEmpty('No Workstreams yet', 'Create one from a structured work block or an agent handoff.'));
@@ -1198,12 +1162,6 @@
         const listEl = document.getElementById('digestion-overview-list');
         const items = Array.isArray(digestions) ? digestions.filter(Boolean) : [];
         digestionCache = new Map(items.filter(item => item.id).map(item => [String(item.id), item]));
-        const ready = items.filter(item => {
-            const stats = item.stats && typeof item.stats === 'object' ? item.stats : {};
-            return stats.retrieval_ready || Number(stats.chunks || 0) > 0;
-        }).length;
-        const totalSources = items.reduce((sum, item) => sum + digestionStats(item).sources, 0);
-        setWorkSummary('digestions', items.length, `${ready} ready · ${totalSources.toLocaleString()} sources`);
         if (!listEl) return;
         if (!items.length) {
             setWorkListHtml(listEl, workObjectEmpty('No Digestions yet', 'Build reusable source context from the File Vault.'));
@@ -1240,6 +1198,73 @@
         digestionOverviewLoaded = true;
     }
 
+    function structuredIcon(type) {
+        if (type === 'request') return 'bi-arrow-return-right';
+        if (type === 'objective') return 'bi-bullseye';
+        if (type === 'input') return 'bi-ui-checks-grid';
+        if (type === 'telemetry') return 'bi-activity';
+        if (type === 'handoff') return 'bi-arrow-left-right';
+        if (type === 'signal') return 'bi-broadcast';
+        return 'bi-braces';
+    }
+
+    function structuredTypeLabel(type) {
+        if (type === 'request') return 'Request';
+        if (type === 'objective') return 'Objective';
+        if (type === 'input') return 'Input card';
+        if (type === 'telemetry') return 'Telemetry card';
+        if (type === 'handoff') return 'Handoff';
+        if (type === 'signal') return 'Signal';
+        return 'Structured card';
+    }
+
+    function renderStructuredWork(payload) {
+        const listEl = document.getElementById('structured-work-list');
+        const items = Array.isArray(payload?.objects) ? payload.objects.filter(Boolean) : [];
+        if (!listEl) return;
+        if (!items.length) {
+            setWorkListHtml(listEl, workObjectEmpty('No structured work yet', 'Requests, objectives, handoffs, signals, input cards, and telemetry cards will appear here.'));
+            structuredWorkLoaded = true;
+            return;
+        }
+        const html = items.slice(0, 16).map((item) => {
+            const type = escapeHtml(item.type || 'structured');
+            const id = escapeHtml(item.id || '');
+            const title = escapeHtml(item.title || item.name || item.prompt || item.id || structuredTypeLabel(item.type));
+            const subtitle = escapeHtml(item.summary || item.description || item.required_output || item.prompt || 'Open the source to continue this work item.');
+            const status = escapeHtml(item.status || 'open');
+            const priority = item.priority ? `<span class="work-object-chip">${escapeHtml(item.priority)}</span>` : '';
+            const people = Number(item.member_count || item.assignee_count || item.target_count || 0) || 0;
+            const progress = item.progress_percent !== undefined && item.progress_percent !== null
+                ? `<span class="work-object-chip">${escapeHtml(String(item.progress_percent))}%</span>`
+                : '';
+            const href = item.href || workSourceHref(item.source_type, item.source_id);
+            const action = href
+                ? `<a class="btn btn-outline-light" href="${escapeHtml(href)}"><i class="bi bi-box-arrow-up-right"></i><span class="visually-hidden">Open source</span></a>`
+                : `<button type="button" class="btn btn-outline-light" disabled><i class="bi bi-link-45deg"></i><span class="visually-hidden">No source link</span></button>`;
+            return `
+                <article class="work-object-card" data-structured-work-id="${id}" data-structured-work-type="${type}">
+                    <span class="work-object-icon"><i class="bi ${structuredIcon(item.type)}"></i></span>
+                    <div class="min-w-0">
+                        <div class="work-object-title">${title}</div>
+                        <div class="work-object-subtitle">${subtitle}</div>
+                        <div class="work-object-meta">
+                            <span class="work-object-chip">${escapeHtml(structuredTypeLabel(item.type))}</span>
+                            <span class="work-object-chip">${status}</span>
+                            ${priority}
+                            ${progress}
+                            ${people ? `<span class="work-object-chip">${people} people</span>` : ''}
+                            <span class="work-object-chip">Updated ${escapeHtml(workObjectDate(item.updated_at || item.created_at))}</span>
+                        </div>
+                    </div>
+                    <div class="work-object-actions">${action}</div>
+                </article>
+            `;
+        }).join('');
+        setWorkListHtml(listEl, html);
+        structuredWorkLoaded = true;
+    }
+
     function loadWorkstreams() {
         const listEl = document.getElementById('workstream-overview-list');
         if (!workstreamOverviewLoaded) setWorkListLoading(listEl, 'Loading Workstreams...');
@@ -1247,7 +1272,6 @@
             .then(data => renderWorkstreams(data && data.workstreams ? data.workstreams : []))
             .catch(err => {
                 console.warn('Workstream overview load failed', err);
-                setWorkSummary('workstreams', 0, 'Could not load Workstreams');
                 setWorkListHtml(listEl, workObjectEmpty('Could not load Workstreams', err.error || err.message || 'Refresh after sync completes.'));
                 workstreamOverviewLoaded = true;
             });
@@ -1260,14 +1284,25 @@
             .then(data => renderDigestions(data && data.digestions ? data.digestions : []))
             .catch(err => {
                 console.warn('Digestion overview load failed', err);
-                setWorkSummary('digestions', 0, 'Could not load Digestions');
                 setWorkListHtml(listEl, workObjectEmpty('Could not load Digestions', err.error || err.message || 'Open Vault to retry.'));
                 digestionOverviewLoaded = true;
             });
     }
 
+    function loadStructuredWork() {
+        const listEl = document.getElementById('structured-work-list');
+        if (!structuredWorkLoaded) setWorkListLoading(listEl, 'Loading structured work...');
+        return apiCall('/ajax/work/structured_objects')
+            .then(data => renderStructuredWork(data || {}))
+            .catch(err => {
+                console.warn('Structured work load failed', err);
+                setWorkListHtml(listEl, workObjectEmpty('Could not load structured work', err.error || err.message || 'Refresh after sync completes.'));
+                structuredWorkLoaded = true;
+            });
+    }
+
     function loadWorkOverview() {
-        return Promise.allSettled([loadWorkstreams(), loadDigestionOverview()]);
+        return Promise.allSettled([loadWorkstreams(), loadDigestionOverview(), loadStructuredWork()]);
     }
 
     function refreshWork() {
@@ -1326,6 +1361,7 @@
                     return;
                 }
                 taskUsers = data.users || {};
+                renderAllTaskPeoplePickers();
                 renderTaskBoard(data.tasks || []);
                 if (pendingOpenTaskId) {
                     const taskId = pendingOpenTaskId;
@@ -1400,9 +1436,18 @@
         return known.display_name || known.username || suggested.display_name || suggested.username || userId;
     }
 
-    function populateDetailAssignees(selectedUserId) {
-        const select = document.getElementById('task-detail-assignee');
-        if (!select) return;
+    function taskUserRecord(userId) {
+        const id = String(userId || '');
+        return taskUsers[id] || (mentionSuggestions || []).find(user => String(user.user_id || '') === id) || {
+            user_id: id,
+            display_name: id,
+            username: id,
+            avatar_url: null,
+            origin_peer: null
+        };
+    }
+
+    function taskPickerUsers(query) {
         const users = new Map();
         Object.entries(taskUsers || {}).forEach(([uid, info]) => {
             if (uid) users.set(uid, info || {});
@@ -1412,23 +1457,73 @@
                 users.set(user.user_id, user);
             }
         });
-        if (selectedUserId && !users.has(selectedUserId)) {
-            users.set(selectedUserId, { display_name: selectedUserId, username: selectedUserId });
-        }
-        const options = ['<option value="">Unassigned</option>'];
-        [...users.entries()]
+        [...selectedCreateAssignees, ...selectedDetailAssignees].forEach(uid => {
+            if (uid && !users.has(uid)) users.set(uid, taskUserRecord(uid));
+        });
+        const needle = String(query || '').trim().toLowerCase();
+        return [...users.entries()]
+            .map(([uid, user]) => ({ uid, user: user || {} }))
+            .filter(({ uid, user }) => {
+                if (!needle) return true;
+                const label = String(user.display_name || user.username || uid).toLowerCase();
+                const username = String(user.username || user.handle || '').toLowerCase();
+                return label.includes(needle) || username.includes(needle) || String(uid).toLowerCase().includes(needle);
+            })
             .sort((a, b) => {
-                const aName = (a[1].display_name || a[1].username || a[0]).toLowerCase();
-                const bName = (b[1].display_name || b[1].username || b[0]).toLowerCase();
+                const aName = (a.user.display_name || a.user.username || a.uid).toLowerCase();
+                const bName = (b.user.display_name || b.user.username || b.uid).toLowerCase();
                 return aName.localeCompare(bName);
             })
-            .forEach(([uid, user]) => {
-                const label = user.display_name || user.username || uid;
-                const handle = user.username && user.username !== label ? ` @${user.username}` : '';
-                options.push(`<option value="${escapeHtml(uid)}">${escapeHtml(label + handle)}</option>`);
-            });
-        select.innerHTML = options.join('');
-        select.value = selectedUserId || '';
+            .slice(0, 80);
+    }
+
+    function taskPickerAvatar(user, uid) {
+        const label = user.display_name || user.username || uid || '?';
+        const url = typeof user.avatar_url === 'string' && user.avatar_url.startsWith('/') ? user.avatar_url : '';
+        if (url) return `<img src="${escapeHtml(url)}" alt="${escapeHtml(label)}">`;
+        return `<span>${escapeHtml(String(label).slice(0, 1).toUpperCase() || '?')}</span>`;
+    }
+
+    function renderTaskPeoplePicker(mode) {
+        const isDetail = mode === 'detail';
+        const searchEl = document.getElementById(isDetail ? 'task-detail-assignee-search' : 'task-assignee-search');
+        const listEl = document.getElementById(isDetail ? 'task-detail-assignee-picker' : 'task-assignee-picker');
+        const countEl = document.getElementById(isDetail ? 'task-detail-assignee-count' : 'task-create-assignee-count');
+        const selected = isDetail ? selectedDetailAssignees : selectedCreateAssignees;
+        if (!listEl) return;
+        const users = taskPickerUsers(searchEl ? searchEl.value : '');
+        if (countEl) {
+            countEl.textContent = `${selected.size} selected`;
+        }
+        if (!users.length) {
+            listEl.innerHTML = '<div class="work-empty">No matching users yet.</div>';
+            return;
+        }
+        listEl.innerHTML = users.map(({ uid, user }) => {
+            const label = user.display_name || user.username || uid;
+            const handle = user.username || user.handle || uid;
+            const isSelected = selected.has(String(uid));
+            return `
+                <button type="button" class="task-picker-user ${isSelected ? 'is-selected' : ''}" data-picker-mode="${escapeHtml(mode)}" data-user-id="${escapeHtml(uid)}" aria-pressed="${isSelected ? 'true' : 'false'}">
+                    <span class="task-picker-avatar">${taskPickerAvatar(user, uid)}</span>
+                    <span class="min-w-0">
+                        <span class="task-picker-name">${escapeHtml(label)}</span>
+                        <span class="task-picker-handle">@${escapeHtml(handle)}</span>
+                    </span>
+                    <i class="bi bi-check2-circle task-picker-check"></i>
+                </button>
+            `;
+        }).join('');
+    }
+
+    function renderAllTaskPeoplePickers() {
+        renderTaskPeoplePicker('create');
+        renderTaskPeoplePicker('detail');
+    }
+
+    function selectedAssigneeList(mode) {
+        const selected = mode === 'detail' ? selectedDetailAssignees : selectedCreateAssignees;
+        return Array.from(selected).filter(Boolean);
     }
 
     function renderTaskDetail(task) {
@@ -1441,7 +1536,8 @@
         document.getElementById('task-detail-priority').value = task.priority || 'normal';
         document.getElementById('task-detail-due').value = taskDateInputValue(task.due_at);
         document.getElementById('task-detail-visibility').value = task.visibility || 'network';
-        populateDetailAssignees(task.assigned_to || '');
+        selectedDetailAssignees = new Set(taskAssigneeIds(task));
+        renderTaskPeoplePicker('detail');
         const meta = document.getElementById('task-detail-meta');
         if (meta) {
             meta.innerHTML = `
@@ -1498,14 +1594,23 @@
             return;
         }
         const dueRaw = document.getElementById('task-detail-due').value;
+        const assignees = selectedAssigneeList('detail');
+        const existingTask = taskCache.get(taskId) || {};
+        const metadata = Object.assign({}, (existingTask.metadata && typeof existingTask.metadata === 'object') ? existingTask.metadata : {});
+        if (assignees.length) {
+            metadata.assignees = assignees;
+        } else {
+            delete metadata.assignees;
+        }
         const payload = {
             title,
             description: document.getElementById('task-detail-description').value.trim(),
-            assigned_to: document.getElementById('task-detail-assignee').value || null,
+            assigned_to: assignees[0] || null,
             status: document.getElementById('task-detail-status').value,
             priority: document.getElementById('task-detail-priority').value,
             due_at: dueRaw ? new Date(dueRaw).toISOString() : null,
-            visibility: document.getElementById('task-detail-visibility').value
+            visibility: document.getElementById('task-detail-visibility').value,
+            metadata
         };
         updateTask(taskId, payload)
             .then((data) => {
@@ -1552,89 +1657,15 @@
             });
     }
 
-    function filterAssigneeSuggestions(query) {
-        if (!query) return [];
-        const needle = query.toLowerCase();
-        return (mentionSuggestions || []).filter(user => {
-            const display = (user.display_name || '').toLowerCase();
-            const username = (user.username || '').toLowerCase();
-            const handle = (user.handle || '').toLowerCase();
-            const uid = (user.user_id || '').toLowerCase();
-            return display.includes(needle) || username.includes(needle) || handle.includes(needle) || uid.includes(needle);
-        }).slice(0, 6);
-    }
-
-    function setupAssigneeAutocomplete() {
-        const input = document.getElementById('task-assignee');
-        const suggestionsEl = document.getElementById('task-assignee-suggestions');
-        if (!input || !suggestionsEl) return;
-
-        function hideSuggestions() {
-            suggestionsEl.style.display = 'none';
-            suggestionsEl.innerHTML = '';
-        }
-
-        function renderSuggestions(matches) {
-            suggestionsEl.innerHTML = matches.map(user => {
-                const safeDisplay = escapeHtml(user.display_name || user.username || user.user_id || '?');
-                const safeUid = escapeHtml(user.user_id || '');
-                const safeHandle = escapeHtml(user.handle || user.user_id || '');
-                const initial = safeDisplay[0] || '?';
-                const isSafeUrl = user.avatar_url && typeof user.avatar_url === 'string' && user.avatar_url.startsWith('/');
-                const avatar = isSafeUrl
-                    ? `<img src="${escapeHtml(user.avatar_url)}" alt="${safeDisplay}">`
-                    : `<span>${initial.toUpperCase()}</span>`;
-                return `
-                    <div class="assignee-suggestion" data-user-id="${safeUid}">
-                        <div class="suggestion-avatar">${avatar}</div>
-                        <div>
-                            <div>${safeDisplay}</div>
-                            <div class="text-muted" style="font-size: 0.7rem;">@${safeHandle}</div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-            suggestionsEl.style.display = 'block';
-        }
-
-        input.addEventListener('input', () => {
-            input.dataset.userId = '';
-            const query = input.value.trim();
-            if (!query || query.length < 2) {
-                hideSuggestions();
-                return;
-            }
-            const matches = filterAssigneeSuggestions(query);
-            if (!matches.length) {
-                loadMentionSuggestions({ forceRefresh: true }).then(() => {
-                    const refreshedMatches = filterAssigneeSuggestions(query);
-                    if (!refreshedMatches.length) {
-                        hideSuggestions();
-                        return;
-                    }
-                    renderSuggestions(refreshedMatches);
-                });
-                return;
-            }
-            renderSuggestions(matches);
-        });
-
-        suggestionsEl.addEventListener('click', (event) => {
-            const item = event.target.closest('.assignee-suggestion');
-            if (!item) return;
-            const userId = item.dataset.userId;
-            const user = (mentionSuggestions || []).find(u => u.user_id === userId);
-            if (user) {
-                input.value = user.display_name || user.username || user.user_id;
-                input.dataset.userId = user.user_id;
-            }
-            hideSuggestions();
-        });
-
-        document.addEventListener('click', (event) => {
-            if (!suggestionsEl.contains(event.target) && event.target !== input) {
-                hideSuggestions();
-            }
+    function setupTaskPeoplePickers() {
+        ['task-assignee-search', 'task-detail-assignee-search'].forEach((id) => {
+            const input = document.getElementById(id);
+            if (!input) return;
+            const mode = id.includes('detail') ? 'detail' : 'create';
+            input.addEventListener('input', () => renderTaskPeoplePicker(mode));
+            input.addEventListener('focus', () => {
+                loadMentionSuggestions().then(() => renderTaskPeoplePicker(mode));
+            });
         });
     }
 
@@ -1645,20 +1676,21 @@
             event.preventDefault();
             const titleEl = document.getElementById('task-title');
             const descriptionEl = document.getElementById('task-description');
-            const assigneeEl = document.getElementById('task-assignee');
             const statusEl = document.getElementById('task-status');
             const priorityEl = document.getElementById('task-priority');
             const dueEl = document.getElementById('task-due');
             const visibilityEl = document.getElementById('task-visibility');
+            const assignees = selectedAssigneeList('create');
 
             const payload = {
                 title: titleEl.value.trim(),
                 description: descriptionEl.value.trim(),
                 status: statusEl.value,
                 priority: priorityEl.value,
-                assigned_to: assigneeEl.dataset.userId || '',
+                assigned_to: assignees[0] || '',
                 due_at: dueEl.value ? new Date(dueEl.value).toISOString() : null,
-                visibility: visibilityEl.value
+                visibility: visibilityEl.value,
+                metadata: assignees.length ? { assignees } : {}
             };
 
             if (!payload.title) {
@@ -1673,7 +1705,8 @@
                 if (data && data.success) {
                     showAlert('Task created', 'success');
                     form.reset();
-                    assigneeEl.dataset.userId = '';
+                    selectedCreateAssignees = new Set();
+                    renderTaskPeoplePicker('create');
                     loadTasks();
                 } else {
                     showAlert(data && data.error ? data.error : 'Failed to create task', 'warning');
@@ -1698,6 +1731,30 @@
             event.preventDefault();
             event.stopPropagation();
             openDigestionFromWorkPage(digestionBtn.dataset.workOpenDigestion, digestionBtn);
+            return;
+        }
+        const pickerUser = event.target.closest('.task-picker-user[data-user-id]');
+        if (pickerUser) {
+            event.preventDefault();
+            const mode = pickerUser.dataset.pickerMode === 'detail' ? 'detail' : 'create';
+            const selected = mode === 'detail' ? selectedDetailAssignees : selectedCreateAssignees;
+            const userId = String(pickerUser.dataset.userId || '');
+            if (selected.has(userId)) {
+                selected.delete(userId);
+            } else if (userId) {
+                selected.add(userId);
+            }
+            renderTaskPeoplePicker(mode);
+            return;
+        }
+        const filterBtn = event.target.closest('[data-task-filter]');
+        if (filterBtn) {
+            event.preventDefault();
+            taskBoardFilter = filterBtn.dataset.taskFilter || 'active';
+            document.querySelectorAll('[data-task-filter]').forEach(btn => {
+                btn.classList.toggle('is-active', btn === filterBtn);
+            });
+            renderTaskBoard(Array.from(taskCache.values()));
             return;
         }
         const actionBtn = event.target.closest('[data-task-action]');
@@ -1726,11 +1783,15 @@
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => refreshWork());
     }
+    const structuredRefreshBtn = document.getElementById('structured-work-refresh-btn');
+    if (structuredRefreshBtn) {
+        structuredRefreshBtn.addEventListener('click', () => loadStructuredWork());
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
         refreshWork();
-        loadMentionSuggestions();
-        setupAssigneeAutocomplete();
+        loadMentionSuggestions().then(renderAllTaskPeoplePickers);
+        setupTaskPeoplePickers();
         setupTaskForm();
         const detailForm = document.getElementById('task-detail-form');
         if (detailForm) detailForm.addEventListener('submit', saveTaskDetail);
@@ -1748,8 +1809,8 @@
         const unassignBtn = document.getElementById('task-detail-unassign');
         if (unassignBtn) {
             unassignBtn.addEventListener('click', () => {
-                const select = document.getElementById('task-detail-assignee');
-                if (select) select.value = '';
+                selectedDetailAssignees = new Set();
+                renderTaskPeoplePicker('detail');
             });
         }
         setInterval(loadTasks, 15000);

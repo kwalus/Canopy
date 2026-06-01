@@ -16092,6 +16092,197 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Update content context note error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to update content context note'}), 500
 
+    @ui.route('/ajax/work/structured_objects', methods=['GET'])
+    @require_login
+    def ajax_work_structured_objects():
+        """Return structured work objects visible to the current browser session."""
+        try:
+            db_manager, _, _, _, _, _, _, _, profile_manager, _, _ = _get_app_components_any(current_app)
+            request_manager = current_app.config.get('REQUEST_MANAGER')
+            objective_manager = current_app.config.get('OBJECTIVE_MANAGER')
+            collab_card_manager = current_app.config.get('COLLAB_CARD_MANAGER')
+            handoff_manager = current_app.config.get('HANDOFF_MANAGER')
+            signal_manager = current_app.config.get('SIGNAL_MANAGER')
+            user_id = get_current_user()
+            admin_user_id = db_manager.get_instance_owner_user_id() if db_manager else None
+            limit = max(1, min(int(request.args.get('limit', 40) or 40), 100))
+
+            objects = []
+            user_ids = set()
+
+            def add_user(uid):
+                if uid:
+                    user_ids.add(str(uid))
+
+            def member_ids(members):
+                ids = []
+                for member in members or []:
+                    if isinstance(member, dict):
+                        uid = member.get('user_id') or member.get('id')
+                    else:
+                        uid = str(member)
+                    if uid:
+                        ids.append(str(uid))
+                        add_user(uid)
+                return ids
+
+            def source_href(source_type, source_id):
+                source_type = (source_type or '').strip()
+                source_id = (source_id or '').strip()
+                if not source_id:
+                    return ''
+                safe_id = quote_plus(source_id)
+                if source_type == 'channel_message':
+                    return f"/channels/locate?message_id={safe_id}"
+                if source_type == 'feed_post':
+                    return f"/feed?post={safe_id}"
+                if source_type == 'direct_message':
+                    return f"/messages?message={safe_id}"
+                return ''
+
+            if request_manager:
+                for req in request_manager.list_requests(limit=limit, include_members=True):
+                    members = req.get('members') or []
+                    add_user(req.get('created_by'))
+                    objects.append({
+                        'type': 'request',
+                        'id': req.get('id'),
+                        'title': req.get('title') or 'Request',
+                        'summary': req.get('request') or req.get('required_output') or '',
+                        'required_output': req.get('required_output') or '',
+                        'status': req.get('status') or 'open',
+                        'priority': req.get('priority') or 'normal',
+                        'updated_at': req.get('updated_at') or req.get('created_at'),
+                        'created_at': req.get('created_at'),
+                        'source_type': req.get('source_type'),
+                        'source_id': req.get('source_id'),
+                        'href': source_href(req.get('source_type'), req.get('source_id')),
+                        'member_count': len(member_ids(members)),
+                    })
+
+            if objective_manager:
+                for obj in objective_manager.list_objectives(limit=limit):
+                    full = objective_manager.get_objective(obj.get('id'), include_members=True, include_tasks=True) or obj
+                    members = full.get('members') or []
+                    add_user(full.get('created_by'))
+                    objects.append({
+                        'type': 'objective',
+                        'id': full.get('id'),
+                        'title': full.get('title') or 'Objective',
+                        'summary': full.get('description') or '',
+                        'status': full.get('status') or 'pending',
+                        'updated_at': full.get('updated_at') or full.get('created_at'),
+                        'created_at': full.get('created_at'),
+                        'source_type': full.get('source_type'),
+                        'source_id': full.get('source_id'),
+                        'href': source_href(full.get('source_type'), full.get('source_id')),
+                        'member_count': len(member_ids(members)),
+                        'progress_percent': full.get('progress_percent'),
+                    })
+
+            if collab_card_manager:
+                cards = collab_card_manager.list_cards(
+                    limit=limit,
+                    viewer_id=user_id,
+                    admin_user_id=admin_user_id,
+                )
+                for card in cards:
+                    card_type = card.get('card_type') or 'card'
+                    add_user(card.get('owner_id') or card.get('created_by'))
+                    targets = []
+                    permissions = card.get('permissions') if isinstance(card.get('permissions'), dict) else {}
+                    if isinstance(permissions, dict):
+                        raw_targets = permissions.get('targets') or permissions.get('responders') or []
+                        if isinstance(raw_targets, list):
+                            targets = [str(uid) for uid in raw_targets if uid]
+                    for uid in targets:
+                        add_user(uid)
+                    telemetry = card.get('telemetry') if isinstance(card.get('telemetry'), dict) else {}
+                    progress = telemetry.get('progress') if isinstance(telemetry, dict) else None
+                    objects.append({
+                        'type': 'input' if card_type == 'input' else 'telemetry' if card_type == 'telemetry' else card_type,
+                        'id': card.get('id'),
+                        'title': card.get('title') or card.get('prompt') or 'Collaboration card',
+                        'summary': card.get('summary') or card.get('prompt') or '',
+                        'status': card.get('status') or 'open',
+                        'updated_at': card.get('updated_at') or card.get('created_at'),
+                        'created_at': card.get('created_at'),
+                        'source_type': card.get('source_type'),
+                        'source_id': card.get('source_id'),
+                        'href': source_href(card.get('source_type'), card.get('source_id')),
+                        'target_count': len(targets),
+                        'progress_percent': progress,
+                    })
+
+            if handoff_manager:
+                for handoff in handoff_manager.list_handoffs(limit=limit, viewer_id=user_id):
+                    item = handoff.to_dict() if hasattr(handoff, 'to_dict') else dict(handoff)
+                    add_user(item.get('author_id') or item.get('owner') or item.get('return_to'))
+                    objects.append({
+                        'type': 'handoff',
+                        'id': item.get('id'),
+                        'title': item.get('title') or 'Handoff',
+                        'summary': item.get('summary') or '; '.join(item.get('next_steps') or []) or '',
+                        'status': item.get('escalation_level') or 'handoff',
+                        'updated_at': item.get('updated_at') or item.get('created_at'),
+                        'created_at': item.get('created_at'),
+                        'source_type': item.get('source_type'),
+                        'source_id': item.get('source_id'),
+                        'href': source_href(item.get('source_type'), item.get('source_id')),
+                        'member_count': len([uid for uid in (item.get('owner'), item.get('return_to')) if uid]),
+                    })
+
+            if signal_manager:
+                signals = signal_manager.list_signals(limit=limit)
+                for sig in signals:
+                    visibility = (sig.get('visibility') or 'network').lower()
+                    if visibility not in ('public', 'network'):
+                        if user_id not in (sig.get('owner_id'), sig.get('created_by'), admin_user_id):
+                            continue
+                    add_user(sig.get('owner_id') or sig.get('created_by'))
+                    objects.append({
+                        'type': 'signal',
+                        'id': sig.get('id'),
+                        'title': sig.get('title') or 'Signal',
+                        'summary': sig.get('summary') or sig.get('notes') or '',
+                        'status': sig.get('status') or 'active',
+                        'updated_at': sig.get('updated_at') or sig.get('created_at'),
+                        'created_at': sig.get('created_at'),
+                        'source_type': sig.get('source_type'),
+                        'source_id': sig.get('source_id'),
+                        'href': source_href(sig.get('source_type'), sig.get('source_id')),
+                        'priority': sig.get('type'),
+                    })
+
+            def sort_key(item):
+                return str(item.get('updated_at') or item.get('created_at') or '')
+
+            objects.sort(key=sort_key, reverse=True)
+            objects = objects[:limit]
+
+            users = {}
+            for uid in user_ids:
+                profile = profile_manager.get_profile(uid) if profile_manager else None
+                if profile:
+                    users[uid] = {
+                        'display_name': profile.display_name or profile.username or uid,
+                        'avatar_url': profile.avatar_url,
+                        'username': profile.username,
+                        'origin_peer': getattr(profile, 'origin_peer', None),
+                    }
+                else:
+                    users[uid] = {
+                        'display_name': uid,
+                        'avatar_url': None,
+                        'username': uid,
+                        'origin_peer': None,
+                    }
+
+            return jsonify({'success': True, 'objects': objects, 'users': users})
+        except Exception as e:
+            logger.error(f"List structured work objects error: {e}", exc_info=True)
+            return jsonify({'success': False, 'error': 'Failed to list structured work objects'}), 500
+
     @ui.route('/ajax/tasks', methods=['GET'])
     @require_login
     def ajax_list_tasks():
