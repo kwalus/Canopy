@@ -147,6 +147,8 @@ def _artifact_ref_id(artifact: Dict[str, Any]) -> Optional[str]:
     for key in (
         'ref_id',
         'reference_id',
+        'reference',
+        'artifact_ref',
         'file_id',
         'digestion_id',
         'message_id',
@@ -156,6 +158,22 @@ def _artifact_ref_id(artifact: Dict[str, Any]) -> Optional[str]:
         'url',
     ):
         value = _coerce_text(artifact.get(key), limit=500)
+        if value:
+            return value
+    return None
+
+
+def _artifact_title(artifact: Dict[str, Any]) -> Optional[str]:
+    for key in ('title', 'label', 'name', 'file_name', 'filename'):
+        value = _coerce_text(artifact.get(key), limit=300)
+        if value:
+            return value
+    return None
+
+
+def _artifact_summary(artifact: Dict[str, Any]) -> Optional[str]:
+    for key in ('summary', 'description', 'note'):
+        value = _coerce_text(artifact.get(key), limit=1200)
         if value:
             return value
     return None
@@ -601,8 +619,8 @@ class WorkstreamManager:
                 workstream_id,
                 artifact_type,
                 ref_id,
-                _coerce_text(artifact.get('title'), limit=300),
-                _coerce_text(artifact.get('summary'), limit=1200),
+                _artifact_title(artifact),
+                _artifact_summary(artifact),
                 _json_dumps(artifact.get('metadata') if isinstance(artifact.get('metadata'), dict) else None),
                 actor,
                 now,
@@ -967,8 +985,8 @@ class WorkstreamManager:
                     _new_id('Wse'),
                     workstream_id,
                     actor_user_id,
-                    _coerce_text(artifact.get('title'), limit=300) or 'Artifact added',
-                    _coerce_text(artifact.get('summary'), limit=1200),
+                    _artifact_title(artifact) or 'Artifact added',
+                    _artifact_summary(artifact),
                     _json_dumps({'artifact_type': _infer_artifact_type(artifact), 'ref_id': _artifact_ref_id(artifact)}),
                     now,
                 ),

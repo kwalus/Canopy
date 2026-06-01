@@ -7980,6 +7980,7 @@ def create_api_blueprint() -> Blueprint:
                 )
 
                 agents.append({
+                    'id': row_dict['id'],
                     'user_id': row_dict['id'],
                     'username': row_dict['username'] or '',
                     'display_name': row_dict['display_name'] or row_dict['username'] or row_dict['id'],

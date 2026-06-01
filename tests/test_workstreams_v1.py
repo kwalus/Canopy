@@ -275,19 +275,39 @@ class WorkstreamApiTest(unittest.TestCase):
 
         ref_file_artifact = self.client.post(
             f'/api/v1/workstreams/{ws_id}/artifacts',
-            json={'reference_id': 'Frefalias123456', 'title': 'Reference file'},
+            json={'reference': 'Frefalias123456', 'label': 'Reference file'},
             headers={'X-API-Key': 'agent-key'},
         )
         self.assertEqual(ref_file_artifact.status_code, 201)
         self.assertEqual(ref_file_artifact.get_json()['artifact']['artifact_type'], 'file')
         self.assertEqual(ref_file_artifact.get_json()['artifact']['ref_id'], 'Frefalias123456')
+        self.assertEqual(ref_file_artifact.get_json()['artifact']['title'], 'Reference file')
+
+        batch_artifacts = self.client.post(
+            f'/api/v1/workstreams/{ws_id}/artifacts',
+            json={
+                'artifacts': [
+                    {'reference': 'https://example.com/workstream-validation', 'label': 'Reference URL'},
+                    {'artifact_ref': 'Mmessagealias123456', 'name': 'Message artifact'},
+                    {'title': 'Missing reference row'},
+                ],
+            },
+            headers={'X-API-Key': 'agent-key'},
+        )
+        self.assertEqual(batch_artifacts.status_code, 201)
+        batch_payload = batch_artifacts.get_json()
+        self.assertEqual(batch_payload['added'], 2)
+        self.assertEqual(len(batch_payload['skipped']), 1)
+        batch_types = {item['title']: item['artifact_type'] for item in batch_payload['artifacts']}
+        self.assertEqual(batch_types['Reference URL'], 'url')
+        self.assertEqual(batch_types['Message artifact'], 'message')
 
         handoff = self.client.get(f'/api/v1/workstreams/{ws_id}/agent-reference', headers={'X-API-Key': 'agent-key'})
         self.assertEqual(handoff.status_code, 200)
         payload = handoff.get_json()
         self.assertGreaterEqual(len(payload['recent_events']), 3)
         self.assertEqual(payload['events'], payload['recent_events'])
-        self.assertEqual(len(payload['artifacts']), 3)
+        self.assertEqual(len(payload['artifacts']), 5)
 
     def test_reviewer_claim_can_add_review_without_role_downgrade(self) -> None:
         created = self.client.post(

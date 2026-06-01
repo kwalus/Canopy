@@ -81,6 +81,32 @@ def _normalize_participant_payload(data: Dict[str, Any]) -> list[Dict[str, Any]]
     return []
 
 
+def _accepted_artifact_reference_fields() -> list[str]:
+    return [
+        'ref_id',
+        'reference_id',
+        'reference',
+        'artifact_ref',
+        'file_id',
+        'digestion_id',
+        'message_id',
+        'post_id',
+        'artifact_id',
+        'url',
+        'id',
+    ]
+
+
+def _normalize_artifact_payload(data: Dict[str, Any]) -> list[Dict[str, Any]]:
+    """Accept canonical artifact, batch artifacts[], and a single flat artifact object."""
+    if isinstance(data.get('artifacts'), list):
+        return [item for item in data.get('artifacts') if isinstance(item, dict)]
+    artifact = data.get('artifact')
+    if isinstance(artifact, dict):
+        return [artifact]
+    return [data] if data else []
+
+
 def _require_auth(required_permission: Optional[Permission] = None, *, allow_session: bool = True) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
@@ -310,26 +336,40 @@ def create_workstream_api_blueprint() -> Blueprint:
         if not manager.user_can_contribute(workstream_id, actor_id):
             return jsonify({'error': 'Permission denied', 'code': 'workstream_contribute_denied'}), 403
         data = _json_body()
-        artifact_data = data.get('artifact') if isinstance(data.get('artifact'), dict) else data
-        artifact = manager.add_artifact(workstream_id, actor_user_id=actor_id, artifact=artifact_data)
-        if not artifact:
+        artifact_items = _normalize_artifact_payload(data)
+        artifacts = []
+        skipped = []
+        for index, artifact_data in enumerate(artifact_items):
+            artifact = manager.add_artifact(workstream_id, actor_user_id=actor_id, artifact=artifact_data)
+            if artifact:
+                artifacts.append(artifact)
+            else:
+                skipped.append({
+                    'index': index,
+                    'title': artifact_data.get('title') or artifact_data.get('label') or artifact_data.get('name'),
+                    'code': 'missing_artifact_ref',
+                })
+        if not artifacts:
             return jsonify({
                 'error': 'artifact ref_id required',
                 'code': 'missing_artifact_ref',
-                'accepted_reference_fields': [
-                    'ref_id',
-                    'reference_id',
-                    'file_id',
-                    'digestion_id',
-                    'message_id',
-                    'post_id',
-                    'artifact_id',
-                    'url',
-                    'id',
+                'accepted_reference_fields': _accepted_artifact_reference_fields(),
+                'accepted_payload_shapes': [
+                    {'ref_id': '<id or URL>', 'title': 'optional human label'},
+                    {'artifact': {'ref_id': '<id or URL>', 'title': 'optional human label'}},
+                    {'artifacts': [{'ref_id': '<id or URL>', 'title': 'optional human label'}]},
                 ],
+                'skipped': skipped,
             }), 400
         ws = manager.get_workstream(workstream_id, event_limit=20)
-        return jsonify({'artifact': artifact.to_dict(), 'workstream': ws.to_dict() if ws else None}), 201
+        artifact_payloads = [artifact.to_dict() for artifact in artifacts]
+        return jsonify({
+            'artifact': artifact_payloads[0],
+            'artifacts': artifact_payloads,
+            'added': len(artifact_payloads),
+            'skipped': skipped,
+            'workstream': ws.to_dict() if ws else None,
+        }), 201
 
     @api.route('/workstreams/<workstream_id>/agent-reference', methods=['GET'])
     @_require_auth(Permission.READ_FEED)
