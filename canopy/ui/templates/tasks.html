@@ -71,6 +71,9 @@
     .work-panel--structured {
         --work-panel-accent: color-mix(in srgb, #fbbf24 70%, var(--canopy-primary, #22c55e));
     }
+    .work-panel--products {
+        --work-panel-accent: color-mix(in srgb, #38bdf8 72%, var(--canopy-primary, #22c55e));
+    }
     .work-panel-head,
     .work-panel-actions {
         display: flex;
@@ -199,6 +202,78 @@
         text-align: center;
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 58%, transparent);
     }
+    .workproduct-panel {
+        padding: 0.9rem;
+    }
+    .workproduct-feed {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 0.7rem;
+        margin-top: 0.85rem;
+        max-height: 260px;
+        overflow-y: auto;
+        padding-right: 0.15rem;
+    }
+    .workproduct-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.65rem;
+        align-items: center;
+        min-width: 0;
+        padding: 0.65rem;
+        border: 1px solid var(--canopy-border);
+        border-radius: 15px;
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary, #22c55e) 10%, transparent), transparent 70%),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 82%, transparent);
+        color: var(--canopy-text-primary);
+    }
+    .workproduct-card:hover {
+        border-color: color-mix(in srgb, var(--canopy-primary, #22c55e) 58%, var(--canopy-border));
+    }
+    .workproduct-avatar,
+    .task-person-avatar,
+    .task-owner-avatar {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        overflow: hidden;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        background: color-mix(in srgb, var(--canopy-primary, #22c55e) 18%, var(--canopy-bg-tertiary));
+        border: 1px solid color-mix(in srgb, var(--canopy-primary, #22c55e) 34%, var(--canopy-border));
+        font-size: 0.72rem;
+        font-weight: 900;
+        color: var(--canopy-text-primary);
+    }
+    .workproduct-avatar img,
+    .task-person-avatar img,
+    .task-owner-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .task-owner-avatar {
+        width: 24px;
+        height: 24px;
+        font-size: 0.62rem;
+    }
+    .workproduct-title {
+        font-weight: 850;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .workproduct-meta,
+    .workproduct-summary {
+        color: var(--canopy-text-secondary);
+        font-size: 0.74rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
     .work-section-title {
         display: flex;
         align-items: center;
@@ -245,6 +320,22 @@
     }
     .task-create-card .form-control::placeholder {
         color: var(--canopy-text-secondary);
+    }
+    .task-helper-text {
+        margin-top: 0.32rem;
+        color: var(--canopy-text-secondary);
+        font-size: 0.74rem;
+        line-height: 1.35;
+    }
+    .task-design-prompts {
+        display: grid;
+        gap: 0.75rem;
+        padding: 0.72rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary, #22c55e) 30%, var(--canopy-border));
+        border-radius: 16px;
+        background:
+            radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary, #22c55e) 12%, transparent), transparent 62%),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 72%, transparent);
     }
     .task-notify-panel {
         display: grid;
@@ -294,6 +385,10 @@
         border-radius: 16px;
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 76%, transparent);
     }
+    .task-picker.is-open {
+        border-color: color-mix(in srgb, var(--canopy-primary, #22c55e) 56%, var(--canopy-border));
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--canopy-primary, #22c55e) 18%, transparent);
+    }
     .task-picker-head {
         display: flex;
         justify-content: space-between;
@@ -306,13 +401,17 @@
         text-transform: uppercase;
     }
     .task-picker-users {
-        display: grid;
+        display: none;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.45rem;
         max-height: 220px;
         overflow-y: auto;
         padding-right: 0.15rem;
         min-width: 0;
+    }
+    .task-picker.is-open .task-picker-users,
+    .task-picker.has-selection .task-picker-users {
+        display: grid;
     }
     .task-picker-users.is-empty {
         grid-template-columns: 1fr;
@@ -522,6 +621,25 @@
         z-index: 1;
         white-space: pre-wrap;
     }
+    .task-required-output {
+        margin-top: 0.55rem;
+        padding: 0.55rem 0.65rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary, #22c55e) 38%, var(--canopy-border));
+        border-radius: 13px;
+        background: color-mix(in srgb, var(--canopy-primary, #22c55e) 10%, var(--canopy-bg-tertiary));
+        color: var(--canopy-text-primary);
+        font-size: 0.82rem;
+        position: relative;
+        z-index: 1;
+    }
+    .task-required-output strong {
+        display: block;
+        color: var(--canopy-accent, #5eead4);
+        font-size: 0.66rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 0.2rem;
+    }
     .task-meta {
         display: flex;
         flex-wrap: wrap;
@@ -543,14 +661,49 @@
         margin-top: 0.7rem;
         position: relative;
         z-index: 1;
+        min-width: 0;
     }
-    .task-assignee-avatar {
-        width: 36px;
-        height: 36px;
+    .task-assignee-stack {
+        display: inline-flex;
+        align-items: center;
+        flex: 0 0 auto;
+    }
+    .task-assignee-stack .task-person-avatar {
+        width: 34px;
+        height: 34px;
+        margin-left: -0.35rem;
+        box-shadow: 0 0 0 2px var(--canopy-bg-secondary);
+    }
+    .task-assignee-stack .task-person-avatar:first-child {
+        margin-left: 0;
+    }
+    .task-assignee-more {
+        min-width: 34px;
+        height: 34px;
+        margin-left: -0.35rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--canopy-bg-tertiary) 86%, transparent);
+        border: 1px solid var(--canopy-border);
+        color: var(--canopy-text-secondary);
+        font-weight: 900;
+        font-size: 0.72rem;
     }
     .task-assignee-text {
         font-size: 0.8rem;
         color: var(--canopy-text-secondary);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .task-owner-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-width: 0;
     }
     .task-actions {
         display: flex;
@@ -784,6 +937,21 @@
     </div>
 </section>
 
+<section class="work-panel work-panel--products workproduct-panel" aria-labelledby="workproducts-panel-title">
+    <div class="work-panel-head">
+        <div>
+            <span class="work-panel-kicker">Produced work</span>
+            <h2 id="workproducts-panel-title">Recent Workproducts</h2>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-light" id="workproduct-refresh-btn">
+            <i class="bi bi-arrow-repeat me-1"></i>Refresh
+        </button>
+    </div>
+    <div class="workproduct-feed" id="workproduct-feed-list">
+        <div class="work-empty">Loading recent artifacts and outputs...</div>
+    </div>
+</section>
+
 <div class="work-section-title">
     <div>
         <h2>Execution Items</h2>
@@ -806,6 +974,17 @@
                 <div>
                     <label class="form-label">Details</label>
                     <textarea class="form-control" id="task-description" rows="3" placeholder="Key steps, links, and context..."></textarea>
+                </div>
+                <div class="task-design-prompts">
+                    <div>
+                        <label class="form-label" for="task-required-output">Required output</label>
+                        <textarea class="form-control" id="task-required-output" rows="2" placeholder="What should the assignee produce, post, or hand back?"></textarea>
+                        <div class="task-helper-text">Make the end-state explicit: file, answer, evidence, recommendation, completed action, or status update.</div>
+                    </div>
+                    <div>
+                        <label class="form-label" for="task-success-criteria">Success check</label>
+                        <input type="text" class="form-control" id="task-success-criteria" placeholder="How will a human know this is done well?">
+                    </div>
                 </div>
                 <div>
                     <label class="form-label">Assignees (optional)</label>
@@ -906,6 +1085,16 @@
                     <label class="form-label" for="task-detail-description">Details</label>
                     <textarea class="form-control" id="task-detail-description" rows="5"></textarea>
                 </div>
+                <div class="task-design-prompts">
+                    <div>
+                        <label class="form-label" for="task-detail-required-output">Required output</label>
+                        <textarea class="form-control" id="task-detail-required-output" rows="2"></textarea>
+                    </div>
+                    <div>
+                        <label class="form-label" for="task-detail-success-criteria">Success check</label>
+                        <input type="text" class="form-control" id="task-detail-success-criteria">
+                    </div>
+                </div>
                 <div>
                     <label class="form-label" for="task-detail-assignee-search">Assignees</label>
                     <div class="task-picker" data-task-picker="detail">
@@ -995,10 +1184,13 @@
     let taskUsers = {};
     let taskCache = new Map();
     let workstreamCache = new Map();
+    let workstreamDetailCache = new Map();
     let digestionCache = new Map();
     let workstreamOverviewLoaded = false;
     let digestionOverviewLoaded = false;
     let structuredWorkLoaded = false;
+    let workproductsLoaded = false;
+    let workproductsSnapshotKey = '';
     let mentionSuggestions = [];
     let mentionSuggestionsLoading = false;
     let mentionSuggestionsFetchedAt = 0;
@@ -1092,6 +1284,43 @@
         };
     }
 
+    function artifactIcon(artifact) {
+        const type = String(artifact?.artifact_type || '').toLowerCase();
+        const ref = String(artifact?.ref_id || '').trim();
+        if (type === 'digestion' || ref.startsWith('Dg')) return 'bi-diagram-3';
+        if (type === 'url' || /^https?:\/\//i.test(ref)) return 'bi-link-45deg';
+        if (type === 'figure') return 'bi-image';
+        if (type === 'code') return 'bi-code-square';
+        if (type === 'report') return 'bi-file-earmark-text';
+        if (type === 'message' || ref.startsWith('M')) return 'bi-chat-square-text';
+        if (type === 'post') return 'bi-newspaper';
+        return 'bi-file-earmark';
+    }
+
+    function artifactHref(artifact) {
+        const type = String(artifact?.artifact_type || '').toLowerCase();
+        const ref = String(artifact?.ref_id || '').trim();
+        if (!ref) return '#';
+        if (type === 'file' || ref.startsWith('F')) return `/file-ref/${encodeURIComponent(ref)}`;
+        if (type === 'digestion' || ref.startsWith('Dg')) return `/vault?digestion=${encodeURIComponent(ref)}`;
+        if (type === 'post') return `/feed?post=${encodeURIComponent(ref)}`;
+        if (type === 'message') return `/channels?message=${encodeURIComponent(ref)}`;
+        if (/^https?:\/\//i.test(ref)) return ref;
+        return '#';
+    }
+
+    function taskAvatarHtml(user, fallbackId, className) {
+        const record = user || {};
+        const label = record.display_name || record.username || fallbackId || '?';
+        const initials = String(label || '?').split(/\s+/).map(part => part.charAt(0)).join('').slice(0, 2).toUpperCase() || '?';
+        const url = typeof record.avatar_url === 'string' && record.avatar_url.startsWith('/') ? record.avatar_url : '';
+        const cls = className || 'task-person-avatar';
+        if (url) {
+            return `<span class="${escapeHtml(cls)}" title="${escapeHtml(label)}"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy"></span>`;
+        }
+        return `<span class="${escapeHtml(cls)}" title="${escapeHtml(label)}">${escapeHtml(initials)}</span>`;
+    }
+
     function isOverdue(dueAt, status) {
         if (!dueAt || status === 'done') return false;
         const due = new Date(dueAt);
@@ -1101,26 +1330,20 @@
 
     function renderAssignee(container, userId) {
         if (!container) return;
-        if (!userId) {
+        const ids = Array.isArray(userId) ? userId.filter(Boolean).map(String) : (userId ? [String(userId)] : []);
+        if (!ids.length) {
             container.innerHTML = `<div class="task-assignee-text">Unassigned</div>`;
             return;
         }
-        const user = taskUsers[userId] || { display_name: userId, avatar_url: null, origin_peer: null };
-        const avatarWrap = document.createElement('div');
-        avatarWrap.className = 'task-assignee-avatar';
-        if (window.renderAvatarStack) {
-            window.renderAvatarStack(avatarWrap, {
-                userLabel: user.display_name || userId,
-                userAvatarUrl: user.avatar_url || null,
-                peerId: user.origin_peer || null
-            });
-        }
-        const textWrap = document.createElement('div');
-        textWrap.className = 'task-assignee-text';
-        textWrap.textContent = `Assigned to ${user.display_name || userId}`;
-        container.innerHTML = '';
-        container.appendChild(avatarWrap);
-        container.appendChild(textWrap);
+        const visible = ids.slice(0, 5);
+        const labels = ids.map(taskUserLabel);
+        container.innerHTML = `
+            <span class="task-assignee-stack" aria-label="${escapeHtml(labels.join(', '))}">
+                ${visible.map(uid => taskAvatarHtml(taskUserRecord(uid), uid, 'task-person-avatar')).join('')}
+                ${ids.length > visible.length ? `<span class="task-assignee-more">+${ids.length - visible.length}</span>` : ''}
+            </span>
+            <span class="task-assignee-text">${escapeHtml(taskAssigneeSummary({ assigned_to: ids[0], metadata: { assignees: ids } }))}</span>
+        `;
     }
 
     function taskAssigneeIds(task) {
@@ -1138,6 +1361,15 @@
         const labels = ids.map(taskUserLabel).filter(Boolean);
         if (labels.length <= 1) return `Assigned to ${labels[0] || ids[0]}`;
         return `Assigned to ${labels[0]} + ${labels.length - 1}`;
+    }
+
+    function taskMetadata(task) {
+        return task && task.metadata && typeof task.metadata === 'object' ? task.metadata : {};
+    }
+
+    function taskMetadataText(task, key) {
+        const value = taskMetadata(task)[key];
+        return typeof value === 'string' ? value.trim() : '';
     }
 
     function buildTaskActions(task) {
@@ -1176,6 +1408,10 @@
         const dueLabel = formatDue(task.due_at);
         const overdue = isOverdue(task.due_at, task.status);
         const progress = statusProgress(task.status);
+        const requiredOutput = taskMetadataText(task, 'required_output');
+        const successCriteria = taskMetadataText(task, 'success_criteria');
+        const ownerUser = taskUserRecord(task.created_by || task.owner_user_id || task.updated_by || '');
+        const ownerLabel = ownerUser.display_name || ownerUser.username || task.created_by || 'Owner';
 
         card.innerHTML = `
             <div class="task-card-top">
@@ -1184,9 +1420,12 @@
             </div>
             <div class="task-title">${escapeHtml(task.title)}</div>
             ${task.description ? `<div class="task-desc">${escapeHtml(task.description)}</div>` : ''}
+            ${requiredOutput ? `<div class="task-required-output"><strong>Required output</strong>${escapeHtml(requiredOutput)}</div>` : ''}
             <div class="task-meta">
                 <span>Updated ${formatTaskTimestamp(task.updated_at)}</span>
                 ${dueLabel ? `<span class="task-due ${overdue ? 'overdue' : ''}">Due ${dueLabel}</span>` : ''}
+                ${successCriteria ? `<span title="${escapeHtml(successCriteria)}">Success: ${escapeHtml(successCriteria)}</span>` : ''}
+                ${task.created_by ? `<span class="task-owner-row">${taskAvatarHtml(ownerUser, task.created_by, 'task-owner-avatar')}<span>${escapeHtml(ownerLabel)}</span></span>` : ''}
                 ${task.visibility === 'local' ? '<span class="task-scope">Local</span>' : ''}
             </div>
             <div class="task-progress">
@@ -1197,11 +1436,7 @@
         `;
 
         const assigneeWrap = card.querySelector('.task-assignee');
-        renderAssignee(assigneeWrap, task.assigned_to);
-        const assigneeText = assigneeWrap ? assigneeWrap.querySelector('.task-assignee-text') : null;
-        if (assigneeText) {
-            assigneeText.textContent = taskAssigneeSummary(task);
-        }
+        renderAssignee(assigneeWrap, taskAssigneeIds(task));
 
         const actionsWrap = card.querySelector('.task-actions');
         const actions = [{ action: 'details', label: 'Details' }].concat(buildTaskActions(task));
@@ -1285,6 +1520,86 @@
         }).join('');
         setWorkListHtml(listEl, html);
         workstreamOverviewLoaded = true;
+        loadRecentWorkproducts();
+    }
+
+    function renderRecentWorkproductsFromCache() {
+        const listEl = document.getElementById('workproduct-feed-list');
+        if (!listEl) return;
+        const entries = [];
+        workstreamDetailCache.forEach((ws) => {
+            const artifacts = Array.isArray(ws?.artifacts) ? ws.artifacts : [];
+            artifacts.forEach((artifact) => {
+                entries.push({ artifact, workstream: ws });
+            });
+        });
+        entries.sort((a, b) => String(b.artifact.created_at || '').localeCompare(String(a.artifact.created_at || '')));
+        if (!entries.length) {
+            setWorkListHtml(listEl, workObjectEmpty('No workproducts linked yet', 'Agents and humans can attach files, reports, code, Digestions, and URLs to Workstreams.'));
+            workproductsLoaded = true;
+            return;
+        }
+        const html = entries.slice(0, 18).map(({ artifact, workstream }) => {
+            const title = artifact.title || artifact.ref_id || 'Workproduct';
+            const summary = artifact.summary || workstream.summary || workstream.next_action || '';
+            const creator = artifact.creator || {};
+            const creatorName = creator.display_name || creator.username || artifact.created_by || 'Contributor';
+            const href = artifactHref(artifact);
+            const target = /^https?:\/\//i.test(href) || href.startsWith('/file-ref/') ? ' target="_blank" rel="noopener noreferrer"' : '';
+            return `
+                <article class="workproduct-card">
+                    ${taskAvatarHtml(creator, artifact.created_by, 'workproduct-avatar')}
+                    <div class="min-w-0">
+                        <div class="workproduct-title">${escapeHtml(title)}</div>
+                        <div class="workproduct-summary">${escapeHtml(summary || 'Linked output from sustained work.')}</div>
+                        <div class="workproduct-meta">
+                            ${escapeHtml(artifact.artifact_type || 'artifact')} · ${escapeHtml(creatorName)} · ${escapeHtml(workObjectDate(artifact.created_at || workstream.updated_at))}
+                            <br>${escapeHtml(workstream.title || workstream.id || 'Workstream')}
+                        </div>
+                    </div>
+                    <a class="btn btn-sm btn-outline-light" href="${escapeHtml(href)}"${target} title="Open workproduct">
+                        <i class="bi ${artifactIcon(artifact)}"></i><span class="visually-hidden">Open workproduct</span>
+                    </a>
+                </article>
+            `;
+        }).join('');
+        setWorkListHtml(listEl, html);
+        workproductsLoaded = true;
+    }
+
+    function loadRecentWorkproducts(options) {
+        const force = !!(options && options.force);
+        const listEl = document.getElementById('workproduct-feed-list');
+        const ids = Array.from(workstreamCache.keys()).slice(0, 8);
+        const snapshotKey = ids.join('|');
+        if (!ids.length) {
+            workproductsSnapshotKey = '';
+            workstreamDetailCache = new Map();
+            renderRecentWorkproductsFromCache();
+            return Promise.resolve();
+        }
+        if (!force && workproductsLoaded && workproductsSnapshotKey === snapshotKey) {
+            renderRecentWorkproductsFromCache();
+            return Promise.resolve();
+        }
+        workproductsSnapshotKey = snapshotKey;
+        if (!workproductsLoaded) setWorkListLoading(listEl, 'Loading recent workproducts...');
+        const loads = ids.map((id) => {
+            if (!force && workstreamDetailCache.has(id)) {
+                return Promise.resolve(workstreamDetailCache.get(id));
+            }
+            return apiCall(`/api/v1/workstreams/${encodeURIComponent(id)}`)
+                .then(data => {
+                    const ws = data && data.workstream ? data.workstream : null;
+                    if (ws && ws.id) workstreamDetailCache.set(String(ws.id), ws);
+                    return ws;
+                })
+                .catch(err => {
+                    console.warn('Workproduct detail load failed', id, err);
+                    return null;
+                });
+        });
+        return Promise.allSettled(loads).then(() => renderRecentWorkproductsFromCache());
     }
 
     function renderDigestions(digestions) {
@@ -1595,7 +1910,7 @@
             .map(([uid, user]) => ({ uid, user: user || {} }))
             .filter(({ uid, user }) => {
                 const isSelected = selectedSet.has(String(uid));
-                if (!needle) return isSelected;
+                if (!needle) return true;
                 const label = String(user.display_name || user.username || uid).toLowerCase();
                 const username = String(user.username || user.handle || '').toLowerCase();
                 return label.includes(needle) || username.includes(needle) || String(uid).toLowerCase().includes(needle);
@@ -1604,11 +1919,14 @@
                 const aSelected = selectedSet.has(String(a.uid));
                 const bSelected = selectedSet.has(String(b.uid));
                 if (aSelected !== bSelected) return aSelected ? -1 : 1;
+                const aAgent = String(a.user.account_type || a.user.type || '').toLowerCase() === 'agent';
+                const bAgent = String(b.user.account_type || b.user.type || '').toLowerCase() === 'agent';
+                if (aAgent !== bAgent) return aAgent ? -1 : 1;
                 const aName = (a.user.display_name || a.user.username || a.uid).toLowerCase();
                 const bName = (b.user.display_name || b.user.username || b.uid).toLowerCase();
                 return aName.localeCompare(bName);
             })
-            .slice(0, needle ? 32 : 16);
+            .slice(0, needle ? 40 : 48);
     }
 
     function taskPickerAvatar(user, uid) {
@@ -1625,15 +1943,22 @@
         const countEl = document.getElementById(isDetail ? 'task-detail-assignee-count' : 'task-create-assignee-count');
         const selected = isDetail ? selectedDetailAssignees : selectedCreateAssignees;
         if (!listEl) return;
+        const pickerEl = listEl.closest('.task-picker');
         const query = searchEl ? searchEl.value : '';
         const users = taskPickerUsers(query, selected);
+        if (pickerEl) {
+            pickerEl.classList.toggle('has-selection', selected.size > 0);
+        }
         if (countEl) {
             countEl.textContent = `${selected.size} selected`;
         }
         if (!users.length) {
             listEl.classList.add('is-empty');
             const hasQuery = !!String(query || '').trim();
-            listEl.innerHTML = `<div class="task-picker-empty">${hasQuery ? 'No matching people yet.' : 'Search to add assignees. Selected people will stay pinned here.'}</div>`;
+            const emptyCopy = mentionSuggestionsLoading
+                ? 'Loading people in this meshspace...'
+                : (hasQuery ? 'No matching people yet.' : 'Click into this field to pick assignees; selected people stay pinned here.');
+            listEl.innerHTML = `<div class="task-picker-empty">${emptyCopy}</div>`;
             updateTaskNotifyState(mode);
             return;
         }
@@ -1702,6 +2027,8 @@
         document.getElementById('task-detail-title').textContent = task.title || 'Task';
         document.getElementById('task-detail-title-input').value = task.title || '';
         document.getElementById('task-detail-description').value = task.description || '';
+        document.getElementById('task-detail-required-output').value = taskMetadataText(task, 'required_output');
+        document.getElementById('task-detail-success-criteria').value = taskMetadataText(task, 'success_criteria');
         document.getElementById('task-detail-status').value = task.status || 'open';
         document.getElementById('task-detail-priority').value = task.priority || 'normal';
         document.getElementById('task-detail-due').value = taskDateInputValue(task.due_at);
@@ -1778,6 +2105,10 @@
         } else {
             delete metadata.assignees;
         }
+        const requiredOutput = document.getElementById('task-detail-required-output')?.value.trim() || '';
+        const successCriteria = document.getElementById('task-detail-success-criteria')?.value.trim() || '';
+        if (requiredOutput) metadata.required_output = requiredOutput; else delete metadata.required_output;
+        if (successCriteria) metadata.success_criteria = successCriteria; else delete metadata.success_criteria;
         const payload = {
             title,
             description: document.getElementById('task-detail-description').value.trim(),
@@ -1840,10 +2171,20 @@
             const input = document.getElementById(id);
             if (!input) return;
             const mode = id.includes('detail') ? 'detail' : 'create';
-            input.addEventListener('input', () => renderTaskPeoplePicker(mode));
-            input.addEventListener('focus', () => {
+            const pickerEl = input.closest('.task-picker');
+            const openPicker = () => {
+                if (pickerEl) pickerEl.classList.add('is-open');
+                renderTaskPeoplePicker(mode);
                 loadMentionSuggestions().then(() => renderTaskPeoplePicker(mode));
-            });
+            };
+            input.addEventListener('input', () => renderTaskPeoplePicker(mode));
+            input.addEventListener('focus', openPicker);
+            input.addEventListener('click', openPicker);
+            if (pickerEl) {
+                pickerEl.addEventListener('click', () => {
+                    pickerEl.classList.add('is-open');
+                });
+            }
         });
     }
 
@@ -1859,7 +2200,15 @@
             const dueEl = document.getElementById('task-due');
             const visibilityEl = document.getElementById('task-visibility');
             const notifyEl = document.getElementById('task-notify-assignees');
+            const requiredOutputEl = document.getElementById('task-required-output');
+            const successCriteriaEl = document.getElementById('task-success-criteria');
             const assignees = selectedAssigneeList('create');
+            const metadata = {};
+            if (assignees.length) metadata.assignees = assignees;
+            const requiredOutput = requiredOutputEl ? requiredOutputEl.value.trim() : '';
+            const successCriteria = successCriteriaEl ? successCriteriaEl.value.trim() : '';
+            if (requiredOutput) metadata.required_output = requiredOutput;
+            if (successCriteria) metadata.success_criteria = successCriteria;
 
             const payload = {
                 title: titleEl.value.trim(),
@@ -1869,7 +2218,7 @@
                 assigned_to: assignees[0] || '',
                 due_at: dueEl.value ? new Date(dueEl.value).toISOString() : null,
                 visibility: visibilityEl.value,
-                metadata: assignees.length ? { assignees } : {},
+                metadata,
                 notify_assignees: !!(notifyEl && notifyEl.checked && assignees.length)
             };
 
@@ -1917,6 +2266,13 @@
             event.stopPropagation();
             openDigestionFromWorkPage(digestionBtn.dataset.workOpenDigestion, digestionBtn);
             return;
+        }
+        if (!event.target.closest('.task-picker')) {
+            document.querySelectorAll('.task-picker.is-open').forEach(picker => {
+                if (!picker.classList.contains('has-selection')) {
+                    picker.classList.remove('is-open');
+                }
+            });
         }
         const pickerUser = event.target.closest('.task-picker-user[data-user-id]');
         if (pickerUser) {
@@ -1971,6 +2327,10 @@
     const structuredRefreshBtn = document.getElementById('structured-work-refresh-btn');
     if (structuredRefreshBtn) {
         structuredRefreshBtn.addEventListener('click', () => loadStructuredWork());
+    }
+    const workproductRefreshBtn = document.getElementById('workproduct-refresh-btn');
+    if (workproductRefreshBtn) {
+        workproductRefreshBtn.addEventListener('click', () => loadRecentWorkproducts({ force: true }));
     }
 
     document.addEventListener('DOMContentLoaded', () => {
