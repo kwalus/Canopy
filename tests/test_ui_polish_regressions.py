@@ -111,6 +111,9 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn(".deck-workstream-workspace", workstreams_css)
         self.assertIn("var(--canopy-deck-panel-accent-bg)", workstreams_css)
         self.assertIn(".sidebar-media-deck.is-workstream-active .sidebar-media-deck-queue-shell", workstreams_css)
+        self.assertIn(".sidebar-media-deck.is-workstream-active:not(.is-desktop-large):not(.is-desktop-window) .deck-workstream-main", workstreams_css)
+        self.assertIn(".sidebar-media-deck.is-workstream-active.is-desktop-large:not(.is-desktop-window) .deck-workstream-main", workstreams_css)
+        self.assertIn("min-height: clamp(390px, 62vh, 680px);", workstreams_css)
 
     def test_dm_thread_empty_state_has_icon(self) -> None:
         thread_body = (ROOT / "canopy" / "ui" / "templates" / "_messages_thread_body.html").read_text(encoding="utf-8")
