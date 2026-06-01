@@ -27608,12 +27608,210 @@
                 return true;
             }
 
+            function shortGlobalDigestionId(value) {
+                const id = String(value || '').trim();
+                return id.length > 18 ? `${id.slice(0, 10)}…${id.slice(-5)}` : id;
+            }
+
+            function normalizeGlobalDigestionSummary(digestionId, payload = {}, fallback = {}) {
+                const packagePayload = payload && payload.package && typeof payload.package === 'object'
+                    ? payload.package
+                    : null;
+                const root = packagePayload || (payload && typeof payload === 'object' ? payload : {});
+                const digestion = root.digestion && typeof root.digestion === 'object' ? root.digestion : {};
+                const stats = root.stats && typeof root.stats === 'object'
+                    ? root.stats
+                    : (digestion.stats && typeof digestion.stats === 'object' ? digestion.stats : {});
+                const access = root.access && typeof root.access === 'object'
+                    ? root.access
+                    : (
+                        root.live_query_access && typeof root.live_query_access === 'object'
+                            ? root.live_query_access
+                            : (digestion.access && typeof digestion.access === 'object' ? digestion.access : {})
+                    );
+                const sources = Array.isArray(root.sources) ? root.sources : [];
+                const outputs = Array.isArray(root.outputs) ? root.outputs : [];
+                const id = String(digestion.id || digestionId || fallback.id || '').trim();
+                const name = String(
+                    digestion.name
+                    || digestion.title
+                    || fallback.name
+                    || fallback.title
+                    || (id ? `Digestion ${shortGlobalDigestionId(id)}` : 'Digestion')
+                );
+                return {
+                    id,
+                    name,
+                    title: name,
+                    purpose: String(digestion.purpose || digestion.description || fallback.purpose || 'Source-bound research workspace.'),
+                    status: String(digestion.status || fallback.status || 'live'),
+                    provider: String(digestion.provider || stats.provider || fallback.provider || 'local'),
+                    stats: {
+                        ...stats,
+                        source_count: Number(stats.source_count ?? stats.sources ?? sources.length ?? fallback.source_count ?? 0),
+                        chunks: Number(stats.chunks ?? stats.indexed_chunks ?? fallback.chunks ?? 0),
+                        token_estimate: Number(stats.token_estimate ?? fallback.token_estimate ?? 0),
+                        figures: Number(stats.figures ?? stats.figure_count ?? fallback.figures ?? 0),
+                        outputs: Number(stats.output_count ?? stats.outputs ?? outputs.length ?? fallback.outputs ?? 0),
+                        datapoint_count: Number(stats.datapoint_count ?? fallback.datapoint_count ?? 0),
+                        structured_record_count: Number(stats.structured_record_count ?? fallback.structured_record_count ?? 0),
+                        quantitative_result_count: Number(stats.quantitative_result_count ?? fallback.quantitative_result_count ?? 0),
+                    },
+                    access: {
+                        can_query: !!(access.can_query || access.recipient_live_query_implied || fallback.can_query),
+                        can_read_sources: !!(access.can_read_sources || fallback.can_read_sources),
+                        can_manage: !!(access.can_manage || fallback.can_manage),
+                    },
+                };
+            }
+
+            async function fetchGlobalDigestionSummaryForDeck(digestionId, fallback = {}) {
+                const id = String(digestionId || '').trim();
+                if (!id) return null;
+                try {
+                    const payload = await apiCall(`/api/v1/digestions/${encodeURIComponent(id)}?summary=1`);
+                    return normalizeGlobalDigestionSummary(id, payload, fallback);
+                } catch (_) {
+                    /* Fall through to the package endpoint for older or summary-limited deployments. */
+                }
+                try {
+                    const payload = await apiCall(`/ajax/digestions/${encodeURIComponent(id)}/package?include_content=false`);
+                    return normalizeGlobalDigestionSummary(id, payload, fallback);
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            function buildGlobalDigestionDeckManifest(digestion) {
+                const item = digestion && typeof digestion === 'object' ? digestion : {};
+                const stats = item.stats && typeof item.stats === 'object' ? item.stats : {};
+                const access = item.access && typeof item.access === 'object' ? item.access : {};
+                const sourceCount = Number(stats.source_count ?? stats.sources ?? item.source_count ?? 0) || 0;
+                const chunks = Number(stats.chunks ?? item.chunk_count ?? 0) || 0;
+                const tokens = Number(stats.token_estimate || 0) || 0;
+                const figures = Number(stats.figures ?? item.figure_count ?? 0) || 0;
+                const datapointCount = Number(stats.datapoint_count ?? item.datapoint_count ?? 0) || 0;
+                const structuredRecordCount = Number(stats.structured_record_count ?? item.structured_record_count ?? 0) || 0;
+                const status = String(item.status || 'draft');
+                const name = String(item.name || item.title || item.id || 'Digestion');
+                return {
+                    version: 1,
+                    key: `digestion:${String(item.id || name)}`,
+                    widget_type: 'digestion',
+                    render_mode: 'digestion_workspace',
+                    title: name,
+                    subtitle: String(item.purpose || 'Source-bound research workspace for query, datapoint charts, and controlled reuse.'),
+                    provider_label: 'Digestion',
+                    icon: 'bi-diagram-3',
+                    badges: [
+                        status,
+                        `${sourceCount} source${sourceCount === 1 ? '' : 's'}`,
+                        `${chunks} chunk${chunks === 1 ? '' : 's'}`,
+                        figures ? `${figures} figure${figures === 1 ? '' : 's'}` : '',
+                        structuredRecordCount ? `${structuredRecordCount} record${structuredRecordCount === 1 ? '' : 's'}` : '',
+                        tokens ? `${tokens.toLocaleString()} token est.` : '',
+                    ].filter(Boolean),
+                    details: [
+                        { label: 'Status', value: status },
+                        { label: 'Sources', value: String(sourceCount) },
+                        { label: 'Chunks', value: String(chunks) },
+                        { label: 'Figures', value: String(figures) },
+                        { label: 'Records', value: String(structuredRecordCount) },
+                        { label: 'Provider', value: String(item.provider || stats.provider || 'local') },
+                        { label: 'Access', value: access.can_manage ? 'Manage/build' : (access.can_query ? 'Query' : 'Local') },
+                    ],
+                    station_surface: {
+                        kind: 'digestion_workspace',
+                        label: 'Digestion Deck workspace',
+                        summary: 'Larger source-bound workspace for semantic search, structured datapoints, charts, and bounded management actions.',
+                        domain: 'research',
+                        scope: 'source',
+                        recurring: false,
+                    },
+                    action_policy: {
+                        audit_label: 'Query and manage through Digestion ACL',
+                        max_risk: access.can_manage ? 'low' : 'view',
+                        human_gate: 'none',
+                    },
+                    source_binding: {
+                        binding_type: 'digestion',
+                        return_label: 'Return to source',
+                    },
+                    digestion: {
+                        id: String(item.id || ''),
+                        name,
+                        purpose: String(item.purpose || ''),
+                        status,
+                        provider: String(item.provider || stats.provider || 'local'),
+                        stats: {
+                            ...stats,
+                            source_count: sourceCount,
+                            chunks,
+                            token_estimate: tokens,
+                            figures,
+                            datapoint_count: datapointCount,
+                        },
+                        access,
+                        initial_query: String(item.initial_query || ''),
+                        initial_mode: String(item.initial_mode || 'rag') === 'datapoints' ? 'datapoints' : 'rag',
+                    },
+                };
+            }
+
+            async function openGlobalDigestionReferenceDeckWorkspace(digestionId, sourceEl, options = {}) {
+                const id = String(digestionId || '').trim();
+                if (!id) return false;
+                const trigger = sourceEl instanceof HTMLElement ? sourceEl : document.body;
+                const fallbackTitle = String(
+                    options.fallbackTitle
+                    || trigger?.dataset?.canopyDigestionName
+                    || trigger?.textContent
+                    || `Digestion ${shortGlobalDigestionId(id)}`
+                ).replace(/\s+/g, ' ').trim();
+                if (trigger && trigger.setAttribute) trigger.setAttribute('aria-busy', 'true');
+                try {
+                    const digestion = await fetchGlobalDigestionSummaryForDeck(id, { name: fallbackTitle, title: fallbackTitle });
+                    if (!digestion) return false;
+                    const manifest = buildGlobalDigestionDeckManifest({
+                        ...digestion,
+                        id,
+                        name: digestion.name || fallbackTitle,
+                        initial_mode: options.initialMode || 'rag',
+                    });
+                    const item = {
+                        key: manifest.key,
+                        el: trigger || document.body,
+                        sourceEl: trigger || document.body,
+                        type: 'digestion',
+                        title: manifest.title,
+                        subtitle: manifest.subtitle,
+                        providerLabel: manifest.provider_label,
+                        icon: manifest.icon,
+                        manifest,
+                    };
+                    try {
+                        if (typeof applyDeckDesktopMode === 'function') {
+                            applyDeckDesktopMode('large');
+                        }
+                    } catch (_) {}
+                    openMediaDeckForSource(trigger || document.body, {
+                        explicitItem: item,
+                        preferredKey: item.key,
+                        play: false,
+                    });
+                    return true;
+                } finally {
+                    if (trigger && trigger.removeAttribute) trigger.removeAttribute('aria-busy');
+                }
+            }
+
             if (typeof window !== 'undefined') {
                 window.canopyOpenMediaDeckForSource = openMediaDeckForSource;
                 window.canopySetDeckDesktopMode = applyDeckDesktopMode;
                 window.openMediaDeckForManifestNode = openMediaDeckForManifestNode;
                 window.openDeckForFeedAntecedentPost = openDeckForFeedAntecedentPost;
                 window.openDeckForChannelAntecedentMessage = openDeckForChannelAntecedentMessage;
+                window.openCanopyDigestionReferenceDeck = openGlobalDigestionReferenceDeckWorkspace;
             }
 
             if (playBtn) {

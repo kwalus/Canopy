@@ -36,18 +36,18 @@
     .work-panel {
         border: 1px solid color-mix(in srgb, var(--canopy-border) 78%, var(--canopy-primary, #22c55e));
         background:
-            radial-gradient(circle at top right, color-mix(in srgb, var(--canopy-primary, #22c55e) 16%, transparent), transparent 46%),
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary, #22c55e) 9%, transparent), transparent 54%),
             color-mix(in srgb, var(--canopy-bg-secondary) 92%, transparent);
         border-radius: 18px;
-        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
     }
     .work-summary-card {
-        min-height: 128px;
-        padding: 1rem;
+        min-height: 88px;
+        padding: 0.78rem 0.9rem;
         display: flex;
         flex-direction: column;
-        justify-content: space-between;
-        gap: 0.8rem;
+        justify-content: center;
+        gap: 0.45rem;
     }
     .work-summary-card.is-workstream {
         border-color: color-mix(in srgb, #38bdf8 45%, var(--canopy-border));
@@ -66,12 +66,12 @@
     .work-summary-main {
         display: flex;
         justify-content: space-between;
-        align-items: flex-start;
+        align-items: center;
         gap: 0.8rem;
     }
     .work-summary-main strong {
         display: block;
-        font-size: clamp(1.6rem, 3vw, 2.35rem);
+        font-size: clamp(1.35rem, 2.4vw, 1.8rem);
         line-height: 1;
     }
     .work-summary-main span {
@@ -79,12 +79,12 @@
         font-size: 0.82rem;
     }
     .work-summary-icon {
-        width: 42px;
-        height: 42px;
+        width: 34px;
+        height: 34px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        border-radius: 14px;
+        border-radius: 12px;
         border: 1px solid color-mix(in srgb, var(--canopy-primary, #22c55e) 38%, var(--canopy-border));
         color: var(--canopy-accent, #5eead4);
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 86%, transparent);
@@ -92,7 +92,11 @@
     }
     .work-summary-meta {
         color: var(--canopy-text-secondary);
-        font-size: 0.78rem;
+        font-size: 0.76rem;
+        min-height: 1rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     .work-panels {
         display: grid;
@@ -634,7 +638,7 @@
                 <div>
                     <div class="work-summary-kicker">Task board</div>
                     <strong data-work-summary-count="tasks">0</strong>
-                    <span>open, active, or blocked tasks</span>
+                    <span>active execution items</span>
                 </div>
                 <span class="work-summary-icon"><i class="bi bi-check2-square"></i></span>
             </div>
@@ -645,7 +649,7 @@
                 <div>
                     <div class="work-summary-kicker">Workstreams</div>
                     <strong data-work-summary-count="workstreams">0</strong>
-                    <span>sustained human-agent runs</span>
+                    <span>active collaboration lanes</span>
                 </div>
                 <span class="work-summary-icon"><i class="bi bi-kanban"></i></span>
             </div>
@@ -656,7 +660,7 @@
                 <div>
                     <div class="work-summary-kicker">Digestions</div>
                     <strong data-work-summary-count="digestions">0</strong>
-                    <span>research objects and reusable context</span>
+                    <span>source contexts</span>
                 </div>
                 <span class="work-summary-icon"><i class="bi bi-diagram-3"></i></span>
             </div>
@@ -893,6 +897,8 @@
     let taskCache = new Map();
     let workstreamCache = new Map();
     let digestionCache = new Map();
+    let workstreamOverviewLoaded = false;
+    let digestionOverviewLoaded = false;
     let mentionSuggestions = [];
     let mentionSuggestionsLoading = false;
     let mentionSuggestionsFetchedAt = 0;
@@ -936,12 +942,27 @@
     function setWorkSummary(kind, count, meta) {
         const countEl = document.querySelector(`[data-work-summary-count="${kind}"]`);
         const metaEl = document.querySelector(`[data-work-summary-meta="${kind}"]`);
-        if (countEl) countEl.textContent = Number(count || 0).toLocaleString();
-        if (metaEl) metaEl.textContent = meta || '';
+        const nextCount = Number(count || 0).toLocaleString();
+        const nextMeta = meta || '';
+        if (countEl && countEl.textContent !== nextCount) countEl.textContent = nextCount;
+        if (metaEl && metaEl.textContent !== nextMeta) metaEl.textContent = nextMeta;
     }
 
     function workObjectEmpty(label, detail) {
         return `<div class="work-empty"><strong>${escapeHtml(label || 'Nothing to show')}</strong>${detail ? `<div class="mt-1">${escapeHtml(detail)}</div>` : ''}</div>`;
+    }
+
+    function setWorkListHtml(listEl, html) {
+        if (!listEl) return;
+        const nextHtml = String(html || '');
+        if (listEl.__canopyWorkHtml === nextHtml) return;
+        listEl.innerHTML = nextHtml;
+        listEl.__canopyWorkHtml = nextHtml;
+    }
+
+    function setWorkListLoading(listEl, label) {
+        if (!listEl || listEl.__canopyWorkHtml) return;
+        setWorkListHtml(listEl, workObjectEmpty(label, ''));
     }
 
     function workObjectDate(value) {
@@ -1140,10 +1161,11 @@
         setWorkSummary('workstreams', active.length, `${blocked} blocked · ${items.length} visible`);
         if (!listEl) return;
         if (!items.length) {
-            listEl.innerHTML = workObjectEmpty('No Workstreams yet', 'Create one from a structured work block or an agent handoff.');
+            setWorkListHtml(listEl, workObjectEmpty('No Workstreams yet', 'Create one from a structured work block or an agent handoff.'));
+            workstreamOverviewLoaded = true;
             return;
         }
-        listEl.innerHTML = items.slice(0, 12).map((item) => {
+        const html = items.slice(0, 12).map((item) => {
             const id = escapeHtml(item.id || '');
             const title = escapeHtml(item.title || item.name || item.id || 'Workstream');
             const summary = escapeHtml(item.summary || item.next_action || 'Sustained human-agent work with artifacts and progress.');
@@ -1168,6 +1190,8 @@
                 </article>
             `;
         }).join('');
+        setWorkListHtml(listEl, html);
+        workstreamOverviewLoaded = true;
     }
 
     function renderDigestions(digestions) {
@@ -1182,10 +1206,11 @@
         setWorkSummary('digestions', items.length, `${ready} ready · ${totalSources.toLocaleString()} sources`);
         if (!listEl) return;
         if (!items.length) {
-            listEl.innerHTML = workObjectEmpty('No Digestions yet', 'Build reusable source context from the File Vault.');
+            setWorkListHtml(listEl, workObjectEmpty('No Digestions yet', 'Build reusable source context from the File Vault.'));
+            digestionOverviewLoaded = true;
             return;
         }
-        listEl.innerHTML = items.slice(0, 12).map((item) => {
+        const html = items.slice(0, 12).map((item) => {
             const id = escapeHtml(item.id || '');
             const name = escapeHtml(item.name || item.title || item.id || 'Digestion');
             const purpose = escapeHtml(item.purpose || item.description || 'Reusable context for humans and agents.');
@@ -1205,35 +1230,39 @@
                         </div>
                     </div>
                     <div class="work-object-actions">
-                        <button type="button" class="btn btn-outline-light" data-work-open-digestion="${id}"><i class="bi bi-window-stack"></i><span class="visually-hidden">Open Digestion in Deck</span></button>
-                        <a class="btn btn-outline-light" href="/vault?digestion=${encodeURIComponent(item.id || '')}" title="Open in Vault"><i class="bi bi-folder2-open"></i><span class="visually-hidden">Open Digestion in Vault</span></a>
+                        <button type="button" class="btn btn-success" data-work-open-digestion="${id}" title="Open Digestion in Deck"><i class="bi bi-window-stack"></i><span class="visually-hidden">Open Digestion in Deck</span></button>
+                        <a class="btn btn-outline-light" href="/vault?digestion=${encodeURIComponent(item.id || '')}" title="Manage in Vault"><i class="bi bi-folder2-open"></i><span class="visually-hidden">Manage Digestion in Vault</span></a>
                     </div>
                 </article>
             `;
         }).join('');
+        setWorkListHtml(listEl, html);
+        digestionOverviewLoaded = true;
     }
 
     function loadWorkstreams() {
         const listEl = document.getElementById('workstream-overview-list');
-        if (listEl) listEl.innerHTML = workObjectEmpty('Loading Workstreams...', '');
+        if (!workstreamOverviewLoaded) setWorkListLoading(listEl, 'Loading Workstreams...');
         return apiCall('/api/v1/workstreams?limit=12')
             .then(data => renderWorkstreams(data && data.workstreams ? data.workstreams : []))
             .catch(err => {
                 console.warn('Workstream overview load failed', err);
                 setWorkSummary('workstreams', 0, 'Could not load Workstreams');
-                if (listEl) listEl.innerHTML = workObjectEmpty('Could not load Workstreams', err.error || err.message || 'Refresh after sync completes.');
+                setWorkListHtml(listEl, workObjectEmpty('Could not load Workstreams', err.error || err.message || 'Refresh after sync completes.'));
+                workstreamOverviewLoaded = true;
             });
     }
 
     function loadDigestionOverview() {
         const listEl = document.getElementById('digestion-overview-list');
-        if (listEl) listEl.innerHTML = workObjectEmpty('Loading Digestions...', '');
+        if (!digestionOverviewLoaded) setWorkListLoading(listEl, 'Loading Digestions...');
         return apiCall('/ajax/digestions?include_sources=0')
             .then(data => renderDigestions(data && data.digestions ? data.digestions : []))
             .catch(err => {
                 console.warn('Digestion overview load failed', err);
                 setWorkSummary('digestions', 0, 'Could not load Digestions');
-                if (listEl) listEl.innerHTML = workObjectEmpty('Could not load Digestions', err.error || err.message || 'Open Vault to retry.');
+                setWorkListHtml(listEl, workObjectEmpty('Could not load Digestions', err.error || err.message || 'Open Vault to retry.'));
+                digestionOverviewLoaded = true;
             });
     }
 
@@ -1280,7 +1309,7 @@
                 })
                 : false;
             if (opened) return;
-            window.location.href = `/vault?digestion=${encodeURIComponent(id)}`;
+            showAlert('Digestion Deck reader is still loading. Use the folder button to manage it in Vault.', 'warning');
         } catch (err) {
             console.warn('Digestion open failed', err);
             showAlert('Could not open that Digestion yet.', 'warning');
