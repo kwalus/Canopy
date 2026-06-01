@@ -1176,12 +1176,13 @@
 .admin-section-agent-template { order: 4; }
 .admin-section-instance-ai { order: 5; }
 .admin-section-instance { order: 6; }
-.admin-section-transport { order: 7; }
-.admin-section-relay { order: 8; }
-.admin-section-attachments { order: 9; }
-.admin-section-data { order: 10; }
-.admin-section-users-secondary { order: 11; }
-.admin-section-environment { order: 12; }
+.admin-section-operator-surface { order: 7; }
+.admin-section-transport { order: 8; }
+.admin-section-relay { order: 9; }
+.admin-section-attachments { order: 10; }
+.admin-section-data { order: 11; }
+.admin-section-users-secondary { order: 12; }
+.admin-section-environment { order: 13; }
 
 .admin-summary-row {
     --bs-gutter-y: 0.75rem;
@@ -1189,6 +1190,80 @@
 
 .admin-transfer-select {
     max-width: 220px;
+}
+
+.operator-surface-card {
+    border: 1px solid color-mix(in srgb, var(--canopy-primary, #22c55e) 30%, var(--canopy-border, rgba(126,157,222,0.24)));
+    background:
+        radial-gradient(circle at top left, color-mix(in srgb, var(--canopy-primary, #22c55e) 13%, transparent), transparent 42%),
+        color-mix(in srgb, var(--canopy-bg-secondary, #0f172a) 92%, transparent);
+}
+
+.operator-surface-options {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.operator-surface-option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.7rem;
+    align-items: start;
+    border: 1px solid var(--canopy-border, rgba(126,157,222,0.24));
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--canopy-bg-tertiary, #111827) 82%, transparent);
+    padding: 0.85rem;
+    cursor: pointer;
+    height: 100%;
+}
+
+.operator-surface-option:hover {
+    border-color: color-mix(in srgb, var(--canopy-primary, #22c55e) 58%, var(--canopy-border, rgba(126,157,222,0.24)));
+}
+
+.operator-surface-option input {
+    margin-top: 0.2rem;
+}
+
+.operator-surface-option-title {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-weight: 800;
+    color: var(--canopy-text-primary, #f8fafc);
+}
+
+.operator-surface-option-copy {
+    color: var(--canopy-text-secondary, #9fb2cf);
+    font-size: 0.82rem;
+    margin-top: 0.2rem;
+}
+
+.operator-surface-toggle-grid {
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.operator-surface-toggle {
+    border: 1px solid var(--canopy-border, rgba(126,157,222,0.24));
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--canopy-bg-tertiary, #111827) 74%, transparent);
+    padding: 0.72rem 0.8rem;
+}
+
+.operator-surface-toggle .form-check-label {
+    font-weight: 700;
+    color: var(--canopy-text-primary, #f8fafc);
+}
+
+.operator-surface-toggle .small {
+    line-height: 1.35;
+}
+
+.operator-surface-status {
+    min-height: 1.2rem;
 }
 
 .admin-users-search-wrap {
@@ -2201,6 +2276,98 @@
             <button type="button" class="btn btn-outline-info btn-sm" id="transfer-admin-btn">Transfer</button>
         </div>
         <div id="transfer-message" class="small mt-2 text-danger" style="display: none;"></div>
+    </div>
+</div>
+
+{% set surface = operator_surface_policy if operator_surface_policy is mapping else {} %}
+<div class="card mb-4 operator-surface-card admin-section-operator-surface" id="operator-surface-card">
+    <div class="card-header bg-success bg-opacity-10">
+        <div class="d-flex align-items-start justify-content-between flex-wrap gap-2">
+            <div>
+                <h5 class="mb-0"><i class="bi bi-layout-sidebar-inset"></i> Operator Surface</h5>
+                <div class="small text-muted">Choose how much mesh-facing chrome this instance shows. This is UI-only and does not disable P2P networking, trust records, invites, or direct admin URLs.</div>
+            </div>
+            <span class="badge rounded-pill {% if surface.get('hidden_count') %}text-bg-success{% else %}text-bg-secondary{% endif %}" id="operator-surface-badge">
+                {{ surface.get('label') or 'Full mesh surface' }}
+            </span>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="operator-surface-options mb-3" role="radiogroup" aria-label="Operator surface profile">
+            <label class="operator-surface-option" for="operator-surface-full">
+                <input class="form-check-input" type="radio" name="operator-surface-profile" id="operator-surface-full" value="full_mesh" {% if (surface.get('profile') or 'full_mesh') == 'full_mesh' %}checked{% endif %}>
+                <span>
+                    <span class="operator-surface-option-title"><i class="bi bi-diagram-3"></i> Full mesh surface</span>
+                    <span class="operator-surface-option-copy">Show meshspaces, Connect, Trust Network, connected peer counts, and peer sidebar tools. Best for P2P testing and operator work.</span>
+                </span>
+            </label>
+            <label class="operator-surface-option" for="operator-surface-focused">
+                <input class="form-check-input" type="radio" name="operator-surface-profile" id="operator-surface-focused" value="focused_workspace" {% if (surface.get('profile') or '') == 'focused_workspace' %}checked{% endif %}>
+                <span>
+                    <span class="operator-surface-option-title"><i class="bi bi-window-stack"></i> Focused workspace surface</span>
+                    <span class="operator-surface-option-copy">Hide peer/mesh navigation from the everyday UI for centralized or demo deployments while keeping the node fully P2P-capable underneath.</span>
+                </span>
+            </label>
+            <label class="operator-surface-option" for="operator-surface-custom">
+                <input class="form-check-input" type="radio" name="operator-surface-profile" id="operator-surface-custom" value="custom" {% if (surface.get('profile') or '') == 'custom' %}checked{% endif %}>
+                <span>
+                    <span class="operator-surface-option-title"><i class="bi bi-sliders2"></i> Custom surface</span>
+                    <span class="operator-surface-option-copy">Pick exactly which P2P-facing UI surfaces are hidden. Useful when you still want one or two operator affordances visible.</span>
+                </span>
+            </label>
+        </div>
+        <div class="operator-surface-toggle-grid mb-3" id="operator-surface-custom-controls">
+            <div class="operator-surface-toggle">
+                <div class="form-check form-switch">
+                    <input class="form-check-input operator-surface-toggle-input" type="checkbox" role="switch" id="operator-hide-peer-header" data-surface-key="hide_peer_header" {% if surface.get('hide_peer_header') %}checked{% endif %}>
+                    <label class="form-check-label" for="operator-hide-peer-header">Hide header peer count</label>
+                </div>
+                <div class="small text-muted">Removes the small connected-peer badge near the logo.</div>
+            </div>
+            <div class="operator-surface-toggle">
+                <div class="form-check form-switch">
+                    <input class="form-check-input operator-surface-toggle-input" type="checkbox" role="switch" id="operator-hide-meshspace-switcher" data-surface-key="hide_meshspace_switcher" {% if surface.get('hide_meshspace_switcher') %}checked{% endif %}>
+                    <label class="form-check-label" for="operator-hide-meshspace-switcher">Hide meshspace switcher</label>
+                </div>
+                <div class="small text-muted">Keeps users focused on the current workspace chrome.</div>
+            </div>
+            <div class="operator-surface-toggle">
+                <div class="form-check form-switch">
+                    <input class="form-check-input operator-surface-toggle-input" type="checkbox" role="switch" id="operator-hide-connected-sidebar" data-surface-key="hide_connected_peers_sidebar" {% if surface.get('hide_connected_peers_sidebar') %}checked{% endif %}>
+                    <label class="form-check-label" for="operator-hide-connected-sidebar">Hide connected peers panel</label>
+                </div>
+                <div class="small text-muted">Removes the sidebar card listing connected peers.</div>
+            </div>
+            <div class="operator-surface-toggle">
+                <div class="form-check form-switch">
+                    <input class="form-check-input operator-surface-toggle-input" type="checkbox" role="switch" id="operator-hide-meshes-nav" data-surface-key="hide_meshes_nav" {% if surface.get('hide_meshes_nav') %}checked{% endif %}>
+                    <label class="form-check-label" for="operator-hide-meshes-nav">Hide Meshes page link</label>
+                </div>
+                <div class="small text-muted">The page remains available by direct URL for admins.</div>
+            </div>
+            <div class="operator-surface-toggle">
+                <div class="form-check form-switch">
+                    <input class="form-check-input operator-surface-toggle-input" type="checkbox" role="switch" id="operator-hide-trust-nav" data-surface-key="hide_trust_network_nav" {% if surface.get('hide_trust_network_nav') %}checked{% endif %}>
+                    <label class="form-check-label" for="operator-hide-trust-nav">Hide Trust Network link</label>
+                </div>
+                <div class="small text-muted">Trust tooling remains intact for direct admin review.</div>
+            </div>
+            <div class="operator-surface-toggle">
+                <div class="form-check form-switch">
+                    <input class="form-check-input operator-surface-toggle-input" type="checkbox" role="switch" id="operator-hide-connect-nav" data-surface-key="hide_connect_nav" {% if surface.get('hide_connect_nav') %}checked{% endif %}>
+                    <label class="form-check-label" for="operator-hide-connect-nav">Hide Connect page link</label>
+                </div>
+                <div class="small text-muted">Invite and peer connection workflows are hidden from nav only.</div>
+            </div>
+        </div>
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div class="operator-surface-status small text-muted" id="operator-surface-status">
+                {{ surface.get('description') or 'All peer and mesh UI surfaces are visible.' }}
+            </div>
+            <button type="button" class="btn btn-success btn-sm" id="operator-surface-save">
+                <i class="bi bi-check2-circle"></i> Save surface
+            </button>
+        </div>
     </div>
 </div>
 
@@ -4061,6 +4228,109 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
         btn.innerHTML = busy ? label : btn.dataset.defaultLabel;
     }
 
+    const operatorSurfacePresets = {
+        full_mesh: {
+            hide_peer_header: false,
+            hide_meshspace_switcher: false,
+            hide_connected_peers_sidebar: false,
+            hide_meshes_nav: false,
+            hide_trust_network_nav: false,
+            hide_connect_nav: false,
+        },
+        focused_workspace: {
+            hide_peer_header: true,
+            hide_meshspace_switcher: true,
+            hide_connected_peers_sidebar: true,
+            hide_meshes_nav: true,
+            hide_trust_network_nav: true,
+            hide_connect_nav: true,
+        },
+    };
+
+    function operatorSurfaceInputs() {
+        return Array.from(document.querySelectorAll('.operator-surface-toggle-input'));
+    }
+
+    function selectedOperatorSurfaceProfile() {
+        return document.querySelector('input[name="operator-surface-profile"]:checked')?.value || 'custom';
+    }
+
+    function setOperatorSurfaceStatus(text, isError = false) {
+        const status = document.getElementById('operator-surface-status');
+        if (!status) return;
+        status.textContent = text || '';
+        status.classList.toggle('text-danger', !!isError);
+        status.classList.toggle('text-success', !isError && !!text);
+        status.classList.toggle('text-muted', !text);
+    }
+
+    function applyOperatorSurfacePreset(profile) {
+        const preset = operatorSurfacePresets[profile];
+        if (!preset) return;
+        operatorSurfaceInputs().forEach(input => {
+            const key = input.dataset.surfaceKey;
+            input.checked = !!preset[key];
+        });
+    }
+
+    function syncOperatorSurfaceBadge(policy) {
+        const badge = document.getElementById('operator-surface-badge');
+        if (!badge || !policy) return;
+        badge.textContent = policy.label || 'Custom surface';
+        badge.classList.toggle('text-bg-success', Number(policy.hidden_count || 0) > 0);
+        badge.classList.toggle('text-bg-secondary', Number(policy.hidden_count || 0) <= 0);
+    }
+
+    function collectOperatorSurfacePolicy() {
+        const profile = selectedOperatorSurfaceProfile();
+        const payload = { profile };
+        operatorSurfaceInputs().forEach(input => {
+            payload[input.dataset.surfaceKey] = !!input.checked;
+        });
+        return payload;
+    }
+
+    function setupOperatorSurfaceControls() {
+        const saveBtn = document.getElementById('operator-surface-save');
+        if (!saveBtn) return;
+        document.querySelectorAll('input[name="operator-surface-profile"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                const profile = selectedOperatorSurfaceProfile();
+                applyOperatorSurfacePreset(profile);
+                if (profile === 'full_mesh') {
+                    setOperatorSurfaceStatus('All mesh, peer, trust, and connection navigation will be visible after save.');
+                } else if (profile === 'focused_workspace') {
+                    setOperatorSurfaceStatus('P2P-facing chrome will be hidden after save, but networking remains enabled.');
+                } else {
+                    setOperatorSurfaceStatus('Custom surface: choose exactly which UI elements to hide.');
+                }
+            });
+        });
+        operatorSurfaceInputs().forEach(input => {
+            input.addEventListener('change', () => {
+                const custom = document.getElementById('operator-surface-custom');
+                if (custom) custom.checked = true;
+                setOperatorSurfaceStatus('Custom surface pending save.');
+            });
+        });
+        saveBtn.addEventListener('click', async () => {
+            setButtonBusy('operator-surface-save', true, '<i class="bi bi-hourglass-split"></i> Saving...');
+            try {
+                const { ok, data } = await api('POST', '/ajax/admin/operator-surface', collectOperatorSurfacePolicy());
+                if (!ok || !data.success) throw new Error(data.error || 'Could not save operator surface');
+                syncOperatorSurfaceBadge(data.policy);
+                setOperatorSurfaceStatus(data.message || 'Operator surface saved.');
+                showAlert('Operator surface saved. Reloading to apply navigation changes...', 'success');
+                window.setTimeout(() => window.location.reload(), 700);
+            } catch (err) {
+                setOperatorSurfaceStatus(extractErrorMessage(err, 'Operator surface save failed'), true);
+                showAlert('Operator surface save failed: ' + extractErrorMessage(err, 'Unknown error'), 'danger');
+            } finally {
+                setButtonBusy('operator-surface-save', false);
+            }
+        });
+    }
+
     function parseDownloadFilename(contentDisposition) {
         if (!contentDisposition) return '';
         const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
@@ -5869,6 +6139,7 @@ export CANOPY_AUTO_APPROVE_AGENTS=1</code></pre>
     loadInstanceUpdateStatus();
     loadBackupStatus();
     loadRelayStatus();
+    setupOperatorSurfaceControls();
     bindTransportSecurityAdmin();
 
     const reconcileChannelIds = document.getElementById('admin-reconcile-channel-ids');

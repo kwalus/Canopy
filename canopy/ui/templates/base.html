@@ -14159,13 +14159,13 @@
                 <button class="btn btn-outline-secondary me-3" type="button" id="sidebar-toggle" aria-expanded="false" title="Toggle Sidebar">
                     <i class="bi bi-list"></i>
                 </button>
-                {% if sidebar_connected_peers is defined %}
+                {% if sidebar_connected_peers is defined and not (operator_surface_policy is defined and operator_surface_policy.get('hide_peer_header')) %}
                 <a href="{{ url_for('ui.connect_page') }}#connected-peers" class="nav-link header-peer-link d-inline-flex align-items-center gap-1 me-2 text-nowrap" title="P2P peer connections">
                     <i class="bi bi-link-45deg"></i>
                     <span class="badge rounded-pill {% if sidebar_connected_peers|length > 0 %}bg-success{% else %}bg-secondary{% endif %}" id="header-peer-count">{{ sidebar_connected_peers|length }}</span>
                 </a>
                 {% endif %}
-                {% if current_meshspace is defined and current_meshspace %}
+                {% if current_meshspace is defined and current_meshspace and not (operator_surface_policy is defined and operator_surface_policy.get('hide_meshspace_switcher')) %}
                     <div class="meshspace-rail me-2"
                          data-meshspace-header-rail
                          data-meshspace-current-id="{{ current_meshspace.meshspace_id }}"
@@ -14549,7 +14549,7 @@
                                 <span class="sidebar-nav-text">File Vault</span>
                             </span>
                         </a>
-                        {% if is_admin is defined and is_admin %}
+                        {% if is_admin is defined and is_admin and not (operator_surface_policy is defined and operator_surface_policy.get('hide_meshes_nav')) %}
                         <a class="nav-link {% if request.endpoint in ['ui.meshes_home', 'ui.meshspace_create', 'ui.meshspace_detail'] %}active{% endif %}"
                            href="{{ url_for('ui.meshes_home') }}" data-title="Meshes">
                             <span class="sidebar-nav-label">
@@ -14558,6 +14558,7 @@
                             </span>
                         </a>
                         {% endif %}
+                        {% if not (operator_surface_policy is defined and operator_surface_policy.get('hide_trust_network_nav')) %}
                         <a class="nav-link {% if request.endpoint == 'ui.trust_management' %}active{% endif %}" 
                            href="{{ url_for('ui.trust_management') }}" data-title="Trust Network">
                             <span class="sidebar-nav-label">
@@ -14565,6 +14566,8 @@
                                 <span class="sidebar-nav-text">Trust Network</span>
                             </span>
                         </a>
+                        {% endif %}
+                        {% if not (operator_surface_policy is defined and operator_surface_policy.get('hide_connect_nav')) %}
                         <a class="nav-link {% if request.endpoint == 'ui.connect_page' %}active{% endif %}" 
                            href="{{ url_for('ui.connect_page') }}" data-title="Connect">
                             <span class="sidebar-nav-label">
@@ -14572,6 +14575,7 @@
                                 <span class="sidebar-nav-text">Connect</span>
                             </span>
                         </a>
+                        {% endif %}
                         <a class="nav-link {% if request.endpoint == 'ui.profile' %}active{% endif %}" 
                            href="{{ url_for('ui.profile') }}" data-title="Profile">
                             <span class="sidebar-nav-label">
@@ -14712,7 +14716,7 @@
                     </div>
                     {% endif %}
 
-                    {% if sidebar_connected_peers is defined %}
+                    {% if sidebar_connected_peers is defined and not (operator_surface_policy is defined and operator_surface_policy.get('hide_connected_peers_sidebar')) %}
                     <div class="sidebar-peers" id="sidebar-peers-card" data-view-state="peek">
                         <div class="sidebar-peers-header">
                             <div class="sidebar-panel-heading">
@@ -15393,6 +15397,7 @@
         </div>
     </div>
 
+    {% if not (operator_surface_policy is defined and operator_surface_policy.get('hide_connected_peers_sidebar')) %}
     <div class="modal fade" id="sidebarPeersModal" tabindex="-1" aria-labelledby="sidebarPeersModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content">
@@ -15416,6 +15421,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
     <!-- Content Context Modal -->
     <div class="modal fade" id="contentContextModal" tabindex="-1" aria-labelledby="contentContextModalLabel" aria-hidden="true">

@@ -29,7 +29,7 @@ import xml.etree.ElementTree as ET
 from io import BytesIO
 from functools import wraps
 from pathlib import Path
-from flask import Blueprint, render_template, request, jsonify, current_app, session, redirect, url_for, flash, send_file, Response, g, stream_with_context
+from flask import Blueprint, render_template, request, jsonify, current_app, session, redirect, url_for, flash, send_file, Response, g, stream_with_context, has_app_context
 from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
 from typing import Any, Optional, cast
@@ -133,6 +133,119 @@ _SIDEBAR_ATTENTION_SNAPSHOT_TTL_SECONDS: float = 1.25
 _CAPSULE_SUMMARY_FAILURE_COOLDOWN_SECONDS: float = 300.0
 _CAPSULE_SUMMARY_FAILURE_MAX_COOLDOWN_SECONDS: float = 900.0
 _CAPSULE_SUMMARY_FAILURE_WINDOW_SECONDS: float = 900.0
+_OPERATOR_SURFACE_POLICY_KEY = 'operator_surface_policy_v1'
+_OPERATOR_SURFACE_POLICY_DEFAULTS: dict[str, Any] = {
+    'profile': 'full_mesh',
+    'hide_peer_header': False,
+    'hide_meshspace_switcher': False,
+    'hide_connected_peers_sidebar': False,
+    'hide_meshes_nav': False,
+    'hide_trust_network_nav': False,
+    'hide_connect_nav': False,
+}
+_OPERATOR_SURFACE_POLICY_FOCUSED: dict[str, Any] = {
+    'profile': 'focused_workspace',
+    'hide_peer_header': True,
+    'hide_meshspace_switcher': True,
+    'hide_connected_peers_sidebar': True,
+    'hide_meshes_nav': True,
+    'hide_trust_network_nav': True,
+    'hide_connect_nav': True,
+}
+
+
+def _coerce_policy_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    return text in {'1', 'true', 'yes', 'on', 'hide'}
+
+
+def _normalize_operator_surface_policy(raw: Any = None) -> dict[str, Any]:
+    """Normalize admin-owned UI presentation policy without changing networking."""
+    data: dict[str, Any] = {}
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                data = parsed
+        except Exception:
+            data = {}
+    elif isinstance(raw, dict):
+        data = raw
+    profile = str(data.get('profile') or '').strip().lower()
+    if profile in {'focused', 'focused-workspace', 'workspace_focused', 'centralized'}:
+        profile = 'focused_workspace'
+    if profile in {'full', 'full-mesh', 'mesh'}:
+        profile = 'full_mesh'
+    if profile == 'focused_workspace':
+        base = dict(_OPERATOR_SURFACE_POLICY_FOCUSED)
+    elif profile == 'custom':
+        base = dict(_OPERATOR_SURFACE_POLICY_DEFAULTS)
+        base['profile'] = 'custom'
+    else:
+        base = dict(_OPERATOR_SURFACE_POLICY_DEFAULTS)
+        base['profile'] = 'full_mesh'
+    for key, default in _OPERATOR_SURFACE_POLICY_DEFAULTS.items():
+        if key == 'profile':
+            continue
+        base[key] = _coerce_policy_bool(data.get(key), bool(base.get(key, default)))
+    hidden_count = sum(1 for key in _OPERATOR_SURFACE_POLICY_DEFAULTS if key.startswith('hide_') and base.get(key))
+    base['hidden_count'] = hidden_count
+    base['is_full_mesh'] = hidden_count == 0 and base.get('profile') == 'full_mesh'
+    base['is_focused_workspace'] = (
+        base.get('hide_peer_header')
+        and base.get('hide_meshspace_switcher')
+        and base.get('hide_connected_peers_sidebar')
+        and base.get('hide_meshes_nav')
+        and base.get('hide_trust_network_nav')
+        and base.get('hide_connect_nav')
+    )
+    if base['is_focused_workspace'] and base.get('profile') != 'custom':
+        base['profile'] = 'focused_workspace'
+    elif hidden_count and base.get('profile') not in {'focused_workspace', 'custom'}:
+        base['profile'] = 'custom'
+    base['label'] = {
+        'full_mesh': 'Full mesh surface',
+        'focused_workspace': 'Focused workspace surface',
+        'custom': 'Custom surface',
+    }.get(str(base.get('profile') or ''), 'Custom surface')
+    base['description'] = (
+        'All peer, mesh, connection, and trust navigation is visible.'
+        if base.get('profile') == 'full_mesh'
+        else 'Peer and mesh administration remains available by URL and backend capability, but selected P2P-facing chrome is hidden from the main UI.'
+    )
+    return base
+
+
+def _get_operator_surface_policy() -> dict[str, Any]:
+    db_manager = current_app.config.get('DB_MANAGER') if has_app_context() else None
+    raw = None
+    if db_manager and hasattr(db_manager, 'get_system_state'):
+        try:
+            raw = db_manager.get_system_state(_OPERATOR_SURFACE_POLICY_KEY)
+        except Exception:
+            logger.debug("Could not load operator surface policy", exc_info=True)
+    return _normalize_operator_surface_policy(raw)
+
+
+def _set_operator_surface_policy(policy: dict[str, Any]) -> bool:
+    db_manager = current_app.config.get('DB_MANAGER') if has_app_context() else None
+    if not db_manager or not hasattr(db_manager, 'set_system_state'):
+        return False
+    normalized = _normalize_operator_surface_policy(policy)
+    persisted = {
+        key: normalized.get(key)
+        for key in _OPERATOR_SURFACE_POLICY_DEFAULTS.keys()
+    }
+    return bool(db_manager.set_system_state(
+        _OPERATOR_SURFACE_POLICY_KEY,
+        json.dumps(persisted, sort_keys=True),
+    ))
 
 
 def _get_app_components_any(app: Any) -> tuple[Any, ...]:
@@ -1933,6 +2046,14 @@ def create_ui_blueprint() -> Blueprint:
             return {'canopy_version': __version__}
         except Exception:
             return {'canopy_version': '0.0.0'}
+
+    @ui.app_context_processor
+    def inject_operator_surface_policy():
+        """Inject admin-controlled UI presentation policy without changing P2P runtime behavior."""
+        try:
+            return {'operator_surface_policy': _get_operator_surface_policy()}
+        except Exception:
+            return {'operator_surface_policy': _normalize_operator_surface_policy()}
 
     @ui.app_context_processor
     def inject_meshspace_context():
@@ -12161,6 +12282,7 @@ def create_ui_blueprint() -> Blueprint:
                                  all_permissions=all_permissions,
                                  default_permissions=default_permissions,
                                  current_meshspace=current_meshspace,
+                                 operator_surface_policy=_get_operator_surface_policy(),
                                  agent_users=agent_users,
                                  workspace_users=workspace_users,
                                  remote_shadow_duplicate_groups=remote_shadow_duplicate_groups,
@@ -12177,6 +12299,43 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"Admin page error: {e}")
             flash('Error loading admin page', 'error')
             return render_template('error.html', error=str(e))
+
+    @ui.route('/ajax/admin/operator-surface', methods=['GET'])
+    @require_login
+    @require_admin
+    def ajax_admin_operator_surface_get():
+        """Return admin-owned UI presentation policy."""
+        return jsonify({'success': True, 'policy': _get_operator_surface_policy()})
+
+    @ui.route('/ajax/admin/operator-surface', methods=['POST'])
+    @require_login
+    @require_admin
+    def ajax_admin_operator_surface_set():
+        """Persist admin-owned UI presentation policy without changing P2P runtime behavior."""
+        try:
+            data = request.get_json(silent=True) or {}
+            profile = str(data.get('profile') or '').strip().lower()
+            if profile == 'full_mesh':
+                policy = dict(_OPERATOR_SURFACE_POLICY_DEFAULTS)
+            elif profile == 'focused_workspace':
+                policy = dict(_OPERATOR_SURFACE_POLICY_FOCUSED)
+            else:
+                policy = {'profile': 'custom'}
+                for key, default in _OPERATOR_SURFACE_POLICY_DEFAULTS.items():
+                    if key == 'profile':
+                        continue
+                    policy[key] = _coerce_policy_bool(data.get(key), bool(default))
+            normalized = _normalize_operator_surface_policy(policy)
+            if not _set_operator_surface_policy(normalized):
+                return jsonify({'success': False, 'error': 'Could not save operator surface policy'}), 500
+            return jsonify({
+                'success': True,
+                'policy': _get_operator_surface_policy(),
+                'message': 'Operator surface updated. Hidden items are UI-only; P2P capabilities remain enabled.',
+            })
+        except Exception as exc:
+            logger.error("Admin operator surface update error: %s", exc, exc_info=True)
+            return jsonify({'success': False, 'error': 'Operator surface update failed'}), 500
 
     # Connect / invite page
     @ui.route('/connect')
