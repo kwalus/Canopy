@@ -2237,6 +2237,8 @@
                     digestionBuilderActiveIndex: -1,
                     digestionBuilderProfile: 'ask_cite',
                     digestionBuilderUserFilter: 'all',
+                    digestionReferenceCache: new Map(),
+                    digestionReferencePending: new Map(),
 		                                digestionProgressTimers: new Map(),
                     digestionPackageHandoffs: new Map(),
 					                    openPreviewFileIds: new Set(),
@@ -7854,10 +7856,107 @@
                     };
                 }
 
-                function openDigestionDeckWorkspace(digestionId, button) {
-                    const digestion = findDigestion(digestionId) || {};
-                    const card = button && button.closest('[data-vault-digestion-id]');
-                    if (!card || !digestionId) return;
+                function digestionSummaryFromPackagePayload(digestionId, payload, fallback = {}) {
+                    const id = String(digestionId || fallback.id || '').trim();
+                    const packagePayload = payload && payload.package && typeof payload.package === 'object'
+                        ? payload.package
+                        : (payload && typeof payload === 'object' ? payload : {});
+                    const digestion = packagePayload.digestion && typeof packagePayload.digestion === 'object'
+                        ? packagePayload.digestion
+                        : {};
+                    const stats = packagePayload.stats && typeof packagePayload.stats === 'object'
+                        ? packagePayload.stats
+                        : {};
+                    const snapshot = packagePayload.snapshot && typeof packagePayload.snapshot === 'object'
+                        ? packagePayload.snapshot
+                        : {};
+                    const access = packagePayload.live_query_access && typeof packagePayload.live_query_access === 'object'
+                        ? packagePayload.live_query_access
+                        : {};
+                    const sources = Array.isArray(packagePayload.sources) ? packagePayload.sources : [];
+                    const outputs = Array.isArray(packagePayload.outputs) ? packagePayload.outputs : [];
+                    return {
+                        id,
+                        name: String(digestion.name || fallback.name || fallback.title || id || 'Digestion'),
+                        purpose: String(digestion.purpose || digestion.description || fallback.purpose || 'Source-bound research workspace.'),
+                        status: String(digestion.status || snapshot.status_at_export || fallback.status || 'live'),
+                        provider: String(digestion.provider || stats.provider || fallback.provider || 'local'),
+                        stats: {
+                            ...stats,
+                            source_count: Number(stats.source_count ?? stats.sources ?? sources.length ?? fallback.source_count ?? 0),
+                            chunks: Number(stats.chunks ?? stats.indexed_chunks ?? fallback.chunks ?? 0),
+                            token_estimate: Number(stats.token_estimate ?? fallback.token_estimate ?? 0),
+                            figures: Number(stats.figures ?? stats.figure_count ?? fallback.figures ?? 0),
+                            outputs: Number(stats.output_count ?? stats.outputs ?? outputs.length ?? fallback.outputs ?? 0),
+                            datapoint_count: Number(stats.datapoint_count ?? fallback.datapoint_count ?? 0),
+                            structured_record_count: Number(stats.structured_record_count ?? fallback.structured_record_count ?? 0),
+                            quantitative_result_count: Number(stats.quantitative_result_count ?? fallback.quantitative_result_count ?? 0),
+                        },
+                        access: {
+                            can_query: !!(access.can_query || access.recipient_live_query_implied || fallback.can_query),
+                            can_read_sources: !!(access.can_read_sources || fallback.can_read_sources),
+                            can_manage: !!(access.can_manage || fallback.can_manage),
+                        },
+                    };
+                }
+
+                function cacheDigestionReferenceSummary(digestion) {
+                    const id = String(digestion && digestion.id || '').trim();
+                    if (!id) return null;
+                    state.digestionReferenceCache.set(id, digestion);
+                    return digestion;
+                }
+
+                async function fetchDigestionReferenceSummary(digestionId, fallback = {}) {
+                    const id = String(digestionId || '').trim();
+                    if (!id) return null;
+                    const local = findDigestion(id);
+                    if (local) return cacheDigestionReferenceSummary(local);
+                    if (state.digestionReferenceCache.has(id)) {
+                        return state.digestionReferenceCache.get(id);
+                    }
+                    if (state.digestionReferencePending.has(id)) {
+                        return state.digestionReferencePending.get(id);
+                    }
+                    const pending = (async () => {
+                        try {
+                            const listPayload = await apiCall(`${vaultUrls().digestions}?include_sources=0`);
+                            const digestions = Array.isArray(listPayload && listPayload.digestions)
+                                ? listPayload.digestions
+                                : [];
+                            digestions.forEach((item) => cacheDigestionReferenceSummary(item));
+                            const found = digestions.find((item) => String(item && item.id || '') === id);
+                            if (found) return found;
+                        } catch (_) {}
+                        try {
+                            const packagePayload = await apiCall(`/ajax/digestions/${encodeURIComponent(id)}/package?include_content=false`);
+                            return cacheDigestionReferenceSummary(digestionSummaryFromPackagePayload(id, packagePayload, fallback));
+                        } catch (_) {
+                            return null;
+                        }
+                    })().finally(() => {
+                        state.digestionReferencePending.delete(id);
+                    });
+                    state.digestionReferencePending.set(id, pending);
+                    return pending;
+                }
+
+                function digestionReferenceTitleFromElement(sourceEl, digestionId) {
+                    const labelEl = sourceEl && sourceEl.querySelector
+                        ? sourceEl.querySelector('[data-canopy-digestion-ref-label="1"]')
+                        : null;
+                    const text = String(
+                        (labelEl && labelEl.textContent)
+                        || (sourceEl && sourceEl.textContent)
+                        || ''
+                    ).replace(/\s+/g, ' ').trim();
+                    return text || `Digestion ${shortCanopyEntityId(digestionId)}`;
+                }
+
+                function openDigestionDeckWorkspace(digestionId, button, options = {}) {
+                    const card = button && button.closest ? button.closest('[data-vault-digestion-id]') : null;
+                    const sourceEl = card || button || document.body;
+                    if (!sourceEl || !digestionId) return false;
                     const deckOpener = global && typeof global.canopyOpenMediaDeckForSource === 'function'
                         ? global.canopyOpenMediaDeckForSource
                         : null;
@@ -7865,23 +7964,26 @@
                         if (typeof showAlert === 'function') {
                             showAlert('Canopy Deck is not available on this page yet.', 'warning');
                         }
-                        return;
+                        return false;
                     }
+                    const digestion = options.digestion || findDigestion(digestionId) || {};
                     const initialQuery = String(
                         document.querySelector(`[data-vault-digestion-query="${vaultCssEscape(digestionId)}"]`)?.value
                         || ''
                     );
-                    const initialMode = digestionSearchMode(digestionId);
+                    const initialMode = options.initialMode || digestionSearchMode(digestionId);
+                    const fallbackTitle = options.fallbackTitle || digestionReferenceTitleFromElement(sourceEl, digestionId);
                     const manifest = buildDigestionDeckManifest({
                         ...digestion,
                         id: digestionId,
+                        name: digestion.name || fallbackTitle,
                         initial_query: initialQuery,
                         initial_mode: initialMode,
                     });
                     const item = {
                         key: manifest.key,
-                        el: card,
-                        sourceEl: card,
+                        el: sourceEl,
+                        sourceEl,
                         type: 'digestion',
                         title: manifest.title,
                         subtitle: manifest.subtitle,
@@ -7894,14 +7996,56 @@
                             global.canopySetDeckDesktopMode('large');
                         }
                     } catch (_) {}
-                    deckOpener(card, {
+                    deckOpener(sourceEl, {
                         explicitItem: item,
                         preferredKey: item.key,
                         play: false,
                     });
+                    return true;
                 }
 
-	                async function queryDigestion(digestionId, queryText = '') {
+                async function openDigestionReferenceDeckWorkspace(digestionId, sourceEl, options = {}) {
+                    const id = String(digestionId || '').trim();
+                    const trigger = sourceEl instanceof HTMLElement ? sourceEl : null;
+                    if (!id || !trigger) return false;
+                    const fallbackTitle = options.fallbackTitle || digestionReferenceTitleFromElement(trigger, id);
+                    trigger.setAttribute('aria-busy', 'true');
+                    try {
+                        const digestion = await fetchDigestionReferenceSummary(id, { name: fallbackTitle });
+                        if (!digestion) return false;
+                        return openDigestionDeckWorkspace(id, trigger, {
+                            digestion,
+                            fallbackTitle,
+                            initialMode: options.initialMode || 'rag',
+                        });
+                    } finally {
+                        trigger.removeAttribute('aria-busy');
+                    }
+                }
+
+                global.openDigestionDeckWorkspace = openDigestionDeckWorkspace;
+                global.openCanopyDigestionReferenceDeck = openDigestionReferenceDeckWorkspace;
+
+                document.addEventListener('click', async (event) => {
+                    const anchor = event.target && event.target.closest
+                        ? event.target.closest('a[data-canopy-digestion-ref="1"][data-canopy-digestion-id]')
+                        : null;
+                    if (!anchor) return;
+                    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                    if (!(global && typeof global.canopyOpenMediaDeckForSource === 'function')) return;
+                    const digestionId = String(anchor.getAttribute('data-canopy-digestion-id') || '').trim();
+                    if (!digestionId) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const opened = await openDigestionReferenceDeckWorkspace(digestionId, anchor, {
+                        fallbackTitle: digestionReferenceTitleFromElement(anchor, digestionId),
+                    });
+                    if (!opened) {
+                        global.location.href = anchor.getAttribute('href') || `/vault?digestion=${encodeURIComponent(digestionId)}`;
+                    }
+                });
+
+                async function queryDigestion(digestionId, queryText = '') {
                     if (!digestionId) return;
                     const query = String(
                         queryText
