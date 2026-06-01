@@ -186,6 +186,21 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn(r'line.match(/^\s{0,3}\d+[.)]\s+(.+)$/)', main_js)
         self.assertIn('const nextType = unordered ? \'ul\' : \'ol\';', main_js)
 
+    def test_digestion_reference_pills_open_deck_before_modal_fallback(self) -> None:
+        digestion_refs = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'digestion_refs.js').read_text(encoding='utf-8')
+        main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
+
+        self.assertIn('global.openCanopyDigestionReferenceDeck = openDigestionReferenceDeckWorkspace;', main_js)
+        self.assertIn('async function openDigestionModal(id)', digestion_refs)
+        self.assertIn('async function openDigestion(id, sourceEl = null, options = {})', digestion_refs)
+        self.assertIn("typeof window.openCanopyDigestionReferenceDeck === 'function'", digestion_refs)
+        self.assertIn('const opened = await deckOpener(clean, trigger, {', digestion_refs)
+        self.assertIn('if (opened) return true;', digestion_refs)
+        self.assertIn('if (event.defaultPrevented) return;', digestion_refs)
+        self.assertIn("openDigestion(ref.getAttribute('data-canopy-digestion-id') || '', ref);", digestion_refs)
+        self.assertIn('window.location.href = trigger?.getAttribute?.(\'href\') || vaultDigestionUrl(clean);', digestion_refs)
+        self.assertIn('openModal: openDigestionModal', digestion_refs)
+
     def test_digestion_extraction_copy_and_states_cover_external_provider_and_source_access(self) -> None:
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
         admin_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'admin.html').read_text(encoding='utf-8')
