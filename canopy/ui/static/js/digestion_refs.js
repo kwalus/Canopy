@@ -7,6 +7,8 @@
     const SCAN_SELECTOR = '.rich-content, .post-content, .message-content, .message-text, [data-post-content="1"], [data-message-content="1"], .agent-run-capsule';
     const SKIP_SELECTOR = 'a,button,textarea,input,select,code,pre,script,style,.canopy-digestion-ref,.canopy-digestion-modal,.canopy-workstream-ref';
     const previewCache = new Map();
+    const previewPending = new Map();
+    const PREVIEW_RETRY_DELAYS = [220, 700];
 
     function escapeHtml(value) {
         return String(value || '')
@@ -95,20 +97,54 @@
         };
     }
 
+    function delay(ms) {
+        return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
+    async function fetchDigestionPreviewOnce(clean) {
+        try {
+            const response = await fetch(`/api/v1/digestions/${encodeURIComponent(clean)}?summary=1`, { headers: fetchHeaders() });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                return {
+                    ok: false,
+                    id: clean,
+                    status: response.status,
+                    retryable: response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500,
+                    error: payload.error || 'Private or unavailable Digestion',
+                };
+            }
+            return summaryFromPayload(clean, payload);
+        } catch (error) {
+            return { ok: false, id: clean, retryable: true, error: error.message || 'Unable to check Digestion' };
+        }
+    }
+
+    async function fetchDigestionPreviewWithRetry(clean) {
+        let last = null;
+        for (let attempt = 0; attempt <= PREVIEW_RETRY_DELAYS.length; attempt += 1) {
+            if (attempt > 0) await delay(PREVIEW_RETRY_DELAYS[attempt - 1]);
+            last = await fetchDigestionPreviewOnce(clean);
+            if (last?.ok) return last;
+            if (!last?.retryable && attempt > 0) break;
+        }
+        return last || { ok: false, id: clean, error: 'Unable to check Digestion' };
+    }
+
     function fetchDigestionPreview(id) {
         const clean = String(id || '').trim();
         if (!clean) return Promise.resolve(null);
-        if (previewCache.has(clean)) return previewCache.get(clean);
-        const promise = fetch(`/api/v1/digestions/${encodeURIComponent(clean)}?summary=1`, { headers: fetchHeaders() })
-            .then(async (response) => {
-                const payload = await response.json().catch(() => ({}));
-                if (!response.ok) {
-                    return { ok: false, id: clean, error: payload.error || 'Private or unavailable Digestion' };
-                }
-                return summaryFromPayload(clean, payload);
+        if (previewCache.has(clean)) return Promise.resolve(previewCache.get(clean));
+        if (previewPending.has(clean)) return previewPending.get(clean);
+        const promise = fetchDigestionPreviewWithRetry(clean)
+            .then((preview) => {
+                if (preview?.ok) previewCache.set(clean, preview);
+                return preview;
             })
-            .catch((error) => ({ ok: false, id: clean, error: error.message || 'Unable to check Digestion' }));
-        previewCache.set(clean, promise);
+            .finally(() => {
+                previewPending.delete(clean);
+            });
+        previewPending.set(clean, promise);
         return promise;
     }
 
@@ -126,6 +162,7 @@
 
     function applyPreviewToRef(ref, preview) {
         if (!ref || !preview) return;
+        delete ref.dataset.canopyDigestionHydrating;
         let label = ref.querySelector('[data-canopy-digestion-ref-label="1"]') || ref.querySelector('span');
         if (!label) {
             label = document.createElement('span');
@@ -143,6 +180,7 @@
         }
         if (!preview.ok) {
             ref.classList.add('is-unavailable');
+            ref.dataset.canopyDigestionHydrated = '0';
             ref.title = `${preview.error || 'Private or unavailable Digestion'} · ${preview.id || ''}`;
             if (!ref.dataset.explicitLabel) label.textContent = 'Private/unavailable Digestion';
             meta.textContent = shortId(preview.id || ref.dataset.canopyDigestionId || '');
@@ -185,7 +223,12 @@
         }
         if (ref.dataset.canopyDigestionHydrating === '1' || ref.dataset.canopyDigestionHydrated === '1') return;
         ref.dataset.canopyDigestionHydrating = '1';
-        fetchDigestionPreview(id).then((preview) => applyPreviewToRef(ref, preview));
+        fetchDigestionPreview(id)
+            .then((preview) => applyPreviewToRef(ref, preview))
+            .catch((error) => applyPreviewToRef(ref, { ok: false, id, retryable: true, error: error.message || 'Unable to check Digestion' }))
+            .finally(() => {
+                if (ref.dataset.canopyDigestionHydrating === '1') delete ref.dataset.canopyDigestionHydrating;
+            });
     }
 
     function makeDigestionButton(id, label) {
@@ -385,7 +428,6 @@
         const isModified = event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button === 1;
         if (isModified || ref.getAttribute('data-canopy-open-target') === 'blank') return;
         event.preventDefault();
-        if (ref.classList.contains('is-unavailable')) return;
         openDigestion(ref.getAttribute('data-canopy-digestion-id') || '', ref);
     });
 

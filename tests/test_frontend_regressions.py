@@ -191,6 +191,12 @@ class TestFrontendRegressions(unittest.TestCase):
         main_js = (ROOT / 'canopy' / 'ui' / 'static' / 'js' / 'canopy-main.js').read_text(encoding='utf-8')
 
         self.assertIn('global.openCanopyDigestionReferenceDeck = openDigestionReferenceDeckWorkspace;', main_js)
+        self.assertIn('const previewPending = new Map();', digestion_refs)
+        self.assertIn('const PREVIEW_RETRY_DELAYS = [220, 700];', digestion_refs)
+        self.assertIn('async function fetchDigestionPreviewWithRetry(clean)', digestion_refs)
+        self.assertIn('if (preview?.ok) previewCache.set(clean, preview);', digestion_refs)
+        self.assertIn('previewPending.delete(clean);', digestion_refs)
+        self.assertIn('delete ref.dataset.canopyDigestionHydrating;', digestion_refs)
         self.assertIn('async function openDigestionModal(id)', digestion_refs)
         self.assertIn('async function openDigestion(id, sourceEl = null, options = {})', digestion_refs)
         self.assertIn("typeof window.openCanopyDigestionReferenceDeck === 'function'", digestion_refs)
@@ -200,6 +206,7 @@ class TestFrontendRegressions(unittest.TestCase):
         self.assertIn("openDigestion(ref.getAttribute('data-canopy-digestion-id') || '', ref);", digestion_refs)
         self.assertIn('window.location.href = trigger?.getAttribute?.(\'href\') || vaultDigestionUrl(clean);', digestion_refs)
         self.assertIn('openModal: openDigestionModal', digestion_refs)
+        self.assertNotIn("if (ref.classList.contains('is-unavailable')) return;", digestion_refs)
 
     def test_digestion_extraction_copy_and_states_cover_external_provider_and_source_access(self) -> None:
         profile_template = (ROOT / 'canopy' / 'ui' / 'templates' / 'profile.html').read_text(encoding='utf-8')
