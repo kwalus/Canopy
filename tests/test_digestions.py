@@ -3211,6 +3211,16 @@ class TestDigestions(unittest.TestCase):
             self.assertEqual(shared_get.status_code, 200)
             shared_payload = shared_get.get_json() or {}
             self.assertTrue(shared_payload['digestion']['access']['can_query'])
+            with client.session_transaction() as sess:
+                sess['authenticated'] = True
+                sess['user_id'] = 'reader-user'
+            session_summary = client.get(f'/api/v1/digestions/{digestion_id}?summary=1')
+            self.assertEqual(session_summary.status_code, 200)
+            session_payload = session_summary.get_json() or {}
+            self.assertTrue(session_payload['summary'])
+            self.assertEqual(session_payload['digestion']['name'], 'API corpus renamed')
+            self.assertTrue(session_payload['access']['can_query'])
+            self.assertNotIn('sources', session_payload)
 
             sources_response = client.get(
                 f'/api/v1/digestions/{digestion_id}/sources',

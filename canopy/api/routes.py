@@ -1163,7 +1163,9 @@ def create_api_blueprint() -> Blueprint:
         """Decorator to require API key auth, with optional UI session fallback.
 
         Session fallback is intentionally limited to routes that opt in via
-        allow_session=True and only when no explicit API permission is needed.
+        allow_session=True. API keys still enforce the declared permission;
+        browser-session requests rely on the route's user/ACL checks plus CSRF
+        validation for mutating methods.
         """
         def decorator(f):
             @wraps(f)
@@ -1194,13 +1196,13 @@ def create_api_blueprint() -> Blueprint:
 
                 # Optional browser-session fallback for selected local UI routes.
                 is_session_auth = bool(session.get('authenticated', False) and session.get('user_id'))
-                if allow_session and required_permission is None and is_session_auth:
+                if allow_session and is_session_auth:
                     if request.method not in ('GET', 'HEAD', 'OPTIONS'):
                         validate_csrf_request()
                     g.api_key_info = None
                     return f(*args, **kwargs)
 
-                if allow_session and required_permission is None:
+                if allow_session:
                     return jsonify({
                         'error': 'Authentication required',
                         'message': 'Sign in to the web UI or provide X-API-Key',
@@ -11297,16 +11299,17 @@ def create_api_blueprint() -> Blueprint:
             return jsonify({'error': 'Internal server error'}), 500
 
     @api.route('/digestions/<digestion_id>', methods=['GET'])
-    @require_auth(Permission.READ_FILES)
+    @require_auth(Permission.READ_FILES, allow_session=True)
     def get_digestion_api(digestion_id: str):
         """Return Digestion metadata, source status, and stats."""
         manager = _api_get_digestion_manager()
         if not manager:
             return jsonify({'error': 'Digestion manager unavailable'}), 503
         summary = str(request.args.get('summary') or '').strip().lower() in {'1', 'true', 'yes'}
+        actor_user_id = _request_authenticated_user_id()
         item = manager.get_digestion(
             digestion_id,
-            user_id=g.api_key_info.user_id,
+            user_id=actor_user_id,
             include_sources=not summary,
         )
         if not item:
