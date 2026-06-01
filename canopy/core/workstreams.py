@@ -114,6 +114,41 @@ def _normalize_optional_choice(value: Any, allowed: Sequence[str]) -> Optional[s
     return clean if clean in allowed else None
 
 
+def _infer_artifact_type(artifact: Dict[str, Any]) -> str:
+    explicit = artifact.get('artifact_type') or artifact.get('type')
+    if explicit:
+        return _normalize_choice(explicit, WORKSTREAM_ARTIFACT_TYPES, 'note')
+    if artifact.get('digestion_id'):
+        return 'digestion'
+    if artifact.get('file_id'):
+        return 'file'
+    if artifact.get('message_id'):
+        return 'message'
+    if artifact.get('post_id'):
+        return 'post'
+    if artifact.get('url'):
+        return 'url'
+    return 'note'
+
+
+def _artifact_ref_id(artifact: Dict[str, Any]) -> Optional[str]:
+    for key in (
+        'ref_id',
+        'reference_id',
+        'file_id',
+        'digestion_id',
+        'message_id',
+        'post_id',
+        'artifact_id',
+        'id',
+        'url',
+    ):
+        value = _coerce_text(artifact.get(key), limit=500)
+        if value:
+            return value
+    return None
+
+
 def _new_id(prefix: str) -> str:
     return f"{prefix}{secrets.token_hex(10)}"
 
@@ -533,8 +568,8 @@ class WorkstreamManager:
         )
 
     def _add_artifact_conn(self, conn: Any, workstream_id: str, artifact: Dict[str, Any], actor: str, now: str) -> Optional[str]:
-        artifact_type = _normalize_choice(artifact.get('artifact_type') or artifact.get('type'), WORKSTREAM_ARTIFACT_TYPES, 'note')
-        ref_id = _coerce_text(artifact.get('ref_id') or artifact.get('id') or artifact.get('url'), limit=500)
+        artifact_type = _infer_artifact_type(artifact)
+        ref_id = _artifact_ref_id(artifact)
         if not ref_id:
             return None
         artifact_id = _new_id('Wsa')
@@ -922,7 +957,7 @@ class WorkstreamManager:
                     actor_user_id,
                     _coerce_text(artifact.get('title'), limit=300) or 'Artifact added',
                     _coerce_text(artifact.get('summary'), limit=1200),
-                    _json_dumps({'artifact_type': artifact.get('artifact_type') or artifact.get('type'), 'ref_id': artifact.get('ref_id') or artifact.get('id') or artifact.get('url')}),
+                    _json_dumps({'artifact_type': _infer_artifact_type(artifact), 'ref_id': _artifact_ref_id(artifact)}),
                     now,
                 ),
             )
@@ -934,7 +969,7 @@ class WorkstreamManager:
                     SELECT * FROM workstream_artifacts
                     WHERE workstream_id = ? AND artifact_type = ? AND ref_id = ?
                     """,
-                    (workstream_id, _normalize_choice(artifact.get('artifact_type') or artifact.get('type'), WORKSTREAM_ARTIFACT_TYPES, 'note'), _coerce_text(artifact.get('ref_id') or artifact.get('id') or artifact.get('url'), limit=500)),
+                    (workstream_id, _infer_artifact_type(artifact), _artifact_ref_id(artifact)),
                 ).fetchone()
             if not row:
                 return None

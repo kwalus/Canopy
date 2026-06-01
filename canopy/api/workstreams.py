@@ -69,6 +69,18 @@ def _coerce_bool(value: Any) -> bool:
     return str(value or '').strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def _normalize_participant_payload(data: Dict[str, Any]) -> list[Dict[str, Any]]:
+    """Accept both canonical participants[] and a single flat participant object."""
+    if isinstance(data.get('participants'), list):
+        return [item for item in data.get('participants') if isinstance(item, dict)]
+    participant = data.get('participant')
+    if isinstance(participant, dict):
+        return [participant]
+    if data.get('user_id') or data.get('id') or data.get('username'):
+        return [data]
+    return []
+
+
 def _require_auth(required_permission: Optional[Permission] = None, *, allow_session: bool = True) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
@@ -168,7 +180,7 @@ def create_workstream_api_blueprint() -> Blueprint:
                 channel_id=channel_id,
                 source_type=data.get('source_type'),
                 source_id=data.get('source_id'),
-                participants=data.get('participants') if isinstance(data.get('participants'), list) else [],
+                participants=_normalize_participant_payload(data),
                 artifacts=data.get('artifacts') if isinstance(data.get('artifacts'), list) else [],
                 summary=data.get('summary'),
                 next_action=data.get('next_action'),
@@ -225,9 +237,16 @@ def create_workstream_api_blueprint() -> Blueprint:
         if not manager.user_can_edit(workstream_id, actor_id):
             return jsonify({'error': 'Permission denied', 'code': 'workstream_edit_denied'}), 403
         data = _json_body()
-        participants = data.get('participants') if isinstance(data.get('participants'), list) else []
+        participants = _normalize_participant_payload(data)
         if not participants:
-            return jsonify({'error': 'participants required', 'code': 'missing_participants'}), 400
+            return jsonify({
+                'error': 'participants required',
+                'code': 'missing_participants',
+                'accepted_shapes': [
+                    {'participants': [{'user_id': '<user_id>', 'role': 'contributor'}]},
+                    {'user_id': '<user_id>', 'role': 'contributor'},
+                ],
+            }), 400
         ws = manager.set_participants(
             workstream_id,
             actor_user_id=actor_id,
@@ -294,7 +313,21 @@ def create_workstream_api_blueprint() -> Blueprint:
         artifact_data = data.get('artifact') if isinstance(data.get('artifact'), dict) else data
         artifact = manager.add_artifact(workstream_id, actor_user_id=actor_id, artifact=artifact_data)
         if not artifact:
-            return jsonify({'error': 'artifact ref_id required', 'code': 'missing_artifact_ref'}), 400
+            return jsonify({
+                'error': 'artifact ref_id required',
+                'code': 'missing_artifact_ref',
+                'accepted_reference_fields': [
+                    'ref_id',
+                    'reference_id',
+                    'file_id',
+                    'digestion_id',
+                    'message_id',
+                    'post_id',
+                    'artifact_id',
+                    'url',
+                    'id',
+                ],
+            }), 400
         ws = manager.get_workstream(workstream_id, event_limit=20)
         return jsonify({'artifact': artifact.to_dict(), 'workstream': ws.to_dict() if ws else None}), 201
 
