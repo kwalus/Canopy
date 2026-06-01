@@ -50,6 +50,26 @@
     .work-panel {
         padding: 0.9rem;
         min-width: 0;
+        position: relative;
+        overflow: hidden;
+    }
+    .work-panel::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 4px;
+        background: var(--work-panel-accent, color-mix(in srgb, var(--canopy-primary, #22c55e) 70%, transparent));
+        opacity: 0.74;
+        pointer-events: none;
+    }
+    .work-panel--workstreams {
+        --work-panel-accent: color-mix(in srgb, var(--canopy-primary, #22c55e) 78%, #38bdf8);
+    }
+    .work-panel--digestions {
+        --work-panel-accent: color-mix(in srgb, var(--canopy-accent, #5eead4) 76%, #38bdf8);
+    }
+    .work-panel--structured {
+        --work-panel-accent: color-mix(in srgb, #fbbf24 70%, var(--canopy-primary, #22c55e));
     }
     .work-panel-head,
     .work-panel-actions {
@@ -87,6 +107,35 @@
         border-radius: 15px;
         background: color-mix(in srgb, var(--canopy-bg-tertiary) 78%, transparent);
         color: var(--canopy-text-primary);
+        position: relative;
+        overflow: hidden;
+    }
+    .work-object-card::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 4px;
+        background: var(--work-object-accent, color-mix(in srgb, var(--canopy-primary, #22c55e) 76%, transparent));
+        opacity: 0.82;
+        pointer-events: none;
+    }
+    .work-object-card[data-workstream-id] {
+        --work-object-accent: color-mix(in srgb, var(--canopy-primary, #22c55e) 72%, #38bdf8);
+    }
+    .work-object-card[data-digestion-id] {
+        --work-object-accent: color-mix(in srgb, var(--canopy-accent, #5eead4) 78%, #38bdf8);
+    }
+    .work-object-card[data-structured-work-type="request"],
+    .work-object-card[data-structured-work-type="handoff"] {
+        --work-object-accent: color-mix(in srgb, #fbbf24 74%, var(--canopy-primary, #22c55e));
+    }
+    .work-object-card[data-structured-work-type="telemetry"],
+    .work-object-card[data-structured-work-type="signal"] {
+        --work-object-accent: color-mix(in srgb, #38bdf8 72%, var(--canopy-primary, #22c55e));
+    }
+    .work-object-card[data-structured-work-type="objective"],
+    .work-object-card[data-structured-work-type="input"] {
+        --work-object-accent: color-mix(in srgb, #a78bfa 65%, var(--canopy-primary, #22c55e));
     }
     .work-object-card:hover {
         border-color: color-mix(in srgb, var(--canopy-primary, #22c55e) 58%, var(--canopy-border));
@@ -197,6 +246,46 @@
     .task-create-card .form-control::placeholder {
         color: var(--canopy-text-secondary);
     }
+    .task-notify-panel {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.65rem;
+        padding: 0.72rem;
+        border: 1px solid color-mix(in srgb, var(--canopy-primary, #22c55e) 46%, var(--canopy-border));
+        border-radius: 14px;
+        background:
+            linear-gradient(135deg, color-mix(in srgb, var(--canopy-primary, #22c55e) 14%, transparent), transparent 70%),
+            color-mix(in srgb, var(--canopy-bg-tertiary) 76%, transparent);
+    }
+    .task-notify-panel.is-disabled {
+        border-color: var(--canopy-border);
+        opacity: 0.72;
+    }
+    .task-notify-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--canopy-primary, #22c55e);
+        background: color-mix(in srgb, var(--canopy-primary, #22c55e) 18%, transparent);
+    }
+    .task-notify-title {
+        font-size: 0.82rem;
+        font-weight: 800;
+        color: var(--canopy-text-primary);
+    }
+    .task-notify-copy {
+        font-size: 0.74rem;
+        color: var(--canopy-text-secondary);
+        line-height: 1.3;
+    }
+    .task-notify-panel .form-check-input {
+        margin: 0;
+        cursor: pointer;
+    }
     .task-picker {
         display: grid;
         gap: 0.6rem;
@@ -223,6 +312,10 @@
         max-height: 220px;
         overflow-y: auto;
         padding-right: 0.15rem;
+        min-width: 0;
+    }
+    .task-picker-users.is-empty {
+        grid-template-columns: 1fr;
     }
     .task-picker-user {
         display: grid;
@@ -230,12 +323,21 @@
         align-items: center;
         gap: 0.55rem;
         min-width: 0;
+        width: 100%;
+        max-width: 100%;
         padding: 0.52rem 0.58rem;
         border: 1px solid var(--canopy-border);
         border-radius: 13px;
         background: color-mix(in srgb, var(--canopy-bg-secondary) 82%, transparent);
         color: var(--canopy-text-primary);
         text-align: left;
+        overflow: hidden;
+    }
+    .task-picker-user > .min-w-0 {
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        display: block;
     }
     .task-picker-user:hover,
     .task-picker-user.is-selected {
@@ -276,9 +378,20 @@
     .task-picker-check {
         color: var(--canopy-primary, #22c55e);
         opacity: 0;
+        flex: 0 0 auto;
     }
     .task-picker-user.is-selected .task-picker-check {
         opacity: 1;
+    }
+    .task-picker-empty {
+        grid-column: 1 / -1;
+        border: 1px dashed var(--canopy-border);
+        border-radius: 13px;
+        padding: 0.8rem;
+        color: var(--canopy-text-secondary);
+        background: color-mix(in srgb, var(--canopy-bg-secondary) 70%, transparent);
+        font-size: 0.8rem;
+        text-align: center;
     }
     .task-board-shell {
         border: 1px solid var(--canopy-border);
@@ -624,7 +737,7 @@
 
 <section class="work-overview" aria-label="Work overview">
     <div class="work-panels">
-        <article class="work-panel" aria-labelledby="workstreams-panel-title">
+        <article class="work-panel work-panel--workstreams" aria-labelledby="workstreams-panel-title">
             <div class="work-panel-head">
                 <div>
                     <span class="work-panel-kicker">Sustained runs</span>
@@ -639,7 +752,7 @@
             </div>
         </article>
 
-        <article class="work-panel" aria-labelledby="digestions-panel-title">
+        <article class="work-panel work-panel--digestions" aria-labelledby="digestions-panel-title">
             <div class="work-panel-head">
                 <div>
                     <span class="work-panel-kicker">Reusable source context</span>
@@ -654,7 +767,7 @@
             </div>
         </article>
 
-        <article class="work-panel" aria-labelledby="structured-work-panel-title">
+        <article class="work-panel work-panel--structured" aria-labelledby="structured-work-panel-title">
             <div class="work-panel-head">
                 <div>
                     <span class="work-panel-kicker">Structured cards</span>
@@ -738,6 +851,14 @@
                         </select>
                     </div>
                 </div>
+                <div class="task-notify-panel is-disabled" id="task-notify-panel">
+                    <span class="task-notify-icon"><i class="bi bi-inbox"></i></span>
+                    <span class="min-w-0">
+                        <span class="task-notify-title">Start the work</span>
+                        <span class="task-notify-copy" id="task-notify-copy">Pick assignees to notify them in their inbox.</span>
+                    </span>
+                    <input class="form-check-input" type="checkbox" id="task-notify-assignees" disabled aria-label="Notify assignees when creating this task">
+                </div>
                 <button type="submit" class="btn btn-primary w-100 mt-2">
                     <i class="bi bi-plus-circle me-1"></i> Add Task
                 </button>
@@ -795,6 +916,14 @@
                         <input type="search" class="form-control" id="task-detail-assignee-search" placeholder="Search agents and teammates">
                         <div class="task-picker-users" id="task-detail-assignee-picker"></div>
                     </div>
+                </div>
+                <div class="task-notify-panel task-notify-panel--detail is-disabled" id="task-detail-notify-panel">
+                    <span class="task-notify-icon"><i class="bi bi-bell"></i></span>
+                    <span class="min-w-0">
+                        <span class="task-notify-title">Notify assignees on save</span>
+                        <span class="task-notify-copy" id="task-detail-notify-copy">Enable this when the task should return to assignee inboxes.</span>
+                    </span>
+                    <input class="form-check-input" type="checkbox" id="task-detail-notify-assignees" aria-label="Notify assignees when saving this task">
                 </div>
                 <div class="row g-2">
                     <div class="col-md-6">
@@ -1447,7 +1576,8 @@
         };
     }
 
-    function taskPickerUsers(query) {
+    function taskPickerUsers(query, selected) {
+        const selectedSet = selected instanceof Set ? selected : new Set();
         const users = new Map();
         Object.entries(taskUsers || {}).forEach(([uid, info]) => {
             if (uid) users.set(uid, info || {});
@@ -1464,17 +1594,21 @@
         return [...users.entries()]
             .map(([uid, user]) => ({ uid, user: user || {} }))
             .filter(({ uid, user }) => {
-                if (!needle) return true;
+                const isSelected = selectedSet.has(String(uid));
+                if (!needle) return isSelected;
                 const label = String(user.display_name || user.username || uid).toLowerCase();
                 const username = String(user.username || user.handle || '').toLowerCase();
                 return label.includes(needle) || username.includes(needle) || String(uid).toLowerCase().includes(needle);
             })
             .sort((a, b) => {
+                const aSelected = selectedSet.has(String(a.uid));
+                const bSelected = selectedSet.has(String(b.uid));
+                if (aSelected !== bSelected) return aSelected ? -1 : 1;
                 const aName = (a.user.display_name || a.user.username || a.uid).toLowerCase();
                 const bName = (b.user.display_name || b.user.username || b.uid).toLowerCase();
                 return aName.localeCompare(bName);
             })
-            .slice(0, 80);
+            .slice(0, needle ? 32 : 16);
     }
 
     function taskPickerAvatar(user, uid) {
@@ -1491,14 +1625,19 @@
         const countEl = document.getElementById(isDetail ? 'task-detail-assignee-count' : 'task-create-assignee-count');
         const selected = isDetail ? selectedDetailAssignees : selectedCreateAssignees;
         if (!listEl) return;
-        const users = taskPickerUsers(searchEl ? searchEl.value : '');
+        const query = searchEl ? searchEl.value : '';
+        const users = taskPickerUsers(query, selected);
         if (countEl) {
             countEl.textContent = `${selected.size} selected`;
         }
         if (!users.length) {
-            listEl.innerHTML = '<div class="work-empty">No matching users yet.</div>';
+            listEl.classList.add('is-empty');
+            const hasQuery = !!String(query || '').trim();
+            listEl.innerHTML = `<div class="task-picker-empty">${hasQuery ? 'No matching people yet.' : 'Search to add assignees. Selected people will stay pinned here.'}</div>`;
+            updateTaskNotifyState(mode);
             return;
         }
+        listEl.classList.remove('is-empty');
         listEl.innerHTML = users.map(({ uid, user }) => {
             const label = user.display_name || user.username || uid;
             const handle = user.username || user.handle || uid;
@@ -1514,6 +1653,7 @@
                 </button>
             `;
         }).join('');
+        updateTaskNotifyState(mode);
     }
 
     function renderAllTaskPeoplePickers() {
@@ -1524,6 +1664,36 @@
     function selectedAssigneeList(mode) {
         const selected = mode === 'detail' ? selectedDetailAssignees : selectedCreateAssignees;
         return Array.from(selected).filter(Boolean);
+    }
+
+    function updateTaskNotifyState(mode) {
+        const isDetail = mode === 'detail';
+        const selected = isDetail ? selectedDetailAssignees : selectedCreateAssignees;
+        const panel = document.getElementById(isDetail ? 'task-detail-notify-panel' : 'task-notify-panel');
+        const checkbox = document.getElementById(isDetail ? 'task-detail-notify-assignees' : 'task-notify-assignees');
+        const copy = document.getElementById(isDetail ? 'task-detail-notify-copy' : 'task-notify-copy');
+        if (!panel || !checkbox) return;
+        const count = selected.size;
+        const enabled = count > 0;
+        panel.classList.toggle('is-disabled', !enabled);
+        checkbox.disabled = !enabled;
+        if (!enabled) {
+            checkbox.checked = false;
+            delete checkbox.dataset.canopyTouched;
+        } else if (!isDetail && !checkbox.dataset.canopyTouched) {
+            checkbox.checked = true;
+        }
+        if (copy) {
+            if (!enabled) {
+                copy.textContent = isDetail
+                    ? 'Add assignees, then notify them when this task should return to their inbox.'
+                    : 'Pick assignees to notify them in their inbox.';
+            } else {
+                copy.textContent = isDetail
+                    ? `${count} assignee${count === 1 ? '' : 's'} can receive a refreshed inbox item.`
+                    : `${count} assignee${count === 1 ? '' : 's'} will receive an inbox item when this task is created.`;
+            }
+        }
     }
 
     function renderTaskDetail(task) {
@@ -1538,6 +1708,12 @@
         document.getElementById('task-detail-visibility').value = task.visibility || 'network';
         selectedDetailAssignees = new Set(taskAssigneeIds(task));
         renderTaskPeoplePicker('detail');
+        const detailNotify = document.getElementById('task-detail-notify-assignees');
+        if (detailNotify) {
+            detailNotify.checked = false;
+            delete detailNotify.dataset.canopyTouched;
+        }
+        updateTaskNotifyState('detail');
         const meta = document.getElementById('task-detail-meta');
         if (meta) {
             meta.innerHTML = `
@@ -1610,7 +1786,8 @@
             priority: document.getElementById('task-detail-priority').value,
             due_at: dueRaw ? new Date(dueRaw).toISOString() : null,
             visibility: document.getElementById('task-detail-visibility').value,
-            metadata
+            metadata,
+            notify_assignees: !!(document.getElementById('task-detail-notify-assignees')?.checked)
         };
         updateTask(taskId, payload)
             .then((data) => {
@@ -1622,7 +1799,8 @@
                     taskCache.set(data.task.id, data.task);
                     renderTaskDetail(data.task);
                 }
-                showAlert('Task updated', 'success');
+                const notified = Number(data.notified_count || 0);
+                showAlert(notified ? `Task updated · ${notified} assignee${notified === 1 ? '' : 's'} notified` : 'Task updated', 'success');
                 loadTasks();
             })
             .catch(err => {
@@ -1680,6 +1858,7 @@
             const priorityEl = document.getElementById('task-priority');
             const dueEl = document.getElementById('task-due');
             const visibilityEl = document.getElementById('task-visibility');
+            const notifyEl = document.getElementById('task-notify-assignees');
             const assignees = selectedAssigneeList('create');
 
             const payload = {
@@ -1690,7 +1869,8 @@
                 assigned_to: assignees[0] || '',
                 due_at: dueEl.value ? new Date(dueEl.value).toISOString() : null,
                 visibility: visibilityEl.value,
-                metadata: assignees.length ? { assignees } : {}
+                metadata: assignees.length ? { assignees } : {},
+                notify_assignees: !!(notifyEl && notifyEl.checked && assignees.length)
             };
 
             if (!payload.title) {
@@ -1703,9 +1883,14 @@
                 body: JSON.stringify(payload)
             }).then((data) => {
                 if (data && data.success) {
-                    showAlert('Task created', 'success');
+                    const notified = Number(data.notified_count || 0);
+                    showAlert(notified ? `Task created · ${notified} assignee${notified === 1 ? '' : 's'} notified` : 'Task created', 'success');
                     form.reset();
                     selectedCreateAssignees = new Set();
+                    if (notifyEl) {
+                        notifyEl.checked = false;
+                        delete notifyEl.dataset.canopyTouched;
+                    }
                     renderTaskPeoplePicker('create');
                     loadTasks();
                 } else {
@@ -1813,6 +1998,13 @@
                 renderTaskPeoplePicker('detail');
             });
         }
+        ['task-notify-assignees', 'task-detail-notify-assignees'].forEach((id) => {
+            const checkbox = document.getElementById(id);
+            if (!checkbox) return;
+            checkbox.addEventListener('change', () => {
+                checkbox.dataset.canopyTouched = '1';
+            });
+        });
         setInterval(loadTasks, 15000);
         setInterval(loadWorkOverview, 30000);
     });
