@@ -14528,11 +14528,11 @@
                                 {{ sidebar_attention_summary.feed if sidebar_attention_summary is defined else 0 }}
                             </span>
                         </a>
-                        <a class="nav-link {% if request.endpoint == 'ui.tasks_page' %}active{% endif %}"
-                           href="{{ url_for('ui.tasks_page') }}" data-title="Tasks">
+                        <a class="nav-link {% if request.endpoint in ['ui.work_page', 'ui.tasks_page'] %}active{% endif %}"
+                           href="{{ url_for('ui.work_page') }}" data-title="Work">
                             <span class="sidebar-nav-label">
-                                <i class="bi bi-check2-square"></i>
-                                <span class="sidebar-nav-text">Tasks</span>
+                                <i class="bi bi-kanban"></i>
+                                <span class="sidebar-nav-text">Work</span>
                             </span>
                         </a>
                         <a class="nav-link {% if request.endpoint == 'ui.bookmarks_page' %}active{% endif %}"

@@ -8239,7 +8239,7 @@ def create_ui_blueprint() -> Blueprint:
                 ('dms', 'Direct Messages', 'bi-chat-left-text'),
                 ('feed', 'Feed', 'bi-newspaper'),
                 ('vault', 'File Vault', 'bi-folder2-open'),
-                ('work', 'Tasks / Signals / Work', 'bi-diagram-3'),
+                ('work', 'Work objects', 'bi-kanban'),
             ]
             groups = []
             for key, label, icon in group_defs:
@@ -10477,10 +10477,8 @@ def create_ui_blueprint() -> Blueprint:
             flash('Error loading feed', 'error')
             return render_template('error.html', error=str(e))
 
-    @ui.route('/tasks')
-    @require_login
-    def tasks_page():
-        """Task board interface for collaborative work."""
+    def _render_work_page():
+        """Render the integrated Work surface for tasks and durable work objects."""
         user_id = get_current_user()
         display_name = session.get('display_name') or session.get('username') or user_id
         return render_template(
@@ -10489,6 +10487,18 @@ def create_ui_blueprint() -> Blueprint:
             current_user_name=display_name,
             user_id=user_id,
         )
+
+    @ui.route('/work')
+    @require_login
+    def work_page():
+        """Integrated Work interface for tasks, Workstreams, and Digestions."""
+        return _render_work_page()
+
+    @ui.route('/tasks')
+    @require_login
+    def tasks_page():
+        """Backward-compatible Task board route; Work is the canonical page."""
+        return _render_work_page()
 
     @ui.route('/bookmarks')
     @require_login

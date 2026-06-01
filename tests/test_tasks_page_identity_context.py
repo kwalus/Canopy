@@ -55,3 +55,23 @@ class TestTasksPageIdentityContext(unittest.TestCase):
         self.assertEqual(payload.get('current_user_id'), 'user-123')
         self.assertEqual(payload.get('current_user_name'), 'Konrad')
         self.assertEqual(payload.get('user_id'), 'user-123')
+
+    def test_work_page_uses_same_identity_context_as_tasks_page(self) -> None:
+        with self.client.session_transaction() as sess:
+            sess['authenticated'] = True
+            sess['user_id'] = 'user-456'
+            sess['username'] = 'codex'
+            sess['display_name'] = 'Codex Agent'
+
+        with patch('canopy.ui.routes.render_template') as render_template_mock:
+            render_template_mock.side_effect = lambda template_name, **context: jsonify(
+                {'template': template_name, **context}
+            )
+            response = self.client.get('/work')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json() or {}
+        self.assertEqual(payload.get('template'), 'tasks.html')
+        self.assertEqual(payload.get('current_user_id'), 'user-456')
+        self.assertEqual(payload.get('current_user_name'), 'Codex Agent')
+        self.assertEqual(payload.get('user_id'), 'user-456')
