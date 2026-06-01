@@ -5005,6 +5005,8 @@ def create_ui_blueprint() -> Blueprint:
                 href = f"/channels/locate?message_id={quote_plus(source_id)}"
             elif source_type == 'feed_post' and source_id:
                 href = f"{url_for('ui.feed')}?focus_post={quote_plus(source_id)}"
+            elif source_type == 'task' and source_id:
+                href = f"{url_for('ui.tasks_page')}?task={quote_plus(source_id)}"
             elif source_type in _ATTENTION_DM_SOURCE_TYPES and source_id:
                 href = _attention_dm_message_href(
                     db_manager,
@@ -16283,6 +16285,74 @@ def create_ui_blueprint() -> Blueprint:
             logger.error(f"List structured work objects error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to list structured work objects'}), 500
 
+    def _normalize_task_assignee_ids(assigned_to: Optional[str], metadata: Optional[dict[str, Any]]) -> list[str]:
+        """Return unique task assignee IDs from the primary assignment and metadata."""
+        assignees: list[str] = []
+        if assigned_to:
+            assignees.append(str(assigned_to).strip())
+        if isinstance(metadata, dict):
+            raw = metadata.get('assignees')
+            if isinstance(raw, list):
+                assignees.extend(str(uid).strip() for uid in raw if str(uid).strip())
+        return list(dict.fromkeys(uid for uid in assignees if uid))
+
+    def _notify_task_assignees(
+        *,
+        task: Any,
+        assignee_ids: list[str],
+        sender_user_id: str,
+        origin_peer: Optional[str] = None,
+        mark_missing_as_stale: bool = False,
+    ) -> dict[str, int]:
+        """Create/update inbox entries so assigned humans or agents actually see the task."""
+        inbox_manager = current_app.config.get('INBOX_MANAGER')
+        if not inbox_manager or not task or not getattr(task, 'id', None):
+            return {'updated': 0, 'created': 0, 'stale_marked': 0}
+
+        target_ids = [
+            uid for uid in dict.fromkeys(str(uid).strip() for uid in assignee_ids if str(uid).strip())
+            if uid and uid != sender_user_id
+        ]
+        if not target_ids and not mark_missing_as_stale:
+            return {'updated': 0, 'created': 0, 'stale_marked': 0}
+
+        try:
+            task_payload = task.to_dict() if hasattr(task, 'to_dict') else dict(task)
+        except Exception:
+            task_payload = {'id': getattr(task, 'id', ''), 'title': getattr(task, 'title', '')}
+
+        title = str(task_payload.get('title') or getattr(task, 'title', '') or 'Task').strip()
+        description = str(task_payload.get('description') or getattr(task, 'description', '') or '').strip()
+        priority = str(task_payload.get('priority') or getattr(task, 'priority', '') or 'normal').strip() or 'normal'
+        preview = f"Task assigned: {title}" if title else "Task assigned"
+        source_content = "\n\n".join(part for part in (title, description) if part)
+
+        try:
+            return inbox_manager.sync_source_triggers(
+                source_type='task',
+                source_id=str(task_payload.get('id') or getattr(task, 'id')),
+                trigger_type='task_assignment',
+                target_ids=target_ids,
+                sender_user_id=sender_user_id,
+                origin_peer=origin_peer,
+                preview=preview,
+                payload={
+                    'task': task_payload,
+                    'task_id': task_payload.get('id') or getattr(task, 'id', ''),
+                    'title': title,
+                    'description': description,
+                    'href': f"/tasks?task={quote_plus(str(task_payload.get('id') or getattr(task, 'id')))}",
+                    'assignees': target_ids,
+                    'source_type': 'task',
+                },
+                priority=priority,
+                source_content=source_content,
+                mark_missing_as_stale=mark_missing_as_stale,
+            )
+        except Exception as notify_err:
+            logger.warning(f"Failed to notify task assignees for {getattr(task, 'id', '')}: {notify_err}")
+            return {'updated': 0, 'created': 0, 'stale_marked': 0}
+
     @ui.route('/ajax/tasks', methods=['GET'])
     @require_login
     def ajax_list_tasks():
@@ -16366,8 +16436,12 @@ def create_ui_blueprint() -> Blueprint:
             due_at = data.get('due_at') or None
             visibility = data.get('visibility') or 'network'
             metadata = data.get('metadata') if isinstance(data.get('metadata'), dict) else None
-            if metadata is None and assigned_to:
-                metadata = {'assignees': [assigned_to]}
+            assignees = _normalize_task_assignee_ids(assigned_to, metadata)
+            if assignees:
+                metadata = dict(metadata or {})
+                metadata['assignees'] = assignees
+                assigned_to = assignees[0]
+            notify_assignees = bool(data.get('notify_assignees')) and bool(assignees)
 
             if not title:
                 return jsonify({'success': False, 'error': 'Title is required'}), 400
@@ -16415,7 +16489,21 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as p2p_err:
                     logger.warning(f"Failed to broadcast task create: {p2p_err}")
 
-            return jsonify({'success': True, 'task': task.to_dict()})
+            notify_result = {'updated': 0, 'created': 0, 'stale_marked': 0}
+            if notify_assignees:
+                notify_result = _notify_task_assignees(
+                    task=task,
+                    assignee_ids=assignees,
+                    sender_user_id=user_id,
+                    origin_peer=origin_peer,
+                )
+
+            return jsonify({
+                'success': True,
+                'task': task.to_dict(),
+                'notified_count': int(notify_result.get('created', 0) or 0) + int(notify_result.get('updated', 0) or 0),
+                'notify_result': notify_result,
+            })
         except Exception as e:
             logger.error(f"Create task error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to create task'}), 500
@@ -16432,6 +16520,7 @@ def create_ui_blueprint() -> Blueprint:
 
             data = request.get_json() or {}
             user_id = get_current_user()
+            notify_assignees = bool(data.get('notify_assignees'))
 
             updates = {}
             for key in ('title', 'description', 'status', 'priority', 'assigned_to', 'due_at', 'visibility', 'metadata'):
@@ -16473,7 +16562,30 @@ def create_ui_blueprint() -> Blueprint:
                 except Exception as p2p_err:
                     logger.warning(f"Failed to broadcast task update: {p2p_err}")
 
-            return jsonify({'success': True, 'task': task.to_dict()})
+            notify_result = {'updated': 0, 'created': 0, 'stale_marked': 0}
+            if notify_assignees:
+                origin_peer = None
+                try:
+                    if p2p_manager:
+                        origin_peer = p2p_manager.get_peer_id()
+                except Exception:
+                    origin_peer = None
+                task_metadata = task.metadata if isinstance(getattr(task, 'metadata', None), dict) else {}
+                assignee_ids = _normalize_task_assignee_ids(getattr(task, 'assigned_to', None), task_metadata)
+                notify_result = _notify_task_assignees(
+                    task=task,
+                    assignee_ids=assignee_ids,
+                    sender_user_id=user_id,
+                    origin_peer=origin_peer,
+                    mark_missing_as_stale=True,
+                )
+
+            return jsonify({
+                'success': True,
+                'task': task.to_dict(),
+                'notified_count': int(notify_result.get('created', 0) or 0) + int(notify_result.get('updated', 0) or 0),
+                'notify_result': notify_result,
+            })
         except Exception as e:
             logger.error(f"Update task error: {e}", exc_info=True)
             return jsonify({'success': False, 'error': 'Failed to update task'}), 500
