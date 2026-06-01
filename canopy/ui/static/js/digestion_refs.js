@@ -22,6 +22,23 @@
         return id.length > 18 ? `${id.slice(0, 8)}…${id.slice(-5)}` : id;
     }
 
+    function normalizeLabelText(value) {
+        return String(value || '').replace(/\s+/g, ' ').trim();
+    }
+
+    function isFallbackDigestionLabel(value, id) {
+        const label = normalizeLabelText(value);
+        const cleanId = String(id || '').trim();
+        if (!label) return true;
+        if (cleanId && label === cleanId) return true;
+        if (cleanId && label.toLowerCase() === `digestion ${cleanId}`.toLowerCase()) return true;
+        const compact = label.replace(/\s+/g, '');
+        if (/^Dg[A-Za-z0-9_-]{6,}$/.test(compact)) return true;
+        if (/^Digestion\s+Dg[A-Za-z0-9_.…-]{6,}$/i.test(label)) return true;
+        if (/^Digest(?:ion)?\s*[:=]?\s*Dg[A-Za-z0-9_.…-]{6,}$/i.test(label)) return true;
+        return false;
+    }
+
     function shortDate(value) {
         if (!value) return '';
         const date = new Date(value);
@@ -136,7 +153,10 @@
         ref.dataset.canopyDigestionStatus = preview.status || '';
         ref.dataset.canopyDigestionHydrated = '1';
         ref.title = `${preview.name} · ${metaText(preview)} · ${summarizeAccess(preview.access)}`;
-        if (!ref.dataset.explicitLabel) label.textContent = preview.name;
+        if (!ref.dataset.explicitLabel || ref.dataset.canopyDigestionLabelFallback === '1' || isFallbackDigestionLabel(label.textContent, preview.id)) {
+            label.textContent = preview.name;
+            ref.dataset.canopyDigestionLabelFallback = '0';
+        }
         meta.textContent = metaText(preview);
     }
 
@@ -160,6 +180,9 @@
             label.parentNode.insertBefore(wrap, label);
             wrap.appendChild(label);
         }
+        if (label && isFallbackDigestionLabel(label.textContent, id)) {
+            ref.dataset.canopyDigestionLabelFallback = '1';
+        }
         if (ref.dataset.canopyDigestionHydrating === '1' || ref.dataset.canopyDigestionHydrated === '1') return;
         ref.dataset.canopyDigestionHydrating = '1';
         fetchDigestionPreview(id).then((preview) => applyPreviewToRef(ref, preview));
@@ -172,6 +195,7 @@
         button.dataset.canopyDigestionId = id;
         button.dataset.canopyDigestionRef = '1';
         if (label) button.dataset.explicitLabel = '1';
+        button.dataset.canopyDigestionLabelFallback = isFallbackDigestionLabel(label, id) ? '1' : '0';
         button.title = `Checking Digestion ${id}`;
         button.innerHTML = `<i class="bi bi-diagram-3" aria-hidden="true"></i><span class="canopy-digestion-ref-text"><strong data-canopy-digestion-ref-label="1">${escapeHtml(label || `Digestion ${shortId(id)}`)}</strong><em class="canopy-digestion-ref-meta" data-canopy-digestion-ref-meta="1">${escapeHtml(shortId(id))}</em></span>`;
         normalizeExistingRef(button);
