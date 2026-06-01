@@ -95,6 +95,23 @@ class TestUiPolishRegressions(unittest.TestCase):
         self.assertIn("getDmTextareaDropCaretIndex(textarea, event)", messages)
         self.assertIn("renderDmQuickMentionRail();", messages)
 
+    def test_workstream_refs_have_reader_and_deck_workspace(self) -> None:
+        workstreams_js = (ROOT / "canopy" / "ui" / "static" / "js" / "workstreams.js").read_text(encoding="utf-8")
+        workstreams_css = (ROOT / "canopy" / "ui" / "static" / "css" / "workstreams.css").read_text(encoding="utf-8")
+        main_js = (ROOT / "canopy" / "ui" / "static" / "js" / "canopy-main.js").read_text(encoding="utf-8")
+
+        self.assertIn("function buildWorkstreamDeckManifest", workstreams_js)
+        self.assertIn("window.CanopyWorkstreams = { open: openWorkstream, openDeck: openWorkstreamDeck, scan };", workstreams_js)
+        self.assertIn("className = 'canopy-workstream-ref-wrap'", workstreams_js)
+        self.assertIn("data-open-workstream-deck", workstreams_js)
+        self.assertIn("renderDeckWorkstreamWorkspace", main_js)
+        self.assertIn("'workstream_workspace'", main_js)
+        self.assertIn("'workstream'", main_js)
+        self.assertIn("deck.classList.toggle('is-workstream-active', workstreamActive);", main_js)
+        self.assertIn(".deck-workstream-workspace", workstreams_css)
+        self.assertIn("var(--canopy-deck-panel-accent-bg)", workstreams_css)
+        self.assertIn(".sidebar-media-deck.is-workstream-active .sidebar-media-deck-queue-shell", workstreams_css)
+
     def test_dm_thread_empty_state_has_icon(self) -> None:
         thread_body = (ROOT / "canopy" / "ui" / "templates" / "_messages_thread_body.html").read_text(encoding="utf-8")
         self.assertIn("bi bi-chat-square-text", thread_body)

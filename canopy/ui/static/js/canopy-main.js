@@ -11881,7 +11881,7 @@
                 .replace(/'/g, '&#39;');
         }
 
-        const CANOPY_DECK_WIDGET_RENDER_MODES = new Set(['iframe', 'card', 'stream_summary', 'module_runtime', 'digestion_workspace']);
+        const CANOPY_DECK_WIDGET_RENDER_MODES = new Set(['iframe', 'card', 'stream_summary', 'module_runtime', 'digestion_workspace', 'workstream_workspace']);
         const CANOPY_DECK_WIDGET_TYPES = new Set([
             'map',
             'chart',
@@ -11891,6 +11891,7 @@
             'telemetry_panel',
             'module_surface',
             'digestion',
+            'workstream',
         ]);
         const CANOPY_DECK_WIDGET_CALLBACKS = new Set(['open_stream_workspace']);
         const CANOPY_DECK_WIDGET_ACTION_RISKS = new Set(['view', 'low']);
@@ -12021,6 +12022,73 @@
                 })
                 .filter(Boolean)
                 .slice(0, 8);
+        }
+
+        function normalizeDeckWorkstreamUser(rawUser) {
+            const user = rawUser && typeof rawUser === 'object' ? rawUser : {};
+            return {
+                id: normalizeDeckWidgetText(user.id || user.user_id || '', 120),
+                display_name: normalizeDeckWidgetText(user.display_name || user.name || user.username || user.id || '', 80),
+                username: normalizeDeckWidgetText(user.username || '', 80),
+                avatar_url: typeof _safeImageSrc === 'function' ? _safeImageSrc(user.avatar_url || '') : normalizeDeckWidgetText(user.avatar_url || '', 240),
+                avatar_file_id: normalizeDeckWidgetText(user.avatar_file_id || '', 120),
+            };
+        }
+
+        function normalizeDeckWorkstreamPayload(rawWorkstream) {
+            const raw = rawWorkstream && typeof rawWorkstream === 'object'
+                ? rawWorkstream
+                : { id: rawWorkstream };
+            const normalizeRows = (rows, mapper, limit) => Array.isArray(rows)
+                ? rows.map(mapper).filter(Boolean).slice(0, limit)
+                : [];
+            return {
+                id: normalizeDeckWidgetText(raw.id || raw.workstream_id || '', 140),
+                title: normalizeDeckWidgetText(raw.title || 'Workstream', 120) || 'Workstream',
+                objective: normalizeDeckWidgetText(raw.objective || '', 1200),
+                required_output: normalizeDeckWidgetText(raw.required_output || '', 1200),
+                summary: normalizeDeckWidgetText(raw.summary || '', 1200),
+                next_action: normalizeDeckWidgetText(raw.next_action || '', 1200),
+                status: normalizeDeckWidgetText(raw.status || 'active', 40) || 'active',
+                priority: normalizeDeckWidgetText(raw.priority || 'normal', 40) || 'normal',
+                updated_at: normalizeDeckWidgetText(raw.updated_at || raw.created_at || '', 80),
+                created_at: normalizeDeckWidgetText(raw.created_at || '', 80),
+                participants: normalizeRows(raw.participants, (participant) => {
+                    if (!participant || typeof participant !== 'object') return null;
+                    return {
+                        user_id: normalizeDeckWidgetText(participant.user_id || participant.id || '', 120),
+                        role: normalizeDeckWidgetText(participant.role || 'contributor', 40) || 'contributor',
+                        status: normalizeDeckWidgetText(participant.status || 'active', 40) || 'active',
+                        user: normalizeDeckWorkstreamUser(participant.user || participant),
+                    };
+                }, 40),
+                artifacts: normalizeRows(raw.artifacts, (artifact) => {
+                    if (!artifact || typeof artifact !== 'object') return null;
+                    return {
+                        id: normalizeDeckWidgetText(artifact.id || '', 120),
+                        artifact_type: normalizeDeckWidgetText(artifact.artifact_type || artifact.type || 'note', 40) || 'note',
+                        ref_id: normalizeDeckWidgetText(artifact.ref_id || artifact.reference || artifact.reference_id || artifact.file_id || artifact.digestion_id || artifact.url || '', 500),
+                        title: normalizeDeckWidgetText(artifact.title || artifact.label || artifact.name || '', 220),
+                        summary: normalizeDeckWidgetText(artifact.summary || artifact.description || artifact.note || '', 900),
+                        created_at: normalizeDeckWidgetText(artifact.created_at || '', 80),
+                        creator: normalizeDeckWorkstreamUser(artifact.creator || {}),
+                    };
+                }, 80),
+                events: normalizeRows(raw.events, (event) => {
+                    if (!event || typeof event !== 'object') return null;
+                    const metadata = event.metadata && typeof event.metadata === 'object' ? event.metadata : {};
+                    return {
+                        id: normalizeDeckWidgetText(event.id || '', 120),
+                        event_type: normalizeDeckWidgetText(event.event_type || 'progress', 40) || 'progress',
+                        title: normalizeDeckWidgetText(event.title || event.event_type || 'Update', 180),
+                        body: normalizeDeckWidgetText(event.body || '', 1600),
+                        status: normalizeDeckWidgetText(event.status || metadata.event_state || '', 40),
+                        created_at: normalizeDeckWidgetText(event.created_at || '', 80),
+                        actor_user_id: normalizeDeckWidgetText(event.actor_user_id || '', 120),
+                        actor: normalizeDeckWorkstreamUser(event.actor || {}),
+                    };
+                }, 80),
+            };
         }
 
         function normalizeDeckModuleCapabilityList(values) {
@@ -12203,6 +12271,16 @@
                     scope: 'source',
                 };
             }
+            if (widgetType === 'workstream') {
+                return {
+                    kind: 'station_surface',
+                    domain: 'operations',
+                    label: providerLabel || title || 'Workstream Workspace',
+                    summary: 'Coordination workspace for sustained human-agent work, evidence handoff, and workproduct review.',
+                    recurring: false,
+                    scope: 'source',
+                };
+            }
             if (widgetType === 'story') {
                 return {
                     kind: 'station_surface',
@@ -12366,6 +12444,9 @@
             const moduleRuntime = renderMode === 'module_runtime'
                 ? normalizeDeckModuleRuntime(rawManifest.module_runtime, title)
                 : null;
+            const workstream = renderMode === 'workstream_workspace'
+                ? normalizeDeckWorkstreamPayload(rawManifest.workstream || rawManifest.workstream_id || rawManifest.id || '')
+                : null;
             if (renderMode === 'module_runtime' && !moduleRuntime) return null;
             return {
                 version: 1,
@@ -12387,6 +12468,7 @@
                 source_binding: sourceBinding,
                 actions: normalizeDeckWidgetActions(rawManifest.actions, actionPolicy),
                 module_runtime: moduleRuntime,
+                workstream,
             };
         }
 
@@ -19673,6 +19755,7 @@
                 if (type === 'telemetry_panel') return 'bi-cpu';
                 if (type === 'module_surface') return 'bi-box-fill';
                 if (type === 'digestion') return 'bi-diagram-3';
+                if (type === 'workstream') return 'bi-kanban';
                 if (type === 'media_embed') return 'bi-grid-1x2';
                 if (type === 'story') return 'bi-newspaper';
                 return 'bi-play-circle';
@@ -19688,6 +19771,7 @@
                 if (type === 'telemetry_panel') return 'Telemetry';
                 if (type === 'module_surface') return 'Canopy Module';
                 if (type === 'digestion') return 'Digestion';
+                if (type === 'workstream') return 'Workstream';
                 if (type === 'media_embed') return 'Embedded media';
                 if (type === 'story') return 'Story';
                 return 'Media';
@@ -21642,7 +21726,11 @@
                 return !!(
                     item
                     && item.manifest
-                    && (item.manifest.render_mode === 'module_runtime' || item.manifest.render_mode === 'digestion_workspace')
+                    && (
+                        item.manifest.render_mode === 'module_runtime'
+                        || item.manifest.render_mode === 'digestion_workspace'
+                        || item.manifest.render_mode === 'workstream_workspace'
+                    )
                 );
             }
 
@@ -21677,10 +21765,12 @@
             function syncDeckLayoutMode(selectedItem) {
                 const renderMode = String((selectedItem && selectedItem.manifest && selectedItem.manifest.render_mode) || '');
                 const digestionActive = renderMode === 'digestion_workspace';
+                const workstreamActive = renderMode === 'workstream_workspace';
                 const moduleActive = isDeckModuleItem(selectedItem);
                 if (deck) {
                     deck.classList.toggle('is-module-active', moduleActive);
                     deck.classList.toggle('is-digestion-active', digestionActive);
+                    deck.classList.toggle('is-workstream-active', workstreamActive);
                 }
                 if (moduleActive) {
                     const itemCount = Array.isArray(state.deckItems) ? state.deckItems.length : 0;
@@ -21710,6 +21800,7 @@
                 if (deck) {
                     deck.classList.remove('is-module-active');
                     deck.classList.remove('is-digestion-active');
+                    deck.classList.remove('is-workstream-active');
                 }
                 setDeckQueueCollapsed(false);
                 setDeckDetailCollapsed(false);
@@ -23028,6 +23119,10 @@
                     const mode = deckDigestionMode(digestion.initial_mode || 'rag');
                     const query = String(digestion.initial_query || '').slice(0, 240);
                     return `digestion:${String(digestion.id || m.key || item.key || '')}:${mode}:${query}`;
+                }
+                if (m.render_mode === 'workstream_workspace') {
+                    const workstream = m.workstream && typeof m.workstream === 'object' ? m.workstream : {};
+                    return `workstream:${String(workstream.id || m.key || item.key || '')}:${String(workstream.updated_at || '')}:${String(workstream.events && workstream.events.length || 0)}:${String(workstream.artifacts && workstream.artifacts.length || 0)}`;
                 }
                 if (m.render_mode === 'iframe' && m.embed_url) {
                     return `iframe:${String(m.embed_url)}`;
@@ -24511,6 +24606,250 @@
 	                }
             }
 
+            function deckWorkstreamPayload(item) {
+                const manifest = item && item.manifest && typeof item.manifest === 'object' ? item.manifest : {};
+                return normalizeDeckWorkstreamPayload(manifest.workstream || {});
+            }
+
+            function deckWorkstreamId(item) {
+                return String(deckWorkstreamPayload(item).id || '').trim();
+            }
+
+            function deckWorkstreamTone(value) {
+                const clean = String(value || '').trim().toLowerCase();
+                if (clean === 'blocked' || clean === 'critical') return 'danger';
+                if (clean === 'review_ready' || clean === 'high' || clean === 'waiting') return 'warning';
+                if (clean === 'complete' || clean === 'closed' || clean === 'resolved') return 'success';
+                return 'active';
+            }
+
+            function deckWorkstreamDate(value) {
+                if (!value) return '';
+                const date = new Date(value);
+                if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
+                return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+            }
+
+            function deckWorkstreamAvatar(user) {
+                const row = user && typeof user === 'object' ? user : {};
+                const name = String(row.display_name || row.username || row.id || '?').trim();
+                const initials = name.split(/\s+/).map((part) => part.charAt(0)).join('').slice(0, 2).toUpperCase() || '?';
+                const avatarUrl = typeof _safeImageSrc === 'function' ? _safeImageSrc(row.avatar_url || '') : String(row.avatar_url || '').trim();
+                if (avatarUrl) return `<img src="${escapeEmbedAttr(avatarUrl)}" alt="" loading="lazy">`;
+                const avatarFileId = String(row.avatar_file_id || '').trim();
+                if (avatarFileId) return `<img src="/files/${encodeURIComponent(avatarFileId)}" alt="" loading="lazy">`;
+                return `<span>${escapeEmbedHtml(initials)}</span>`;
+            }
+
+            function deckWorkstreamArtifactIcon(artifact) {
+                const type = String(artifact && artifact.artifact_type || '').toLowerCase();
+                const ref = String(artifact && artifact.ref_id || '').trim();
+                if (type === 'digestion' || ref.startsWith('Dg')) return 'bi-diagram-3';
+                if (type === 'url' || /^https?:\/\//i.test(ref)) return 'bi-link-45deg';
+                if (type === 'figure') return 'bi-image';
+                if (type === 'code') return 'bi-code-square';
+                if (type === 'report') return 'bi-file-earmark-text';
+                if (type === 'message' || ref.startsWith('M')) return 'bi-chat-square-text';
+                if (type === 'post') return 'bi-newspaper';
+                return 'bi-file-earmark';
+            }
+
+            function deckWorkstreamArtifactHref(artifact) {
+                const type = String(artifact && artifact.artifact_type || '').toLowerCase();
+                const ref = String(artifact && artifact.ref_id || '').trim();
+                if (!ref) return '';
+                if (type === 'file' || ref.startsWith('F')) return `/file-ref/${encodeURIComponent(ref)}`;
+                if (type === 'digestion' || ref.startsWith('Dg')) return `/vault?digestion=${encodeURIComponent(ref)}`;
+                if (type === 'post') return `/feed?post=${encodeURIComponent(ref)}`;
+                if (type === 'message') return `/channels?message=${encodeURIComponent(ref)}`;
+                if (/^https?:\/\//i.test(ref)) return ref;
+                return '';
+            }
+
+            function deckWorkstreamMetrics(ws) {
+                const participants = Array.isArray(ws.participants) ? ws.participants : [];
+                const artifacts = Array.isArray(ws.artifacts) ? ws.artifacts : [];
+                const events = Array.isArray(ws.events) ? ws.events : [];
+                const blockers = events.filter((event) => {
+                    const type = String(event.event_type || '').toLowerCase();
+                    const status = String(event.status || '').toLowerCase();
+                    return type === 'blocker' && status !== 'resolved' && status !== 'complete';
+                }).length;
+                return { participants: participants.length, artifacts: artifacts.length, events: events.length, blockers };
+            }
+
+            function deckWorkstreamSummary(ws) {
+                return String(ws.summary || ws.objective || ws.required_output || ws.next_action || '').trim();
+            }
+
+            function renderDeckWorkstreamParticipants(ws) {
+                const participants = Array.isArray(ws.participants) ? ws.participants : [];
+                if (!participants.length) return '<div class="deck-workstream-empty">No participants are listed yet.</div>';
+                return `<div class="deck-workstream-participant-strip">${participants.slice(0, 24).map((participant) => {
+                    const user = participant.user || { id: participant.user_id };
+                    const name = String(user.display_name || user.username || participant.user_id || 'Participant');
+                    return `<span class="deck-workstream-person-chip" title="${escapeEmbedAttr(`${name} · ${participant.role || 'contributor'} · ${participant.status || 'active'}`)}">
+                        <span class="deck-workstream-avatar">${deckWorkstreamAvatar(user)}</span>
+                        <span>${escapeEmbedHtml(name)}</span>
+                    </span>`;
+                }).join('')}</div>`;
+            }
+
+            function renderDeckWorkstreamArtifacts(ws) {
+                const artifacts = Array.isArray(ws.artifacts) ? ws.artifacts : [];
+                if (!artifacts.length) return '<div class="deck-workstream-empty">No artifacts or workproducts have been attached yet.</div>';
+                return `<div class="deck-workstream-artifacts">${artifacts.slice(0, 36).map((artifact) => {
+                    const href = deckWorkstreamArtifactHref(artifact);
+                    const title = String(artifact.title || artifact.ref_id || 'Artifact');
+                    const meta = [
+                        artifact.artifact_type || 'artifact',
+                        deckWorkstreamDate(artifact.created_at || ''),
+                        artifact.ref_id ? String(artifact.ref_id).slice(0, 14) : '',
+                    ].filter(Boolean).join(' · ');
+                    const target = href && (href.startsWith('/file-ref/') || /^https?:\/\//i.test(href))
+                        ? ' target="_blank" rel="noopener noreferrer"'
+                        : '';
+                    const tag = href ? 'a' : 'div';
+                    return `<${tag} class="deck-workstream-artifact" ${href ? `href="${escapeEmbedAttr(href)}"${target}` : ''}>
+                        <i class="bi ${escapeEmbedAttr(deckWorkstreamArtifactIcon(artifact))}"></i>
+                        <span><strong>${escapeEmbedHtml(title)}</strong><span>${escapeEmbedHtml(meta)}</span></span>
+                        ${href ? '<i class="bi bi-arrow-up-right-square"></i>' : '<i class="bi bi-dot"></i>'}
+                    </${tag}>`;
+                }).join('')}</div>`;
+            }
+
+            function renderDeckWorkstreamTimeline(ws) {
+                const events = Array.isArray(ws.events) ? ws.events : [];
+                if (!events.length) return '<div class="deck-workstream-empty">No progress events yet. Add events as the workstream moves forward.</div>';
+                return `<div class="deck-workstream-timeline">${events.slice(0, 36).map((event) => {
+                    const actor = event.actor || { id: event.actor_user_id };
+                    const name = String(actor.display_name || actor.username || event.actor_user_id || 'Actor');
+                    const title = String(event.title || event.event_type || 'Update');
+                    const tone = deckWorkstreamTone(event.event_type === 'blocker' ? 'blocked' : event.status);
+                    const meta = [
+                        name,
+                        deckWorkstreamDate(event.created_at || ''),
+                        event.status || event.event_type || '',
+                    ].filter(Boolean).join(' · ');
+                    return `<article class="deck-workstream-event" data-tone="${escapeEmbedAttr(tone)}">
+                        <div class="deck-workstream-avatar">${deckWorkstreamAvatar(actor)}</div>
+                        <div>
+                            <div class="deck-workstream-event-title"><strong>${escapeEmbedHtml(title)}</strong><span>${escapeEmbedHtml(meta)}</span></div>
+                            ${event.body ? `<p>${escapeEmbedHtml(event.body)}</p>` : ''}
+                        </div>
+                    </article>`;
+                }).join('')}</div>`;
+            }
+
+            async function fetchDeckWorkstreamPayload(id) {
+                const cleanId = String(id || '').trim();
+                if (!cleanId) throw new Error('Missing Workstream ID');
+                const headers = { 'X-Requested-With': 'XMLHttpRequest' };
+                const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                if (token) headers['X-CSRFToken'] = token;
+                const response = await fetch(`/api/v1/workstreams/${encodeURIComponent(cleanId)}`, { headers });
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(payload.error || 'Unable to refresh Workstream');
+                return normalizeDeckWorkstreamPayload(payload.workstream || {});
+            }
+
+            function setDeckWorkstreamStatus(host, text) {
+                const el = host && host.querySelector('[data-deck-workstream-status]');
+                if (el) el.textContent = text || '';
+            }
+
+            function renderDeckWorkstreamView(host, item, ws) {
+                const metrics = deckWorkstreamMetrics(ws);
+                const summary = deckWorkstreamSummary(ws) || item.subtitle || 'Sustained human-agent workstream with evidence, workproducts, and progress events.';
+                const latest = Array.isArray(ws.events) && ws.events.length ? ws.events[0] : null;
+                const tone = deckWorkstreamTone(ws.status);
+                host.__canopyDeckWorkstream = ws;
+                host.innerHTML = `
+                    <div class="deck-workstream-workspace" data-workstream-tone="${escapeEmbedAttr(tone)}">
+                        <section class="deck-workstream-hero">
+                            <div>
+                                <span class="deck-workstream-kicker"><i class="bi bi-kanban"></i> Workstream</span>
+                                <h3>${escapeEmbedHtml(ws.title || item.title || 'Workstream')}</h3>
+                                <p>${escapeEmbedHtml(summary)}</p>
+                            </div>
+                            <div class="deck-workstream-stats">
+                                <span class="deck-workstream-stat"><strong>${escapeEmbedHtml(String(ws.status || 'active')).replace(/_/g, ' ')}</strong><span>Status</span></span>
+                                <span class="deck-workstream-stat"><strong>${escapeEmbedHtml(ws.priority || 'normal')}</strong><span>Priority</span></span>
+                                <span class="deck-workstream-stat"><strong>${metrics.participants}</strong><span>People</span></span>
+                                <span class="deck-workstream-stat"><strong>${metrics.artifacts}</strong><span>Artifacts</span></span>
+                            </div>
+                        </section>
+                        <div class="deck-workstream-main">
+                            <section class="deck-workstream-panel">
+                                <div class="deck-workstream-panel-head"><strong><i class="bi bi-activity"></i> Progress pulse</strong><span>${metrics.events} events</span></div>
+                                ${renderDeckWorkstreamTimeline(ws)}
+                            </section>
+                            <section class="deck-workstream-panel is-focus">
+                                <div class="deck-workstream-panel-head"><strong><i class="bi bi-bullseye"></i> Work focus</strong><span>${deckWorkstreamDate(ws.updated_at || ws.created_at || '')}</span></div>
+                                <div class="deck-workstream-objective-grid">
+                                    <div class="deck-workstream-focus-card"><strong>Objective</strong><p>${escapeEmbedHtml(ws.objective || ws.summary || 'No objective recorded yet.')}</p></div>
+                                    <div class="deck-workstream-focus-card"><strong>Required output</strong><p>${escapeEmbedHtml(ws.required_output || 'No required output recorded yet.')}</p></div>
+                                    <div class="deck-workstream-focus-card"><strong>Next action</strong><p>${escapeEmbedHtml(ws.next_action || (latest ? (latest.title || latest.body || 'Review the latest progress event.') : 'No next action recorded yet.'))}</p></div>
+                                    <div class="deck-workstream-focus-card"><strong>Participants</strong>${renderDeckWorkstreamParticipants(ws)}</div>
+                                </div>
+                                <div class="deck-workstream-action-row">
+                                    <button type="button" class="deck-workstream-btn" data-deck-workstream-refresh><i class="bi bi-arrow-repeat"></i> Refresh</button>
+                                    <button type="button" class="deck-workstream-btn" data-deck-workstream-copy-ref><i class="bi bi-clipboard"></i> Copy agent ref</button>
+                                </div>
+                                <div class="deck-workstream-muted" data-deck-workstream-status aria-live="polite"></div>
+                            </section>
+                            <section class="deck-workstream-panel">
+                                <div class="deck-workstream-panel-head"><strong><i class="bi bi-folder2-open"></i> Workproducts</strong><span>${metrics.artifacts} linked</span></div>
+                                ${renderDeckWorkstreamArtifacts(ws)}
+                            </section>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderDeckWorkstreamWorkspace(host, item) {
+                if (!host || !item) return;
+                const ws = deckWorkstreamPayload(item);
+                const id = ws.id || deckWorkstreamId(item);
+                host.classList.add('is-workstream-workspace');
+                if (!id) {
+                    host.innerHTML = '<div class="deck-workstream-workspace"><div class="deck-workstream-empty">This Deck item is missing its Workstream ID.</div></div>';
+                    return;
+                }
+                renderDeckWorkstreamView(host, item, ws);
+                host.addEventListener('click', async (event) => {
+                    const refreshBtn = event.target.closest('[data-deck-workstream-refresh]');
+                    if (refreshBtn) {
+                        event.preventDefault();
+                        const original = refreshBtn.innerHTML;
+                        refreshBtn.disabled = true;
+                        refreshBtn.innerHTML = '<i class="bi bi-arrow-repeat"></i> Refreshing…';
+                        try {
+                            const fresh = await fetchDeckWorkstreamPayload(id);
+                            if (item.manifest) item.manifest.workstream = fresh;
+                            renderDeckWorkstreamView(host, item, fresh);
+                            setDeckWorkstreamStatus(host, 'Workstream refreshed.');
+                        } catch (error) {
+                            setDeckWorkstreamStatus(host, error.message || 'Could not refresh Workstream.');
+                        } finally {
+                            if (refreshBtn.isConnected) {
+                                refreshBtn.disabled = false;
+                                refreshBtn.innerHTML = original;
+                            }
+                        }
+                        return;
+                    }
+                    const copyBtn = event.target.closest('[data-deck-workstream-copy-ref]');
+                    if (copyBtn) {
+                        event.preventDefault();
+                        const ref = `[workstream:${id}|${ws.title || 'Workstream'}]`;
+                        copyText(ref, 'Workstream agent ref').then((copied) => {
+                            setDeckWorkstreamStatus(host, copied ? 'Copied Workstream reference.' : 'Could not copy Workstream reference.');
+                        }).catch(() => setDeckWorkstreamStatus(host, 'Could not copy Workstream reference.'));
+                    }
+                });
+            }
+
             function renderDeckWidgetStage(item) {
                 if (!deckStage || !item || !item.manifest) return;
                 const manifest = item.manifest;
@@ -24532,6 +24871,8 @@
 
                 if (manifest.render_mode === 'digestion_workspace') {
                     renderDeckDigestionWorkspace(host, item);
+                } else if (manifest.render_mode === 'workstream_workspace') {
+                    renderDeckWorkstreamWorkspace(host, item);
                 } else if (manifest.render_mode === 'module_runtime' && manifest.module_runtime) {
                     host.innerHTML = `
                         <div class="sidebar-media-deck-widget-panel sidebar-media-deck-module-panel">
